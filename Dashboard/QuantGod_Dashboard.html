@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantGod Trading Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #1a2332;
+            --bg-card-hover: #1f2b3d;
+            --border: #2a3a4e;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-orange: #f59e0b;
+            --accent-pink: #ec4899;
+            --glow-blue: rgba(59, 130, 246, 0.15);
+            --glow-green: rgba(16, 185, 129, 0.15);
+            --glow-red: rgba(239, 68, 68, 0.15);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* 顶部导航 */
+        .navbar {
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(20px);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+        }
+
+        .logo-text {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-status {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .status-live {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+            50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+        }
+
+        .last-update {
+            color: var(--text-muted);
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 主内容 */
+        .main {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+        }
+
+        /* 统计卡片行 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .stat-card:nth-child(1)::before { background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan)); }
+        .stat-card:nth-child(2)::before { background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan)); }
+        .stat-card:nth-child(3)::before { background: linear-gradient(90deg, var(--accent-purple), var(--accent-pink)); }
+        .stat-card:nth-child(4)::before { background: linear-gradient(90deg, var(--accent-orange), var(--accent-red)); }
+        .stat-card:nth-child(5)::before { background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue)); }
+        .stat-card:nth-child(6)::before { background: linear-gradient(90deg, var(--accent-pink), var(--accent-purple)); }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-blue);
+            box-shadow: 0 8px 30px rgba(59, 130, 246, 0.1);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.2;
+        }
+
+        .stat-change {
+            font-size: 12px;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        .positive { color: var(--accent-green); }
+        .negative { color: var(--accent-red); }
+        .neutral { color: var(--text-muted); }
+
+        /* 主面板布局 */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-title .icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .panel-body {
+            padding: 1.2rem;
+        }
+
+        /* 图表区域 */
+        .chart-container {
+            position: relative;
+            height: 320px;
+            width: 100%;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 策略卡片 */
+        .strategy-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .strategy-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+            transition: all 0.2s;
+        }
+
+        .strategy-card:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-card-hover);
+        }
+
+        .strategy-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .strategy-name {
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .strategy-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .strategy-badge {
+            padding: 2px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-on {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .badge-off {
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-muted);
+        }
+
+        .strategy-stats {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .strategy-stat {
+            text-align: center;
+        }
+
+        .strategy-stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .strategy-stat-value {
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 持仓表格 */
+        .trades-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 10px 12px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(42, 58, 78, 0.5);
+            font-family: 'JetBrains Mono', monospace;
+            white-space: nowrap;
+        }
+
+        tr:hover td {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .type-buy {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .type-sell {
+            color: var(--accent-red);
+            font-weight: 600;
+        }
+
+        .profit-cell {
+            font-weight: 600;
+        }
+
+        /* 策略标签 */
+        .strat-tag {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .strat-ma { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        .strat-rsi { background: rgba(139, 92, 246, 0.15); color: var(--accent-purple); }
+        .strat-bb { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+        .strat-macd { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
+        .strat-sr { background: rgba(236, 72, 153, 0.15); color: var(--accent-pink); }
+
+        /* 底部信息栏 */
+        .footer {
+            text-align: center;
+            padding: 1.5rem;
+            color: var(--text-muted);
+            font-size: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        /* 无数据提示 */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        /* 动画 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease forwards;
+        }
+
+        /* 响应式 */
+        @media (max-width: 1200px) {
+            .stats-grid { grid-template-columns: repeat(3, 1fr); }
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .trades-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .navbar { padding: 0 1rem; }
+            .main { padding: 1rem; }
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        /* 市场信息条 */
+        .market-bar {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            padding: 8px 2rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+            overflow-x: auto;
+        }
+
+        .market-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .market-label {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .market-value {
+            font-weight: 600;
+        }
+
+        /* 加载动画 */
+        .loader {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .loader-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 胜率进度条 */
+        .winrate-bar {
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+
+        .winrate-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar">
+    <div class="logo">
+        <div class="logo-icon">Q</div>
+        <span class="logo-text">QuantGod Dashboard</span>
+    </div>
+    <div class="nav-status">
+        <div class="status-badge status-live">
+            <div class="status-dot"></div>
+            <span id="connectionStatus">等待连接...</span>
+        </div>
+        <span class="last-update">更新: <span id="lastUpdate">--:--:--</span></span>
+    </div>
+</nav>
+
+<!-- 市场信息条 -->
+<div class="market-bar">
+    <div class="market-item">
+        <span class="market-label">货币对</span>
+        <span class="market-value" id="mktSymbol">---</span>
+    </div>
+    <div class="market-item">
+        <span class="market-label">BID</span>
+        <span class="market-value positive" id="mktBid">---</span>
+    </div>
+    <div class="market-item">
+        <span class="market-label">ASK</span>
+        <span class="market-value negative" id="mktAsk">---</span>
+    </div>
+    <div class="market-item">
+        <span class="market-label">点差</span>
+        <span class="market-value" id="mktSpread">---</span>
+    </div>
+    <div class="market-item">
+        <span class="market-label">服务器</span>
+        <span class="market-value" id="mktServer">---</span>
+    </div>
+    <div class="market-item">
+        <span class="market-label">杠杆</span>
+        <span class="market-value" id="mktLeverage">---</span>
+    </div>
+</div>
+
+<div class="main">
+
+    <!-- 统计卡片 -->
+    <div class="stats-grid fade-in">
+        <div class="stat-card">
+            <div class="stat-label">账户余额</div>
+            <div class="stat-value" id="statBalance">$0.00</div>
+            <div class="stat-change neutral" id="statBalanceChange">---</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">账户净值</div>
+            <div class="stat-value" id="statEquity">$0.00</div>
+            <div class="stat-change neutral" id="statEquityChange">---</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">浮动盈亏</div>
+            <div class="stat-value" id="statProfit">$0.00</div>
+            <div class="stat-change neutral">实时</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">当前回撤</div>
+            <div class="stat-value" id="statDrawdown">0.00%</div>
+            <div class="stat-change neutral">最大限制: 15%</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">持仓数量</div>
+            <div class="stat-value" id="statOpenTrades">0</div>
+            <div class="stat-change neutral" id="statMaxTrades">最大: 6</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">历史胜率</div>
+            <div class="stat-value" id="statWinRate">---%</div>
+            <div class="stat-change neutral" id="statTotalTrades">0 笔交易</div>
+        </div>
+    </div>
+
+    <!-- 图表 + 策略 -->
+    <div class="dashboard-grid fade-in">
+        <!-- 收益曲线 -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">$</div>
+                    收益曲线
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="chart-container">
+                    <canvas id="equityChart" class="chart-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 策略状态 -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(139,92,246,0.15); color: var(--accent-purple);">S</div>
+                    策略状态
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="strategy-cards" id="strategyCards">
+                    <!-- 动态填充 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 持仓 + 历史 -->
+    <div class="trades-grid fade-in">
+        <!-- 当前持仓 -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">O</div>
+                    当前持仓
+                </div>
+                <span style="font-size: 12px; color: var(--text-muted);" id="openTradeCount">0 笔</span>
+            </div>
+            <div class="panel-body" style="padding: 0;">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>订单号</th>
+                                <th>方向</th>
+                                <th>手数</th>
+                                <th>开仓价</th>
+                                <th>止损</th>
+                                <th>止盈</th>
+                                <th>盈亏</th>
+                                <th>策略</th>
+                            </tr>
+                        </thead>
+                        <tbody id="openTradesBody">
+                            <tr><td colspan="8" class="empty-state">暂无持仓</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 历史交易 -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">H</div>
+                    历史交易
+                </div>
+                <span style="font-size: 12px; color: var(--text-muted);" id="closedTradeCount">0 笔</span>
+            </div>
+            <div class="panel-body" style="padding: 0;">
+                <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>订单号</th>
+                                <th>方向</th>
+                                <th>手数</th>
+                                <th>开仓价</th>
+                                <th>平仓价</th>
+                                <th>盈亏</th>
+                                <th>策略</th>
+                                <th>时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="closedTradesBody">
+                            <tr><td colspan="8" class="empty-state">暂无历史</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 策略收益分布 -->
+    <div class="dashboard-grid fade-in" style="grid-template-columns: 1fr 1fr;">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">P</div>
+                    策略收益分布
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="chart-container" style="height: 260px;">
+                    <canvas id="strategyPieChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(236,72,153,0.15); color: var(--accent-pink);">W</div>
+                    每日盈亏
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="chart-container" style="height: 260px;">
+                    <canvas id="dailyPnlChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="footer">
+    QuantGod Multi-Strategy Engine v2.0 | 数据每30秒自动刷新 | 仅供模拟测试使用
+</div>
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+// ====== 全局状态 ======
+let dashboardData = null;
+let equityChart = null;
+let pieChart = null;
+let dailyChart = null;
+let refreshInterval = null;
+
+// ====== 策略配置 ======
+const STRATEGY_CONFIG = {
+    'MA_Cross':        { label: 'MA 交叉',      color: '#3b82f6', dotColor: '#3b82f6', cssClass: 'strat-ma' },
+    'RSI_Reversal':    { label: 'RSI 均值回归',   color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
+    'BB_Triple':       { label: 'BB 三重确认',    color: '#f59e0b', dotColor: '#f59e0b', cssClass: 'strat-bb' },
+    'MACD_Divergence': { label: 'MACD 背离',     color: '#06b6d4', dotColor: '#06b6d4', cssClass: 'strat-macd' },
+    'SR_Breakout':     { label: 'SR 突破',       color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' }
+};
+
+// ====== 初始化 ======
+document.addEventListener('DOMContentLoaded', () => {
+    initCharts();
+    loadData();
+    refreshInterval = setInterval(loadData, 5000);
+});
+
+// ====== 加载数据 ======
+async function loadData() {
+    try {
+        const response = await fetch('QuantGod_Dashboard.json?t=' + Date.now());
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        dashboardData = await response.json();
+        updateDashboard();
+        document.getElementById('connectionStatus').textContent = '实时连接';
+    } catch (e) {
+        // 尝试从本地文件加载 (file:// 协议)
+        document.getElementById('connectionStatus').textContent = '等待EA数据...';
+        // 使用示例数据进行预览
+        if (!dashboardData) {
+            dashboardData = generateDemoData();
+            updateDashboard();
+        }
+    }
+}
+
+// ====== 示例数据 (当EA未运行时显示) ======
+function generateDemoData() {
+    const now = new Date();
+    return {
+        timestamp: now.toISOString(),
+        account: {
+            number: 12345678,
+            name: "Demo Account",
+            server: "Demo Server",
+            currency: "USD",
+            balance: 10000.00,
+            equity: 10235.50,
+            profit: 235.50,
+            margin: 450.00,
+            freeMargin: 9785.50,
+            drawdown: 0,
+            leverage: 100
+        },
+        openTrades: [
+            { ticket: 10001, type: "BUY", symbol: "EURUSD", lots: 0.10, openPrice: 1.08520, sl: 1.08220, tp: 1.09120, profit: 85.00, swap: -1.20, openTime: "2026.04.19 09:30", strategy: "MA_Cross", comment: "QG_MA_Cross_BUY" },
+            { ticket: 10002, type: "SELL", symbol: "EURUSD", lots: 0.08, openPrice: 1.08750, sl: 1.09050, tp: 1.08150, profit: 120.50, swap: 0.50, openTime: "2026.04.19 11:15", strategy: "BB_Triple", comment: "QG_BB_Triple_SELL" },
+            { ticket: 10003, type: "BUY", symbol: "EURUSD", lots: 0.05, openPrice: 1.08400, sl: 1.08100, tp: 1.08900, profit: 30.00, swap: -0.80, openTime: "2026.04.19 14:00", strategy: "RSI_Reversal", comment: "QG_RSI_Rev_BUY" }
+        ],
+        closedTrades: [
+            { ticket: 9990, type: "BUY", lots: 0.10, openPrice: 1.08200, closePrice: 1.08650, profit: 450.00, swap: -2.40, openTime: "2026.04.17 08:00", closeTime: "2026.04.17 16:30", strategy: "MA_Cross", comment: "" },
+            { ticket: 9991, type: "SELL", lots: 0.08, openPrice: 1.08900, closePrice: 1.08600, profit: 240.00, swap: 1.20, openTime: "2026.04.17 10:00", closeTime: "2026.04.17 15:00", strategy: "BB_Triple", comment: "" },
+            { ticket: 9992, type: "BUY", lots: 0.05, openPrice: 1.08500, closePrice: 1.08350, profit: -75.00, swap: -0.50, openTime: "2026.04.17 14:00", closeTime: "2026.04.17 18:00", strategy: "RSI_Reversal", comment: "" },
+            { ticket: 9993, type: "SELL", lots: 0.12, openPrice: 1.08800, closePrice: 1.08400, profit: 480.00, swap: 0.80, openTime: "2026.04.18 08:30", closeTime: "2026.04.18 14:00", strategy: "MACD_Divergence", comment: "" },
+            { ticket: 9994, type: "BUY", lots: 0.06, openPrice: 1.08300, closePrice: 1.08100, profit: -120.00, swap: -1.00, openTime: "2026.04.18 09:00", closeTime: "2026.04.18 13:00", strategy: "SR_Breakout", comment: "" },
+            { ticket: 9995, type: "BUY", lots: 0.10, openPrice: 1.08150, closePrice: 1.08600, profit: 450.00, swap: -1.50, openTime: "2026.04.18 15:00", closeTime: "2026.04.19 08:00", strategy: "MA_Cross", comment: "" },
+            { ticket: 9996, type: "SELL", lots: 0.07, openPrice: 1.08700, closePrice: 1.08500, profit: 140.00, swap: 0.60, openTime: "2026.04.18 16:00", closeTime: "2026.04.19 07:30", strategy: "BB_Triple", comment: "" },
+            { ticket: 9997, type: "BUY", lots: 0.09, openPrice: 1.08250, closePrice: 1.08400, profit: 135.00, swap: -0.90, openTime: "2026.04.19 02:00", closeTime: "2026.04.19 08:30", strategy: "MACD_Divergence", comment: "" }
+        ],
+        strategies: {
+            MA_Cross: { enabled: true, positions: 1 },
+            RSI_Reversal: { enabled: true, positions: 1 },
+            BB_Triple: { enabled: true, positions: 1 },
+            MACD_Divergence: { enabled: true, positions: 0 },
+            SR_Breakout: { enabled: true, positions: 0 }
+        },
+        market: {
+            symbol: "EURUSD",
+            bid: 1.08650,
+            ask: 1.08668,
+            spread: 1.8
+        }
+    };
+}
+
+// ====== 更新面板 ======
+function updateDashboard() {
+    if (!dashboardData) return;
+
+    const d = dashboardData;
+    const now = new Date();
+
+    // 更新时间
+    document.getElementById('lastUpdate').textContent =
+        now.toLocaleTimeString('zh-CN', { hour12: false });
+
+    // 市场信息
+    document.getElementById('mktSymbol').textContent = d.market.symbol;
+    document.getElementById('mktBid').textContent = d.market.bid;
+    document.getElementById('mktAsk').textContent = d.market.ask;
+    document.getElementById('mktSpread').textContent = d.market.spread + ' pips';
+    document.getElementById('mktServer').textContent = d.account.server;
+    document.getElementById('mktLeverage').textContent = '1:' + d.account.leverage;
+
+    // 统计卡片
+    document.getElementById('statBalance').textContent = '$' + d.account.balance.toFixed(2);
+    document.getElementById('statEquity').textContent = '$' + d.account.equity.toFixed(2);
+
+    const profitEl = document.getElementById('statProfit');
+    profitEl.textContent = (d.account.profit >= 0 ? '+$' : '-$') + Math.abs(d.account.profit).toFixed(2);
+    profitEl.className = 'stat-value ' + (d.account.profit >= 0 ? 'positive' : 'negative');
+
+    const ddEl = document.getElementById('statDrawdown');
+    ddEl.textContent = d.account.drawdown.toFixed(2) + '%';
+    ddEl.className = 'stat-value ' + (d.account.drawdown > 10 ? 'negative' : d.account.drawdown > 5 ? 'neutral' : 'positive');
+
+    document.getElementById('statOpenTrades').textContent = d.openTrades.length;
+
+    // 计算胜率
+    const closedTrades = d.closedTrades;
+    const wins = closedTrades.filter(t => t.profit > 0).length;
+    const total = closedTrades.length;
+    const winRate = total > 0 ? (wins / total * 100).toFixed(1) : '---';
+    document.getElementById('statWinRate').textContent = winRate + '%';
+    document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
+
+    // 策略卡片
+    updateStrategyCards(d);
+
+    // 持仓表格
+    updateOpenTrades(d.openTrades);
+    updateClosedTrades(d.closedTrades);
+
+    // 图表
+    updateEquityChart(d);
+    updatePieChart(d);
+    updateDailyPnlChart(d);
+}
+
+// ====== 策略卡片 ======
+function updateStrategyCards(d) {
+    const container = document.getElementById('strategyCards');
+    let html = '';
+
+    for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
+        const strat = d.strategies[key] || { enabled: false, positions: 0 };
+        const stratTrades = d.closedTrades.filter(t => t.strategy === key);
+        const stratWins = stratTrades.filter(t => t.profit > 0).length;
+        const stratTotal = stratTrades.length;
+        const stratWinRate = stratTotal > 0 ? (stratWins / stratTotal * 100).toFixed(0) : '--';
+        const stratProfit = stratTrades.reduce((s, t) => s + t.profit, 0);
+
+        html += `
+        <div class="strategy-card">
+            <div class="strategy-header">
+                <div class="strategy-name">
+                    <div class="strategy-dot" style="background: ${config.color}; ${strat.enabled ? 'box-shadow: 0 0 8px ' + config.color : 'opacity: 0.3'}"></div>
+                    ${config.label}
+                </div>
+                <span class="strategy-badge ${strat.enabled ? 'badge-on' : 'badge-off'}">${strat.enabled ? 'ON' : 'OFF'}</span>
+            </div>
+            <div class="strategy-stats">
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">持仓</div>
+                    <div class="strategy-stat-value">${strat.positions}</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">交易数</div>
+                    <div class="strategy-stat-value">${stratTotal}</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">胜率</div>
+                    <div class="strategy-stat-value">${stratWinRate}%</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">收益</div>
+                    <div class="strategy-stat-value ${stratProfit >= 0 ? 'positive' : 'negative'}">${stratProfit >= 0 ? '+' : ''}$${stratProfit.toFixed(0)}</div>
+                </div>
+            </div>
+            <div class="winrate-bar">
+                <div class="winrate-fill" style="width: ${stratWinRate === '--' ? 0 : stratWinRate}%; background: ${config.color};"></div>
+            </div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+// ====== 持仓表格 ======
+function updateOpenTrades(trades) {
+    const tbody = document.getElementById('openTradesBody');
+    document.getElementById('openTradeCount').textContent = trades.length + ' 笔';
+
+    if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无持仓</td></tr>';
+        return;
+    }
+
+    let html = '';
+    trades.forEach(t => {
+        const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+        html += `<tr>
+            <td>${t.ticket}</td>
+            <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${t.type === 'BUY' ? 'BUY' : 'SELL'}</td>
+            <td>${t.lots}</td>
+            <td>${t.openPrice}</td>
+            <td>${t.sl}</td>
+            <td>${t.tp}</td>
+            <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
+            <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function updateClosedTrades(trades) {
+    const tbody = document.getElementById('closedTradesBody');
+    document.getElementById('closedTradeCount').textContent = trades.length + ' 笔';
+
+    if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无历史</td></tr>';
+        return;
+    }
+
+    let html = '';
+    trades.slice().reverse().forEach(t => {
+        const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+        html += `<tr>
+            <td>${t.ticket}</td>
+            <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${t.type}</td>
+            <td>${t.lots}</td>
+            <td>${t.openPrice}</td>
+            <td>${t.closePrice}</td>
+            <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
+            <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
+            <td style="font-size:11px; color: var(--text-muted);">${t.closeTime}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+// ====== 图表 ======
+function initCharts() {
+    const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } } }
+        }
+    };
+
+    // 收益曲线
+    const eqCtx = document.getElementById('equityChart').getContext('2d');
+    equityChart = new Chart(eqCtx, {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+            ...chartDefaults,
+            scales: {
+                x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(42,58,78,0.5)' } },
+                y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 11 }, callback: v => '$' + v }, grid: { color: 'rgba(42,58,78,0.5)' } }
+            },
+            plugins: {
+                ...chartDefaults.plugins,
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1a2332',
+                    borderColor: '#2a3a4e',
+                    borderWidth: 1,
+                    titleFont: { family: 'Inter' },
+                    bodyFont: { family: 'JetBrains Mono' },
+                    callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) }
+                }
+            },
+            elements: {
+                point: { radius: 3, hoverRadius: 6 },
+                line: { tension: 0.3 }
+            }
+        }
+    });
+
+    // 策略分布饼图
+    const pieCtx = document.getElementById('strategyPieChart').getContext('2d');
+    pieChart = new Chart(pieCtx, {
+        type: 'doughnut',
+        data: { labels: [], datasets: [] },
+        options: {
+            ...chartDefaults,
+            cutout: '65%',
+            plugins: {
+                ...chartDefaults.plugins,
+                legend: {
+                    position: 'right',
+                    labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 10 }
+                }
+            }
+        }
+    });
+
+    // 每日盈亏柱状图
+    const dailyCtx = document.getElementById('dailyPnlChart').getContext('2d');
+    dailyChart = new Chart(dailyCtx, {
+        type: 'bar',
+        data: { labels: [], datasets: [] },
+        options: {
+            ...chartDefaults,
+            scales: {
+                x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
+                y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 11 }, callback: v => '$' + v }, grid: { color: 'rgba(42,58,78,0.5)' } }
+            },
+            plugins: {
+                ...chartDefaults.plugins,
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+function updateEquityChart(d) {
+    const trades = d.closedTrades;
+    if (trades.length === 0) return;
+
+    let balance = d.account.balance;
+    // 反向计算初始余额
+    for (let i = trades.length - 1; i >= 0; i--) {
+        balance -= trades[i].profit;
+    }
+
+    const labels = ['起始'];
+    const data = [balance];
+
+    for (let i = 0; i < trades.length; i++) {
+        balance += trades[i].profit;
+        labels.push('#' + trades[i].ticket);
+        data.push(balance);
+    }
+
+    // 加入当前净值
+    labels.push('当前');
+    data.push(d.account.equity);
+
+    const gradient = equityChart.ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+    gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+    equityChart.data.labels = labels;
+    equityChart.data.datasets = [{
+        label: '账户净值',
+        data: data,
+        borderColor: '#3b82f6',
+        backgroundColor: gradient,
+        fill: true,
+        borderWidth: 2
+    }];
+    equityChart.update('none');
+}
+
+function updatePieChart(d) {
+    const stratProfits = {};
+    const stratColors = [];
+    const stratLabels = [];
+
+    for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
+        const profit = d.closedTrades
+            .filter(t => t.strategy === key)
+            .reduce((s, t) => s + Math.abs(t.profit), 0);
+        if (profit > 0) {
+            stratLabels.push(config.label);
+            stratProfits[key] = profit;
+            stratColors.push(config.color);
+        }
+    }
+
+    pieChart.data.labels = stratLabels;
+    pieChart.data.datasets = [{
+        data: Object.values(stratProfits),
+        backgroundColor: stratColors,
+        borderColor: '#1a2332',
+        borderWidth: 3
+    }];
+    pieChart.update('none');
+}
+
+function updateDailyPnlChart(d) {
+    const dailyPnl = {};
+
+    d.closedTrades.forEach(t => {
+        const date = t.closeTime.split(' ')[0];
+        dailyPnl[date] = (dailyPnl[date] || 0) + t.profit;
+    });
+
+    const dates = Object.keys(dailyPnl).sort();
+    const values = dates.map(d => dailyPnl[d]);
+    const colors = values.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)');
+
+    dailyChart.data.labels = dates.map(d => d.replace('2026.', ''));
+    dailyChart.data.datasets = [{
+        label: '每日盈亏',
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 4,
+        borderSkipped: false
+    }];
+    dailyChart.update('none');
+}
+</script>
+
+</body>
+</html>
