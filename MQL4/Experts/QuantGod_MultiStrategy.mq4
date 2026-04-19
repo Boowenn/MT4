@@ -9,6 +9,14 @@
 #property strict
 
 #include "..\\Include\\QuantEngine.mqh"
+#include "..\\Include\\WinUser32.mqh"
+
+#import "user32.dll"
+int GetAncestor(int hWnd, int gaFlags);
+#import
+
+#define GA_ROOT 2
+#define MT4_WMCMD_EXPERTS 33020
 
 //=== 全局设置 ===
 input string   _g0 = "══════ 全局设置 ══════";
@@ -67,6 +75,8 @@ input ENUM_TIMEFRAMES SR_Timeframe = PERIOD_H1;   // 时间框架
 input int      SR_Magic          = 10005;    // Magic Number
 
 //=== 全局变量 ===
+input bool     AutoEnableTrading  = true;    // Try to turn terminal AutoTrading on
+
 string gSymbol;
 int    gDigits;
 double gPoint;
@@ -90,6 +100,7 @@ int OnInit()
    ChartSetInteger(0, CHART_SHOW_GRID, false);
    Comment("");
    EventSetTimer(5);
+   EnsureAutoTradingEnabled();
 
    Print("★ QuantGod Multi-Strategy Engine v2.0 启动 ★");
    Print("货币对: ", gSymbol, " | 风险: ", RiskPercent, "% | 最大回撤: ", MaxDrawdownPercent, "%");
@@ -115,6 +126,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   EnsureAutoTradingEnabled();
    UpdateChartDisplayV2();
 
    if(EnableDashboard)
@@ -585,13 +597,75 @@ int GetTickAgeSeconds()
    return age;
 }
 
+bool IsTerminalTradeEnabled()
+{
+   return (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
+}
+
+bool IsProgramTradeEnabled()
+{
+   return (bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
+}
+
+bool IsDllImportEnabled()
+{
+   return (bool)MQLInfoInteger(MQL_DLLS_ALLOWED);
+}
+
+bool ToggleTerminalAutoTrading()
+{
+   int chartWindow = WindowHandle(gSymbol, Period());
+   if(chartWindow == 0)
+      return false;
+
+   int mainWindow = GetAncestor(chartWindow, GA_ROOT);
+   if(mainWindow == 0)
+      return false;
+
+   return PostMessageA(mainWindow, WM_COMMAND, MT4_WMCMD_EXPERTS, 0) != 0;
+}
+
+void EnsureAutoTradingEnabled()
+{
+   static datetime lastAttempt = 0;
+
+   if(!AutoEnableTrading)
+      return;
+
+   if(IsTerminalTradeEnabled())
+      return;
+
+   if(IsTesting() || !IsDllImportEnabled())
+      return;
+
+   if(TimeLocal() - lastAttempt < 15)
+      return;
+
+   lastAttempt = TimeLocal();
+
+   bool toggleSent = ToggleTerminalAutoTrading();
+   Print("[QuantGod] Auto-enable trading attempt sent=", toggleSent,
+         " | terminalAllowed=", IsTerminalTradeEnabled(),
+         " | programAllowed=", IsProgramTradeEnabled(),
+         " | dllAllowed=", IsDllImportEnabled());
+}
+
 string GetTradingStatus()
 {
    if(!IsConnected())
       return "DISCONNECTED";
 
-   if(!IsTradeAllowed())
-      return "AUTOTRADING_OFF";
+   if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
+      return "ACCOUNT_TRADE_DISABLED";
+
+   if(!AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
+      return "SERVER_EXPERTS_DISABLED";
+
+   if(!IsTerminalTradeEnabled())
+      return "TERMINAL_AUTOTRADING_OFF";
+
+   if(!IsProgramTradeEnabled())
+      return "EA_LIVE_TRADING_OFF";
 
    if(UseTradeSession && !IsTradeSession())
       return "OUT_OF_SESSION";
@@ -610,7 +684,9 @@ void UpdateChartDisplayV2()
    double dd = 0;
    int tickAge = GetTickAgeSeconds();
    string tradingStatus = GetTradingStatus();
-   string liveTrading = IsTradeAllowed() ? "ON" : "OFF";
+   string terminalTrading = IsTerminalTradeEnabled() ? "ON" : "OFF";
+   string programTrading = IsProgramTradeEnabled() ? "ON" : "OFF";
+   string dllTrading = IsDllImportEnabled() ? "ON" : "OFF";
 
    if(balance > 0)
       dd = (balance - equity) / balance * 100.0;
@@ -622,7 +698,9 @@ void UpdateChartDisplayV2()
    info += "Equity:  $" + DoubleToStr(equity, 2) + "\n";
    info += "Profit:  $" + DoubleToStr(profit, 2) + "\n";
    info += "Drawdown: " + DoubleToStr(dd, 2) + "%\n";
-   info += "AutoTrading: " + liveTrading + "  Status: " + tradingStatus + "\n";
+   info += "Terminal AutoTrading: " + terminalTrading + "\n";
+   info += "EA Live Trading: " + programTrading + "  DLL: " + dllTrading + "\n";
+   info += "Status: " + tradingStatus + "\n";
    if(tickAge >= 0)
       info += "Last Tick Age: " + IntegerToString(tickAge) + " sec\n";
    else
@@ -690,7 +768,10 @@ void ExportDashboardData()
    FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
    FileWriteString(handle, "  \"runtime\": {\n");
    FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
-   FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
+    FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"terminalTradeAllowed\": " + (IsTerminalTradeEnabled() ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"programTradeAllowed\": " + (IsProgramTradeEnabled() ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"dllAllowed\": " + (IsDllImportEnabled() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"tradeAllowed\": " + (IsTradeAllowed() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"tickAgeSeconds\": " + IntegerToString(GetTickAgeSeconds()) + "\n");
    FileWriteString(handle, "  },\n");
