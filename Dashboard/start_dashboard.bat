@@ -10,5 +10,6 @@ echo.
 echo Press Ctrl+C to stop the server.
 echo.
 cd /d "C:\Program Files (x86)\MetaTrader 4\MQL4\Files"
-start http://localhost:8080/QuantGod_Dashboard.html
+for /f %%i in ('powershell -NoProfile -Command "[DateTimeOffset]::Now.ToUnixTimeSeconds()"') do set "QG_TS=%%i"
+start "" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
 python -m http.server 8080

@@ -950,7 +950,12 @@ function updateRuntimeBadge(d) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    initCharts();
+    try {
+        initCharts();
+        window.setTimeout(() => updateRuntimeBadge(dashboardData), 1);
+    } catch (e) {
+        console.warn('Chart initialization failed, continuing without charts.', e);
+    }
     loadData();
     refreshInterval = setInterval(loadData, 5000);
 });
@@ -965,6 +970,7 @@ async function loadData() {
         dashboardData._transportError = false;
         updateDashboard();
         updateRuntimeBadge(dashboardData);
+        window.setTimeout(() => updateRuntimeBadge(dashboardData), 0);
         document.getElementById('connectionStatus').textContent = '实时连接';
     } catch (e) {
         if (dashboardData) {
@@ -974,13 +980,14 @@ async function loadData() {
             return;
         }
         if (!dashboardData) {
-        // 尝试从本地文件加载 (file:// 协议)
-        document.getElementById('connectionStatus').textContent = '等待EA数据...';
-        // 使用示例数据进行预览
-        if (!dashboardData) {
-            dashboardData = generateDemoData();
-            updateDashboard();
-            updateRuntimeBadge(dashboardData);
+            // 尝试从本地文件加载 (file:// 协议)
+            document.getElementById('connectionStatus').textContent = '等待EA数据...';
+            // 使用示例数据进行预览
+            if (!dashboardData) {
+                dashboardData = generateDemoData();
+                updateDashboard();
+                updateRuntimeBadge(dashboardData);
+            }
         }
     }
 }
@@ -1086,7 +1093,6 @@ function updateDashboard() {
     ddEl.className = 'stat-value ' + (d.account.drawdown > 10 ? 'negative' : d.account.drawdown > 5 ? 'neutral' : 'positive');
 
     document.getElementById('statOpenTrades').textContent = d.openTrades.length;
-    const closedTrades = d.closedTrades;
 
     // 计算胜率
     const closedTrades = d.closedTrades;
@@ -1277,6 +1283,14 @@ function updateClosedTrades(trades) {
 
 // ====== 图表 ======
 function initCharts() {
+    if (typeof Chart === 'undefined') {
+        console.warn('Chart.js is unavailable.');
+        equityChart = null;
+        pieChart = null;
+        dailyChart = null;
+        return;
+    }
+
     const chartDefaults = {
         responsive: true,
         maintainAspectRatio: false,
@@ -1443,6 +1457,7 @@ function updateDailyPnlChart(d) {
 */
 
 function updateEquityChart(d) {
+    if (!equityChart || !equityChart.ctx) return;
     const trades = d.closedTrades || [];
     const labels = ['Start'];
     const data = [];
@@ -1480,6 +1495,7 @@ function updateEquityChart(d) {
 }
 
 function updatePieChart(d) {
+    if (!pieChart) return;
     const stratProfits = {};
     const stratColors = [];
     const stratLabels = [];
@@ -1507,6 +1523,7 @@ function updatePieChart(d) {
 }
 
 function updateDailyPnlChart(d) {
+    if (!dailyChart) return;
     const dailyPnl = {};
 
     (d.closedTrades || []).forEach(t => {
