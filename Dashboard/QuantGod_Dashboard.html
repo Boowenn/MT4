@@ -103,6 +103,30 @@
             border: 1px solid rgba(16, 185, 129, 0.3);
         }
 
+        .status-info {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .status-warn {
+            background: rgba(245, 158, 11, 0.16);
+            color: var(--accent-orange);
+            border: 1px solid rgba(245, 158, 11, 0.32);
+        }
+
+        .status-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .status-muted {
+            background: rgba(100, 116, 139, 0.16);
+            color: var(--text-muted);
+            border: 1px solid rgba(100, 116, 139, 0.28);
+        }
+
         .status-dot {
             width: 8px;
             height: 8px;
@@ -110,6 +134,11 @@
             background: var(--accent-green);
             animation: pulse 2s infinite;
         }
+
+        .status-badge.status-info .status-dot { background: var(--accent-blue); }
+        .status-badge.status-warn .status-dot { background: var(--accent-orange); }
+        .status-badge.status-danger .status-dot { background: var(--accent-red); }
+        .status-badge.status-muted .status-dot { background: var(--text-muted); }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
@@ -272,6 +301,21 @@
             background: var(--bg-card-hover);
         }
 
+        .strategy-card.card-positive {
+            border-color: rgba(16, 185, 129, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
+        }
+
+        .strategy-card.card-watch {
+            border-color: rgba(245, 158, 11, 0.3);
+            box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.08);
+        }
+
+        .strategy-card.card-danger {
+            border-color: rgba(239, 68, 68, 0.3);
+            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+        }
+
         .strategy-header {
             display: flex;
             justify-content: space-between;
@@ -329,6 +373,73 @@
             font-size: 14px;
             font-weight: 600;
             font-family: 'JetBrains Mono', monospace;
+        }
+
+        .strategy-health {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(42, 58, 78, 0.8);
+        }
+
+        .strategy-health-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .strategy-health-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .strategy-health-badge {
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            border: 1px solid transparent;
+        }
+
+        .diag-bar {
+            height: 7px;
+            background: rgba(42, 58, 78, 0.9);
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .diag-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.4s ease;
+            box-shadow: 0 0 18px currentColor;
+        }
+
+        .diag-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 6px;
+        }
+
+        .diag-score {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .diag-reason {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+            min-height: 34px;
         }
 
         /* 持仓表格 */
@@ -746,6 +857,7 @@ let dailyChart = null;
 let refreshInterval = null;
 
 // ====== 策略配置 ======
+/*
 const STRATEGY_CONFIG = {
     'MA_Cross':        { label: 'MA 交叉',      color: '#3b82f6', dotColor: '#3b82f6', cssClass: 'strat-ma' },
     'RSI_Reversal':    { label: 'RSI 均值回归',   color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
@@ -755,6 +867,88 @@ const STRATEGY_CONFIG = {
 };
 
 // ====== 初始化 ======
+*/
+const STRATEGY_CONFIG = {
+    'MA_Cross':        { label: 'MA Cross',        color: '#3b82f6', dotColor: '#3b82f6', cssClass: 'strat-ma' },
+    'RSI_Reversal':    { label: 'RSI Reversal',    color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
+    'BB_Triple':       { label: 'BB Triple',       color: '#f59e0b', dotColor: '#f59e0b', cssClass: 'strat-bb' },
+    'MACD_Divergence': { label: 'MACD Divergence', color: '#06b6d4', dotColor: '#06b6d4', cssClass: 'strat-macd' },
+    'SR_Breakout':     { label: 'SR Breakout',     color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' }
+};
+
+const STATUS_META = {
+    READY:               { label: 'READY',               tone: 'status-info',   cardTone: 'card-positive' },
+    WAITING_SIGNAL:      { label: 'WAITING SIGNAL',      tone: 'status-info',   cardTone: '' },
+    OUT_OF_SESSION:      { label: 'OUT OF SESSION',      tone: 'status-warn',   cardTone: 'card-watch' },
+    TOO_MANY_POSITIONS:  { label: 'POSITION LIMIT',      tone: 'status-warn',   cardTone: 'card-watch' },
+    POSITION_LIMIT:      { label: 'POSITION LIMIT',      tone: 'status-warn',   cardTone: 'card-watch' },
+    STALE_TICKS:         { label: 'STALE TICKS',         tone: 'status-warn',   cardTone: 'card-watch' },
+    AUTOTRADING_OFF:     { label: 'AUTOTRADING OFF',     tone: 'status-danger', cardTone: 'card-danger' },
+    EA_LIVE_TRADING_OFF: { label: 'EA LIVE TRADING OFF', tone: 'status-danger', cardTone: 'card-danger' },
+    DLL_NOT_ALLOWED:     { label: 'DLL BLOCKED',         tone: 'status-danger', cardTone: 'card-danger' },
+    DISCONNECTED:        { label: 'DISCONNECTED',        tone: 'status-danger', cardTone: 'card-danger' },
+    DRAWDOWN_BLOCK:      { label: 'DRAWDOWN BLOCK',      tone: 'status-danger', cardTone: 'card-danger' },
+    DEMO:                { label: 'DEMO MODE',           tone: 'status-muted',  cardTone: 'card-watch' },
+    NO_DATA:             { label: 'NO DATA',             tone: 'status-muted',  cardTone: '' }
+};
+
+function getStatusMeta(status) {
+    if (!status) return STATUS_META.NO_DATA;
+    return STATUS_META[status] || { label: status.replaceAll('_', ' '), tone: 'status-muted', cardTone: '' };
+}
+
+function getDiagnostic(d, key) {
+    const fallbackStatus = d?.runtime?.tradeStatus || 'NO_DATA';
+    return (d?.diagnostics && d.diagnostics[key]) || {
+        status: fallbackStatus,
+        score: 0,
+        reason: 'No diagnostic message yet.'
+    };
+}
+
+function getRuntimeSummary(d) {
+    if (d?.isDemo) {
+        return { text: 'DEMO MODE', tone: 'status-muted' };
+    }
+
+    if (d?._transportError) {
+        return { text: 'CACHE MODE', tone: 'status-warn' };
+    }
+
+    const runtime = d?.runtime || {};
+    const meta = getStatusMeta(runtime.tradeStatus || (runtime.tradeAllowed ? 'READY' : 'NO_DATA'));
+    const prefix = runtime.connected === false ? 'DISCONNECTED' : 'LIVE';
+    return { text: `${prefix} · ${meta.label}`, tone: meta.tone };
+}
+
+function updateRuntimeBadge(d) {
+    const badge = document.querySelector('.nav-status .status-badge');
+    const label = document.getElementById('connectionStatus');
+    const runtime = d?.runtime || {};
+    const summary = getRuntimeSummary(d);
+
+    if (badge) {
+        badge.className = `status-badge ${summary.tone}`;
+        badge.title = [
+            `tradeStatus=${runtime.tradeStatus || 'NO_DATA'}`,
+            `tradeAllowed=${runtime.tradeAllowed ?? 'n/a'}`,
+            `tickAgeSeconds=${runtime.tickAgeSeconds ?? 'n/a'}`
+        ].join(' | ');
+    }
+
+    if (label) {
+        const safeText = summary.text
+            .replace(/[^\x20-\x7E]+/g, ' | ')
+            .replace(/\s+\|\s+\|/g, ' | ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        window.clearTimeout(updateRuntimeBadge._labelTimer);
+        updateRuntimeBadge._labelTimer = window.setTimeout(() => {
+            label.textContent = safeText;
+        }, 0);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initCharts();
     loadData();
@@ -767,15 +961,26 @@ async function loadData() {
         const response = await fetch('QuantGod_Dashboard.json?t=' + Date.now());
         if (!response.ok) throw new Error('HTTP ' + response.status);
         dashboardData = await response.json();
+        dashboardData.isDemo = false;
+        dashboardData._transportError = false;
         updateDashboard();
+        updateRuntimeBadge(dashboardData);
         document.getElementById('connectionStatus').textContent = '实时连接';
     } catch (e) {
+        if (dashboardData) {
+            dashboardData._transportError = true;
+            updateDashboard();
+            updateRuntimeBadge(dashboardData);
+            return;
+        }
+        if (!dashboardData) {
         // 尝试从本地文件加载 (file:// 协议)
         document.getElementById('connectionStatus').textContent = '等待EA数据...';
         // 使用示例数据进行预览
         if (!dashboardData) {
             dashboardData = generateDemoData();
             updateDashboard();
+            updateRuntimeBadge(dashboardData);
         }
     }
 }
@@ -784,7 +989,18 @@ async function loadData() {
 function generateDemoData() {
     const now = new Date();
     return {
+        isDemo: true,
         timestamp: now.toISOString(),
+        build: 'QuantGod-demo-visual',
+        runtime: {
+            tradeStatus: 'READY',
+            connected: true,
+            terminalTradeAllowed: true,
+            programTradeAllowed: true,
+            dllAllowed: true,
+            tradeAllowed: true,
+            tickAgeSeconds: 3
+        },
         account: {
             number: 12345678,
             name: "Demo Account",
@@ -820,6 +1036,13 @@ function generateDemoData() {
             MACD_Divergence: { enabled: true, positions: 0 },
             SR_Breakout: { enabled: true, positions: 0 }
         },
+        diagnostics: {
+            MA_Cross: { status: 'READY', score: 82, reason: 'Trend, momentum and permission checks are aligned.' },
+            RSI_Reversal: { status: 'WAITING_SIGNAL', score: 41, reason: 'RSI reversal setup is incomplete on the current bar.' },
+            BB_Triple: { status: 'OUT_OF_SESSION', score: 0, reason: 'Session filter is blocking entries.' },
+            MACD_Divergence: { status: 'STALE_TICKS', score: 18, reason: 'Price feed looks stale; waiting for fresh ticks.' },
+            SR_Breakout: { status: 'POSITION_LIMIT', score: 63, reason: 'Breakout setup is present but the position cap is active.' }
+        },
         market: {
             symbol: "EURUSD",
             bid: 1.08650,
@@ -835,6 +1058,7 @@ function updateDashboard() {
 
     const d = dashboardData;
     const now = new Date();
+    updateRuntimeBadge(d);
 
     // 更新时间
     document.getElementById('lastUpdate').textContent =
@@ -847,6 +1071,7 @@ function updateDashboard() {
     document.getElementById('mktSpread').textContent = d.market.spread + ' pips';
     document.getElementById('mktServer').textContent = d.account.server;
     document.getElementById('mktLeverage').textContent = '1:' + d.account.leverage;
+    document.getElementById('statBalance').textContent = '$' + d.account.balance.toFixed(2);
 
     // 统计卡片
     document.getElementById('statBalance').textContent = '$' + d.account.balance.toFixed(2);
@@ -861,6 +1086,7 @@ function updateDashboard() {
     ddEl.className = 'stat-value ' + (d.account.drawdown > 10 ? 'negative' : d.account.drawdown > 5 ? 'neutral' : 'positive');
 
     document.getElementById('statOpenTrades').textContent = d.openTrades.length;
+    const closedTrades = d.closedTrades;
 
     // 计算胜率
     const closedTrades = d.closedTrades;
@@ -868,12 +1094,24 @@ function updateDashboard() {
     const total = closedTrades.length;
     const winRate = total > 0 ? (wins / total * 100).toFixed(1) : '---';
     document.getElementById('statWinRate').textContent = winRate + '%';
+    /*
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
 
     // 策略卡片
     updateStrategyCards(d);
 
     // 持仓表格
+    */
+    document.getElementById('statTotalTrades').textContent = total + ' trades';
+    updateStrategyCards(d);
+
+    const footer = document.querySelector('.footer');
+    if (footer) {
+        const buildText = d.build || 'QuantGod dashboard';
+        const modeText = d.isDemo ? 'Demo data mode' : 'UI refresh 5s';
+        footer.textContent = `${buildText} | ${modeText} | Demo trading only`;
+    }
+
     updateOpenTrades(d.openTrades);
     updateClosedTrades(d.closedTrades);
 
@@ -895,15 +1133,34 @@ function updateStrategyCards(d) {
         const stratTotal = stratTrades.length;
         const stratWinRate = stratTotal > 0 ? (stratWins / stratTotal * 100).toFixed(0) : '--';
         const stratProfit = stratTrades.reduce((s, t) => s + t.profit, 0);
+        const diagnostic = getDiagnostic(d, key);
+        const meta = getStatusMeta(diagnostic.status);
+        const score = Math.max(0, Math.min(100, Number(diagnostic.score || 0)));
+        const cardToneClass = meta.cardTone ? ` ${meta.cardTone}` : '';
+        const winrateWidth = stratWinRate === '--' ? 0 : stratWinRate;
 
         html += `
-        <div class="strategy-card">
+        <div class="strategy-card${cardToneClass}">
             <div class="strategy-header">
                 <div class="strategy-name">
                     <div class="strategy-dot" style="background: ${config.color}; ${strat.enabled ? 'box-shadow: 0 0 8px ' + config.color : 'opacity: 0.3'}"></div>
                     ${config.label}
                 </div>
                 <span class="strategy-badge ${strat.enabled ? 'badge-on' : 'badge-off'}">${strat.enabled ? 'ON' : 'OFF'}</span>
+            </div>
+            <div class="strategy-health">
+                <div class="strategy-health-row">
+                    <span class="strategy-health-label">Runtime</span>
+                    <span class="strategy-health-badge ${meta.tone}">${meta.label}</span>
+                </div>
+                <div class="diag-bar">
+                    <div class="diag-fill" style="width: ${score}%; background: ${config.color};"></div>
+                </div>
+                <div class="diag-meta">
+                    <span class="diag-score">Score ${score.toFixed(0)}/100</span>
+                    <span class="diag-score">${stratTotal} closed trades</span>
+                </div>
+                <div class="diag-reason">${diagnostic.reason || 'No diagnostic message yet.'}</div>
             </div>
             <div class="strategy-stats">
                 <div class="strategy-stat">
@@ -924,18 +1181,42 @@ function updateStrategyCards(d) {
                 </div>
             </div>
             <div class="winrate-bar">
-                <div class="winrate-fill" style="width: ${stratWinRate === '--' ? 0 : stratWinRate}%; background: ${config.color};"></div>
+                <div class="winrate-fill" style="width: ${winrateWidth}%; background: ${config.color};"></div>
             </div>
         </div>`;
     }
     container.innerHTML = html;
+    container.querySelectorAll('.strategy-card').forEach(card => {
+        const labels = card.querySelectorAll('.strategy-stat-label');
+        const text = ['Open', 'Closed', 'Win rate', 'Profit'];
+        labels.forEach((label, index) => {
+            if (text[index]) {
+                label.textContent = text[index];
+            }
+        });
+    });
 }
 
 // ====== 持仓表格 ======
 function updateOpenTrades(trades) {
     const tbody = document.getElementById('openTradesBody');
+    /*
     document.getElementById('openTradeCount').textContent = trades.length + ' 笔';
 
+    document.getElementById('openTradeCount').textContent = trades.length + ' items';
+    if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No open trades</td></tr>';
+        return;
+    }
+    */
+    /*
+    document.getElementById('closedTradeCount').textContent = trades.length + ' items';
+    if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No closed trades</td></tr>';
+        return;
+    }
+    */
+    document.getElementById('openTradeCount').textContent = trades.length + ' items';
     if (trades.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无持仓</td></tr>';
         return;
@@ -960,10 +1241,20 @@ function updateOpenTrades(trades) {
 
 function updateClosedTrades(trades) {
     const tbody = document.getElementById('closedTradesBody');
+    /*
     document.getElementById('closedTradeCount').textContent = trades.length + ' 笔';
 
     if (trades.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无历史</td></tr>';
+        return;
+    }
+
+    let html = '';
+    */
+    document.getElementById('closedTradeCount').textContent = trades.length + ' items';
+
+    if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No closed trades</td></tr>';
         return;
     }
 
@@ -1061,6 +1352,7 @@ function initCharts() {
     });
 }
 
+/*
 function updateEquityChart(d) {
     const trades = d.closedTrades;
     if (trades.length === 0) return;
@@ -1141,6 +1433,94 @@ function updateDailyPnlChart(d) {
     dailyChart.data.labels = dates.map(d => d.replace('2026.', ''));
     dailyChart.data.datasets = [{
         label: '每日盈亏',
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 4,
+        borderSkipped: false
+    }];
+    dailyChart.update('none');
+}
+*/
+
+function updateEquityChart(d) {
+    const trades = d.closedTrades || [];
+    const labels = ['Start'];
+    const data = [];
+    let balance = d.account.balance;
+
+    for (let i = trades.length - 1; i >= 0; i--) {
+        balance -= trades[i].profit;
+    }
+
+    data.push(balance);
+
+    for (let i = 0; i < trades.length; i++) {
+        balance += trades[i].profit;
+        labels.push('#' + trades[i].ticket);
+        data.push(balance);
+    }
+
+    labels.push('Now');
+    data.push(d.account.equity);
+
+    const gradient = equityChart.ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+    gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+    equityChart.data.labels = labels;
+    equityChart.data.datasets = [{
+        label: 'Equity curve',
+        data,
+        borderColor: '#3b82f6',
+        backgroundColor: gradient,
+        fill: true,
+        borderWidth: 2
+    }];
+    equityChart.update('none');
+}
+
+function updatePieChart(d) {
+    const stratProfits = {};
+    const stratColors = [];
+    const stratLabels = [];
+
+    for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
+        const profit = (d.closedTrades || [])
+            .filter(t => t.strategy === key)
+            .reduce((sum, t) => sum + t.profit, 0);
+
+        if (profit !== 0) {
+            stratLabels.push(config.label);
+            stratProfits[key] = profit;
+            stratColors.push(config.color);
+        }
+    }
+
+    pieChart.data.labels = stratLabels;
+    pieChart.data.datasets = [{
+        data: Object.values(stratProfits),
+        backgroundColor: stratColors,
+        borderColor: '#1a2332',
+        borderWidth: 3
+    }];
+    pieChart.update('none');
+}
+
+function updateDailyPnlChart(d) {
+    const dailyPnl = {};
+
+    (d.closedTrades || []).forEach(t => {
+        const date = (t.closeTime || '').split(' ')[0] || 'Unknown';
+        dailyPnl[date] = (dailyPnl[date] || 0) + t.profit;
+    });
+
+    const dates = Object.keys(dailyPnl).sort();
+    const values = dates.map(date => dailyPnl[date]);
+    const colors = values.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)');
+
+    dailyChart.data.labels = dates.map(date => date.replace('2026.', ''));
+    dailyChart.data.datasets = [{
+        label: 'Daily PnL',
         data: values,
         backgroundColor: colors,
         borderRadius: 4,
