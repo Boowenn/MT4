@@ -8,7 +8,7 @@
 #property version   "2.00"
 #property strict
 
-#include <QuantEngine.mqh>
+#include "..\\Include\\QuantEngine.mqh"
 
 //=== 全局设置 ===
 input string   _g0 = "══════ 全局设置 ══════";
@@ -72,6 +72,7 @@ int    gDigits;
 double gPoint;
 int    gTotalSignals;
 datetime gLastExport;
+datetime gLastTickTime;
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
@@ -83,14 +84,17 @@ int OnInit()
    gPoint  = Point;
    gTotalSignals = 0;
    gLastExport = 0;
+   gLastTickTime = (datetime)MarketInfo(gSymbol, MODE_TIME);
 
    // 图表显示设置
    ChartSetInteger(0, CHART_SHOW_GRID, false);
    Comment("");
+   EventSetTimer(5);
 
    Print("★ QuantGod Multi-Strategy Engine v2.0 启动 ★");
    Print("货币对: ", gSymbol, " | 风险: ", RiskPercent, "% | 最大回撤: ", MaxDrawdownPercent, "%");
 
+   UpdateChartDisplayV2();
    if(EnableDashboard) ExportDashboardData();
 
    return INIT_SUCCEEDED;
@@ -101,6 +105,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   EventKillTimer();
    Comment("");
    Print("★ QuantGod Engine 停止, 原因: ", reason, " ★");
 }
@@ -108,8 +113,21 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 //| Expert tick function                                              |
 //+------------------------------------------------------------------+
+void OnTimer()
+{
+   UpdateChartDisplayV2();
+
+   if(EnableDashboard)
+   {
+      ExportDashboardData();
+      gLastExport = TimeLocal();
+   }
+}
+
 void OnTick()
 {
+   gLastTickTime = (datetime)MarketInfo(gSymbol, MODE_TIME);
+
    // 回撤保护
    if(!CheckMaxDrawdown(MaxDrawdownPercent))
    {
@@ -141,7 +159,7 @@ void OnTick()
    }
 
    // 更新图表显示
-   UpdateChartDisplay();
+   UpdateChartDisplayV2();
 
    // 导出面板数据 (每30秒)
    if(EnableDashboard && TimeCurrent() - gLastExport >= 30)
@@ -554,6 +572,72 @@ int CountAllPositions()
 //+------------------------------------------------------------------+
 //| 更新图表信息显示                                                    |
 //+------------------------------------------------------------------+
+int GetTickAgeSeconds()
+{
+   datetime lastTick = (datetime)MarketInfo(gSymbol, MODE_TIME);
+   if(lastTick <= 0)
+      return -1;
+
+   int age = (int)(TimeLocal() - lastTick);
+   if(age < 0)
+      age = 0;
+
+   return age;
+}
+
+string GetTradingStatus()
+{
+   if(!IsConnected())
+      return "DISCONNECTED";
+
+   if(!IsTradeAllowed())
+      return "AUTOTRADING_OFF";
+
+   if(UseTradeSession && !IsTradeSession())
+      return "OUT_OF_SESSION";
+
+   if(GetTickAgeSeconds() > 180)
+      return "WAITING_MARKET";
+
+   return "READY";
+}
+
+void UpdateChartDisplayV2()
+{
+   double balance = AccountBalance();
+   double equity = AccountEquity();
+   double profit = AccountProfit();
+   double dd = 0;
+   int tickAge = GetTickAgeSeconds();
+   string tradingStatus = GetTradingStatus();
+   string liveTrading = IsTradeAllowed() ? "ON" : "OFF";
+
+   if(balance > 0)
+      dd = (balance - equity) / balance * 100.0;
+
+   string info = "";
+   info += "QuantGod Multi-Strategy v2.1\n";
+   info += "Symbol: " + gSymbol + "  TF: " + IntegerToString(Period()) + "\n";
+   info += "Balance: $" + DoubleToStr(balance, 2) + "\n";
+   info += "Equity:  $" + DoubleToStr(equity, 2) + "\n";
+   info += "Profit:  $" + DoubleToStr(profit, 2) + "\n";
+   info += "Drawdown: " + DoubleToStr(dd, 2) + "%\n";
+   info += "AutoTrading: " + liveTrading + "  Status: " + tradingStatus + "\n";
+   if(tickAge >= 0)
+      info += "Last Tick Age: " + IntegerToString(tickAge) + " sec\n";
+   else
+      info += "Last Tick Age: N/A\n";
+   info += "Open Positions: " + IntegerToString(CountAllPositions()) + "/" + IntegerToString(MaxTotalTrades) + "\n";
+   info += "Spread: " + DoubleToStr(GetSpreadPips(gSymbol), 1) + " pips\n";
+   info += "MA: " + (Enable_MA ? "ON" : "OFF") + " (" + IntegerToString(CountPositions(MA_Magic, gSymbol)) + ")\n";
+   info += "RSI: " + (Enable_RSI ? "ON" : "OFF") + " (" + IntegerToString(CountPositions(RSI_Magic, gSymbol)) + ")\n";
+   info += "BB: " + (Enable_BB ? "ON" : "OFF") + " (" + IntegerToString(CountPositions(BB_Magic, gSymbol)) + ")\n";
+   info += "MACD: " + (Enable_MACD ? "ON" : "OFF") + " (" + IntegerToString(CountPositions(MACD_Magic, gSymbol)) + ")\n";
+   info += "SR: " + (Enable_SR ? "ON" : "OFF") + " (" + IntegerToString(CountPositions(SR_Magic, gSymbol)) + ")";
+
+   Comment(info);
+}
+
 void UpdateChartDisplay()
 {
    double balance = AccountBalance();
@@ -603,7 +687,13 @@ void ExportDashboardData()
 
    // JSON头
    FileWriteString(handle, "{\n");
-   FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
+   FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
+   FileWriteString(handle, "  \"runtime\": {\n");
+   FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
+   FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"tradeAllowed\": " + (IsTradeAllowed() ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"tickAgeSeconds\": " + IntegerToString(GetTickAgeSeconds()) + "\n");
+   FileWriteString(handle, "  },\n");
    FileWriteString(handle, "  \"account\": {\n");
    FileWriteString(handle, "    \"number\": " + IntegerToString(AccountNumber()) + ",\n");
    FileWriteString(handle, "    \"name\": \"" + AccountName() + "\",\n");
