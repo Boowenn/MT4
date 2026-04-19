@@ -83,6 +83,21 @@ double gPoint;
 int    gTotalSignals;
 datetime gLastExport;
 datetime gLastTickTime;
+datetime gLastSnapshotLog;
+datetime gLastLoggedCloseTime;
+int      gLastLoggedCloseTicket;
+
+#define STRATEGY_DIAG_COUNT 5
+string gStrategyDiagStatus[STRATEGY_DIAG_COUNT];
+string gStrategyDiagReason[STRATEGY_DIAG_COUNT];
+double gStrategyDiagScore[STRATEGY_DIAG_COUNT];
+
+void Strategy_RSI_Reversal_V2();
+void Strategy_MACD_Divergence_V2();
+void Strategy_SR_Breakout_V2();
+int DetectBullishDivergenceV2();
+int DetectBearishDivergenceV2();
+void ExportBalanceHistoryV2();
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
@@ -95,20 +110,355 @@ int OnInit()
    gTotalSignals = 0;
    gLastExport = 0;
    gLastTickTime = (datetime)MarketInfo(gSymbol, MODE_TIME);
+   gLastSnapshotLog = 0;
+   gLastLoggedCloseTime = 0;
+   gLastLoggedCloseTicket = 0;
 
    // 图表显示设置
    ChartSetInteger(0, CHART_SHOW_GRID, false);
    Comment("");
    EventSetTimer(5);
    EnsureAutoTradingEnabled();
+   RefreshStrategyDiagnostics();
 
    Print("★ QuantGod Multi-Strategy Engine v2.0 启动 ★");
    Print("货币对: ", gSymbol, " | 风险: ", RiskPercent, "% | 最大回撤: ", MaxDrawdownPercent, "%");
 
+   LoadTradeLogState();
+   LogAccountSnapshot("INIT");
+   gLastSnapshotLog = TimeLocal();
+   AuditClosedTrades();
    UpdateChartDisplayV2();
    if(EnableDashboard) ExportDashboardData();
 
    return INIT_SUCCEEDED;
+}
+
+void Strategy_RSI_Reversal_V2()
+{
+   if(HasOpenPosition(RSI_Magic, gSymbol))
+   {
+      SetStrategyDiagnostic(1, "IN_POSITION", "Existing RSI_Reversal position is still open", 100);
+      return;
+   }
+   if(CountAllPositions() >= MaxTotalTrades)
+   {
+      SetStrategyDiagnostic(1, "PORTFOLIO_LIMIT", "Max concurrent trades reached", 100);
+      return;
+   }
+
+   static datetime lastBar = 0;
+   datetime curBar = iTime(gSymbol, RSI_Timeframe, 0);
+   if(curBar == lastBar)
+   {
+      SetStrategyDiagnostic(1, "WAIT_BAR", "Waiting for a new " + TimeframeLabel(RSI_Timeframe) + " bar", 10);
+      return;
+   }
+   lastBar = curBar;
+
+   double rsi1 = iRSI(gSymbol, RSI_Timeframe, RSI_Period, PRICE_CLOSE, 1);
+   double rsi2 = iRSI(gSymbol, RSI_Timeframe, RSI_Period, PRICE_CLOSE, 2);
+   double bbLower = iBands(gSymbol, RSI_Timeframe, 20, 2.0, 0, PRICE_CLOSE, MODE_LOWER, 1);
+   double bbUpper = iBands(gSymbol, RSI_Timeframe, 20, 2.0, 0, PRICE_CLOSE, MODE_UPPER, 1);
+   double close1 = iClose(gSymbol, RSI_Timeframe, 1);
+   double atrSL = GetATRStopLoss(gSymbol, RSI_Timeframe, 14, 1.5);
+
+   bool buyReversal = (rsi2 < RSI_OS && rsi1 > RSI_OS);
+   bool buyBand = (close1 <= bbLower * 1.001);
+   bool sellReversal = (rsi2 > RSI_OB && rsi1 < RSI_OB);
+   bool sellBand = (close1 >= bbUpper * 0.999);
+   double buyScore = (double)((buyReversal ? 1 : 0) + (buyBand ? 1 : 0)) / 2.0 * 100.0;
+   double sellScore = (double)((sellReversal ? 1 : 0) + (sellBand ? 1 : 0)) / 2.0 * 100.0;
+
+   if(buyReversal && buyBand)
+   {
+      double sl = atrSL;
+      double tp = sl * 1.5;
+      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
+      double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
+
+      ResetLastError();
+      int ticket = OrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
+                            "QG_RSI_Rev_BUY", RSI_Magic, 0, clrDodgerBlue);
+      if(ticket > 0) Print("[RSI回归] 买入 ", lots, " 手 @ ", Ask);
+      if(ticket > 0)
+         SetStrategyDiagnostic(1, "BUY_ORDER_SENT", "RSI_Reversal buy order sent on " + TimeframeLabel(RSI_Timeframe), 100);
+      else
+         SetStrategyDiagnostic(1, "ORDER_SEND_FAILED", "RSI buy setup failed, error=" + IntegerToString(GetLastError()), 100);
+      return;
+   }
+
+   if(sellReversal && sellBand)
+   {
+      double sl = atrSL;
+      double tp = sl * 1.5;
+      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
+      double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
+
+      ResetLastError();
+      int ticket = OrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
+                            "QG_RSI_Rev_SELL", RSI_Magic, 0, clrOrange);
+      if(ticket > 0) Print("[RSI回归] 卖出 ", lots, " 手 @ ", Bid);
+      if(ticket > 0)
+         SetStrategyDiagnostic(1, "SELL_ORDER_SENT", "RSI_Reversal sell order sent on " + TimeframeLabel(RSI_Timeframe), 100);
+      else
+         SetStrategyDiagnostic(1, "ORDER_SEND_FAILED", "RSI sell setup failed, error=" + IntegerToString(GetLastError()), 100);
+      return;
+   }
+
+   if(buyScore >= sellScore)
+      SetStrategyDiagnostic(1, "NO_SETUP",
+                            "BUY bias " + DoubleToStr(buyScore, 0) + "/100 | reversal=" + BoolLabel(buyReversal) +
+                            " band=" + BoolLabel(buyBand), buyScore);
+   else
+      SetStrategyDiagnostic(1, "NO_SETUP",
+                            "SELL bias " + DoubleToStr(sellScore, 0) + "/100 | reversal=" + BoolLabel(sellReversal) +
+                            " band=" + BoolLabel(sellBand), sellScore);
+}
+
+int DetectBullishDivergenceV2()
+{
+   double priceLow1 = 0, priceLow2 = 0;
+   double macdLow1 = 0, macdLow2 = 0;
+   int pos1 = 0, pos2 = 0;
+
+   for(int i = 2; i < MACD_LookBack; i++)
+   {
+      double lowPrev = iLow(gSymbol, MACD_Timeframe, i + 1);
+      double lowCurr = iLow(gSymbol, MACD_Timeframe, i);
+      double lowNext = iLow(gSymbol, MACD_Timeframe, i - 1);
+
+      if(lowCurr < lowPrev && lowCurr < lowNext)
+      {
+         if(pos1 == 0)
+         {
+            pos1 = i;
+            priceLow1 = lowCurr;
+            macdLow1 = iMACD(gSymbol, MACD_Timeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE, MODE_MAIN, i);
+         }
+         else if(pos2 == 0)
+         {
+            pos2 = i;
+            priceLow2 = lowCurr;
+            macdLow2 = iMACD(gSymbol, MACD_Timeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE, MODE_MAIN, i);
+            break;
+         }
+      }
+   }
+
+   if(pos1 == 0 || pos2 == 0)
+      return 0;
+
+   if(priceLow1 < priceLow2 && macdLow1 > macdLow2)
+      return 1;
+
+   return 0;
+}
+
+int DetectBearishDivergenceV2()
+{
+   double priceHigh1 = 0, priceHigh2 = 0;
+   double macdHigh1 = 0, macdHigh2 = 0;
+   int pos1 = 0, pos2 = 0;
+
+   for(int i = 2; i < MACD_LookBack; i++)
+   {
+      double highPrev = iHigh(gSymbol, MACD_Timeframe, i + 1);
+      double highCurr = iHigh(gSymbol, MACD_Timeframe, i);
+      double highNext = iHigh(gSymbol, MACD_Timeframe, i - 1);
+
+      if(highCurr > highPrev && highCurr > highNext)
+      {
+         if(pos1 == 0)
+         {
+            pos1 = i;
+            priceHigh1 = highCurr;
+            macdHigh1 = iMACD(gSymbol, MACD_Timeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE, MODE_MAIN, i);
+         }
+         else if(pos2 == 0)
+         {
+            pos2 = i;
+            priceHigh2 = highCurr;
+            macdHigh2 = iMACD(gSymbol, MACD_Timeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE, MODE_MAIN, i);
+            break;
+         }
+      }
+   }
+
+   if(pos1 == 0 || pos2 == 0)
+      return 0;
+
+   if(priceHigh1 > priceHigh2 && macdHigh1 < macdHigh2)
+      return 1;
+
+   return 0;
+}
+
+void Strategy_MACD_Divergence_V2()
+{
+   if(HasOpenPosition(MACD_Magic, gSymbol))
+   {
+      SetStrategyDiagnostic(3, "IN_POSITION", "Existing MACD_Divergence position is still open", 100);
+      return;
+   }
+   if(CountAllPositions() >= MaxTotalTrades)
+   {
+      SetStrategyDiagnostic(3, "PORTFOLIO_LIMIT", "Max concurrent trades reached", 100);
+      return;
+   }
+
+   static datetime lastBar = 0;
+   datetime curBar = iTime(gSymbol, MACD_Timeframe, 0);
+   if(curBar == lastBar)
+   {
+      SetStrategyDiagnostic(3, "WAIT_BAR", "Waiting for a new " + TimeframeLabel(MACD_Timeframe) + " bar", 10);
+      return;
+   }
+   lastBar = curBar;
+
+   int bullDiv = DetectBullishDivergenceV2();
+   int bearDiv = DetectBearishDivergenceV2();
+   double atrSL = GetATRStopLoss(gSymbol, MACD_Timeframe, 14, 2.0);
+
+   if(bullDiv > 0)
+   {
+      double sl = atrSL;
+      double tp = sl * 2.0;
+      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
+      double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
+
+      ResetLastError();
+      int ticket = OrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
+                            "QG_MACD_Div_BUY", MACD_Magic, 0, clrAqua);
+      if(ticket > 0) Print("[MACD背离] 底背离买入 ", lots, " 手 @ ", Ask);
+      if(ticket > 0)
+         SetStrategyDiagnostic(3, "BUY_ORDER_SENT", "Bullish MACD divergence triggered a buy", 100);
+      else
+         SetStrategyDiagnostic(3, "ORDER_SEND_FAILED", "Bullish MACD divergence failed, error=" + IntegerToString(GetLastError()), 100);
+      return;
+   }
+
+   if(bearDiv > 0)
+   {
+      double sl = atrSL;
+      double tp = sl * 2.0;
+      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
+      double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
+
+      ResetLastError();
+      int ticket = OrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
+                            "QG_MACD_Div_SELL", MACD_Magic, 0, clrCrimson);
+      if(ticket > 0) Print("[MACD背离] 顶背离卖出 ", lots, " 手 @ ", Bid);
+      if(ticket > 0)
+         SetStrategyDiagnostic(3, "SELL_ORDER_SENT", "Bearish MACD divergence triggered a sell", 100);
+      else
+         SetStrategyDiagnostic(3, "ORDER_SEND_FAILED", "Bearish MACD divergence failed, error=" + IntegerToString(GetLastError()), 100);
+      return;
+   }
+
+   SetStrategyDiagnostic(3, "NO_SETUP",
+                         "No MACD divergence found in the last " + IntegerToString(MACD_LookBack) + " bars", 0);
+}
+
+void Strategy_SR_Breakout_V2()
+{
+   if(HasOpenPosition(SR_Magic, gSymbol))
+   {
+      SetStrategyDiagnostic(4, "IN_POSITION", "Existing SR_Breakout position is still open", 100);
+      return;
+   }
+   if(CountAllPositions() >= MaxTotalTrades)
+   {
+      SetStrategyDiagnostic(4, "PORTFOLIO_LIMIT", "Max concurrent trades reached", 100);
+      return;
+   }
+
+   static datetime lastBar = 0;
+   datetime curBar = iTime(gSymbol, SR_Timeframe, 0);
+   if(curBar == lastBar)
+   {
+      SetStrategyDiagnostic(4, "WAIT_BAR", "Waiting for a new " + TimeframeLabel(SR_Timeframe) + " bar", 10);
+      return;
+   }
+   lastBar = curBar;
+
+   double resistance = 0;
+   double support = 999999;
+   for(int i = 1; i <= SR_LookBack; i++)
+   {
+      double high = iHigh(gSymbol, SR_Timeframe, i);
+      double low = iLow(gSymbol, SR_Timeframe, i);
+      if(high > resistance) resistance = high;
+      if(low < support) support = low;
+   }
+
+   double close1 = iClose(gSymbol, SR_Timeframe, 1);
+   double close2 = iClose(gSymbol, SR_Timeframe, 2);
+   double breakPrice = PipsToPrice(SR_BreakPips, gSymbol);
+   double avgVol = 0;
+   for(int j = 1; j <= 20; j++)
+      avgVol += (double)iVolume(gSymbol, SR_Timeframe, j);
+   avgVol /= 20.0;
+
+   bool volumeConfirm = iVolume(gSymbol, SR_Timeframe, 1) > avgVol * 1.2;
+   bool buyPrevBelow = (close2 < resistance);
+   bool buyBreak = (close1 > resistance + breakPrice);
+   bool sellPrevAbove = (close2 > support);
+   bool sellBreak = (close1 < support - breakPrice);
+   double buyScore = (double)((buyPrevBelow ? 1 : 0) + (buyBreak ? 1 : 0) + (volumeConfirm ? 1 : 0)) / 3.0 * 100.0;
+   double sellScore = (double)((sellPrevAbove ? 1 : 0) + (sellBreak ? 1 : 0) + (volumeConfirm ? 1 : 0)) / 3.0 * 100.0;
+   double atrSL = GetATRStopLoss(gSymbol, SR_Timeframe, 14, 1.5);
+
+   if(buyPrevBelow && buyBreak && volumeConfirm)
+   {
+      double sl = atrSL;
+      double tp = sl * 2.0;
+      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
+      double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
+
+      ResetLastError();
+      int ticket = OrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
+                            "QG_SR_Break_BUY", SR_Magic, 0, clrSpringGreen);
+      if(ticket > 0) Print("[SR突破] 突破阻力买入 ", lots, " 手 @ ", Ask, " R=", resistance);
+      if(ticket > 0)
+         SetStrategyDiagnostic(4, "BUY_ORDER_SENT", "SR_Breakout resistance breakout buy", 100);
+      else
+         SetStrategyDiagnostic(4, "ORDER_SEND_FAILED", "SR breakout buy failed, error=" + IntegerToString(GetLastError()), 100);
+      return;
+   }
+
+   if(sellPrevAbove && sellBreak && volumeConfirm)
+   {
+      double sl = atrSL;
+      double tp = sl * 2.0;
+      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
+      double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
+
+      ResetLastError();
+      int ticket = OrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
+                            "QG_SR_Break_SELL", SR_Magic, 0, clrTomato);
+      if(ticket > 0) Print("[SR突破] 跌破支撑卖出 ", lots, " 手 @ ", Bid, " S=", support);
+      if(ticket > 0)
+         SetStrategyDiagnostic(4, "SELL_ORDER_SENT", "SR_Breakout support breakdown sell", 100);
+      else
+         SetStrategyDiagnostic(4, "ORDER_SEND_FAILED", "SR breakout sell failed, error=" + IntegerToString(GetLastError()), 100);
+      return;
+   }
+
+   if(buyScore >= sellScore)
+      SetStrategyDiagnostic(4, "NO_SETUP",
+                            "BUY bias " + DoubleToStr(buyScore, 0) + "/100 | prevBelow=" + BoolLabel(buyPrevBelow) +
+                            " break=" + BoolLabel(buyBreak) + " volume=" + BoolLabel(volumeConfirm), buyScore);
+   else
+      SetStrategyDiagnostic(4, "NO_SETUP",
+                            "SELL bias " + DoubleToStr(sellScore, 0) + "/100 | prevAbove=" + BoolLabel(sellPrevAbove) +
+                            " break=" + BoolLabel(sellBreak) + " volume=" + BoolLabel(volumeConfirm), sellScore);
 }
 
 //+------------------------------------------------------------------+
@@ -127,6 +477,13 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    EnsureAutoTradingEnabled();
+   RefreshStrategyDiagnostics();
+   AuditClosedTrades();
+   if(TimeLocal() - gLastSnapshotLog >= 300)
+   {
+      LogAccountSnapshot("TIMER");
+      gLastSnapshotLog = TimeLocal();
+   }
    UpdateChartDisplayV2();
 
    if(EnableDashboard)
@@ -139,6 +496,7 @@ void OnTimer()
 void OnTick()
 {
    gLastTickTime = (datetime)MarketInfo(gSymbol, MODE_TIME);
+   RefreshStrategyDiagnostics();
 
    // 回撤保护
    if(!CheckMaxDrawdown(MaxDrawdownPercent))
@@ -155,10 +513,10 @@ void OnTick()
 
    // 执行各策略
    if(Enable_MA)   Strategy_MA_Cross();
-   if(Enable_RSI)  Strategy_RSI_Reversal();
+   if(Enable_RSI)  Strategy_RSI_Reversal_V2();
    if(Enable_BB)   Strategy_BB_Triple();
-   if(Enable_MACD) Strategy_MACD_Divergence();
-   if(Enable_SR)   Strategy_SR_Breakout();
+   if(Enable_MACD) Strategy_MACD_Divergence_V2();
+   if(Enable_SR)   Strategy_SR_Breakout_V2();
 
    // 追踪止损
    if(TrailingStopPips > 0)
@@ -181,18 +539,133 @@ void OnTick()
    }
 }
 
+string BoolLabel(bool value)
+{
+   return value ? "Y" : "N";
+}
+
+string TimeframeLabel(int timeframe)
+{
+   switch(timeframe)
+   {
+      case PERIOD_M1:  return "M1";
+      case PERIOD_M5:  return "M5";
+      case PERIOD_M15: return "M15";
+      case PERIOD_M30: return "M30";
+      case PERIOD_H1:  return "H1";
+      case PERIOD_H4:  return "H4";
+      case PERIOD_D1:  return "D1";
+      case PERIOD_W1:  return "W1";
+      case PERIOD_MN1: return "MN1";
+      default:         return IntegerToString(timeframe);
+   }
+}
+
+string JsonEscape(string value)
+{
+   StringReplace(value, "\\", "\\\\");
+   StringReplace(value, "\"", "\\\"");
+   StringReplace(value, "\r", " ");
+   StringReplace(value, "\n", " ");
+   return value;
+}
+
+void SetStrategyDiagnostic(int index, string status, string reason, double score)
+{
+   if(index < 0 || index >= STRATEGY_DIAG_COUNT)
+      return;
+
+   if(score < 0) score = 0;
+   if(score > 100) score = 100;
+
+   gStrategyDiagStatus[index] = status;
+   gStrategyDiagReason[index] = reason;
+   gStrategyDiagScore[index] = score;
+}
+
+string TradingStatusReason(string status)
+{
+   if(status == "DISCONNECTED") return "Terminal is disconnected from broker";
+   if(status == "ACCOUNT_TRADE_DISABLED") return "Broker account trading is disabled";
+   if(status == "SERVER_EXPERTS_DISABLED") return "Broker server disabled expert trading";
+   if(status == "TERMINAL_AUTOTRADING_OFF") return "MT4 terminal AutoTrading is off";
+   if(status == "EA_LIVE_TRADING_OFF") return "EA live trading permission is off";
+   if(status == "OUT_OF_SESSION") return "Session filter is blocking entries";
+   if(status == "WAITING_MARKET") return "Waiting for fresh market ticks";
+   if(status == "READY") return "Ready for signal evaluation";
+   return "Runtime status: " + status;
+}
+
+void RefreshStrategyDiagnostics()
+{
+   SetStrategyDiagnostic(0, Enable_MA ? "WAIT_SIGNAL" : "DISABLED",
+                         Enable_MA ? "Waiting for MA_Cross evaluation" : "MA_Cross is disabled", 0);
+   SetStrategyDiagnostic(1, Enable_RSI ? "WAIT_SIGNAL" : "DISABLED",
+                         Enable_RSI ? "Waiting for RSI_Reversal evaluation" : "RSI_Reversal is disabled", 0);
+   SetStrategyDiagnostic(2, Enable_BB ? "WAIT_SIGNAL" : "DISABLED",
+                         Enable_BB ? "Waiting for BB_Triple evaluation" : "BB_Triple is disabled", 0);
+   SetStrategyDiagnostic(3, Enable_MACD ? "WAIT_SIGNAL" : "DISABLED",
+                         Enable_MACD ? "Waiting for MACD_Divergence evaluation" : "MACD_Divergence is disabled", 0);
+   SetStrategyDiagnostic(4, Enable_SR ? "WAIT_SIGNAL" : "DISABLED",
+                         Enable_SR ? "Waiting for SR_Breakout evaluation" : "SR_Breakout is disabled", 0);
+
+   if(!CheckMaxDrawdown(MaxDrawdownPercent))
+   {
+      if(Enable_MA)   SetStrategyDiagnostic(0, "DRAWDOWN_GUARD", "Max drawdown guard paused entries", 100);
+      if(Enable_RSI)  SetStrategyDiagnostic(1, "DRAWDOWN_GUARD", "Max drawdown guard paused entries", 100);
+      if(Enable_BB)   SetStrategyDiagnostic(2, "DRAWDOWN_GUARD", "Max drawdown guard paused entries", 100);
+      if(Enable_MACD) SetStrategyDiagnostic(3, "DRAWDOWN_GUARD", "Max drawdown guard paused entries", 100);
+      if(Enable_SR)   SetStrategyDiagnostic(4, "DRAWDOWN_GUARD", "Max drawdown guard paused entries", 100);
+      return;
+   }
+
+   string runtimeStatus = GetTradingStatus();
+   if(runtimeStatus != "READY")
+   {
+      string reason = TradingStatusReason(runtimeStatus);
+      if(Enable_MA)   SetStrategyDiagnostic(0, runtimeStatus, reason, 0);
+      if(Enable_RSI)  SetStrategyDiagnostic(1, runtimeStatus, reason, 0);
+      if(Enable_BB)   SetStrategyDiagnostic(2, runtimeStatus, reason, 0);
+      if(Enable_MACD) SetStrategyDiagnostic(3, runtimeStatus, reason, 0);
+      if(Enable_SR)   SetStrategyDiagnostic(4, runtimeStatus, reason, 0);
+      return;
+   }
+
+   if(CountAllPositions() >= MaxTotalTrades)
+   {
+      string capReason = "Max concurrent trades reached";
+      if(Enable_MA)   SetStrategyDiagnostic(0, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_RSI)  SetStrategyDiagnostic(1, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_BB)   SetStrategyDiagnostic(2, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_MACD) SetStrategyDiagnostic(3, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_SR)   SetStrategyDiagnostic(4, "PORTFOLIO_LIMIT", capReason, 100);
+   }
+}
+
 //+------------------------------------------------------------------+
 //| 策略1: MA金叉死叉                                                  |
 //+------------------------------------------------------------------+
 void Strategy_MA_Cross()
 {
-   if(HasOpenPosition(MA_Magic, gSymbol)) return;
-   if(CountAllPositions() >= MaxTotalTrades) return;
+   if(HasOpenPosition(MA_Magic, gSymbol))
+   {
+      SetStrategyDiagnostic(0, "IN_POSITION", "Existing MA_Cross position is still open", 100);
+      return;
+   }
+   if(CountAllPositions() >= MaxTotalTrades)
+   {
+      SetStrategyDiagnostic(0, "PORTFOLIO_LIMIT", "Max concurrent trades reached", 100);
+      return;
+   }
 
    // 仅在新K线开始时检查
    static datetime lastBar = 0;
    datetime curBar = iTime(gSymbol, MA_Timeframe, 0);
-   if(curBar == lastBar) return;
+   if(curBar == lastBar)
+   {
+      SetStrategyDiagnostic(0, "WAIT_BAR", "Waiting for a new " + TimeframeLabel(MA_Timeframe) + " bar", 10);
+      return;
+   }
    lastBar = curBar;
 
    double fastMA_1 = iMA(gSymbol, MA_Timeframe, MA_FastPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
@@ -202,12 +675,24 @@ void Strategy_MA_Cross()
    double trendMA  = iMA(gSymbol, MA_Timeframe, MA_TrendPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
 
    double rsi14 = iRSI(gSymbol, MA_Timeframe, 14, PRICE_CLOSE, 1);
-
    double atrSL = GetATRStopLoss(gSymbol, MA_Timeframe, 14, 2.0);
+   double close1 = iClose(gSymbol, MA_Timeframe, 1);
+
+   bool buyCross = (fastMA_2 < slowMA_2 && fastMA_1 > slowMA_1);
+   bool buyTrend = (close1 > trendMA);
+   bool buyRsi = (rsi14 > 50);
+   bool sellCross = (fastMA_2 > slowMA_2 && fastMA_1 < slowMA_1);
+   bool sellTrend = (close1 < trendMA);
+   bool sellRsi = (rsi14 < 50);
+
+   double buyScore = (double)((buyCross ? 1 : 0) + (buyTrend ? 1 : 0) + (buyRsi ? 1 : 0)) / 3.0 * 100.0;
+   double sellScore = (double)((sellCross ? 1 : 0) + (sellTrend ? 1 : 0) + (sellRsi ? 1 : 0)) / 3.0 * 100.0;
+   int buyTicket = -1;
+   int sellTicket = -1;
+   int ticket = -1;
 
    // 金叉买入: 快线上穿慢线 + 价格在200MA上方 + RSI>50
-   if(fastMA_2 < slowMA_2 && fastMA_1 > slowMA_1 &&
-      iClose(gSymbol, MA_Timeframe, 1) > trendMA && rsi14 > 50)
+   if(buyCross && buyTrend && buyRsi)
    {
       double sl = atrSL;
       double tp = sl * 2.0;
@@ -215,14 +700,15 @@ void Strategy_MA_Cross()
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
 
-      int ticket = OrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
+      ResetLastError();
+      buyTicket = OrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
                             "QG_MA_Cross_BUY", MA_Magic, 0, clrLime);
+      ticket = buyTicket;
       if(ticket > 0) Print("[MA交叉] 买入 ", lots, " 手 @ ", Ask);
    }
 
    // 死叉卖出: 快线下穿慢线 + 价格在200MA下方 + RSI<50
-   if(fastMA_2 > slowMA_2 && fastMA_1 < slowMA_1 &&
-      iClose(gSymbol, MA_Timeframe, 1) < trendMA && rsi14 < 50)
+   if(sellCross && sellTrend && sellRsi)
    {
       double sl = atrSL;
       double tp = sl * 2.0;
@@ -230,8 +716,10 @@ void Strategy_MA_Cross()
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
 
-      int ticket = OrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
+      ResetLastError();
+      sellTicket = OrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
                             "QG_MA_Cross_SELL", MA_Magic, 0, clrRed);
+      ticket = sellTicket;
       if(ticket > 0) Print("[MA交叉] 卖出 ", lots, " 手 @ ", Bid);
    }
 }
@@ -692,7 +1180,7 @@ void UpdateChartDisplayV2()
       dd = (balance - equity) / balance * 100.0;
 
    string info = "";
-   info += "QuantGod Multi-Strategy v2.1\n";
+   info += "QuantGod Multi-Strategy v2.3\n";
    info += "Symbol: " + gSymbol + "  TF: " + IntegerToString(Period()) + "\n";
    info += "Balance: $" + DoubleToStr(balance, 2) + "\n";
    info += "Equity:  $" + DoubleToStr(equity, 2) + "\n";
@@ -766,6 +1254,7 @@ void ExportDashboardData()
    // JSON头
    FileWriteString(handle, "{\n");
    FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
+   FileWriteString(handle, "  \"build\": \"QuantGod-v2.3-diagnostics\",\n");
    FileWriteString(handle, "  \"runtime\": {\n");
    FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
     FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
@@ -827,7 +1316,7 @@ void ExportDashboardData()
    FileWriteString(handle, "  \"closedTrades\": [\n");
    bool firstClosed = true;
    int historyTotal = OrdersHistoryTotal();
-   int maxHistory = MathMin(historyTotal, 100);
+   int maxHistory = historyTotal;
 
    for(int i = historyTotal - 1; i >= historyTotal - maxHistory && i >= 0; i--)
    {
@@ -868,6 +1357,14 @@ void ExportDashboardData()
    FileWriteString(handle, "    \"SR_Breakout\": {\"enabled\": " + (Enable_SR ? "true" : "false") + ", \"positions\": " + IntegerToString(CountPositions(SR_Magic, gSymbol)) + "}\n");
    FileWriteString(handle, "  },\n");
 
+   FileWriteString(handle, "  \"diagnostics\": {\n");
+   FileWriteString(handle, "    \"MA_Cross\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[0]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[0], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[0]) + "\"},\n");
+   FileWriteString(handle, "    \"RSI_Reversal\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[1]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[1], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[1]) + "\"},\n");
+   FileWriteString(handle, "    \"BB_Triple\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[2]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[2], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[2]) + "\"},\n");
+   FileWriteString(handle, "    \"MACD_Divergence\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[3]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[3], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[3]) + "\"},\n");
+   FileWriteString(handle, "    \"SR_Breakout\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[4]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[4], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[4]) + "\"}\n");
+   FileWriteString(handle, "  },\n");
+
    // 市场信息
    FileWriteString(handle, "  \"market\": {\n");
    FileWriteString(handle, "    \"symbol\": \"" + gSymbol + "\",\n");
@@ -880,12 +1377,204 @@ void ExportDashboardData()
    FileClose(handle);
 
    // 同时导出余额历史CSV
-   ExportBalanceHistory();
+   ExportBalanceHistoryV2();
 }
 
 //+------------------------------------------------------------------+
 //| 导出余额历史                                                       |
 //+------------------------------------------------------------------+
+void LoadTradeLogState()
+{
+   int handle = FileOpen("QuantGod_LogState.csv", FILE_CSV | FILE_ANSI | FILE_READ, ',');
+   if(handle == INVALID_HANDLE)
+      return;
+
+   if(!FileIsEnding(handle))
+   {
+      gLastLoggedCloseTime = (datetime)FileReadNumber(handle);
+      gLastLoggedCloseTicket = (int)FileReadNumber(handle);
+   }
+
+   FileClose(handle);
+}
+
+void SaveTradeLogState()
+{
+   int handle = FileOpen("QuantGod_LogState.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+   if(handle == INVALID_HANDLE)
+      return;
+
+   FileWrite(handle, (int)gLastLoggedCloseTime, gLastLoggedCloseTicket);
+   FileClose(handle);
+}
+
+void LogAccountSnapshot(string sourceTag)
+{
+   ResetLastError();
+   int handle = FileOpen("QuantGod_EquitySnapshots.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
+   if(handle == INVALID_HANDLE)
+      handle = FileOpen("QuantGod_EquitySnapshots.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to open QuantGod_EquitySnapshots.csv, error=", GetLastError());
+      return;
+   }
+
+   if(FileSize(handle) == 0)
+      FileWrite(handle, "Time", "Source", "Status", "Balance", "Equity", "Profit", "Margin", "FreeMargin", "Spread", "OpenPositions");
+   else
+      FileSeek(handle, 0, SEEK_END);
+
+   FileWrite(handle,
+             TimeToStr(TimeLocal(), TIME_DATE|TIME_SECONDS),
+             sourceTag,
+             GetTradingStatus(),
+             DoubleToStr(AccountBalance(), 2),
+             DoubleToStr(AccountEquity(), 2),
+             DoubleToStr(AccountProfit(), 2),
+             DoubleToStr(AccountMargin(), 2),
+             DoubleToStr(AccountFreeMargin(), 2),
+             DoubleToStr(GetSpreadPips(gSymbol), 1),
+             CountAllPositions());
+
+   FileClose(handle);
+}
+
+void AuditClosedTrades()
+{
+   ResetLastError();
+   int handle = FileOpen("QuantGod_TradeJournal.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to open QuantGod_TradeJournal.csv, error=", GetLastError());
+      return;
+   }
+
+   FileWrite(handle, "CloseTime", "Ticket", "Strategy", "Type", "Symbol", "Lots", "OpenPrice", "ClosePrice", "SL", "TP", "Profit", "Swap", "Commission", "Net", "DurationMinutes", "Balance", "Equity", "Comment");
+
+   int historyTotal = OrdersHistoryTotal();
+   if(historyTotal <= 0)
+   {
+      FileClose(handle);
+      return;
+   }
+
+   for(int i = 0; i < historyTotal; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != gSymbol) continue;
+      if(OrderMagicNumber() != MA_Magic && OrderMagicNumber() != RSI_Magic &&
+         OrderMagicNumber() != BB_Magic && OrderMagicNumber() != MACD_Magic &&
+         OrderMagicNumber() != SR_Magic) continue;
+
+      datetime closeTime = OrderCloseTime();
+      int ticket = OrderTicket();
+      if(closeTime <= 0) continue;
+      if(closeTime < gLastLoggedCloseTime) continue;
+      if(closeTime == gLastLoggedCloseTime && ticket <= gLastLoggedCloseTicket) continue;
+
+      string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
+
+      FileWrite(handle,
+                TimeToStr(closeTime, TIME_DATE|TIME_SECONDS),
+                ticket,
+                GetStrategyName(OrderMagicNumber()),
+                typeStr,
+                OrderSymbol(),
+                DoubleToStr(OrderLots(), 2),
+                DoubleToStr(OrderOpenPrice(), gDigits),
+                DoubleToStr(OrderClosePrice(), gDigits),
+                DoubleToStr(OrderStopLoss(), gDigits),
+                DoubleToStr(OrderTakeProfit(), gDigits),
+                DoubleToStr(OrderProfit(), 2),
+                DoubleToStr(OrderSwap(), 2),
+                DoubleToStr(OrderCommission(), 2),
+                DoubleToStr(netProfit, 2),
+                durationMinutes,
+                DoubleToStr(AccountBalance(), 2),
+                DoubleToStr(AccountEquity(), 2),
+                OrderComment());
+   }
+
+   FileClose(handle);
+}
+
+void ExportBalanceHistoryV2()
+{
+   string filename = "QuantGod_BalanceHistory.csv";
+   int handle = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(handle == INVALID_HANDLE) return;
+
+   FileWriteString(handle, "RowType,Time,Status,Strategy,Ticket,Type,Symbol,Lots,OpenPrice,ClosePrice,GrossProfit,NetProfit,Swap,Commission,Balance,Equity,DurationMinutes,Comment\n");
+
+   int historyTotal = OrdersHistoryTotal();
+   double totalClosedNet = 0;
+   for(int i = 0; i < historyTotal; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderMagicNumber() != MA_Magic && OrderMagicNumber() != RSI_Magic &&
+         OrderMagicNumber() != BB_Magic && OrderMagicNumber() != MACD_Magic &&
+         OrderMagicNumber() != SR_Magic) continue;
+
+      totalClosedNet += OrderProfit() + OrderSwap() + OrderCommission();
+   }
+
+   double runningBalance = AccountBalance() - totalClosedNet;
+
+   for(int j = 0; j < historyTotal; j++)
+   {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderMagicNumber() != MA_Magic && OrderMagicNumber() != RSI_Magic &&
+         OrderMagicNumber() != BB_Magic && OrderMagicNumber() != MACD_Magic &&
+         OrderMagicNumber() != SR_Magic) continue;
+
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      runningBalance += netProfit;
+      int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
+      string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
+      string commentText = OrderComment();
+      StringReplace(commentText, ",", " ");
+      StringReplace(commentText, "\r", " ");
+      StringReplace(commentText, "\n", " ");
+
+      FileWriteString(handle,
+                      "CLOSED_TRADE," +
+                      TimeToStr(OrderCloseTime(), TIME_DATE|TIME_SECONDS) + "," +
+                      "CLOSED," +
+                      GetStrategyName(OrderMagicNumber()) + "," +
+                      IntegerToString(OrderTicket()) + "," +
+                      typeStr + "," +
+                      OrderSymbol() + "," +
+                      DoubleToStr(OrderLots(), 2) + "," +
+                      DoubleToStr(OrderOpenPrice(), gDigits) + "," +
+                      DoubleToStr(OrderClosePrice(), gDigits) + "," +
+                      DoubleToStr(OrderProfit(), 2) + "," +
+                      DoubleToStr(netProfit, 2) + "," +
+                      DoubleToStr(OrderSwap(), 2) + "," +
+                      DoubleToStr(OrderCommission(), 2) + "," +
+                      DoubleToStr(runningBalance, 2) + "," +
+                      DoubleToStr(runningBalance, 2) + "," +
+                      IntegerToString(durationMinutes) + "," +
+                      commentText + "\n");
+   }
+
+   FileWriteString(handle,
+                   "ACCOUNT_SNAPSHOT," +
+                   TimeToStr(TimeLocal(), TIME_DATE|TIME_SECONDS) + "," +
+                   GetTradingStatus() + "," +
+                   "Current,0,N/A," + gSymbol + ",0,0,0," +
+                   DoubleToStr(AccountProfit(), 2) + "," +
+                   DoubleToStr(AccountProfit(), 2) + ",0,0," +
+                   DoubleToStr(AccountBalance(), 2) + "," +
+                   DoubleToStr(AccountEquity(), 2) + ",0,Runtime\n");
+
+   FileClose(handle);
+}
+
 void ExportBalanceHistory()
 {
    string filename = "QuantGod_BalanceHistory.csv";
@@ -923,6 +1612,53 @@ void ExportBalanceHistory()
       DoubleToStr(AccountBalance(), 2) + "," +
       DoubleToStr(AccountEquity(), 2) + "," +
       DoubleToStr(AccountProfit(), 2) + ",Current\n");
+
+   FileClose(handle);
+}
+
+void ExportTradeJournal()
+{
+   int handle = FileOpen("QuantGod_TradeJournal.csv", FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(handle == INVALID_HANDLE) return;
+
+   FileWriteString(handle, "CloseTime,Ticket,Strategy,Type,Symbol,Lots,OpenPrice,ClosePrice,SL,TP,Profit,Swap,Commission,Net,DurationMinutes,Comment\n");
+
+   int historyTotal = OrdersHistoryTotal();
+   for(int i = 0; i < historyTotal; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != gSymbol) continue;
+      if(OrderMagicNumber() != MA_Magic && OrderMagicNumber() != RSI_Magic &&
+         OrderMagicNumber() != BB_Magic && OrderMagicNumber() != MACD_Magic &&
+         OrderMagicNumber() != SR_Magic) continue;
+
+      string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
+
+      string commentText = OrderComment();
+      StringReplace(commentText, ",", " ");
+      StringReplace(commentText, "\r", " ");
+      StringReplace(commentText, "\n", " ");
+
+      FileWriteString(handle,
+                      TimeToStr(OrderCloseTime(), TIME_DATE|TIME_SECONDS) + "," +
+                      IntegerToString(OrderTicket()) + "," +
+                      GetStrategyName(OrderMagicNumber()) + "," +
+                      typeStr + "," +
+                      OrderSymbol() + "," +
+                      DoubleToStr(OrderLots(), 2) + "," +
+                      DoubleToStr(OrderOpenPrice(), gDigits) + "," +
+                      DoubleToStr(OrderClosePrice(), gDigits) + "," +
+                      DoubleToStr(OrderStopLoss(), gDigits) + "," +
+                      DoubleToStr(OrderTakeProfit(), gDigits) + "," +
+                      DoubleToStr(OrderProfit(), 2) + "," +
+                      DoubleToStr(OrderSwap(), 2) + "," +
+                      DoubleToStr(OrderCommission(), 2) + "," +
+                      DoubleToStr(netProfit, 2) + "," +
+                      IntegerToString(durationMinutes) + "," +
+                      commentText + "\n");
+   }
 
    FileClose(handle);
 }
