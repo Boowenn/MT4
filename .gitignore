@@ -2,3 +2,6 @@
 *.ex5
 *.log
 __pycache__/
+cloudflare/.quantgod_ingest_token.local
+cloudflare/.wrangler/
+Dashboard/quantgod_cloud_sync.json
