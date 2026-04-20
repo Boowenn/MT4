@@ -39,6 +39,9 @@ input int      MA_SlowPeriod      = 21;      // 慢线周期
 input int      MA_TrendPeriod     = 100;     // 趋势过滤 SMA
 input ENUM_TIMEFRAMES MA_Timeframe = PERIOD_M15; // 研究模式：M15 提高样本量
 input ENUM_TIMEFRAMES MA_TrendTimeframe = PERIOD_H1; // 用更高周期过滤方向
+input int      MA_CrossLookbackBars = 2;     // 只接受最近 2 根K线内的交叉
+input double   MA_MaxEntryDistanceATR = 0.35; // 进场不能离快线太远，避免追价
+input double   MA_MaxSpreadPips = 1.2;       // 点差过大不进场
 input int      MA_Magic           = 10001;   // Magic Number
 
 //=== 策略2: RSI 均值回归 ===
@@ -1153,10 +1156,10 @@ void Strategy_MA_Cross()
    double close1 = iClose(gSymbol, MA_Timeframe, 1);
    double trendClose = iClose(gSymbol, MA_TrendTimeframe, 1);
 
-   // Research mode: allow a slightly wider recent cross window to increase samples
+   // Research mode: keep entries recent enough to avoid chasing old crosses.
    bool buyCross = false;
    bool sellCross = false;
-   for(int c = 1; c <= 5; c++)
+   for(int c = 1; c <= MA_CrossLookbackBars; c++)
    {
       double fPrev = iMA(gSymbol, MA_Timeframe, MA_FastPeriod, 0, MODE_EMA, PRICE_CLOSE, c+1);
       double sPrev = iMA(gSymbol, MA_Timeframe, MA_SlowPeriod, 0, MODE_EMA, PRICE_CLOSE, c+1);
@@ -1168,10 +1171,19 @@ void Strategy_MA_Cross()
 
    bool buyTrend = (trendClose > trendMA);
    bool sellTrend = (trendClose < trendMA);
+   double spreadPips = GetSpreadPips(gSymbol);
+   double pipFactor = ((gDigits == 3 || gDigits == 5) ? 10.0 : 1.0);
+   double entryDistancePips = MathAbs(close1 - fastMA_1) / gPoint / pipFactor;
+   double maxEntryDistancePips = MathMax(2.0, atrSL * MA_MaxEntryDistanceATR);
+   bool spreadOk = (spreadPips <= MA_MaxSpreadPips);
+   bool entryDistanceOk = (entryDistancePips <= maxEntryDistancePips);
+   bool qualityOk = (spreadOk && entryDistanceOk);
 
    Print("[MA_Cross] ", gSymbol, " | fast=", DoubleToStr(fastMA_1,5), " slow=", DoubleToStr(slowMA_1,5),
          " trend=", DoubleToStr(trendMA,5), " close=", DoubleToStr(close1,5),
          " trendClose=", DoubleToStr(trendClose,5),
+         " spread=", DoubleToStr(spreadPips,1),
+         " dist=", DoubleToStr(entryDistancePips,1), "/", DoubleToStr(maxEntryDistancePips,1),
          " | cross=", (buyCross?"BUY":(sellCross?"SELL":"NONE")),
          " trend=", (buyTrend?"UP":(sellTrend?"DN":"FLAT")));
 
@@ -1185,8 +1197,19 @@ void Strategy_MA_Cross()
    if(ask <= 0 || bid <= 0)
       return;
 
-   // Buy: cross detected in last 3 bars + trend confirmed
-   if(buyCross && buyTrend)
+   if((buyCross && buyTrend) || (sellCross && sellTrend))
+   {
+      if(!qualityOk)
+      {
+         string filterReason = "spread=" + DoubleToStr(spreadPips, 1) + "/" + DoubleToStr(MA_MaxSpreadPips, 1) +
+                              " dist=" + DoubleToStr(entryDistancePips, 1) + "/" + DoubleToStr(maxEntryDistancePips, 1);
+         SetStrategyDiagnostic(0, "QUALITY_FILTER", filterReason, MathMax(buyScore, sellScore));
+         return;
+      }
+   }
+
+   // Buy: recent cross + H1 trend confirmed + quality filter passed
+   if(buyCross && buyTrend && qualityOk)
    {
       double sl = atrSL;
       double tp = sl * 2.0;
@@ -1201,8 +1224,8 @@ void Strategy_MA_Cross()
       if(ticket > 0) Print("[MA莠､蜿云 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
    }
 
-   // Sell: cross detected in last 3 bars + trend confirmed
-   if(sellCross && sellTrend)
+   // Sell: recent cross + H1 trend confirmed + quality filter passed
+   if(sellCross && sellTrend && qualityOk)
    {
       double sl = atrSL;
       double tp = sl * 2.0;
@@ -1215,7 +1238,19 @@ void Strategy_MA_Cross()
                             "QG_MA_Cross_SELL", MA_Magic, 0, clrRed);
       ticket = sellTicket;
       if(ticket > 0) Print("[MA莠､蜿云 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
+      return;
    }
+
+   if(buyScore >= sellScore)
+      SetStrategyDiagnostic(0, "NO_SETUP",
+                            "BUY bias " + DoubleToStr(buyScore, 0) + "/100 | cross=" + BoolLabel(buyCross) +
+                            " trend=" + BoolLabel(buyTrend) + " spread=" + BoolLabel(spreadOk) +
+                            " dist=" + BoolLabel(entryDistanceOk), buyScore);
+   else
+      SetStrategyDiagnostic(0, "NO_SETUP",
+                            "SELL bias " + DoubleToStr(sellScore, 0) + "/100 | cross=" + BoolLabel(sellCross) +
+                            " trend=" + BoolLabel(sellTrend) + " spread=" + BoolLabel(spreadOk) +
+                            " dist=" + BoolLabel(entryDistanceOk), sellScore);
 }
 
 //+------------------------------------------------------------------+
