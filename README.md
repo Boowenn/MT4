@@ -85,6 +85,38 @@ If you only want the dashboard server:
 Dashboard\start_dashboard.bat
 ```
 
+## Cloudflare Deployment
+
+The MT4 execution engine still runs on Windows / MT4. Cloudflare is used for:
+
+- cloud dashboard hosting
+- ingesting the latest MT4 snapshot
+- exposing `/api/latest` for remote viewing
+
+Project files are in:
+
+```text
+cloudflare/
+```
+
+Quick path:
+
+1. Create a KV namespace with Wrangler
+2. Fill the KV ids in `cloudflare/wrangler.jsonc`
+3. Set `QG_INGEST_TOKEN` with `wrangler secret put`
+4. Run `npx wrangler deploy`
+5. In MT4 EA inputs, set:
+   - `EnableCloudSync = true`
+   - `CloudSyncEndpoint = https://<your-worker-domain>/api/ingest`
+   - `CloudSyncToken = <same token>`
+6. In MT4, allow the same domain under `Allow WebRequest for listed URL`
+
+If you do not want to rely on MT4 WebRequest allowlist handling, use the local uploader:
+
+- copy `Dashboard/cloud_sync_uploader.ps1` into `[MT4]/MQL4/Files/`
+- create `[MT4]/MQL4/Files/quantgod_cloud_sync.json`
+- `Start_QuantGod.bat` will auto-start the uploader when that file exists
+
 ## Dashboard
 
 The dashboard shows:

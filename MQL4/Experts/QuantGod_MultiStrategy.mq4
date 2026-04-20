@@ -36,6 +36,20 @@ input double   VirtualStartingBalance = 10.0; // 虚拟起始资金
 input double   VirtualRiskPercent = 1.0; // 虚拟账户单笔风险百分比
 input double   ResearchExecutionLot = 0.01; // 实际 demo 执行统一微型手数
 input bool     IgnoreLegacyTradesInVirtualStats = true; // 旧持仓不计入新研究样本
+input string   _g1b = "====== 研究快出场 ======";
+input bool     EnableResearchFastExit = true; // 研究模式启用更快的样本闭环
+input double   ResearchTargetRR = 0.9; // 将 TP 压缩到 0.9R，优先形成平仓样本
+input double   ResearchBreakEvenRR = 0.5; // 浮盈达到 0.5R 后推保护止损
+input double   ResearchBreakEvenLockPips = 0.2; // 保本后锁住少量盈利
+input int      ResearchMaxHoldMinutes_M15 = 45; // M15 策略最长持仓时间
+input int      ResearchMaxHoldMinutes_H1 = 90; // H1 策略最长持仓时间
+input int      ResearchMaxHoldMinutes_H4 = 240; // 更高周期最长持仓时间
+input string   _g2 = "====== Cloud 同步 ======";
+input bool     EnableCloudSync = false; // 将 dashboard 数据推送到云端
+input string   CloudSyncEndpoint = ""; // 例如 https://your-domain.workers.dev/api/ingest
+input string   CloudSyncToken = ""; // 可选 Bearer Token
+input int      CloudSyncIntervalSeconds = 30; // 云端推送最小间隔
+input int      CloudSyncTimeoutMs = 5000; // WebRequest 超时
 
 //=== 策略1: MA交叉 ===
 input string   _s1 = "====== 策略1: MA交叉 ======";
@@ -110,6 +124,11 @@ datetime gLastLoggedCloseTime;
 int      gLastLoggedCloseTicket;
 int      gCurrentDiagSymbolIndex;
 int      gLastOrderSendError;
+datetime gLastCloudSyncAttempt;
+datetime gLastCloudSyncSuccess;
+int      gLastCloudSyncHttpCode;
+string   gLastCloudSyncStatus;
+string   gLastCloudSyncMessage;
 
 string gStrategyDiagStatus[STRATEGY_DIAG_COUNT];
 string gStrategyDiagReason[STRATEGY_DIAG_COUNT];
@@ -159,12 +178,23 @@ double GetResearchDrawdownPercent();
 bool CheckResearchDrawdownLimit();
 double CalculateManagedLots(double slPips, string symbol_name, double &virtualLots);
 string BuildManagedOrderComment(string baseComment, double virtualLots);
+double PriceToPips(double priceDistance, string symbol_name);
+int GetStrategyTimeframeByMagic(int magic);
+int GetResearchMaxHoldMinutes(int timeframe);
+double AdjustTakeProfitPipsForResearch(double desiredTpPips, double slPips, string symbol_name);
+bool SafeOrderCloseCurrent(string reason);
+void ManageResearchFastExitForSelectedOrder();
+void ManageResearchFastExits(string symbol_name);
 double GetDisplayedBalance();
 double GetDisplayedEquity();
 double GetDisplayedProfit();
 double GetDisplayedDrawdownPercent();
 double GetResearchSymbolFloatingProfit(string symbol_name);
 double GetResearchSymbolClosedProfit(string symbol_name, int &closedTrades, int &winTrades, datetime &lastCloseTime);
+bool CanSyncToCloud();
+bool ReadBinaryFile(string filename, char &data[]);
+void RecordCloudSyncResult(string status, int httpCode, string message, bool success);
+bool SyncDashboardToCloud(string filename);
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
@@ -186,6 +216,24 @@ int OnInit()
    gLastSnapshotLog = 0;
    gLastLoggedCloseTime = 0;
    gLastLoggedCloseTicket = 0;
+   gLastCloudSyncAttempt = 0;
+   gLastCloudSyncSuccess = 0;
+   gLastCloudSyncHttpCode = 0;
+   if(!EnableCloudSync)
+   {
+      gLastCloudSyncStatus = "DISABLED";
+      gLastCloudSyncMessage = "Cloud sync is disabled";
+   }
+   else if(StringLen(CloudSyncEndpoint) < 12)
+   {
+      gLastCloudSyncStatus = "MISSING_ENDPOINT";
+      gLastCloudSyncMessage = "Set CloudSyncEndpoint before enabling cloud sync";
+   }
+   else
+   {
+      gLastCloudSyncStatus = "IDLE";
+      gLastCloudSyncMessage = "Waiting for next export";
+   }
 
    // 蝗ｾ陦ｨ譏ｾ遉ｺ隶ｾ鄂ｮ
    ChartSetInteger(0, CHART_SHOW_GRID, false);
@@ -426,6 +474,182 @@ string BuildManagedOrderComment(string baseComment, double virtualLots)
       return baseComment + tag;
 
    return baseComment;
+}
+
+double PriceToPips(double priceDistance, string symbol_name)
+{
+   double point = MarketInfo(symbol_name, MODE_POINT);
+   int digits = (int)MarketInfo(symbol_name, MODE_DIGITS);
+   if(point <= 0)
+      return 0.0;
+
+   double pipFactor = ((digits == 3 || digits == 5) ? 10.0 : 1.0);
+   return priceDistance / point / pipFactor;
+}
+
+int GetStrategyTimeframeByMagic(int magic)
+{
+   if(magic == MA_Magic)   return MA_Timeframe;
+   if(magic == RSI_Magic)  return RSI_Timeframe;
+   if(magic == BB_Magic)   return BB_Timeframe;
+   if(magic == MACD_Magic) return MACD_Timeframe;
+   if(magic == SR_Magic)   return SR_Timeframe;
+   return PERIOD_H1;
+}
+
+int GetResearchMaxHoldMinutes(int timeframe)
+{
+   if(timeframe <= PERIOD_M15)
+      return ResearchMaxHoldMinutes_M15;
+   if(timeframe <= PERIOD_H1)
+      return ResearchMaxHoldMinutes_H1;
+   return ResearchMaxHoldMinutes_H4;
+}
+
+double AdjustTakeProfitPipsForResearch(double desiredTpPips, double slPips, string symbol_name)
+{
+   if(!UseVirtualResearchAccount || !EnableResearchFastExit)
+      return desiredTpPips;
+
+   double minTargetPips = MathMax(2.0, GetSpreadPips(symbol_name) * 3.0);
+   double fastTargetPips = MathMax(minTargetPips, slPips * ResearchTargetRR);
+   return MathMin(desiredTpPips, fastTargetPips);
+}
+
+bool SafeOrderCloseCurrent(string reason)
+{
+   string symbolName = OrderSymbol();
+   int ticket = OrderTicket();
+   double lots = OrderLots();
+   int orderType = OrderType();
+   int digits = DigitsForSymbolName(symbolName);
+   double price = (orderType == OP_BUY) ? MarketInfo(symbolName, MODE_BID) : MarketInfo(symbolName, MODE_ASK);
+
+   if(price <= 0)
+      return false;
+
+   RefreshRates();
+   if(orderType == OP_BUY)
+      price = MarketInfo(symbolName, MODE_BID);
+   else if(orderType == OP_SELL)
+      price = MarketInfo(symbolName, MODE_ASK);
+
+   ResetLastError();
+   bool closed = OrderClose(ticket, lots, NormalizeDouble(price, digits), 3, clrSilver);
+   if(!closed)
+   {
+      int err = GetLastError();
+      Print("[QG-EXIT] close failed | ticket=", ticket, " | ", symbolName, " | reason=", reason, " | err=", err);
+      if(err == 136 || err == 137 || err == 138 || err == 146 || err == 4110)
+      {
+         Sleep(300);
+         RefreshRates();
+         if(orderType == OP_BUY)
+            price = MarketInfo(symbolName, MODE_BID);
+         else if(orderType == OP_SELL)
+            price = MarketInfo(symbolName, MODE_ASK);
+
+         ResetLastError();
+         closed = OrderClose(ticket, lots, NormalizeDouble(price, digits), 3, clrSilver);
+         if(!closed)
+            Print("[QG-EXIT] retry failed | ticket=", ticket, " | ", symbolName, " | reason=", reason, " | err=", GetLastError());
+      }
+   }
+   else
+      Print("[QG-EXIT] closed | ticket=", ticket, " | ", symbolName, " | reason=", reason);
+
+   return closed;
+}
+
+void ManageResearchFastExitForSelectedOrder()
+{
+   if(!UseVirtualResearchAccount || !EnableResearchFastExit)
+      return;
+
+   if(IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment()))
+      return;
+
+   int orderType = OrderType();
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return;
+
+   string symbolName = OrderSymbol();
+   double openPrice = OrderOpenPrice();
+   double stopLoss = OrderStopLoss();
+   if(stopLoss <= 0)
+      return;
+
+   double riskPips = PriceToPips(MathAbs(openPrice - stopLoss), symbolName);
+   if(riskPips <= 0)
+      return;
+
+   double marketPrice = (orderType == OP_BUY) ? MarketInfo(symbolName, MODE_BID) : MarketInfo(symbolName, MODE_ASK);
+   if(marketPrice <= 0)
+      return;
+
+   double profitPips = 0.0;
+   if(orderType == OP_BUY)
+      profitPips = PriceToPips(marketPrice - openPrice, symbolName);
+   else
+      profitPips = PriceToPips(openPrice - marketPrice, symbolName);
+
+   double rr = profitPips / riskPips;
+   int holdMinutes = (int)((TimeCurrent() - OrderOpenTime()) / 60);
+   int maxHoldMinutes = GetResearchMaxHoldMinutes(GetStrategyTimeframeByMagic(OrderMagicNumber()));
+   int digits = DigitsForSymbolName(symbolName);
+
+   if(rr >= ResearchBreakEvenRR)
+   {
+      double protectOffset = PipsToPrice(ResearchBreakEvenLockPips, symbolName);
+      double newSL = OrderStopLoss();
+      bool shouldModify = false;
+
+      if(orderType == OP_BUY)
+      {
+         newSL = NormalizeDouble(openPrice + protectOffset, digits);
+         if(newSL > OrderStopLoss() + MarketInfo(symbolName, MODE_POINT))
+            shouldModify = true;
+      }
+      else
+      {
+         newSL = NormalizeDouble(openPrice - protectOffset, digits);
+         if(OrderStopLoss() == 0 || newSL < OrderStopLoss() - MarketInfo(symbolName, MODE_POINT))
+            shouldModify = true;
+      }
+
+      if(shouldModify)
+      {
+         ResetLastError();
+         if(!OrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrYellow))
+            Print("[QG-EXIT] breakeven modify failed | ticket=", OrderTicket(), " | err=", GetLastError());
+      }
+   }
+
+   if(maxHoldMinutes > 0 && holdMinutes >= maxHoldMinutes)
+   {
+      string reason = "time_exit_flat";
+      if(rr >= 0.20)
+         reason = "time_exit_profit";
+      else if(rr <= -0.20)
+         reason = "time_exit_loss";
+
+      SafeOrderCloseCurrent(reason + "|rr=" + DoubleToStr(rr, 2) + "|hold=" + IntegerToString(holdMinutes));
+   }
+}
+
+void ManageResearchFastExits(string symbol_name)
+{
+   if(!UseVirtualResearchAccount || !EnableResearchFastExit)
+      return;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != symbol_name) continue;
+      if(!IsManagedMagic(OrderMagicNumber())) continue;
+
+      ManageResearchFastExitForSelectedOrder();
+   }
 }
 
 double GetDisplayedBalance()
@@ -751,6 +975,9 @@ void ProcessManagedTrading()
       return;
    }
 
+   for(int manageIndex = 0; manageIndex < gManagedSymbolCount; manageIndex++)
+      ManageResearchFastExits(gManagedSymbols[manageIndex]);
+
    if(PauseNewEntries)
    {
       if(logGuard)
@@ -848,7 +1075,7 @@ void Strategy_RSI_Reversal_V2()
    if(buyReversal && buyBand)
    {
       double sl = atrSL;
-      double tp = sl * 1.5;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 1.5, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -868,7 +1095,7 @@ void Strategy_RSI_Reversal_V2()
    if(sellReversal && sellBand)
    {
       double sl = atrSL;
-      double tp = sl * 1.5;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 1.5, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1003,7 +1230,7 @@ void Strategy_MACD_Divergence_V2()
    if(bullDiv > 0)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1023,7 +1250,7 @@ void Strategy_MACD_Divergence_V2()
    if(bearDiv > 0)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1097,7 +1324,7 @@ void Strategy_SR_Breakout_V2()
    if(buyPrevBelow && buyBreak)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1117,7 +1344,7 @@ void Strategy_SR_Breakout_V2()
    if(sellPrevAbove && sellBreak)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1299,6 +1526,108 @@ string JsonEscape(string value)
    StringReplace(value, "\r", " ");
    StringReplace(value, "\n", " ");
    return value;
+}
+
+bool CanSyncToCloud()
+{
+   if(!EnableCloudSync)
+      return false;
+   if(StringLen(CloudSyncEndpoint) < 12)
+      return false;
+   if(IsTesting())
+      return false;
+   return true;
+}
+
+bool ReadBinaryFile(string filename, char &data[])
+{
+   ArrayResize(data, 0);
+   ResetLastError();
+   int handle = FileOpen(filename, FILE_READ | FILE_BIN);
+   if(handle == INVALID_HANDLE)
+      return false;
+
+   int fileSize = (int)FileSize(handle);
+   if(fileSize <= 0)
+   {
+      FileClose(handle);
+      return false;
+   }
+
+   ArrayResize(data, fileSize);
+   int bytesRead = FileReadArray(handle, data, 0, fileSize);
+   FileClose(handle);
+   return bytesRead == fileSize;
+}
+
+void RecordCloudSyncResult(string status, int httpCode, string message, bool success)
+{
+   gLastCloudSyncStatus = status;
+   gLastCloudSyncHttpCode = httpCode;
+   gLastCloudSyncMessage = message;
+   if(StringLen(gLastCloudSyncMessage) > 180)
+      gLastCloudSyncMessage = StringSubstr(gLastCloudSyncMessage, 0, 180);
+   if(success)
+      gLastCloudSyncSuccess = TimeLocal();
+}
+
+bool SyncDashboardToCloud(string filename)
+{
+   gLastCloudSyncAttempt = TimeLocal();
+
+   if(!EnableCloudSync)
+   {
+      RecordCloudSyncResult("DISABLED", 0, "Cloud sync is disabled", false);
+      return false;
+   }
+
+   if(StringLen(CloudSyncEndpoint) < 12)
+   {
+      RecordCloudSyncResult("MISSING_ENDPOINT", 0, "CloudSyncEndpoint is empty", false);
+      return false;
+   }
+
+   char payload[];
+   if(!ReadBinaryFile(filename, payload))
+   {
+      int readErr = GetLastError();
+      RecordCloudSyncResult("FILE_READ_ERROR", 0, "Failed to read dashboard payload, err=" + IntegerToString(readErr), false);
+      Print("[QG-CLOUD] Failed to read dashboard payload | err=", readErr);
+      return false;
+   }
+
+   char response[];
+   string responseHeaders = "";
+   string headers = "Content-Type: application/json\r\nX-QuantGod-Source: mt4\r\n";
+   if(StringLen(CloudSyncToken) > 0)
+      headers += "Authorization: Bearer " + CloudSyncToken + "\r\n";
+
+   ResetLastError();
+   int httpCode = WebRequest("POST", CloudSyncEndpoint, headers, CloudSyncTimeoutMs, payload, response, responseHeaders);
+   if(httpCode == -1)
+   {
+      int webErr = GetLastError();
+      string errMsg = "WebRequest failed, add endpoint to MT4 allowed URLs, err=" + IntegerToString(webErr);
+      RecordCloudSyncResult("REQUEST_ERROR", 0, errMsg, false);
+      Print("[QG-CLOUD] WebRequest failed | err=", webErr, " | endpoint=", CloudSyncEndpoint);
+      return false;
+   }
+
+   string responseText = CharArrayToString(response, 0, ArraySize(response));
+   StringReplace(responseText, "\r", " ");
+   StringReplace(responseText, "\n", " ");
+   if(StringLen(responseText) == 0)
+      responseText = "HTTP " + IntegerToString(httpCode);
+
+   if(httpCode >= 200 && httpCode < 300)
+   {
+      RecordCloudSyncResult("SYNCED", httpCode, responseText, true);
+      return true;
+   }
+
+   RecordCloudSyncResult("HTTP_ERROR", httpCode, responseText, false);
+   Print("[QG-CLOUD] HTTP error | code=", httpCode, " | body=", responseText);
+   return false;
 }
 
 int StrategyTimeframe(int index)
@@ -1539,7 +1868,7 @@ void Strategy_MA_Cross()
    if(buyCross && buyTrend && qualityOk)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1556,7 +1885,7 @@ void Strategy_MA_Cross()
    if(sellCross && sellTrend && qualityOk)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1609,7 +1938,7 @@ void Strategy_RSI_Reversal()
    // 雜・獄蜿榊ｼｹ荵ｰ蜈･: RSI莉手ｶ・獄蝗槫合 + 莉ｷ譬ｼ蝨ｨ荳玖ｽｨ髯・ｿ・   if(rsi_2 < RSI_OS && rsi_1 > RSI_OS && close1 <= bbLower * 1.001)
    {
       double sl = atrSL;
-      double tp = sl * 1.5;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 1.5, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1623,7 +1952,7 @@ void Strategy_RSI_Reversal()
    // 雜・ｹｰ蝗櫁誠蜊門・: RSI莉手ｶ・ｹｰ蝗櫁誠 + 莉ｷ譬ｼ蝨ｨ荳願ｽｨ髯・ｿ・   if(rsi_2 > RSI_OB && rsi_1 < RSI_OB && close1 >= bbUpper * 0.999)
    {
       double sl = atrSL;
-      double tp = sl * 1.5;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 1.5, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1691,7 +2020,7 @@ void Strategy_BB_Triple()
    {
       double sl = atrSL;
       double tp_dist = MathAbs(bbUpper - close1) / gPoint / ((gDigits == 3 || gDigits == 5) ? 10.0 : 1.0);
-      double tp = MathMax(tp_dist, sl * 1.5);
+      double tp = AdjustTakeProfitPipsForResearch(MathMax(tp_dist, sl * 1.5), sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1717,7 +2046,7 @@ void Strategy_BB_Triple()
    {
       double sl = atrSL;
       double tp_dist = MathAbs(close1 - bbLower) / gPoint / ((gDigits == 3 || gDigits == 5) ? 10.0 : 1.0);
-      double tp = MathMax(tp_dist, sl * 1.5);
+      double tp = AdjustTakeProfitPipsForResearch(MathMax(tp_dist, sl * 1.5), sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1769,7 +2098,7 @@ void Strategy_MACD_Divergence()
    if(bullDiv > 0)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1784,7 +2113,7 @@ void Strategy_MACD_Divergence()
    if(bearDiv > 0)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -1918,7 +2247,7 @@ void Strategy_SR_Breakout()
    if(close2 < resistance && close1 > resistance + breakPrice && volumeConfirm)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
@@ -1933,7 +2262,7 @@ void Strategy_SR_Breakout()
    if(close2 > support && close1 < support - breakPrice && volumeConfirm)
    {
       double sl = atrSL;
-      double tp = sl * 2.0;
+      double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
       double virtualLots = 0.0;
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
@@ -2167,7 +2496,7 @@ void ExportDashboardData()
 
    FileWriteString(handle, "{\n");
    FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
-   FileWriteString(handle, "  \"build\": \"QuantGod-v2.6-virtual-research\",\n");
+   FileWriteString(handle, "  \"build\": \"QuantGod-v2.7-fast-exit\",\n");
    FileWriteString(handle, "  \"runtime\": {\n");
    FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
    FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
@@ -2180,6 +2509,17 @@ void ExportDashboardData()
    FileWriteString(handle, "    \"serverTime\": \"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
    FileWriteString(handle, "    \"gmtTime\": \"" + TimeToStr(TimeGMT(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
    FileWriteString(handle, "    \"localTime\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\"\n");
+   FileWriteString(handle, "  },\n");
+   FileWriteString(handle, "  \"cloudSync\": {\n");
+   FileWriteString(handle, "    \"enabled\": " + (EnableCloudSync ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"configured\": " + ((StringLen(CloudSyncEndpoint) >= 12) ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"endpoint\": \"" + JsonEscape(CloudSyncEndpoint) + "\",\n");
+   FileWriteString(handle, "    \"intervalSeconds\": " + IntegerToString(CloudSyncIntervalSeconds) + ",\n");
+   FileWriteString(handle, "    \"lastAttemptLocal\": \"" + (gLastCloudSyncAttempt > 0 ? TimeToStr(gLastCloudSyncAttempt, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "") + "\",\n");
+   FileWriteString(handle, "    \"lastSuccessLocal\": \"" + (gLastCloudSyncSuccess > 0 ? TimeToStr(gLastCloudSyncSuccess, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "") + "\",\n");
+   FileWriteString(handle, "    \"status\": \"" + JsonEscape(gLastCloudSyncStatus) + "\",\n");
+   FileWriteString(handle, "    \"httpCode\": " + IntegerToString(gLastCloudSyncHttpCode) + ",\n");
+   FileWriteString(handle, "    \"message\": \"" + JsonEscape(gLastCloudSyncMessage) + "\"\n");
    FileWriteString(handle, "  },\n");
    FileWriteString(handle, "  \"account\": {\n");
    FileWriteString(handle, "    \"number\": " + IntegerToString(AccountNumber()) + ",\n");
@@ -2389,6 +2729,12 @@ void ExportDashboardData()
    FileWriteString(handle, "  }\n");
    FileWriteString(handle, "}\n");
    FileClose(handle);
+
+   if(CanSyncToCloud())
+   {
+      if(gLastCloudSyncAttempt <= 0 || TimeLocal() - gLastCloudSyncAttempt >= CloudSyncIntervalSeconds)
+         SyncDashboardToCloud(filename);
+   }
 
    ExportBalanceHistoryV2();
 }

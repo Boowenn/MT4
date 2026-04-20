@@ -1230,6 +1230,9 @@ let dailyChart = null;
 let refreshInterval = null;
 let runtimeClockInterval = null;
 let runtimeClockAnchor = null;
+const LOCAL_DASHBOARD_PATH = 'QuantGod_Dashboard.json';
+const DEFAULT_CLOUD_API_PATH = '/api/latest';
+const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 
 // ====== 策略配置 ======
 const STRATEGY_CONFIG = {
@@ -1293,6 +1296,75 @@ function groupBySymbol(items) {
         groups.get(key).push(item);
     });
     return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function isLocalRuntime() {
+    const host = window.location.hostname || '';
+    return host === '' || host === 'localhost' || host === '127.0.0.1';
+}
+
+function appendCacheBust(url) {
+    const fullUrl = new URL(url, window.location.href);
+    fullUrl.searchParams.set('t', Date.now().toString());
+    return fullUrl.toString();
+}
+
+function resolveCloudApiUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const apiParam = url.searchParams.get('api');
+        if (apiParam) {
+            window.localStorage.setItem(DASHBOARD_API_STORAGE_KEY, apiParam);
+            return apiParam;
+        }
+
+        const stored = window.localStorage.getItem(DASHBOARD_API_STORAGE_KEY);
+        if (stored) return stored;
+    } catch (e) {
+        console.warn('Failed to resolve cloud API URL.', e);
+    }
+
+    return isLocalRuntime() ? '' : DEFAULT_CLOUD_API_PATH;
+}
+
+function getDashboardFetchTargets() {
+    const targets = [];
+    const cloudApi = resolveCloudApiUrl();
+    if (cloudApi) {
+        targets.push({ url: appendCacheBust(cloudApi), source: 'cloud' });
+    }
+    if (isLocalRuntime()) {
+        targets.push({ url: appendCacheBust(LOCAL_DASHBOARD_PATH), source: 'local' });
+    }
+    return targets;
+}
+
+function getDataSourceLabel(source) {
+    if (source === 'cloud') return '云端';
+    if (source === 'local') return '本地';
+    return '未知';
+}
+
+function formatCloudSyncStatus(cloudSync) {
+    if (!cloudSync || !cloudSync.enabled) return '云同步关闭';
+
+    const map = {
+        IDLE: '等待同步',
+        SYNCED: '云同步正常',
+        DISABLED: '云同步关闭',
+        MISSING_ENDPOINT: '缺少云端地址',
+        FILE_READ_ERROR: '本地快照读取失败',
+        REQUEST_ERROR: '推送请求失败',
+        HTTP_ERROR: '云端接口返回错误'
+    };
+
+    let text = map[cloudSync.status] || cloudSync.status || '未同步';
+    if (cloudSync.status === 'SYNCED' && cloudSync.lastSuccessLocal) {
+        text += ` @ ${cloudSync.lastSuccessLocal}`;
+    } else if (cloudSync.httpCode) {
+        text += ` (${cloudSync.httpCode})`;
+    }
+    return text;
 }
 
 function isResearchMode(d) {
@@ -1552,7 +1624,8 @@ function getRuntimeSummary(d) {
 
     const runtime = d?.runtime || {};
     const meta = getStatusMeta(runtime.tradeStatus || (runtime.tradeAllowed ? 'READY' : 'NO_DATA'));
-    const prefix = runtime.connected === false ? '未连接' : '实时';
+    const sourceLabel = getDataSourceLabel(d?._dataSource);
+    const prefix = runtime.connected === false ? `${sourceLabel} | 未连接` : `${sourceLabel} | 实时`;
     return { text: `${prefix} | ${meta.label}`, tone: meta.tone };
 }
 
@@ -1724,37 +1797,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ====== 加载数据 ======
 async function loadData() {
-    try {
-        const response = await fetch('QuantGod_Dashboard.json?t=' + Date.now());
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        dashboardData = await response.json();
-        dashboardData.isDemo = false;
-        dashboardData._transportError = false;
-        syncRuntimeClock(dashboardData);
-        updateDashboard();
-        updateRuntimeBadge(dashboardData);
-        updateEvaluationCountdown(dashboardData);
-        updateExecutionRadar(dashboardData);
-        window.setTimeout(() => updateRuntimeBadge(dashboardData), 0);
-        document.getElementById('connectionStatus').textContent = '实时连接';
-    } catch (e) {
-        if (dashboardData) {
-            dashboardData._transportError = true;
-            updateDashboard();
-            updateRuntimeBadge(dashboardData);
-            return;
-        }
-        if (!dashboardData) {
-            // 尝试从本地文件加载 (file:// 协议)
-            document.getElementById('connectionStatus').textContent = '等待EA数据...';
-            dashboardData = generateDemoData();
+    const targets = getDashboardFetchTargets();
+    let lastError = null;
+
+    for (const target of targets) {
+        try {
+            const response = await fetch(target.url, { cache: 'no-store' });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            dashboardData = await response.json();
+            dashboardData.isDemo = false;
+            dashboardData._transportError = false;
+            dashboardData._dataSource = target.source;
             syncRuntimeClock(dashboardData);
             updateDashboard();
             updateRuntimeBadge(dashboardData);
             updateEvaluationCountdown(dashboardData);
             updateExecutionRadar(dashboardData);
+            window.setTimeout(() => updateRuntimeBadge(dashboardData), 0);
+            document.getElementById('connectionStatus').textContent = `${getDataSourceLabel(target.source)}连接`;
+            return;
+        } catch (e) {
+            lastError = e;
         }
     }
+
+    if (dashboardData) {
+        dashboardData._transportError = true;
+        updateDashboard();
+        updateRuntimeBadge(dashboardData);
+        return;
+    }
+
+    console.warn('Dashboard data load failed.', lastError);
+    document.getElementById('connectionStatus').textContent = '等待EA数据...';
+    dashboardData = generateDemoData();
+    dashboardData._dataSource = isLocalRuntime() ? 'local' : 'cloud';
+    syncRuntimeClock(dashboardData);
+    updateDashboard();
+    updateRuntimeBadge(dashboardData);
+    updateEvaluationCountdown(dashboardData);
+    updateExecutionRadar(dashboardData);
 }
 
 // ====== 示例数据 (当EA未运行时显示) ======
@@ -1936,7 +2018,9 @@ function updateDashboard() {
             ? `虚拟研究账户 | 起始 $${Number(account.startingBalance || 0).toFixed(2)} | 执行 ${formatLots(account.executionLot || 0)} 手`
             : '真实执行账户 | 界面每 5 秒刷新';
         const watchText = d.watchlist ? `监控: ${d.watchlist}` : `焦点: ${d.market.symbol}`;
-        footer.textContent = `${buildText} | ${modeText} | ${watchText} | 仅供模拟测试使用`;
+        const sourceText = `数据源: ${getDataSourceLabel(d._dataSource)}`;
+        const cloudText = `云端: ${formatCloudSyncStatus(d.cloudSync)}`;
+        footer.textContent = `${buildText} | ${modeText} | ${watchText} | ${sourceText} | ${cloudText} | 仅供模拟测试使用`;
     }
 
     updateOpenTrades(d.openTrades);

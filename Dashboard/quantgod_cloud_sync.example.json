@@ -1,0 +1,4 @@
+{
+  "endpoint": "https://quantgod-cloud.gao009629.workers.dev/api/ingest",
+  "token": "replace-with-your-ingest-token"
+}
