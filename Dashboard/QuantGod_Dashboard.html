@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuantGod 交易面板</title>
+    <link rel="icon" href="data:,">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -338,6 +339,206 @@
             line-height: 1.35;
         }
 
+        .symbol-overview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.9rem;
+        }
+
+        .symbol-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            transition: all 0.2s ease;
+        }
+
+        .symbol-card:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-card-hover);
+            transform: translateY(-1px);
+        }
+
+        .symbol-card.card-positive {
+            border-color: rgba(16, 185, 129, 0.32);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
+        }
+
+        .symbol-card.card-watch {
+            border-color: rgba(245, 158, 11, 0.28);
+            box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.06);
+        }
+
+        .symbol-card.card-danger {
+            border-color: rgba(239, 68, 68, 0.28);
+            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+        }
+
+        .symbol-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .symbol-name {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }
+
+        .symbol-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.35);
+        }
+
+        .symbol-role {
+            padding: 0.25rem 0.55rem;
+            border-radius: 999px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: rgba(148, 163, 184, 0.12);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            white-space: nowrap;
+        }
+
+        .symbol-price-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 0.8rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .symbol-price {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .symbol-price-sub {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-top: 0.15rem;
+        }
+
+        .symbol-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+
+        .symbol-metric {
+            padding: 0.7rem 0.75rem;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(148, 163, 184, 0.08);
+        }
+
+        .symbol-metric-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.35rem;
+        }
+
+        .symbol-metric-value {
+            color: var(--text-primary);
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .symbol-note {
+            margin-top: 0.8rem;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.4;
+            min-height: 34px;
+        }
+
+        .symbol-strategy-block {
+            margin-top: 0.85rem;
+            padding-top: 0.85rem;
+            border-top: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .symbol-strategy-title {
+            color: var(--text-muted);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.55rem;
+        }
+
+        .symbol-strategy-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem;
+        }
+
+        .symbol-strategy-chip {
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            padding: 0.65rem 0.7rem;
+            min-height: 86px;
+        }
+
+        .symbol-strategy-chip-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.45rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .symbol-strategy-name {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .symbol-strategy-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex: 0 0 auto;
+        }
+
+        .symbol-strategy-status {
+            font-size: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .symbol-strategy-score {
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-bottom: 0.28rem;
+        }
+
+        .symbol-strategy-reason {
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+        }
+
         /* 图表区域 */
         .chart-container {
             position: relative;
@@ -521,6 +722,18 @@
 
         .table-wrapper {
             overflow-x: auto;
+        }
+
+        .table-group-row td {
+            background: rgba(59, 130, 246, 0.09);
+            color: var(--accent-blue);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            border-top: 1px solid rgba(59, 130, 246, 0.2);
+            border-bottom: 1px solid rgba(59, 130, 246, 0.14);
+            padding: 0.55rem 1rem;
         }
 
         table {
@@ -721,7 +934,7 @@
 <!-- 市场信息条 -->
 <div class="market-bar">
     <div class="market-item">
-        <span class="market-label">货币对</span>
+        <span class="market-label">焦点品种</span>
         <span class="market-value" id="mktSymbol">---</span>
     </div>
     <div class="market-item">
@@ -781,7 +994,7 @@
             <div class="stat-change neutral" id="statTotalTrades">0 笔交易</div>
         </div>
         <div class="stat-card stat-card-wide countdown-card">
-            <div class="stat-label">下次 H1 评估</div>
+            <div class="stat-label">下次 M15 评估</div>
             <div class="countdown-row">
                 <div class="stat-value" id="statNextH1">--:--</div>
                 <div class="countdown-server" id="statNextH1Server">--</div>
@@ -789,7 +1002,7 @@
             <div class="stat-change neutral" id="statNextH1Meta">均线交叉 / 支撑阻力突破</div>
         </div>
         <div class="stat-card stat-card-wide countdown-card">
-            <div class="stat-label">下次 H4 评估</div>
+            <div class="stat-label">下次 H1 评估</div>
             <div class="countdown-row">
                 <div class="stat-value" id="statNextH4">--:--</div>
                 <div class="countdown-server" id="statNextH4Server">--</div>
@@ -846,12 +1059,12 @@
                             <div class="radar-sub" id="radarAccountLine">净值 --</div>
                         </div>
                         <div class="radar-item">
-                            <div class="radar-label">H1 评估窗口</div>
+                            <div class="radar-label">M15 评估窗口</div>
                             <div class="radar-value" id="radarNextH1">--:--</div>
                             <div class="radar-sub" id="radarNextH1Meta">均线交叉 / 支撑阻力突破</div>
                         </div>
                         <div class="radar-item">
-                            <div class="radar-label">H4 评估窗口</div>
+                            <div class="radar-label">H1 评估窗口</div>
                             <div class="radar-value" id="radarNextH4">--:--</div>
                             <div class="radar-sub" id="radarNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
                         </div>
@@ -865,6 +1078,21 @@
                             <div class="radar-value" id="radarBlockers">--</div>
                             <div class="radar-sub" id="radarBlockersMeta">当前主要在等待信号</div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">M</div>
+                        品种总览
+                    </div>
+                    <span style="font-size: 12px; color: var(--text-muted);" id="symbolOverviewCount">0 个品种</span>
+                </div>
+                <div class="panel-body">
+                    <div class="symbol-overview-grid" id="symbolOverviewGrid">
+                        <!-- 动态填充 -->
                     </div>
                 </div>
             </div>
@@ -903,6 +1131,7 @@
                         <thead>
                             <tr>
                                 <th>订单号</th>
+                                <th>品种</th>
                                 <th>方向</th>
                                 <th>手数</th>
                                 <th>开仓价</th>
@@ -913,7 +1142,7 @@
                             </tr>
                         </thead>
                         <tbody id="openTradesBody">
-                            <tr><td colspan="8" class="empty-state">当前没有持仓</td></tr>
+                            <tr><td colspan="9" class="empty-state">当前没有持仓</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -935,6 +1164,7 @@
                         <thead>
                             <tr>
                                 <th>订单号</th>
+                                <th>品种</th>
                                 <th>方向</th>
                                 <th>手数</th>
                                 <th>开仓价</th>
@@ -945,7 +1175,7 @@
                             </tr>
                         </thead>
                         <tbody id="closedTradesBody">
-                            <tr><td colspan="8" class="empty-state">当前没有平仓记录</td></tr>
+                            <tr><td colspan="9" class="empty-state">当前没有平仓记录</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1002,65 +1232,101 @@ let runtimeClockInterval = null;
 let runtimeClockAnchor = null;
 
 // ====== 策略配置 ======
-/*
 const STRATEGY_CONFIG = {
-    'MA_Cross':        { label: 'MA 交叉',      color: '#3b82f6', dotColor: '#3b82f6', cssClass: 'strat-ma' },
-    'RSI_Reversal':    { label: 'RSI 均值回归',   color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
-    'BB_Triple':       { label: 'BB 三重确认',    color: '#f59e0b', dotColor: '#f59e0b', cssClass: 'strat-bb' },
-    'MACD_Divergence': { label: 'MACD 背离',     color: '#06b6d4', dotColor: '#06b6d4', cssClass: 'strat-macd' },
-    'SR_Breakout':     { label: 'SR 突破',       color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' }
-};
-
-// ====== 初始化 ======
-*/
-const STRATEGY_CONFIG = {
-    'MA_Cross':        { label: '均线交叉',       color: '#3b82f6', dotColor: '#3b82f6', cssClass: 'strat-ma' },
-    'RSI_Reversal':    { label: 'RSI 反转',      color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
-    'BB_Triple':       { label: '布林三重确认', color: '#f59e0b', dotColor: '#f59e0b', cssClass: 'strat-bb' },
-    'MACD_Divergence': { label: 'MACD 背离',    color: '#06b6d4', dotColor: '#06b6d4', cssClass: 'strat-macd' },
-    'SR_Breakout':     { label: '支撑阻力突破', color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' }
+    'MA_Cross':        { label: '均线交叉',      shortLabel: 'MA',   color: '#3b82f6', dotColor: '#3b82f6', cssClass: 'strat-ma' },
+    'RSI_Reversal':    { label: 'RSI 反转',     shortLabel: 'RSI',  color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
+    'BB_Triple':       { label: '布林三重确认', shortLabel: '布林', color: '#f59e0b', dotColor: '#f59e0b', cssClass: 'strat-bb' },
+    'MACD_Divergence': { label: 'MACD 背离',    shortLabel: 'MACD', color: '#06b6d4', dotColor: '#06b6d4', cssClass: 'strat-macd' },
+    'SR_Breakout':     { label: '支撑阻力突破', shortLabel: '突破', color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' }
 };
 
 const STATUS_META = {
-    READY:                    { label: '就绪',         tone: 'status-info',   cardTone: 'card-positive' },
-    WAITING_SIGNAL:           { label: '等待信号',     tone: 'status-info',   cardTone: '' },
-    WAIT_BAR:                 { label: '等待新 K 线',  tone: 'status-info',   cardTone: '' },
-    NO_SETUP:                 { label: '暂无形态',     tone: 'status-muted',  cardTone: '' },
-    IN_POSITION:              { label: '已有持仓',     tone: 'status-warn',   cardTone: 'card-watch' },
-    OUT_OF_SESSION:           { label: '交易时段外',   tone: 'status-warn',   cardTone: 'card-watch' },
-    TOO_MANY_POSITIONS:       { label: '仓位上限',     tone: 'status-warn',   cardTone: 'card-watch' },
-    POSITION_LIMIT:           { label: '仓位上限',     tone: 'status-warn',   cardTone: 'card-watch' },
-    PORTFOLIO_LIMIT:          { label: '仓位上限',     tone: 'status-warn',   cardTone: 'card-watch' },
-    STALE_TICKS:              { label: '行情延迟',     tone: 'status-warn',   cardTone: 'card-watch' },
-    WAITING_MARKET:           { label: '等待行情',     tone: 'status-warn',   cardTone: 'card-watch' },
-    AUTOTRADING_OFF:          { label: '自动交易关闭', tone: 'status-danger', cardTone: 'card-danger' },
+    READY:                    { label: '就绪',             tone: 'status-info',   cardTone: 'card-positive' },
+    WAIT_SIGNAL:              { label: '等待信号',         tone: 'status-info',   cardTone: '' },
+    WAITING_SIGNAL:           { label: '等待信号',         tone: 'status-info',   cardTone: '' },
+    WAIT_BAR:                 { label: '等待新 K 线',      tone: 'status-info',   cardTone: '' },
+    NO_SETUP:                 { label: '暂无形态',         tone: 'status-muted',  cardTone: '' },
+    IN_POSITION:              { label: '持仓中',           tone: 'status-warn',   cardTone: 'card-watch' },
+    OUT_OF_SESSION:           { label: '交易时段外',       tone: 'status-warn',   cardTone: 'card-watch' },
+    TOO_MANY_POSITIONS:       { label: '仓位上限',         tone: 'status-warn',   cardTone: 'card-watch' },
+    POSITION_LIMIT:           { label: '仓位上限',         tone: 'status-warn',   cardTone: 'card-watch' },
+    PORTFOLIO_LIMIT:          { label: '组合仓位上限',     tone: 'status-warn',   cardTone: 'card-watch' },
+    STALE_TICKS:              { label: '行情延迟',         tone: 'status-warn',   cardTone: 'card-watch' },
+    WAITING_MARKET:           { label: '等待行情',         tone: 'status-warn',   cardTone: 'card-watch' },
+    AUTOTRADING_OFF:          { label: '自动交易关闭',     tone: 'status-danger', cardTone: 'card-danger' },
     TERMINAL_AUTOTRADING_OFF: { label: '终端自动交易关闭', tone: 'status-danger', cardTone: 'card-danger' },
-    EA_LIVE_TRADING_OFF:      { label: 'EA 交易关闭',  tone: 'status-danger', cardTone: 'card-danger' },
-    DLL_NOT_ALLOWED:          { label: 'DLL 受限',     tone: 'status-danger', cardTone: 'card-danger' },
-    ACCOUNT_TRADE_DISABLED:   { label: '账户禁止交易', tone: 'status-danger', cardTone: 'card-danger' },
-    SERVER_EXPERTS_DISABLED:  { label: '服务器禁用 EA', tone: 'status-danger', cardTone: 'card-danger' },
-    DISCONNECTED:             { label: '未连接',       tone: 'status-danger', cardTone: 'card-danger' },
-    DRAWDOWN_BLOCK:           { label: '回撤保护',     tone: 'status-danger', cardTone: 'card-danger' },
-    DRAWDOWN_GUARD:           { label: '回撤保护',     tone: 'status-danger', cardTone: 'card-danger' },
-    BUY_ORDER_SENT:           { label: '已发买单',     tone: 'status-info',   cardTone: 'card-positive' },
-    SELL_ORDER_SENT:          { label: '已发卖单',     tone: 'status-info',   cardTone: 'card-positive' },
-    ORDER_SEND_FAILED:        { label: '下单失败',     tone: 'status-danger', cardTone: 'card-danger' },
-    DEMO:                     { label: '演示模式',     tone: 'status-muted',  cardTone: 'card-watch' },
-    NO_DATA:                  { label: '暂无数据',     tone: 'status-muted',  cardTone: '' }
+    EA_LIVE_TRADING_OFF:      { label: 'EA 交易关闭',      tone: 'status-danger', cardTone: 'card-danger' },
+    DLL_NOT_ALLOWED:          { label: 'DLL 受限',         tone: 'status-danger', cardTone: 'card-danger' },
+    ACCOUNT_TRADE_DISABLED:   { label: '账户禁止交易',     tone: 'status-danger', cardTone: 'card-danger' },
+    SERVER_EXPERTS_DISABLED:  { label: '服务器禁用 EA',    tone: 'status-danger', cardTone: 'card-danger' },
+    DISCONNECTED:             { label: '未连接',           tone: 'status-danger', cardTone: 'card-danger' },
+    DRAWDOWN_BLOCK:           { label: '回撤保护',         tone: 'status-danger', cardTone: 'card-danger' },
+    DRAWDOWN_GUARD:           { label: '回撤保护',         tone: 'status-danger', cardTone: 'card-danger' },
+    BUY_ORDER_SENT:           { label: '已发买单',         tone: 'status-info',   cardTone: 'card-positive' },
+    SELL_ORDER_SENT:          { label: '已发卖单',         tone: 'status-info',   cardTone: 'card-positive' },
+    ORDER_SEND_FAILED:        { label: '下单失败',         tone: 'status-danger', cardTone: 'card-danger' },
+    DEMO:                     { label: '演示模式',         tone: 'status-muted',  cardTone: 'card-watch' },
+    NO_DATA:                  { label: '暂无数据',         tone: 'status-muted',  cardTone: '' }
 };
 
 function strategyLabel(key) {
     return STRATEGY_CONFIG[key]?.label || key;
 }
 
+function strategyShortLabel(key) {
+    return STRATEGY_CONFIG[key]?.shortLabel || strategyLabel(key);
+}
+
 function tradeTypeLabel(type) {
     return type === 'BUY' ? '买入' : type === 'SELL' ? '卖出' : type;
 }
 
+function roleLabel(role) {
+    return role === 'focus' ? '焦点图表' : role === 'managed' ? '轮询中' : '监控中';
+}
+
+function groupBySymbol(items) {
+    const groups = new Map();
+    (items || []).forEach(item => {
+        const key = item?.symbol || '未标记';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(item);
+    });
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function getSymbolOverviewData(d) {
+    if (Array.isArray(d?.symbols) && d.symbols.length > 0) {
+        return d.symbols;
+    }
+
+    const fallbackSymbol = d?.market?.symbol || 'EURUSD';
+    const fallbackOpen = (d?.openTrades || []).filter(t => t.symbol === fallbackSymbol);
+    const fallbackClosed = (d?.closedTrades || []).filter(t => t.symbol === fallbackSymbol);
+    const fallbackWins = fallbackClosed.filter(t => Number(t.profit) > 0).length;
+    const fallbackProfit = fallbackClosed.reduce((sum, t) => sum + Number(t.profit || 0), 0);
+    const fallbackFloating = fallbackOpen.reduce((sum, t) => sum + Number(t.profit || 0), 0);
+
+    return [{
+        symbol: fallbackSymbol,
+        role: 'focus',
+        status: d?.runtime?.tradeStatus || 'NO_DATA',
+        tickAgeSeconds: d?.runtime?.tickAgeSeconds ?? -1,
+        bid: d?.market?.bid ?? 0,
+        ask: d?.market?.ask ?? 0,
+        spread: d?.market?.spread ?? 0,
+        openPositions: fallbackOpen.length,
+        floatingProfit: fallbackFloating,
+        closedTrades: fallbackClosed.length,
+        winRate: fallbackClosed.length ? (fallbackWins / fallbackClosed.length * 100) : 0,
+        closedProfit: fallbackProfit,
+        lastCloseTime: fallbackClosed[0]?.closeTime || '',
+        strategies: d?.diagnostics || {}
+    }];
+}
+
 function translateDiagnosticReason(reason) {
     if (!reason) return '暂无诊断信息';
-
-    let text = reason;
 
     const exactReplacements = {
         'No diagnostic message yet.': '暂无诊断信息',
@@ -1074,44 +1340,25 @@ function translateDiagnosticReason(reason) {
         'Breakout setup is present but the position cap is active.': '突破形态已出现，但仓位上限仍在生效'
     };
 
-    if (exactReplacements[text]) {
-        return exactReplacements[text];
+    if (exactReplacements[reason]) {
+        return exactReplacements[reason];
     }
 
-    text = text.replace(/^Waiting for (.+) evaluation$/, (_, strategyKey) => `等待 ${strategyLabel(strategyKey)} 策略评估`);
-    text = text.replace(/^Waiting for a new (.+) bar$/, (_, timeframe) => `等待新的 ${timeframe} K 线`);
-    text = text.replace(/^Existing (.+) position is still open$/, (_, strategyKey) => `${strategyLabel(strategyKey)} 已有持仓，暂不重复开仓`);
-    text = text.replace(/^(.+) buy order sent on (.+)$/, (_, strategyKey, timeframe) => `${strategyLabel(strategyKey)} 已在 ${timeframe} 发出买单`);
-    text = text.replace(/^(.+) sell order sent on (.+)$/, (_, strategyKey, timeframe) => `${strategyLabel(strategyKey)} 已在 ${timeframe} 发出卖单`);
-    text = text.replace(/^Bullish MACD divergence triggered a buy$/, '看涨 MACD 背离触发买入');
-    text = text.replace(/^Bearish MACD divergence triggered a sell$/, '看跌 MACD 背离触发卖出');
-    text = text.replace(/^No MACD divergence found in the last (\d+) bars$/, (_, bars) => `最近 ${bars} 根 K 线未发现 MACD 背离`);
-    text = text.replace(/^RSI buy setup failed, error=(\d+)$/, (_, code) => `RSI 买入下单失败，错误码 ${code}`);
-    text = text.replace(/^RSI sell setup failed, error=(\d+)$/, (_, code) => `RSI 卖出下单失败，错误码 ${code}`);
-    text = text.replace(/^Bullish MACD divergence failed, error=(\d+)$/, (_, code) => `看涨 MACD 背离下单失败，错误码 ${code}`);
-    text = text.replace(/^Bearish MACD divergence failed, error=(\d+)$/, (_, code) => `看跌 MACD 背离下单失败，错误码 ${code}`);
-    text = text.replace(/^SR breakout buy failed, error=(\d+)$/, (_, code) => `支撑阻力突破买入失败，错误码 ${code}`);
-    text = text.replace(/^SR breakout sell failed, error=(\d+)$/, (_, code) => `支撑阻力突破卖出失败，错误码 ${code}`);
-
-    Object.keys(STRATEGY_CONFIG).forEach((key) => {
-        text = text.replaceAll(key, strategyLabel(key));
-    });
-
-    text = text.replaceAll('BUY bias', '买方倾向');
-    text = text.replaceAll('SELL bias', '卖方倾向');
-    text = text.replaceAll('reversal=', '反转=');
-    text = text.replaceAll('band=', '布林带=');
-    text = text.replaceAll('break=', '突破=');
-    text = text.replaceAll('volume=', '量能=');
-    text = text.replaceAll('YES', '是');
-    text = text.replaceAll('NO', '否');
-    text = text.replaceAll('error=', '错误码=');
-
-    return text;
-}
-
-function pad2(value) {
-    return String(value).padStart(2, '0');
+    return reason
+        .replace(/^Waiting for (.+) evaluation$/, (_, strategyKey) => `等待 ${strategyLabel(strategyKey)} 策略评估`)
+        .replace(/^Waiting for a new (.+) bar$/, (_, timeframe) => `等待新的 ${timeframe} K 线`)
+        .replace(/^Existing (.+) position is still open$/, (_, strategyKey) => `${strategyLabel(strategyKey)} 仍有持仓未平`)
+        .replace(/^(.+) buy order sent on (.+)$/, (_, strategyKey, timeframe) => `${strategyLabel(strategyKey)} 已在 ${timeframe} 发出买单`)
+        .replace(/^(.+) sell order sent on (.+)$/, (_, strategyKey, timeframe) => `${strategyLabel(strategyKey)} 已在 ${timeframe} 发出卖单`)
+        .replace(/^Bullish MACD divergence triggered a buy$/, 'MACD 底背离触发买入')
+        .replace(/^Bearish MACD divergence triggered a sell$/, 'MACD 顶背离触发卖出')
+        .replace(/^No MACD divergence found in the last (\d+) bars$/, (_, bars) => `最近 ${bars} 根 K 线未发现 MACD 背离`)
+        .replace(/^RSI buy setup failed, error=(\d+)$/, (_, code) => `RSI 买入下单失败，错误码 ${code}`)
+        .replace(/^RSI sell setup failed, error=(\d+)$/, (_, code) => `RSI 卖出下单失败，错误码 ${code}`)
+        .replace(/^Bullish MACD divergence failed, error=(\d+)$/, (_, code) => `MACD 底背离下单失败，错误码 ${code}`)
+        .replace(/^Bearish MACD divergence failed, error=(\d+)$/, (_, code) => `MACD 顶背离下单失败，错误码 ${code}`)
+        .replace(/^SR breakout buy failed, error=(\d+)$/, (_, code) => `支撑阻力突破买入失败，错误码 ${code}`)
+        .replace(/^SR breakout sell failed, error=(\d+)$/, (_, code) => `支撑阻力突破卖出失败，错误码 ${code}`);
 }
 
 function formatRuntimeClock(date, useUTC = false) {
@@ -1177,6 +1424,24 @@ function getNextBoundary(referenceDate, hoursStep) {
     return next;
 }
 
+function getNextMinuteBoundary(referenceDate, minuteStep) {
+    if (!(referenceDate instanceof Date) || Number.isNaN(referenceDate.getTime())) return null;
+
+    const next = new Date(referenceDate.getTime());
+    next.setUTCSeconds(0, 0);
+
+    const currentMinute = referenceDate.getUTCMinutes();
+    const remainder = currentMinute % minuteStep;
+    const minutesToAdd = remainder === 0 ? minuteStep : minuteStep - remainder;
+    next.setUTCMinutes(currentMinute + minutesToAdd);
+
+    return next;
+}
+
+function pad2(value) {
+    return String(value).padStart(2, '0');
+}
+
 function formatCountdown(msRemaining) {
     if (!Number.isFinite(msRemaining) || msRemaining < 0) return '--:--';
 
@@ -1209,6 +1474,45 @@ function getDiagnostic(d, key) {
         score: 0,
         reason: '暂无诊断信息'
     };
+}
+
+function getSymbolDiagnostic(symbolItem, key, data) {
+    if (symbolItem?.strategies && symbolItem.strategies[key]) {
+        return symbolItem.strategies[key];
+    }
+
+    if (symbolItem?.role === 'focus') {
+        return getDiagnostic(data, key);
+    }
+
+    return {
+        status: symbolItem?.status || data?.runtime?.tradeStatus || 'NO_DATA',
+        score: 0,
+        reason: '等待该品种的策略诊断数据'
+    };
+}
+
+function renderSymbolStrategyBreakdown(symbolItem, data) {
+    return Object.entries(STRATEGY_CONFIG).map(([key, config]) => {
+        const diagnostic = getSymbolDiagnostic(symbolItem, key, data);
+        const meta = getStatusMeta(diagnostic.status || symbolItem?.status || 'NO_DATA');
+        const score = Math.max(0, Math.min(100, Number(diagnostic.score || 0)));
+        const reason = translateDiagnosticReason(diagnostic.reason);
+        const toneClass = meta.cardTone ? ` ${meta.cardTone}` : '';
+
+        return `
+        <div class="symbol-strategy-chip${toneClass}">
+            <div class="symbol-strategy-chip-header">
+                <span class="symbol-strategy-name">
+                    <span class="symbol-strategy-dot" style="background: ${config.color}; box-shadow: 0 0 8px ${config.color}55;"></span>
+                    ${strategyShortLabel(key)}
+                </span>
+                <span class="symbol-strategy-status ${meta.tone}">${meta.label}</span>
+            </div>
+            <div class="symbol-strategy-score">评分 ${score.toFixed(0)} / 100</div>
+            <div class="symbol-strategy-reason">${reason}</div>
+        </div>`;
+    }).join('');
 }
 
 function getRuntimeSummary(d) {
@@ -1273,8 +1577,8 @@ function updateEvaluationCountdown(d) {
         return;
     }
 
-    const nextH1 = getNextBoundary(estimatedServerTime, 1);
-    const nextH4 = getNextBoundary(estimatedServerTime, 4);
+    const nextH1 = getNextMinuteBoundary(estimatedServerTime, 15);
+    const nextH4 = getNextBoundary(estimatedServerTime, 1);
 
     h1Value.textContent = formatCountdown(nextH1 - estimatedServerTime);
     h1Server.textContent = formatBoundaryLabel(nextH1);
@@ -1289,8 +1593,8 @@ function updateExecutionRadar(d) {
     const runtime = d?.runtime || {};
     const runtimeMeta = getStatusMeta(runtime.tradeStatus || 'NO_DATA');
     const estimatedServerTime = getEstimatedServerTime(d);
-    const nextH1 = estimatedServerTime ? getNextBoundary(estimatedServerTime, 1) : null;
-    const nextH4 = estimatedServerTime ? getNextBoundary(estimatedServerTime, 4) : null;
+    const nextH1 = estimatedServerTime ? getNextMinuteBoundary(estimatedServerTime, 15) : null;
+    const nextH4 = estimatedServerTime ? getNextBoundary(estimatedServerTime, 1) : null;
 
     const permissions = [
         runtime.connected,
@@ -1459,6 +1763,39 @@ function generateDemoData() {
             drawdown: 0,
             leverage: 100
         },
+        watchlist: "EURUSD,GBPUSD,USDJPY",
+        symbols: [
+            {
+                symbol: "EURUSD", role: "focus", status: "IN_POSITION", tickAgeSeconds: 2, bid: 1.08650, ask: 1.08668, spread: 1.8, openPositions: 2, floatingProfit: 205.50, closedTrades: 5, winRate: 80.0, closedProfit: 930.00, lastCloseTime: "2026.04.19 08:30",
+                strategies: {
+                    MA_Cross: { status: 'IN_POSITION', score: 100, reason: 'Existing MA_Cross position is still open' },
+                    RSI_Reversal: { status: 'WAIT_BAR', score: 10, reason: 'Waiting for a new H4 bar' },
+                    BB_Triple: { status: 'NO_SETUP', score: 28, reason: 'Triple confirmation has not aligned yet' },
+                    MACD_Divergence: { status: 'WAIT_SIGNAL', score: 35, reason: 'Waiting for MACD_Divergence evaluation' },
+                    SR_Breakout: { status: 'NO_SETUP', score: 22, reason: 'Breakout setup has not appeared yet' }
+                }
+            },
+            {
+                symbol: "GBPUSD", role: "managed", status: "READY", tickAgeSeconds: 4, bid: 1.27410, ask: 1.27432, spread: 2.2, openPositions: 1, floatingProfit: 30.00, closedTrades: 2, winRate: 50.0, closedProfit: 55.00, lastCloseTime: "2026.04.19 07:10",
+                strategies: {
+                    MA_Cross: { status: 'WAIT_SIGNAL', score: 58, reason: 'Waiting for MA_Cross evaluation' },
+                    RSI_Reversal: { status: 'NO_SETUP', score: 24, reason: 'RSI reversal setup is incomplete on the current bar.' },
+                    BB_Triple: { status: 'WAIT_BAR', score: 10, reason: 'Waiting for a new H4 bar' },
+                    MACD_Divergence: { status: 'NO_SETUP', score: 16, reason: 'No MACD divergence found in the last 20 bars' },
+                    SR_Breakout: { status: 'WAIT_SIGNAL', score: 62, reason: 'Waiting for SR_Breakout evaluation' }
+                }
+            },
+            {
+                symbol: "USDJPY", role: "managed", status: "WAITING_MARKET", tickAgeSeconds: 220, bid: 151.420, ask: 151.435, spread: 1.5, openPositions: 0, floatingProfit: 0.00, closedTrades: 1, winRate: 100.0, closedProfit: 88.00, lastCloseTime: "2026.04.18 21:05",
+                strategies: {
+                    MA_Cross: { status: 'WAITING_MARKET', score: 0, reason: 'Waiting for fresh market ticks' },
+                    RSI_Reversal: { status: 'WAITING_MARKET', score: 0, reason: 'Waiting for fresh market ticks' },
+                    BB_Triple: { status: 'WAITING_MARKET', score: 0, reason: 'Waiting for fresh market ticks' },
+                    MACD_Divergence: { status: 'WAITING_MARKET', score: 0, reason: 'Waiting for fresh market ticks' },
+                    SR_Breakout: { status: 'WAITING_MARKET', score: 0, reason: 'Waiting for fresh market ticks' }
+                }
+            }
+        ],
         openTrades: [
             { ticket: 10001, type: "BUY", symbol: "EURUSD", lots: 0.10, openPrice: 1.08520, sl: 1.08220, tp: 1.09120, profit: 85.00, swap: -1.20, openTime: "2026.04.19 09:30", strategy: "MA_Cross", comment: "QG_MA_Cross_BUY" },
             { ticket: 10002, type: "SELL", symbol: "EURUSD", lots: 0.08, openPrice: 1.08750, sl: 1.09050, tp: 1.08150, profit: 120.50, swap: 0.50, openTime: "2026.04.19 11:15", strategy: "BB_Triple", comment: "QG_BB_Triple_SELL" },
@@ -1533,6 +1870,7 @@ function updateDashboard() {
     ddEl.className = 'stat-value ' + (d.account.drawdown > 10 ? 'negative' : d.account.drawdown > 5 ? 'neutral' : 'positive');
 
     document.getElementById('statOpenTrades').textContent = d.openTrades.length;
+    updateSymbolOverview(d);
 
     // 计算胜率
     const closedTrades = d.closedTrades;
@@ -1540,14 +1878,6 @@ function updateDashboard() {
     const total = closedTrades.length;
     const winRate = total > 0 ? (wins / total * 100).toFixed(1) : '---';
     document.getElementById('statWinRate').textContent = winRate + '%';
-    /*
-    document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
-
-    // 策略卡片
-    updateStrategyCards(d);
-
-    // 持仓表格
-    */
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
     updateStrategyCards(d);
 
@@ -1555,7 +1885,8 @@ function updateDashboard() {
     if (footer) {
         const buildText = d.build || 'QuantGod 交易面板';
         const modeText = d.isDemo ? '演示数据模式' : '界面每 5 秒刷新';
-        footer.textContent = `${buildText} | ${modeText} | 仅供模拟测试使用`;
+        const watchText = d.watchlist ? `监控: ${d.watchlist}` : `焦点: ${d.market.symbol}`;
+        footer.textContent = `${buildText} | ${modeText} | ${watchText} | 仅供模拟测试使用`;
     }
 
     updateOpenTrades(d.openTrades);
@@ -1644,6 +1975,85 @@ function updateStrategyCards(d) {
 }
 
 // ====== 持仓表格 ======
+function updateSymbolOverview(d) {
+    const container = document.getElementById('symbolOverviewGrid');
+    const countEl = document.getElementById('symbolOverviewCount');
+    if (!container) return;
+
+    const symbols = getSymbolOverviewData(d);
+    if (countEl) {
+        countEl.textContent = `${symbols.length} 个品种`;
+    }
+
+    if (!symbols.length) {
+        container.innerHTML = '<div class="empty-state" style="padding: 1rem; border: 1px dashed var(--border); border-radius: 10px;">暂无品种数据</div>';
+        return;
+    }
+
+    const html = symbols.map((item) => {
+        const meta = getStatusMeta(item.status || 'NO_DATA');
+        const spread = Number(item.spread ?? 0);
+        const tickAge = Number(item.tickAgeSeconds ?? -1);
+        const openPositions = Number(item.openPositions ?? 0);
+        const floatingProfit = Number(item.floatingProfit ?? 0);
+        const closedProfit = Number(item.closedProfit ?? 0);
+        const closedTrades = Number(item.closedTrades ?? 0);
+        const winRate = Number(item.winRate ?? 0);
+        const bid = Number(item.bid ?? 0);
+        const ask = Number(item.ask ?? 0);
+        const noteParts = [
+            openPositions > 0 ? `当前 ${openPositions} 笔持仓` : '当前无持仓',
+            item.lastCloseTime ? `最近平仓 ${item.lastCloseTime}` : '近期暂无平仓'
+        ];
+        const strategyBreakdown = renderSymbolStrategyBreakdown(item, d);
+
+        return `
+        <div class="symbol-card${meta.cardTone ? ` ${meta.cardTone}` : ''}">
+            <div class="symbol-card-header">
+                <div class="symbol-name">
+                    <span class="symbol-dot"></span>
+                    ${item.symbol}
+                </div>
+                <span class="symbol-role">${roleLabel(item.role)}</span>
+            </div>
+            <div class="symbol-price-row">
+                <div>
+                    <div class="symbol-price">${bid ? bid.toFixed(5) : '--'}</div>
+                    <div class="symbol-price-sub">买价 ${item.bid ?? '--'} / 卖价 ${item.ask ?? '--'}</div>
+                </div>
+                <span class="status-badge ${meta.tone}"><span class="status-dot"></span>${meta.label}</span>
+            </div>
+            <div class="symbol-metrics">
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">点差 / Tick</div>
+                    <div class="symbol-metric-value">${spread.toFixed(1)} / ${tickAge >= 0 ? tickAge + 's' : '--'}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">持仓 / 浮盈</div>
+                    <div class="symbol-metric-value">${openPositions} / ${floatingProfit >= 0 ? '+' : ''}$${floatingProfit.toFixed(2)}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">历史收益</div>
+                    <div class="symbol-metric-value ${closedProfit >= 0 ? 'positive' : 'negative'}">${closedProfit >= 0 ? '+' : ''}$${closedProfit.toFixed(2)}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">胜率 / 历史笔数</div>
+                    <div class="symbol-metric-value">${closedTrades ? winRate.toFixed(1) + '%' : '--'} / ${closedTrades}</div>
+                </div>
+            </div>
+            <div class="symbol-strategy-block">
+                <div class="symbol-strategy-title">策略状态拆分</div>
+                <div class="symbol-strategy-grid">
+                    ${strategyBreakdown}
+                </div>
+            </div>
+            <div class="symbol-note">${noteParts.join(' | ')}</div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
 function updateOpenTrades(trades) {
     const tbody = document.getElementById('openTradesBody');
     /*
@@ -1664,23 +2074,27 @@ function updateOpenTrades(trades) {
     */
     document.getElementById('openTradeCount').textContent = trades.length + ' 笔';
     if (trades.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">当前没有持仓</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">当前没有持仓</td></tr>';
         return;
     }
 
     let html = '';
-    trades.forEach(t => {
-        const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
-        html += `<tr>
-            <td>${t.ticket}</td>
-            <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
-            <td>${t.lots}</td>
-            <td>${t.openPrice}</td>
-            <td>${t.sl}</td>
-            <td>${t.tp}</td>
-            <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
-            <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
-        </tr>`;
+    groupBySymbol(trades).forEach(([symbol, entries]) => {
+        html += `<tr class="table-group-row"><td colspan="9">${symbol}</td></tr>`;
+        entries.forEach(t => {
+            const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+            html += `<tr>
+                <td>${t.ticket}</td>
+                <td>${t.symbol || '--'}</td>
+                <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
+                <td>${t.lots}</td>
+                <td>${t.openPrice}</td>
+                <td>${t.sl}</td>
+                <td>${t.tp}</td>
+                <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
+                <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
+            </tr>`;
+        });
     });
     tbody.innerHTML = html;
 }
@@ -1700,23 +2114,27 @@ function updateClosedTrades(trades) {
     document.getElementById('closedTradeCount').textContent = trades.length + ' 笔';
 
     if (trades.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">当前没有平仓记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">当前没有平仓记录</td></tr>';
         return;
     }
 
     let html = '';
-    trades.slice().reverse().forEach(t => {
-        const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
-        html += `<tr>
-            <td>${t.ticket}</td>
-            <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
-            <td>${t.lots}</td>
-            <td>${t.openPrice}</td>
-            <td>${t.closePrice}</td>
-            <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
-            <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
-            <td style="font-size:11px; color: var(--text-muted);">${t.closeTime}</td>
-        </tr>`;
+    groupBySymbol(trades.slice().reverse()).forEach(([symbol, entries]) => {
+        html += `<tr class="table-group-row"><td colspan="9">${symbol}</td></tr>`;
+        entries.forEach(t => {
+            const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+            html += `<tr>
+                <td>${t.ticket}</td>
+                <td>${t.symbol || '--'}</td>
+                <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
+                <td>${t.lots}</td>
+                <td>${t.openPrice}</td>
+                <td>${t.closePrice}</td>
+                <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
+                <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
+                <td style="font-size:11px; color: var(--text-muted);">${t.closeTime}</td>
+            </tr>`;
+        });
     });
     tbody.innerHTML = html;
 }
@@ -1989,3 +2407,4 @@ function updateDailyPnlChart(d) {
 
 </body>
 </html>
+
