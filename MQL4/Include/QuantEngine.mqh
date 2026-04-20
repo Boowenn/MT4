@@ -108,9 +108,9 @@ double PipsToPrice(double pips, string symbol_name)
 //+------------------------------------------------------------------+
 bool IsTradeSession()
 {
-   int hour = TimeHour(TimeCurrent());
+   int hour = TimeHour(TimeLocal());
    // 伦敦 + 纽约时段 (GMT 7:00 - 21:00)
-   if(hour >= 7 && hour <= 21) return true;
+   if(hour >= 8 && hour <= 23) return true;
    return false;
 }
 

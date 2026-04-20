@@ -23,7 +23,7 @@ input string   _g0 = "══════ 全局设置 ══════";
 input double   RiskPercent        = 1.5;     // 每笔风险 (%)
 input double   MaxDrawdownPercent = 15.0;    // 最大回撤限制 (%)
 input int      MaxTotalTrades     = 6;       // 最大同时持仓数
-input bool     UseTradeSession    = true;    // 仅在活跃时段交易
+input bool     UseTradeSession    = false;   // 默认关闭时段限制，开盘后全天按信号运行
 input double   TrailingStopPips   = 25.0;    // 追踪止损 (pips, 0=关闭)
 input bool     EnableDashboard    = true;    // 启用数据导出到面板
 
@@ -1078,7 +1078,7 @@ int GetTickAgeSeconds()
    if(lastTick <= 0)
       return -1;
 
-   int age = (int)(TimeLocal() - lastTick);
+   int age = (int)(TimeCurrent() - lastTick);
    if(age < 0)
       age = 0;
 
@@ -1262,7 +1262,10 @@ void ExportDashboardData()
    FileWriteString(handle, "    \"programTradeAllowed\": " + (IsProgramTradeEnabled() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"dllAllowed\": " + (IsDllImportEnabled() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"tradeAllowed\": " + (IsTradeAllowed() ? "true" : "false") + ",\n");
-   FileWriteString(handle, "    \"tickAgeSeconds\": " + IntegerToString(GetTickAgeSeconds()) + "\n");
+   FileWriteString(handle, "    \"tickAgeSeconds\": " + IntegerToString(GetTickAgeSeconds()) + ",\n");
+   FileWriteString(handle, "    \"serverTime\": \"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
+   FileWriteString(handle, "    \"gmtTime\": \"" + TimeToStr(TimeGMT(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
+   FileWriteString(handle, "    \"localTime\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\"\n");
    FileWriteString(handle, "  },\n");
    FileWriteString(handle, "  \"account\": {\n");
    FileWriteString(handle, "    \"number\": " + IntegerToString(AccountNumber()) + ",\n");
