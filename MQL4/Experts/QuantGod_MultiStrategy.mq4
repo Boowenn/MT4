@@ -37,7 +37,8 @@ input bool     Enable_MA          = true;    // 启用 MA 交叉策略
 input int      MA_FastPeriod      = 9;       // 快线周期
 input int      MA_SlowPeriod      = 21;      // 慢线周期
 input int      MA_TrendPeriod     = 100;     // 趋势过滤 SMA
-input ENUM_TIMEFRAMES MA_Timeframe = PERIOD_H1; // 研究模式：H1
+input ENUM_TIMEFRAMES MA_Timeframe = PERIOD_M15; // 研究模式：M15 提高样本量
+input ENUM_TIMEFRAMES MA_TrendTimeframe = PERIOD_H1; // 用更高周期过滤方向
 input int      MA_Magic           = 10001;   // Magic Number
 
 //=== 策略2: RSI 均值回归 ===
@@ -1146,16 +1147,16 @@ void Strategy_MA_Cross()
 
    double fastMA_1 = iMA(gSymbol, MA_Timeframe, MA_FastPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
    double slowMA_1 = iMA(gSymbol, MA_Timeframe, MA_SlowPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
-   double trendMA  = iMA(gSymbol, MA_Timeframe, MA_TrendPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
+   double trendMA  = iMA(gSymbol, MA_TrendTimeframe, MA_TrendPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
 
-   double rsi14 = iRSI(gSymbol, MA_Timeframe, 14, PRICE_CLOSE, 1);
    double atrSL = GetATRStopLoss(gSymbol, MA_Timeframe, 14, 2.0);
    double close1 = iClose(gSymbol, MA_Timeframe, 1);
+   double trendClose = iClose(gSymbol, MA_TrendTimeframe, 1);
 
-   // Widen crossover detection: check last 3 bars for a cross
+   // Research mode: allow a slightly wider recent cross window to increase samples
    bool buyCross = false;
    bool sellCross = false;
-   for(int c = 1; c <= 3; c++)
+   for(int c = 1; c <= 5; c++)
    {
       double fPrev = iMA(gSymbol, MA_Timeframe, MA_FastPeriod, 0, MODE_EMA, PRICE_CLOSE, c+1);
       double sPrev = iMA(gSymbol, MA_Timeframe, MA_SlowPeriod, 0, MODE_EMA, PRICE_CLOSE, c+1);
@@ -1165,12 +1166,12 @@ void Strategy_MA_Cross()
       if(fPrev >= sPrev && fCurr < sCurr) sellCross = true;
    }
 
-   bool buyTrend = (close1 > trendMA);
-   bool sellTrend = (close1 < trendMA);
+   bool buyTrend = (trendClose > trendMA);
+   bool sellTrend = (trendClose < trendMA);
 
    Print("[MA_Cross] ", gSymbol, " | fast=", DoubleToStr(fastMA_1,5), " slow=", DoubleToStr(slowMA_1,5),
          " trend=", DoubleToStr(trendMA,5), " close=", DoubleToStr(close1,5),
-         " RSI=", DoubleToStr(rsi14,1),
+         " trendClose=", DoubleToStr(trendClose,5),
          " | cross=", (buyCross?"BUY":(sellCross?"SELL":"NONE")),
          " trend=", (buyTrend?"UP":(sellTrend?"DN":"FLAT")));
 
