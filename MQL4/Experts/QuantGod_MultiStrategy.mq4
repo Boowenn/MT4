@@ -30,6 +30,12 @@ input string   TradingSymbols     = "EURUSD,USDJPY"; // 研究模式先聚焦双
 input bool     AutoSelectSymbols  = true;    // 自动加入 Market Watch
 input bool     PauseNewEntries    = false;   // 暂停开新仓，只管理已有仓位
 input bool     FlattenManagedPositions = false; // 紧急清空当前策略组合仓位
+input string   _g1 = "====== 虚拟研究账户 ======";
+input bool     UseVirtualResearchAccount = true; // 用虚拟小资金模型评估策略
+input double   VirtualStartingBalance = 10.0; // 虚拟起始资金
+input double   VirtualRiskPercent = 1.0; // 虚拟账户单笔风险百分比
+input double   ResearchExecutionLot = 0.01; // 实际 demo 执行统一微型手数
+input bool     IgnoreLegacyTradesInVirtualStats = true; // 旧持仓不计入新研究样本
 
 //=== 策略1: MA交叉 ===
 input string   _s1 = "====== 策略1: MA交叉 ======";
@@ -138,6 +144,27 @@ void ProcessManagedTrading();
 void ProcessManagedSymbol(string symbol_name);
 void RefreshAllManagedDiagnostics();
 string GetTradingStatusForSymbol(string symbol_name);
+double NormalizeLotForSymbol(double lots, string symbol_name);
+double CalcLotSizeForBalance(double baseBalance, double riskPercent, double slPips, string symbol_name);
+bool HasResearchTag(string comment);
+double ParseTaggedDouble(string text, string tag);
+double GetResearchLotsFromComment(string comment, double actualLots);
+double ScaleResearchNet(double actualNet, double actualLots, string comment);
+double GetResearchClosedNetProfit();
+double GetResearchOpenNetProfit();
+double GetResearchBalance();
+double GetResearchEquity();
+double GetResearchProfit();
+double GetResearchDrawdownPercent();
+bool CheckResearchDrawdownLimit();
+double CalculateManagedLots(double slPips, string symbol_name, double &virtualLots);
+string BuildManagedOrderComment(string baseComment, double virtualLots);
+double GetDisplayedBalance();
+double GetDisplayedEquity();
+double GetDisplayedProfit();
+double GetDisplayedDrawdownPercent();
+double GetResearchSymbolFloatingProfit(string symbol_name);
+double GetResearchSymbolClosedProfit(string symbol_name, int &closedTrades, int &winTrades, datetime &lastCloseTime);
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
@@ -179,6 +206,300 @@ int OnInit()
    if(EnableDashboard) ExportDashboardData();
 
    return INIT_SUCCEEDED;
+}
+
+double NormalizeLotForSymbol(double lots, string symbol_name)
+{
+   double minLot = MarketInfo(symbol_name, MODE_MINLOT);
+   double maxLot = MarketInfo(symbol_name, MODE_MAXLOT);
+   double lotStep = MarketInfo(symbol_name, MODE_LOTSTEP);
+   if(lotStep <= 0)
+      lotStep = 0.01;
+
+   lots = MathMax(minLot, MathMin(maxLot, lots));
+   lots = MathFloor((lots / lotStep) + 0.000001) * lotStep;
+   lots = MathMax(minLot, MathMin(maxLot, lots));
+
+   int lotDigits = 2;
+   if(lotStep < 0.01)
+      lotDigits = 3;
+
+   return NormalizeDouble(lots, lotDigits);
+}
+
+double CalcLotSizeForBalance(double baseBalance, double riskPercent, double slPips, string symbol_name)
+{
+   if(baseBalance <= 0 || riskPercent <= 0 || slPips <= 0)
+      return 0.0;
+
+   double accountRisk = baseBalance * riskPercent / 100.0;
+   double tickValue = MarketInfo(symbol_name, MODE_TICKVALUE);
+   double tickSize = MarketInfo(symbol_name, MODE_TICKSIZE);
+   if(tickValue <= 0 || tickSize <= 0)
+      return 0.0;
+
+   double pipValue = tickValue * (0.0001 / tickSize);
+   if(StringFind(symbol_name, "JPY") >= 0)
+      pipValue = tickValue * (0.01 / tickSize);
+
+   if(pipValue <= 0)
+      return 0.0;
+
+   return NormalizeDouble(MathMax(0.0, accountRisk / (slPips * pipValue)), 5);
+}
+
+bool HasResearchTag(string comment)
+{
+   return StringFind(comment, "|v=") >= 0;
+}
+
+double ParseTaggedDouble(string text, string tag)
+{
+   int start = StringFind(text, tag);
+   if(start < 0)
+      return -1.0;
+
+   string valueText = StringSubstr(text, start + StringLen(tag));
+   int stopPos = StringFind(valueText, "|");
+   if(stopPos >= 0)
+      valueText = StringSubstr(valueText, 0, stopPos);
+
+   stopPos = StringFind(valueText, "[");
+   if(stopPos >= 0)
+      valueText = StringSubstr(valueText, 0, stopPos);
+
+   stopPos = StringFind(valueText, " ");
+   if(stopPos >= 0)
+      valueText = StringSubstr(valueText, 0, stopPos);
+
+   return StrToDouble(valueText);
+}
+
+double GetResearchLotsFromComment(string comment, double actualLots)
+{
+   if(!UseVirtualResearchAccount)
+      return actualLots;
+
+   double taggedLots = ParseTaggedDouble(comment, "|v=");
+   if(taggedLots > 0)
+      return taggedLots;
+
+   if(IgnoreLegacyTradesInVirtualStats)
+      return 0.0;
+
+   return actualLots;
+}
+
+double ScaleResearchNet(double actualNet, double actualLots, string comment)
+{
+   if(!UseVirtualResearchAccount)
+      return actualNet;
+
+   if(actualLots <= 0)
+      return 0.0;
+
+   double researchLots = GetResearchLotsFromComment(comment, actualLots);
+   if(researchLots <= 0)
+      return 0.0;
+
+   return actualNet * (researchLots / actualLots);
+}
+
+double GetResearchClosedNetProfit()
+{
+   if(!UseVirtualResearchAccount)
+      return 0.0;
+
+   double closedNet = 0.0;
+   for(int i = 0; i < OrdersHistoryTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+      if(IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      closedNet += ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+   }
+
+   return closedNet;
+}
+
+double GetResearchOpenNetProfit()
+{
+   if(!UseVirtualResearchAccount)
+      return 0.0;
+
+   double openNet = 0.0;
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+      if(IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      openNet += ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+   }
+
+   return openNet;
+}
+
+double GetResearchBalance()
+{
+   if(!UseVirtualResearchAccount)
+      return AccountBalance();
+
+   double researchBalance = VirtualStartingBalance + GetResearchClosedNetProfit();
+   return MathMax(0.0, researchBalance);
+}
+
+double GetResearchEquity()
+{
+   if(!UseVirtualResearchAccount)
+      return AccountEquity();
+
+   double researchEquity = GetResearchBalance() + GetResearchOpenNetProfit();
+   return MathMax(0.0, researchEquity);
+}
+
+double GetResearchProfit()
+{
+   if(!UseVirtualResearchAccount)
+      return AccountProfit();
+
+   return GetResearchOpenNetProfit();
+}
+
+double GetResearchDrawdownPercent()
+{
+   if(!UseVirtualResearchAccount)
+   {
+      double balance = AccountBalance();
+      double equity = AccountEquity();
+      if(balance <= 0)
+         return 0.0;
+      return MathMax(0.0, (balance - equity) / balance * 100.0);
+   }
+
+   double researchBalance = GetResearchBalance();
+   double researchEquity = GetResearchEquity();
+   if(researchBalance <= 0)
+      return (researchEquity <= 0 ? 100.0 : 0.0);
+
+   return MathMax(0.0, (researchBalance - researchEquity) / researchBalance * 100.0);
+}
+
+bool CheckResearchDrawdownLimit()
+{
+   if(!UseVirtualResearchAccount)
+      return CheckMaxDrawdown(MaxDrawdownPercent);
+
+   return GetResearchDrawdownPercent() < MaxDrawdownPercent;
+}
+
+double CalculateManagedLots(double slPips, string symbol_name, double &virtualLots)
+{
+   virtualLots = 0.0;
+
+   if(!UseVirtualResearchAccount)
+      return CalcLotSize(RiskPercent, slPips, symbol_name);
+
+   virtualLots = CalcLotSizeForBalance(GetResearchBalance(), VirtualRiskPercent, slPips, symbol_name);
+
+   double executionLot = ResearchExecutionLot;
+   if(executionLot <= 0)
+      executionLot = MarketInfo(symbol_name, MODE_MINLOT);
+
+   return NormalizeLotForSymbol(MathMax(executionLot, MarketInfo(symbol_name, MODE_MINLOT)), symbol_name);
+}
+
+string BuildManagedOrderComment(string baseComment, double virtualLots)
+{
+   if(!UseVirtualResearchAccount)
+      return baseComment;
+
+   string tag = "|v=" + DoubleToStr(MathMax(0.0, virtualLots), 5);
+   if(StringLen(baseComment) + StringLen(tag) <= 31)
+      return baseComment + tag;
+
+   tag = "|v=" + DoubleToStr(MathMax(0.0, virtualLots), 4);
+   if(StringLen(baseComment) + StringLen(tag) <= 31)
+      return baseComment + tag;
+
+   return baseComment;
+}
+
+double GetDisplayedBalance()
+{
+   return UseVirtualResearchAccount ? GetResearchBalance() : AccountBalance();
+}
+
+double GetDisplayedEquity()
+{
+   return UseVirtualResearchAccount ? GetResearchEquity() : AccountEquity();
+}
+
+double GetDisplayedProfit()
+{
+   return UseVirtualResearchAccount ? GetResearchProfit() : AccountProfit();
+}
+
+double GetDisplayedDrawdownPercent()
+{
+   if(UseVirtualResearchAccount)
+      return GetResearchDrawdownPercent();
+
+   double balance = AccountBalance();
+   double equity = AccountEquity();
+   if(balance <= 0)
+      return 0.0;
+
+   return MathMax(0.0, (balance - equity) / balance * 100.0);
+}
+
+double GetResearchSymbolFloatingProfit(string symbol_name)
+{
+   double symbolProfit = 0.0;
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != symbol_name) continue;
+      if(!IsManagedMagic(OrderMagicNumber())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      symbolProfit += ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+   }
+
+   return symbolProfit;
+}
+
+double GetResearchSymbolClosedProfit(string symbol_name, int &closedTrades, int &winTrades, datetime &lastCloseTime)
+{
+   closedTrades = 0;
+   winTrades = 0;
+   lastCloseTime = 0;
+
+   double symbolProfit = 0.0;
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != symbol_name) continue;
+      if(!IsManagedMagic(OrderMagicNumber())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      datetime closeTime = OrderCloseTime();
+
+      closedTrades++;
+      symbolProfit += researchNet;
+      if(researchNet > 0)
+         winTrades++;
+      if(closeTime > lastCloseTime)
+         lastCloseTime = closeTime;
+   }
+
+   return symbolProfit;
 }
 
 bool LoadManagedSymbols()
@@ -441,8 +762,8 @@ void ProcessManagedTrading()
       return;
    }
 
-   if(!CheckMaxDrawdown(MaxDrawdownPercent))
-   { if(logGuard){lastGuardLog=TimeCurrent(); Print("[QG-BLOCK] MaxDrawdown exceeded");} return; }
+   if(!CheckResearchDrawdownLimit())
+   { if(logGuard){lastGuardLog=TimeCurrent(); Print("[QG-BLOCK] MaxDrawdown exceeded | researchDD=", DoubleToStr(GetResearchDrawdownPercent(), 2));} return; }
    if(UseTradeSession && !IsTradeSession())
    { if(logGuard){lastGuardLog=TimeCurrent(); Print("[QG-BLOCK] Out of trade session");} return; }
    if(!IsConnected())
@@ -528,13 +849,14 @@ void Strategy_RSI_Reversal_V2()
    {
       double sl = atrSL;
       double tp = sl * 1.5;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            "QG_RSI_Rev_BUY", RSI_Magic, 0, clrDodgerBlue);
+                            BuildManagedOrderComment("QG_RSI_Rev_BUY", virtualLots), RSI_Magic, 0, clrDodgerBlue);
       if(ticket > 0) Print("[RSI蝗槫ｽ綻 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
       if(ticket > 0)
          SetStrategyDiagnostic(1, "BUY_ORDER_SENT", "RSI_Reversal buy order sent on " + TimeframeLabel(RSI_Timeframe), 100);
@@ -547,13 +869,14 @@ void Strategy_RSI_Reversal_V2()
    {
       double sl = atrSL;
       double tp = sl * 1.5;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            "QG_RSI_Rev_SELL", RSI_Magic, 0, clrOrange);
+                            BuildManagedOrderComment("QG_RSI_Rev_SELL", virtualLots), RSI_Magic, 0, clrOrange);
       if(ticket > 0) Print("[RSI蝗槫ｽ綻 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
       if(ticket > 0)
          SetStrategyDiagnostic(1, "SELL_ORDER_SENT", "RSI_Reversal sell order sent on " + TimeframeLabel(RSI_Timeframe), 100);
@@ -681,13 +1004,14 @@ void Strategy_MACD_Divergence_V2()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            "QG_MACD_Div_BUY", MACD_Magic, 0, clrAqua);
+                            BuildManagedOrderComment("QG_MACD_Div_BUY", virtualLots), MACD_Magic, 0, clrAqua);
       if(ticket > 0) Print("[MACD閭檎ｦｻ] 蠎戊レ遖ｻ荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
       if(ticket > 0)
          SetStrategyDiagnostic(3, "BUY_ORDER_SENT", "Bullish MACD divergence triggered a buy", 100);
@@ -700,13 +1024,14 @@ void Strategy_MACD_Divergence_V2()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            "QG_MACD_Div_SELL", MACD_Magic, 0, clrCrimson);
+                            BuildManagedOrderComment("QG_MACD_Div_SELL", virtualLots), MACD_Magic, 0, clrCrimson);
       if(ticket > 0) Print("[MACD閭檎ｦｻ] 鬘ｶ閭檎ｦｻ蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
       if(ticket > 0)
          SetStrategyDiagnostic(3, "SELL_ORDER_SENT", "Bearish MACD divergence triggered a sell", 100);
@@ -773,13 +1098,14 @@ void Strategy_SR_Breakout_V2()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            "QG_SR_Break_BUY", SR_Magic, 0, clrSpringGreen);
+                            BuildManagedOrderComment("QG_SR_Break_BUY", virtualLots), SR_Magic, 0, clrSpringGreen);
       if(ticket > 0) Print("[SR遯∫ｴ] 遯∫ｴ髦ｻ蜉帑ｹｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol, " R=", resistance);
       if(ticket > 0)
          SetStrategyDiagnostic(4, "BUY_ORDER_SENT", "SR_Breakout resistance breakout buy", 100);
@@ -792,13 +1118,14 @@ void Strategy_SR_Breakout_V2()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            "QG_SR_Break_SELL", SR_Magic, 0, clrTomato);
+                            BuildManagedOrderComment("QG_SR_Break_SELL", virtualLots), SR_Magic, 0, clrTomato);
       if(ticket > 0) Print("[SR遯∫ｴ] 霍檎ｴ謾ｯ謦大獄蜃ｺ ", lots, " 謇・@ ", bid, " | ", gSymbol, " S=", support);
       if(ticket > 0)
          SetStrategyDiagnostic(4, "SELL_ORDER_SENT", "SR_Breakout support breakdown sell", 100);
@@ -1213,13 +1540,14 @@ void Strategy_MA_Cross()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       buyTicket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            "QG_MA_Cross_BUY", MA_Magic, 0, clrLime);
+                            BuildManagedOrderComment("QG_MA_Cross_BUY", virtualLots), MA_Magic, 0, clrLime);
       ticket = buyTicket;
       if(ticket > 0) Print("[MA莠､蜿云 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
    }
@@ -1229,13 +1557,14 @@ void Strategy_MA_Cross()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
 
       ResetLastError();
       sellTicket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            "QG_MA_Cross_SELL", MA_Magic, 0, clrRed);
+                            BuildManagedOrderComment("QG_MA_Cross_SELL", virtualLots), MA_Magic, 0, clrRed);
       ticket = sellTicket;
       if(ticket > 0) Print("[MA莠､蜿云 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
       return;
@@ -1281,12 +1610,13 @@ void Strategy_RSI_Reversal()
    {
       double sl = atrSL;
       double tp = sl * 1.5;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
 
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
-                            "QG_RSI_Rev_BUY", RSI_Magic, 0, clrDodgerBlue);
+                            BuildManagedOrderComment("QG_RSI_Rev_BUY", virtualLots), RSI_Magic, 0, clrDodgerBlue);
       if(ticket > 0) Print("[RSI蝗槫ｽ綻 荵ｰ蜈･ ", lots, " 謇・@ ", Ask);
    }
 
@@ -1294,12 +1624,13 @@ void Strategy_RSI_Reversal()
    {
       double sl = atrSL;
       double tp = sl * 1.5;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
 
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
-                            "QG_RSI_Rev_SELL", RSI_Magic, 0, clrOrange);
+                            BuildManagedOrderComment("QG_RSI_Rev_SELL", virtualLots), RSI_Magic, 0, clrOrange);
       if(ticket > 0) Print("[RSI蝗槫ｽ綻 蜊門・ ", lots, " 謇・@ ", Bid);
    }
 }
@@ -1361,13 +1692,14 @@ void Strategy_BB_Triple()
       double sl = atrSL;
       double tp_dist = MathAbs(bbUpper - close1) / gPoint / ((gDigits == 3 || gDigits == 5) ? 10.0 : 1.0);
       double tp = MathMax(tp_dist, sl * 1.5);
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
 
        ResetLastError();
        int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            "QG_BB_Triple_BUY", BB_Magic, 0, clrGold);
+                            BuildManagedOrderComment("QG_BB_Triple_BUY", virtualLots), BB_Magic, 0, clrGold);
        if(ticket > 0) Print("[BB荳蛾㍾] 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol, " TP->荳願ｽｨ");
        if(ticket > 0)
           SetStrategyDiagnostic(2, "BUY_ORDER_SENT", "BB_Triple buy order sent on " + TimeframeLabel(BB_Timeframe), 100);
@@ -1386,13 +1718,14 @@ void Strategy_BB_Triple()
       double sl = atrSL;
       double tp_dist = MathAbs(close1 - bbLower) / gPoint / ((gDigits == 3 || gDigits == 5) ? 10.0 : 1.0);
       double tp = MathMax(tp_dist, sl * 1.5);
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
 
        ResetLastError();
        int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            "QG_BB_Triple_SELL", BB_Magic, 0, clrMagenta);
+                            BuildManagedOrderComment("QG_BB_Triple_SELL", virtualLots), BB_Magic, 0, clrMagenta);
        if(ticket > 0) Print("[BB荳蛾㍾] 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol, " TP->荳玖ｽｨ");
        if(ticket > 0)
           SetStrategyDiagnostic(2, "SELL_ORDER_SENT", "BB_Triple sell order sent on " + TimeframeLabel(BB_Timeframe), 100);
@@ -1437,12 +1770,13 @@ void Strategy_MACD_Divergence()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
 
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
-                            "QG_MACD_Div_BUY", MACD_Magic, 0, clrAqua);
+                            BuildManagedOrderComment("QG_MACD_Div_BUY", virtualLots), MACD_Magic, 0, clrAqua);
       if(ticket > 0) Print("[MACD閭檎ｦｻ] 蠎戊レ遖ｻ荵ｰ蜈･ ", lots, " 謇・@ ", Ask);
    }
 
@@ -1451,12 +1785,13 @@ void Strategy_MACD_Divergence()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
 
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
-                            "QG_MACD_Div_SELL", MACD_Magic, 0, clrCrimson);
+                            BuildManagedOrderComment("QG_MACD_Div_SELL", virtualLots), MACD_Magic, 0, clrCrimson);
       if(ticket > 0) Print("[MACD閭檎ｦｻ] 鬘ｶ閭檎ｦｻ蜊門・ ", lots, " 謇・@ ", Bid);
    }
 }
@@ -1584,12 +1919,13 @@ void Strategy_SR_Breakout()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Ask + PipsToPrice(tp, gSymbol), gDigits);
 
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, Ask, 3, slPrice, tpPrice,
-                            "QG_SR_Break_BUY", SR_Magic, 0, clrSpringGreen);
+                            BuildManagedOrderComment("QG_SR_Break_BUY", virtualLots), SR_Magic, 0, clrSpringGreen);
       if(ticket > 0) Print("[SR遯∫ｴ] 遯∫ｴ髦ｻ蜉帑ｹｰ蜈･ ", lots, " 謇・@ ", Ask, " R=", resistance);
    }
 
@@ -1598,12 +1934,13 @@ void Strategy_SR_Breakout()
    {
       double sl = atrSL;
       double tp = sl * 2.0;
-      double lots = CalcLotSize(RiskPercent, sl, gSymbol);
+      double virtualLots = 0.0;
+      double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(Bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(Bid - PipsToPrice(tp, gSymbol), gDigits);
 
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, Bid, 3, slPrice, tpPrice,
-                            "QG_SR_Break_SELL", SR_Magic, 0, clrTomato);
+                            BuildManagedOrderComment("QG_SR_Break_SELL", virtualLots), SR_Magic, 0, clrTomato);
       if(ticket > 0) Print("[SR遯∫ｴ] 霍檎ｴ謾ｯ謦大獄蜃ｺ ", lots, " 謇・@ ", Bid, " S=", support);
    }
 }
@@ -1714,6 +2051,9 @@ string GetTradingStatusForSymbol(string symbol_name)
    if(PauseNewEntries)
       return "PAUSED";
 
+   if(!CheckResearchDrawdownLimit())
+      return "DRAWDOWN_GUARD";
+
    if(UseTradeSession && !IsTradeSession())
       return "OUT_OF_SESSION";
 
@@ -1727,27 +2067,32 @@ string GetTradingStatusForSymbol(string symbol_name)
 void UpdateChartDisplayV2()
 {
    PrepareSymbolContext(gDashboardSymbol);
-   double balance = AccountBalance();
-   double equity = AccountEquity();
-   double profit = AccountProfit();
-   double dd = 0;
+   double balance = GetDisplayedBalance();
+   double equity = GetDisplayedEquity();
+   double profit = GetDisplayedProfit();
+   double dd = GetDisplayedDrawdownPercent();
    int tickAge = GetTickAgeSeconds();
    string tradingStatus = GetTradingStatus();
    string terminalTrading = IsTerminalTradeEnabled() ? "ON" : "OFF";
    string programTrading = IsProgramTradeEnabled() ? "ON" : "OFF";
    string dllTrading = IsDllImportEnabled() ? "ON" : "OFF";
 
-   if(balance > 0)
-      dd = (balance - equity) / balance * 100.0;
-
    string info = "";
-   info += "QuantGod Multi-Strategy v2.3\n";
+   info += "QuantGod Multi-Strategy v2.6\n";
    info += "Focus: " + gDashboardSymbol + "  Chart: " + gChartSymbol + "\n";
    info += "Watchlist: " + GetManagedSymbolsLabel() + "\n";
+   info += "Mode: " + (UseVirtualResearchAccount ? "Virtual Research" : "Broker Balance") + "\n";
    info += "Balance: $" + DoubleToStr(balance, 2) + "\n";
    info += "Equity:  $" + DoubleToStr(equity, 2) + "\n";
    info += "Profit:  $" + DoubleToStr(profit, 2) + "\n";
    info += "Drawdown: " + DoubleToStr(dd, 2) + "%\n";
+   if(UseVirtualResearchAccount)
+   {
+      info += "Start: $" + DoubleToStr(VirtualStartingBalance, 2) +
+              "  Risk: " + DoubleToStr(VirtualRiskPercent, 2) + "%\n";
+      info += "Exec Lot: " + DoubleToStr(NormalizeLotForSymbol(MathMax(ResearchExecutionLot, MarketInfo(gSymbol, MODE_MINLOT)), gSymbol), 2) + "\n";
+      info += "Broker Equity: $" + DoubleToStr(AccountEquity(), 2) + "\n";
+   }
    info += "Terminal AutoTrading: " + terminalTrading + "\n";
    info += "EA Live Trading: " + programTrading + "  DLL: " + dllTrading + "\n";
    info += "Status: " + tradingStatus + "\n";
@@ -1806,45 +2151,68 @@ void ExportDashboardData()
    int handle = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE) return;
 
-   double balance = AccountBalance();
-   double equity = AccountEquity();
-   double profit = AccountProfit();
-   double margin = AccountMargin();
-   double freeMargin = AccountFreeMargin();
-   double dd = 0;
-   if(balance > 0) dd = (balance - equity) / balance * 100.0;
+   double brokerBalance = AccountBalance();
+   double brokerEquity = AccountEquity();
+   double brokerProfit = AccountProfit();
+   double brokerMargin = AccountMargin();
+   double brokerFreeMargin = AccountFreeMargin();
+   double brokerDD = 0.0;
+   if(brokerBalance > 0)
+      brokerDD = (brokerBalance - brokerEquity) / brokerBalance * 100.0;
 
-   // JSON螟ｴ
+   double displayBalance = GetDisplayedBalance();
+   double displayEquity = GetDisplayedEquity();
+   double displayProfit = GetDisplayedProfit();
+   double displayDD = GetDisplayedDrawdownPercent();
+
    FileWriteString(handle, "{\n");
    FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
-   FileWriteString(handle, "  \"build\": \"QuantGod-v2.5-symbol-diag\",\n");
+   FileWriteString(handle, "  \"build\": \"QuantGod-v2.6-virtual-research\",\n");
    FileWriteString(handle, "  \"runtime\": {\n");
    FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
-    FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
+   FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"terminalTradeAllowed\": " + (IsTerminalTradeEnabled() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"programTradeAllowed\": " + (IsProgramTradeEnabled() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"dllAllowed\": " + (IsDllImportEnabled() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"tradeAllowed\": " + (IsTradeAllowed() ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"tickAgeSeconds\": " + IntegerToString(GetTickAgeSeconds()) + ",\n");
+   FileWriteString(handle, "    \"researchMode\": " + (UseVirtualResearchAccount ? "true" : "false") + ",\n");
    FileWriteString(handle, "    \"serverTime\": \"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
    FileWriteString(handle, "    \"gmtTime\": \"" + TimeToStr(TimeGMT(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
    FileWriteString(handle, "    \"localTime\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\"\n");
    FileWriteString(handle, "  },\n");
    FileWriteString(handle, "  \"account\": {\n");
    FileWriteString(handle, "    \"number\": " + IntegerToString(AccountNumber()) + ",\n");
-   FileWriteString(handle, "    \"name\": \"" + AccountName() + "\",\n");
-   FileWriteString(handle, "    \"server\": \"" + AccountServer() + "\",\n");
-   FileWriteString(handle, "    \"currency\": \"" + AccountCurrency() + "\",\n");
-   FileWriteString(handle, "    \"balance\": " + DoubleToStr(balance, 2) + ",\n");
-   FileWriteString(handle, "    \"equity\": " + DoubleToStr(equity, 2) + ",\n");
-   FileWriteString(handle, "    \"profit\": " + DoubleToStr(profit, 2) + ",\n");
-   FileWriteString(handle, "    \"margin\": " + DoubleToStr(margin, 2) + ",\n");
-   FileWriteString(handle, "    \"freeMargin\": " + DoubleToStr(freeMargin, 2) + ",\n");
-   FileWriteString(handle, "    \"drawdown\": " + DoubleToStr(dd, 2) + ",\n");
+   FileWriteString(handle, "    \"name\": \"" + JsonEscape(AccountName()) + "\",\n");
+   FileWriteString(handle, "    \"server\": \"" + JsonEscape(AccountServer()) + "\",\n");
+   FileWriteString(handle, "    \"currency\": \"" + JsonEscape(AccountCurrency()) + "\",\n");
+   FileWriteString(handle, "    \"mode\": \"" + (UseVirtualResearchAccount ? "virtual_research" : "broker_account") + "\",\n");
+   FileWriteString(handle, "    \"startingBalance\": " + DoubleToStr(UseVirtualResearchAccount ? VirtualStartingBalance : brokerBalance, 2) + ",\n");
+   FileWriteString(handle, "    \"riskPercent\": " + DoubleToStr(UseVirtualResearchAccount ? VirtualRiskPercent : RiskPercent, 2) + ",\n");
+   FileWriteString(handle, "    \"executionLot\": " + DoubleToStr(NormalizeLotForSymbol(MathMax(ResearchExecutionLot, MarketInfo(gSymbol, MODE_MINLOT)), gSymbol), 2) + ",\n");
+   FileWriteString(handle, "    \"balance\": " + DoubleToStr(displayBalance, 2) + ",\n");
+   FileWriteString(handle, "    \"equity\": " + DoubleToStr(displayEquity, 2) + ",\n");
+   FileWriteString(handle, "    \"profit\": " + DoubleToStr(displayProfit, 2) + ",\n");
+   FileWriteString(handle, "    \"margin\": " + DoubleToStr(brokerMargin, 2) + ",\n");
+   FileWriteString(handle, "    \"freeMargin\": " + DoubleToStr(brokerFreeMargin, 2) + ",\n");
+   FileWriteString(handle, "    \"drawdown\": " + DoubleToStr(displayDD, 2) + ",\n");
+   FileWriteString(handle, "    \"maxDrawdownPercent\": " + DoubleToStr(MaxDrawdownPercent, 2) + ",\n");
+   FileWriteString(handle, "    \"maxTotalTrades\": " + IntegerToString(MaxTotalTrades) + ",\n");
    FileWriteString(handle, "    \"leverage\": " + IntegerToString(AccountLeverage()) + "\n");
    FileWriteString(handle, "  },\n");
-   FileWriteString(handle, "  \"watchlist\": \"" + GetManagedSymbolsLabel() + "\",\n");
+   FileWriteString(handle, "  \"brokerAccount\": {\n");
+   FileWriteString(handle, "    \"balance\": " + DoubleToStr(brokerBalance, 2) + ",\n");
+   FileWriteString(handle, "    \"equity\": " + DoubleToStr(brokerEquity, 2) + ",\n");
+   FileWriteString(handle, "    \"profit\": " + DoubleToStr(brokerProfit, 2) + ",\n");
+   FileWriteString(handle, "    \"margin\": " + DoubleToStr(brokerMargin, 2) + ",\n");
+   FileWriteString(handle, "    \"freeMargin\": " + DoubleToStr(brokerFreeMargin, 2) + ",\n");
+   FileWriteString(handle, "    \"drawdown\": " + DoubleToStr(brokerDD, 2) + ",\n");
+   FileWriteString(handle, "    \"server\": \"" + JsonEscape(AccountServer()) + "\",\n");
+   FileWriteString(handle, "    \"leverage\": " + IntegerToString(AccountLeverage()) + "\n");
+   FileWriteString(handle, "  },\n");
+   FileWriteString(handle, "  \"watchlist\": \"" + JsonEscape(GetManagedSymbolsLabel()) + "\",\n");
    FileWriteString(handle, "  \"symbols\": [\n");
+
    bool firstSymbolEntry = true;
    for(int symIndex = 0; symIndex < gManagedSymbolCount; symIndex++)
    {
@@ -1855,11 +2223,7 @@ void ExportDashboardData()
       double symbolSpread = GetSpreadPips(symbolName);
       int symbolTickAge = GetTickAgeSecondsForSymbol(symbolName);
       int symbolOpenPositions = 0;
-      double symbolFloatingProfit = 0.0;
-      int symbolClosedTrades = 0;
-      int symbolWinTrades = 0;
-      double symbolClosedProfit = 0.0;
-      datetime symbolLastCloseTime = 0;
+      double symbolActualFloatingProfit = 0.0;
 
       for(int openIndex = 0; openIndex < OrdersTotal(); openIndex++)
       {
@@ -1868,29 +2232,29 @@ void ExportDashboardData()
          if(!IsManagedMagic(OrderMagicNumber())) continue;
 
          symbolOpenPositions++;
-         symbolFloatingProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+         symbolActualFloatingProfit += (OrderProfit() + OrderSwap() + OrderCommission());
       }
 
+      int symbolClosedTrades = 0;
+      int symbolWinTrades = 0;
+      datetime symbolLastCloseTime = 0;
+      double symbolClosedProfit = GetResearchSymbolClosedProfit(symbolName, symbolClosedTrades, symbolWinTrades, symbolLastCloseTime);
+      double symbolFloatingProfit = UseVirtualResearchAccount ? GetResearchSymbolFloatingProfit(symbolName) : symbolActualFloatingProfit;
+      double symbolWinRate = (symbolClosedTrades > 0)
+                           ? ((double)symbolWinTrades * 100.0 / symbolClosedTrades)
+                           : 0.0;
+
+      double symbolActualClosedProfit = 0.0;
       for(int historyIndex = OrdersHistoryTotal() - 1; historyIndex >= 0; historyIndex--)
       {
          if(!OrderSelect(historyIndex, SELECT_BY_POS, MODE_HISTORY)) continue;
          if(OrderSymbol() != symbolName) continue;
          if(!IsManagedMagic(OrderMagicNumber())) continue;
-
-         double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
-         datetime closeTime = OrderCloseTime();
-
-         symbolClosedTrades++;
-         symbolClosedProfit += netProfit;
-         if(netProfit > 0)
-            symbolWinTrades++;
-         if(closeTime > symbolLastCloseTime)
-            symbolLastCloseTime = closeTime;
+         symbolActualClosedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
       }
 
-      double symbolWinRate = (symbolClosedTrades > 0)
-                           ? ((double)symbolWinTrades * 100.0 / symbolClosedTrades)
-                           : 0.0;
+      if(!UseVirtualResearchAccount)
+         symbolClosedProfit = symbolActualClosedProfit;
 
       string symbolStatus = GetTradingStatusForSymbol(symbolName);
       if(symbolStatus == "READY" && symbolOpenPositions > 0)
@@ -1909,9 +2273,11 @@ void ExportDashboardData()
       FileWriteString(handle, "      \"spread\": " + DoubleToStr(symbolSpread, 1) + ",\n");
       FileWriteString(handle, "      \"openPositions\": " + IntegerToString(symbolOpenPositions) + ",\n");
       FileWriteString(handle, "      \"floatingProfit\": " + DoubleToStr(symbolFloatingProfit, 2) + ",\n");
+      FileWriteString(handle, "      \"actualFloatingProfit\": " + DoubleToStr(symbolActualFloatingProfit, 2) + ",\n");
       FileWriteString(handle, "      \"closedTrades\": " + IntegerToString(symbolClosedTrades) + ",\n");
       FileWriteString(handle, "      \"winRate\": " + DoubleToStr(symbolWinRate, 1) + ",\n");
       FileWriteString(handle, "      \"closedProfit\": " + DoubleToStr(symbolClosedProfit, 2) + ",\n");
+      FileWriteString(handle, "      \"actualClosedProfit\": " + DoubleToStr(symbolActualClosedProfit, 2) + ",\n");
       FileWriteString(handle, "      \"lastCloseTime\": \"" + (symbolLastCloseTime > 0 ? TimeToStr(symbolLastCloseTime, TIME_DATE|TIME_MINUTES) : "") + "\",\n");
       FileWriteString(handle, "      \"strategies\": {\n");
       FileWriteString(handle, "        \"MA_Cross\": {\"status\": \"" + JsonEscape(gManagedDiagStatus[symIndex][0]) + "\", \"score\": " + DoubleToStr(gManagedDiagScore[symIndex][0], 1) + ", \"reason\": \"" + JsonEscape(gManagedDiagReason[symIndex][0]) + "\"},\n");
@@ -1931,26 +2297,32 @@ void ExportDashboardData()
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
 
-      if(!firstTrade) FileWriteString(handle, ",\n");
-      firstTrade = false;
-
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
       string stratName = GetStrategyName(OrderMagicNumber());
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
       int orderDigits = DigitsForSymbolName(OrderSymbol());
+
+      if(!firstTrade) FileWriteString(handle, ",\n");
+      firstTrade = false;
 
       FileWriteString(handle, "    {\n");
       FileWriteString(handle, "      \"ticket\": " + IntegerToString(OrderTicket()) + ",\n");
       FileWriteString(handle, "      \"type\": \"" + typeStr + "\",\n");
       FileWriteString(handle, "      \"symbol\": \"" + OrderSymbol() + "\",\n");
-      FileWriteString(handle, "      \"lots\": " + DoubleToStr(OrderLots(), 2) + ",\n");
+      FileWriteString(handle, "      \"lots\": " + DoubleToStr(UseVirtualResearchAccount ? researchLots : OrderLots(), 5) + ",\n");
+      FileWriteString(handle, "      \"actualLots\": " + DoubleToStr(OrderLots(), 2) + ",\n");
+      FileWriteString(handle, "      \"virtualLots\": " + DoubleToStr(researchLots, 5) + ",\n");
       FileWriteString(handle, "      \"openPrice\": " + DoubleToStr(OrderOpenPrice(), orderDigits) + ",\n");
       FileWriteString(handle, "      \"sl\": " + DoubleToStr(OrderStopLoss(), orderDigits) + ",\n");
       FileWriteString(handle, "      \"tp\": " + DoubleToStr(OrderTakeProfit(), orderDigits) + ",\n");
-      FileWriteString(handle, "      \"profit\": " + DoubleToStr(OrderProfit(), 2) + ",\n");
+      FileWriteString(handle, "      \"profit\": " + DoubleToStr(UseVirtualResearchAccount ? researchNet : actualNet, 2) + ",\n");
+      FileWriteString(handle, "      \"actualProfit\": " + DoubleToStr(actualNet, 2) + ",\n");
       FileWriteString(handle, "      \"swap\": " + DoubleToStr(OrderSwap(), 2) + ",\n");
       FileWriteString(handle, "      \"openTime\": \"" + TimeToStr(OrderOpenTime(), TIME_DATE|TIME_MINUTES) + "\",\n");
       FileWriteString(handle, "      \"strategy\": \"" + stratName + "\",\n");
-      FileWriteString(handle, "      \"comment\": \"" + OrderComment() + "\"\n");
+      FileWriteString(handle, "      \"comment\": \"" + JsonEscape(OrderComment()) + "\"\n");
       FileWriteString(handle, "    }");
    }
    FileWriteString(handle, "\n  ],\n");
@@ -1958,33 +2330,38 @@ void ExportDashboardData()
    FileWriteString(handle, "  \"closedTrades\": [\n");
    bool firstClosed = true;
    int historyTotal = OrdersHistoryTotal();
-   int maxHistory = historyTotal;
-
-   for(int i = historyTotal - 1; i >= historyTotal - maxHistory && i >= 0; i--)
+   for(int j = historyTotal - 1; j >= 0; j--)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_HISTORY)) continue;
       if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
-      if(!firstClosed) FileWriteString(handle, ",\n");
-      firstClosed = false;
-
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
       string stratName = GetStrategyName(OrderMagicNumber());
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
       int orderDigits = DigitsForSymbolName(OrderSymbol());
+
+      if(!firstClosed) FileWriteString(handle, ",\n");
+      firstClosed = false;
 
       FileWriteString(handle, "    {\n");
       FileWriteString(handle, "      \"ticket\": " + IntegerToString(OrderTicket()) + ",\n");
       FileWriteString(handle, "      \"type\": \"" + typeStr + "\",\n");
       FileWriteString(handle, "      \"symbol\": \"" + OrderSymbol() + "\",\n");
-      FileWriteString(handle, "      \"lots\": " + DoubleToStr(OrderLots(), 2) + ",\n");
+      FileWriteString(handle, "      \"lots\": " + DoubleToStr(UseVirtualResearchAccount ? researchLots : OrderLots(), 5) + ",\n");
+      FileWriteString(handle, "      \"actualLots\": " + DoubleToStr(OrderLots(), 2) + ",\n");
+      FileWriteString(handle, "      \"virtualLots\": " + DoubleToStr(researchLots, 5) + ",\n");
       FileWriteString(handle, "      \"openPrice\": " + DoubleToStr(OrderOpenPrice(), orderDigits) + ",\n");
       FileWriteString(handle, "      \"closePrice\": " + DoubleToStr(OrderClosePrice(), orderDigits) + ",\n");
-      FileWriteString(handle, "      \"profit\": " + DoubleToStr(OrderProfit(), 2) + ",\n");
+      FileWriteString(handle, "      \"profit\": " + DoubleToStr(UseVirtualResearchAccount ? researchNet : actualNet, 2) + ",\n");
+      FileWriteString(handle, "      \"actualProfit\": " + DoubleToStr(actualNet, 2) + ",\n");
       FileWriteString(handle, "      \"swap\": " + DoubleToStr(OrderSwap(), 2) + ",\n");
       FileWriteString(handle, "      \"openTime\": \"" + TimeToStr(OrderOpenTime(), TIME_DATE|TIME_MINUTES) + "\",\n");
       FileWriteString(handle, "      \"closeTime\": \"" + TimeToStr(OrderCloseTime(), TIME_DATE|TIME_MINUTES) + "\",\n");
       FileWriteString(handle, "      \"strategy\": \"" + stratName + "\",\n");
-      FileWriteString(handle, "      \"comment\": \"" + OrderComment() + "\"\n");
+      FileWriteString(handle, "      \"comment\": \"" + JsonEscape(OrderComment()) + "\"\n");
       FileWriteString(handle, "    }");
    }
    FileWriteString(handle, "\n  ],\n");
@@ -2004,19 +2381,15 @@ void ExportDashboardData()
    FileWriteString(handle, "    \"MACD_Divergence\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[3]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[3], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[3]) + "\"},\n");
    FileWriteString(handle, "    \"SR_Breakout\": {\"status\": \"" + JsonEscape(gStrategyDiagStatus[4]) + "\", \"score\": " + DoubleToStr(gStrategyDiagScore[4], 1) + ", \"reason\": \"" + JsonEscape(gStrategyDiagReason[4]) + "\"}\n");
    FileWriteString(handle, "  },\n");
-
-   // 蟶ょ惻菫｡諱ｯ
    FileWriteString(handle, "  \"market\": {\n");
    FileWriteString(handle, "    \"symbol\": \"" + gSymbol + "\",\n");
    FileWriteString(handle, "    \"bid\": " + DoubleToStr(MarketInfo(gSymbol, MODE_BID), gDigits) + ",\n");
    FileWriteString(handle, "    \"ask\": " + DoubleToStr(MarketInfo(gSymbol, MODE_ASK), gDigits) + ",\n");
    FileWriteString(handle, "    \"spread\": " + DoubleToStr(GetSpreadPips(gSymbol), 1) + "\n");
    FileWriteString(handle, "  }\n");
-
    FileWriteString(handle, "}\n");
    FileClose(handle);
 
-   // 蜷梧慮蟇ｼ蜃ｺ菴咎｢晏紙蜿ｲCSV
    ExportBalanceHistoryV2();
 }
 
@@ -2062,7 +2435,7 @@ void LogAccountSnapshot(string sourceTag)
    }
 
    if(FileSize(handle) == 0)
-      FileWrite(handle, "Time", "Source", "Status", "Balance", "Equity", "Profit", "Margin", "FreeMargin", "Spread", "OpenPositions");
+      FileWrite(handle, "Time", "Source", "Status", "Mode", "DisplayBalance", "DisplayEquity", "DisplayProfit", "DisplayDrawdown", "BrokerBalance", "BrokerEquity", "BrokerProfit", "Margin", "FreeMargin", "Spread", "OpenPositions");
    else
       FileSeek(handle, 0, SEEK_END);
 
@@ -2070,6 +2443,11 @@ void LogAccountSnapshot(string sourceTag)
              TimeToStr(TimeLocal(), TIME_DATE|TIME_SECONDS),
              sourceTag,
              GetTradingStatus(),
+             UseVirtualResearchAccount ? "VIRTUAL_RESEARCH" : "BROKER_ACCOUNT",
+             DoubleToStr(GetDisplayedBalance(), 2),
+             DoubleToStr(GetDisplayedEquity(), 2),
+             DoubleToStr(GetDisplayedProfit(), 2),
+             DoubleToStr(GetDisplayedDrawdownPercent(), 2),
              DoubleToStr(AccountBalance(), 2),
              DoubleToStr(AccountEquity(), 2),
              DoubleToStr(AccountProfit(), 2),
@@ -2092,7 +2470,7 @@ void AuditClosedTrades()
       return;
    }
 
-   FileWrite(handle, "CloseTime", "Ticket", "Strategy", "Type", "Symbol", "Lots", "OpenPrice", "ClosePrice", "SL", "TP", "Profit", "Swap", "Commission", "Net", "DurationMinutes", "Balance", "Equity", "Comment");
+   FileWrite(handle, "CloseTime", "Ticket", "Strategy", "Type", "Symbol", "ActualLots", "ResearchLots", "OpenPrice", "ClosePrice", "SL", "TP", "ActualProfit", "Swap", "Commission", "ActualNet", "ResearchNet", "DurationMinutes", "Mode", "Comment");
 
    int historyTotal = OrdersHistoryTotal();
    if(historyTotal <= 0)
@@ -2101,29 +2479,42 @@ void AuditClosedTrades()
       return;
    }
 
+   double runningDisplayBalance = UseVirtualResearchAccount ? VirtualStartingBalance : AccountBalance();
+   if(!UseVirtualResearchAccount)
+   {
+      double totalClosedActual = 0.0;
+      for(int seed = 0; seed < historyTotal; seed++)
+      {
+         if(!OrderSelect(seed, SELECT_BY_POS, MODE_HISTORY)) continue;
+         if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+         totalClosedActual += (OrderProfit() + OrderSwap() + OrderCommission());
+      }
+      runningDisplayBalance = AccountBalance() - totalClosedActual;
+   }
+
    for(int i = 0; i < historyTotal; i++)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
       if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
-
-      datetime closeTime = OrderCloseTime();
-      int ticket = OrderTicket();
-      if(closeTime <= 0) continue;
-      if(closeTime < gLastLoggedCloseTime) continue;
-      if(closeTime == gLastLoggedCloseTime && ticket <= gLastLoggedCloseTicket) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
-      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double displayNet = UseVirtualResearchAccount ? researchNet : actualNet;
       int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
       int orderDigits = DigitsForSymbolName(OrderSymbol());
+      runningDisplayBalance += displayNet;
 
       FileWrite(handle,
-                TimeToStr(closeTime, TIME_DATE|TIME_SECONDS),
-                ticket,
+                TimeToStr(OrderCloseTime(), TIME_DATE|TIME_SECONDS),
+                OrderTicket(),
                 GetStrategyName(OrderMagicNumber()),
                 typeStr,
                 OrderSymbol(),
                 DoubleToStr(OrderLots(), 2),
+                DoubleToStr(researchLots, 5),
                 DoubleToStr(OrderOpenPrice(), orderDigits),
                 DoubleToStr(OrderClosePrice(), orderDigits),
                 DoubleToStr(OrderStopLoss(), orderDigits),
@@ -2131,10 +2522,10 @@ void AuditClosedTrades()
                 DoubleToStr(OrderProfit(), 2),
                 DoubleToStr(OrderSwap(), 2),
                 DoubleToStr(OrderCommission(), 2),
-                DoubleToStr(netProfit, 2),
+                DoubleToStr(actualNet, 2),
+                DoubleToStr(researchNet, 2),
                 durationMinutes,
-                DoubleToStr(AccountBalance(), 2),
-                DoubleToStr(AccountEquity(), 2),
+                UseVirtualResearchAccount ? "VIRTUAL_RESEARCH" : "BROKER_ACCOUNT",
                 OrderComment());
    }
 
@@ -2147,29 +2538,34 @@ void ExportBalanceHistoryV2()
    int handle = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE) return;
 
-   FileWriteString(handle, "RowType,Time,Status,Strategy,Ticket,Type,Symbol,Lots,OpenPrice,ClosePrice,GrossProfit,NetProfit,Swap,Commission,Balance,Equity,DurationMinutes,Comment\n");
+   FileWriteString(handle, "RowType,Time,Status,Strategy,Ticket,Type,Symbol,ActualLots,ResearchLots,OpenPrice,ClosePrice,ActualNetProfit,ResearchNetProfit,Balance,Equity,BrokerBalance,BrokerEquity,DurationMinutes,Comment\n");
 
    int historyTotal = OrdersHistoryTotal();
-   double totalClosedNet = 0;
+   double totalClosedDisplayNet = 0;
    for(int i = 0; i < historyTotal; i++)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderMagicNumber() != MA_Magic && OrderMagicNumber() != RSI_Magic &&
-         OrderMagicNumber() != BB_Magic && OrderMagicNumber() != MACD_Magic &&
-         OrderMagicNumber() != SR_Magic) continue;
+      if(!IsManagedMagic(OrderMagicNumber()) || !IsManagedSymbol(OrderSymbol())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
-      totalClosedNet += OrderProfit() + OrderSwap() + OrderCommission();
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      totalClosedDisplayNet += (UseVirtualResearchAccount ? researchNet : actualNet);
    }
 
-   double runningBalance = AccountBalance() - totalClosedNet;
+   double runningBalance = UseVirtualResearchAccount ? VirtualStartingBalance : (AccountBalance() - totalClosedDisplayNet);
 
    for(int j = 0; j < historyTotal; j++)
    {
       if(!OrderSelect(j, SELECT_BY_POS, MODE_HISTORY)) continue;
       if(!IsManagedMagic(OrderMagicNumber()) || !IsManagedSymbol(OrderSymbol())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
-      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      runningBalance += netProfit;
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double displayNet = UseVirtualResearchAccount ? researchNet : actualNet;
+      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
+      runningBalance += displayNet;
       int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
       int orderDigits = DigitsForSymbolName(OrderSymbol());
@@ -2187,14 +2583,15 @@ void ExportBalanceHistoryV2()
                       typeStr + "," +
                       OrderSymbol() + "," +
                       DoubleToStr(OrderLots(), 2) + "," +
+                      DoubleToStr(researchLots, 5) + "," +
                       DoubleToStr(OrderOpenPrice(), orderDigits) + "," +
                       DoubleToStr(OrderClosePrice(), orderDigits) + "," +
-                      DoubleToStr(OrderProfit(), 2) + "," +
-                      DoubleToStr(netProfit, 2) + "," +
-                      DoubleToStr(OrderSwap(), 2) + "," +
-                      DoubleToStr(OrderCommission(), 2) + "," +
+                      DoubleToStr(actualNet, 2) + "," +
+                      DoubleToStr(researchNet, 2) + "," +
                       DoubleToStr(runningBalance, 2) + "," +
                       DoubleToStr(runningBalance, 2) + "," +
+                      DoubleToStr(AccountBalance(), 2) + "," +
+                      DoubleToStr(AccountEquity(), 2) + "," +
                       IntegerToString(durationMinutes) + "," +
                       commentText + "\n");
    }
@@ -2203,9 +2600,11 @@ void ExportBalanceHistoryV2()
                    "ACCOUNT_SNAPSHOT," +
                    TimeToStr(TimeLocal(), TIME_DATE|TIME_SECONDS) + "," +
                    GetTradingStatus() + "," +
-                   "Current,0,N/A," + gDashboardSymbol + ",0,0,0," +
+                   "Current,0,N/A," + gDashboardSymbol + ",0,0,0,0," +
                    DoubleToStr(AccountProfit(), 2) + "," +
-                   DoubleToStr(AccountProfit(), 2) + ",0,0," +
+                   DoubleToStr(GetDisplayedProfit(), 2) + "," +
+                   DoubleToStr(GetDisplayedBalance(), 2) + "," +
+                   DoubleToStr(GetDisplayedEquity(), 2) + "," +
                    DoubleToStr(AccountBalance(), 2) + "," +
                    DoubleToStr(AccountEquity(), 2) + ",0,Runtime\n");
 

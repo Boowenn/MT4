@@ -964,24 +964,24 @@
     <!-- 统计卡片 -->
     <div class="stats-grid fade-in">
         <div class="stat-card">
-            <div class="stat-label">账户余额</div>
+            <div class="stat-label" id="labelBalance">研究余额</div>
             <div class="stat-value" id="statBalance">$0.00</div>
             <div class="stat-change neutral" id="statBalanceChange">---</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">账户净值</div>
+            <div class="stat-label" id="labelEquity">研究净值</div>
             <div class="stat-value" id="statEquity">$0.00</div>
             <div class="stat-change neutral" id="statEquityChange">---</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">浮动盈亏</div>
+            <div class="stat-label" id="labelProfit">研究浮盈亏</div>
             <div class="stat-value" id="statProfit">$0.00</div>
-            <div class="stat-change neutral">实时</div>
+            <div class="stat-change neutral" id="statProfitChange">实时</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">当前回撤</div>
+            <div class="stat-label" id="labelDrawdown">研究回撤</div>
             <div class="stat-value" id="statDrawdown">0.00%</div>
-            <div class="stat-change neutral">最大限制: 15%</div>
+            <div class="stat-change neutral" id="statDrawdownChange">最大限制: 15%</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">持仓数量</div>
@@ -1293,6 +1293,32 @@ function groupBySymbol(items) {
         groups.get(key).push(item);
     });
     return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function isResearchMode(d) {
+    return Boolean(d?.runtime?.researchMode || d?.account?.mode === 'virtual_research');
+}
+
+function getDisplayAccount(d) {
+    return d?.account || {};
+}
+
+function getBrokerAccount(d) {
+    return d?.brokerAccount || d?.account || {};
+}
+
+function formatMoney(value, digits = 2) {
+    const num = Number(value || 0);
+    const sign = num >= 0 ? '+' : '-';
+    return `${sign}$${Math.abs(num).toFixed(digits)}`;
+}
+
+function formatLots(value) {
+    const num = Number(value || 0);
+    if (!Number.isFinite(num)) return '--';
+    if (num >= 1) return num.toFixed(2);
+    if (num >= 0.1) return num.toFixed(2);
+    return num.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function getSymbolOverviewData(d) {
@@ -1670,7 +1696,7 @@ function updateExecutionRadar(d) {
     byId('radarTickAge').textContent = tickAge;
     byId('radarSpread').textContent = `点差 ${spread ?? '--'} 点`;
     byId('radarOpenCapacity').textContent = maxOpen ? `${openPositions}/${maxOpen}` : `${openPositions} 笔`;
-    byId('radarAccountLine').textContent = `净值 ${Number.isFinite(Number(equity)) ? ('$' + Number(equity).toFixed(2)) : '--'}`;
+    byId('radarAccountLine').textContent = `${isResearchMode(d) ? '研究净值' : '净值'} ${Number.isFinite(Number(equity)) ? ('$' + Number(equity).toFixed(2)) : '--'}`;
     byId('radarNextH1').textContent = nextH1Countdown;
     byId('radarNextH1Meta').textContent = `服务器 ${formatBoundaryLabel(nextH1)} | 均线交叉 / 支撑阻力突破`;
     byId('radarNextH4').textContent = nextH4Countdown;
@@ -1840,6 +1866,9 @@ function updateDashboard() {
 
     const d = dashboardData;
     const now = new Date();
+    const account = getDisplayAccount(d);
+    const broker = getBrokerAccount(d);
+    const researchMode = isResearchMode(d);
     updateRuntimeBadge(d);
     updateEvaluationCountdown(d);
     updateExecutionRadar(d);
@@ -1853,23 +1882,42 @@ function updateDashboard() {
     document.getElementById('mktBid').textContent = d.market.bid;
     document.getElementById('mktAsk').textContent = d.market.ask;
     document.getElementById('mktSpread').textContent = d.market.spread + ' 点';
-    document.getElementById('mktServer').textContent = d.account.server;
-    document.getElementById('mktLeverage').textContent = '1:' + d.account.leverage;
-    document.getElementById('statBalance').textContent = '$' + d.account.balance.toFixed(2);
+    document.getElementById('mktServer').textContent = broker.server || account.server || '--';
+    document.getElementById('mktLeverage').textContent = '1:' + (broker.leverage || account.leverage || '--');
 
     // 统计卡片
-    document.getElementById('statBalance').textContent = '$' + d.account.balance.toFixed(2);
-    document.getElementById('statEquity').textContent = '$' + d.account.equity.toFixed(2);
+    document.getElementById('labelBalance').textContent = researchMode ? '研究余额' : '账户余额';
+    document.getElementById('labelEquity').textContent = researchMode ? '研究净值' : '账户净值';
+    document.getElementById('labelProfit').textContent = researchMode ? '研究浮盈亏' : '浮动盈亏';
+    document.getElementById('labelDrawdown').textContent = researchMode ? '研究回撤' : '当前回撤';
+
+    document.getElementById('statBalance').textContent = '$' + Number(account.balance || 0).toFixed(2);
+    document.getElementById('statEquity').textContent = '$' + Number(account.equity || 0).toFixed(2);
+    document.getElementById('statBalanceChange').textContent = researchMode
+        ? `真实余额: $${Number(broker.balance || 0).toFixed(2)}`
+        : `模式: 真实执行账户`;
+    document.getElementById('statEquityChange').textContent = researchMode
+        ? `真实净值: $${Number(broker.equity || 0).toFixed(2)}`
+        : `服务器: ${broker.server || account.server || '--'}`;
 
     const profitEl = document.getElementById('statProfit');
-    profitEl.textContent = (d.account.profit >= 0 ? '+$' : '-$') + Math.abs(d.account.profit).toFixed(2);
-    profitEl.className = 'stat-value ' + (d.account.profit >= 0 ? 'positive' : 'negative');
+    const displayProfit = Number(account.profit || 0);
+    profitEl.textContent = (displayProfit >= 0 ? '+$' : '-$') + Math.abs(displayProfit).toFixed(2);
+    profitEl.className = 'stat-value ' + (displayProfit >= 0 ? 'positive' : 'negative');
+    document.getElementById('statProfitChange').textContent = researchMode
+        ? `真实浮盈亏: ${formatMoney(broker.profit || 0)}`
+        : '实时';
 
     const ddEl = document.getElementById('statDrawdown');
-    ddEl.textContent = d.account.drawdown.toFixed(2) + '%';
-    ddEl.className = 'stat-value ' + (d.account.drawdown > 10 ? 'negative' : d.account.drawdown > 5 ? 'neutral' : 'positive');
+    const displayDrawdown = Number(account.drawdown || 0);
+    ddEl.textContent = displayDrawdown.toFixed(2) + '%';
+    ddEl.className = 'stat-value ' + (displayDrawdown > 10 ? 'negative' : displayDrawdown > 5 ? 'neutral' : 'positive');
+    document.getElementById('statDrawdownChange').textContent = researchMode
+        ? `上限 ${Number(account.maxDrawdownPercent || 0).toFixed(0)}% | 起始 $${Number(account.startingBalance || 0).toFixed(2)}`
+        : `最大限制: ${Number(account.maxDrawdownPercent || 0).toFixed(0)}%`;
 
     document.getElementById('statOpenTrades').textContent = d.openTrades.length;
+    document.getElementById('statMaxTrades').textContent = `最大: ${Number(account.maxTotalTrades || 0)}`;
     updateSymbolOverview(d);
 
     // 计算胜率
@@ -1884,7 +1932,9 @@ function updateDashboard() {
     const footer = document.querySelector('.footer');
     if (footer) {
         const buildText = d.build || 'QuantGod 交易面板';
-        const modeText = d.isDemo ? '演示数据模式' : '界面每 5 秒刷新';
+        const modeText = researchMode
+            ? `虚拟研究账户 | 起始 $${Number(account.startingBalance || 0).toFixed(2)} | 执行 ${formatLots(account.executionLot || 0)} 手`
+            : '真实执行账户 | 界面每 5 秒刷新';
         const watchText = d.watchlist ? `监控: ${d.watchlist}` : `焦点: ${d.market.symbol}`;
         footer.textContent = `${buildText} | ${modeText} | ${watchText} | 仅供模拟测试使用`;
     }
@@ -1992,19 +2042,24 @@ function updateSymbolOverview(d) {
 
     const html = symbols.map((item) => {
         const meta = getStatusMeta(item.status || 'NO_DATA');
+        const researchMode = isResearchMode(d);
         const spread = Number(item.spread ?? 0);
         const tickAge = Number(item.tickAgeSeconds ?? -1);
         const openPositions = Number(item.openPositions ?? 0);
         const floatingProfit = Number(item.floatingProfit ?? 0);
+        const actualFloatingProfit = Number(item.actualFloatingProfit ?? floatingProfit);
         const closedProfit = Number(item.closedProfit ?? 0);
+        const actualClosedProfit = Number(item.actualClosedProfit ?? closedProfit);
         const closedTrades = Number(item.closedTrades ?? 0);
         const winRate = Number(item.winRate ?? 0);
         const bid = Number(item.bid ?? 0);
         const ask = Number(item.ask ?? 0);
         const noteParts = [
             openPositions > 0 ? `当前 ${openPositions} 笔持仓` : '当前无持仓',
+            researchMode ? `真实浮盈亏 ${formatMoney(actualFloatingProfit)}` : null,
+            researchMode ? `真实历史收益 ${formatMoney(actualClosedProfit)}` : null,
             item.lastCloseTime ? `最近平仓 ${item.lastCloseTime}` : '近期暂无平仓'
-        ];
+        ].filter(Boolean);
         const strategyBreakdown = renderSymbolStrategyBreakdown(item, d);
 
         return `
@@ -2029,11 +2084,11 @@ function updateSymbolOverview(d) {
                     <div class="symbol-metric-value">${spread.toFixed(1)} / ${tickAge >= 0 ? tickAge + 's' : '--'}</div>
                 </div>
                 <div class="symbol-metric">
-                    <div class="symbol-metric-label">持仓 / 浮盈</div>
+                    <div class="symbol-metric-label">${researchMode ? '持仓 / 研究浮盈' : '持仓 / 浮盈'}</div>
                     <div class="symbol-metric-value">${openPositions} / ${floatingProfit >= 0 ? '+' : ''}$${floatingProfit.toFixed(2)}</div>
                 </div>
                 <div class="symbol-metric">
-                    <div class="symbol-metric-label">历史收益</div>
+                    <div class="symbol-metric-label">${researchMode ? '研究历史收益' : '历史收益'}</div>
                     <div class="symbol-metric-value ${closedProfit >= 0 ? 'positive' : 'negative'}">${closedProfit >= 0 ? '+' : ''}$${closedProfit.toFixed(2)}</div>
                 </div>
                 <div class="symbol-metric">
@@ -2056,6 +2111,7 @@ function updateSymbolOverview(d) {
 
 function updateOpenTrades(trades) {
     const tbody = document.getElementById('openTradesBody');
+    const researchMode = isResearchMode(dashboardData);
     /*
     document.getElementById('openTradeCount').textContent = trades.length + ' 笔';
 
@@ -2083,11 +2139,14 @@ function updateOpenTrades(trades) {
         html += `<tr class="table-group-row"><td colspan="9">${symbol}</td></tr>`;
         entries.forEach(t => {
             const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+            const lotsLabel = researchMode
+                ? `${formatLots(t.lots)} / 实盘 ${formatLots(t.actualLots)}`
+                : formatLots(t.lots);
             html += `<tr>
                 <td>${t.ticket}</td>
                 <td>${t.symbol || '--'}</td>
                 <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
-                <td>${t.lots}</td>
+                <td>${lotsLabel}</td>
                 <td>${t.openPrice}</td>
                 <td>${t.sl}</td>
                 <td>${t.tp}</td>
@@ -2101,6 +2160,7 @@ function updateOpenTrades(trades) {
 
 function updateClosedTrades(trades) {
     const tbody = document.getElementById('closedTradesBody');
+    const researchMode = isResearchMode(dashboardData);
     /*
     document.getElementById('closedTradeCount').textContent = trades.length + ' 笔';
 
@@ -2123,11 +2183,14 @@ function updateClosedTrades(trades) {
         html += `<tr class="table-group-row"><td colspan="9">${symbol}</td></tr>`;
         entries.forEach(t => {
             const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+            const lotsLabel = researchMode
+                ? `${formatLots(t.lots)} / 实盘 ${formatLots(t.actualLots)}`
+                : formatLots(t.lots);
             html += `<tr>
                 <td>${t.ticket}</td>
                 <td>${t.symbol || '--'}</td>
                 <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
-                <td>${t.lots}</td>
+                <td>${lotsLabel}</td>
                 <td>${t.openPrice}</td>
                 <td>${t.closePrice}</td>
                 <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
@@ -2319,22 +2382,19 @@ function updateEquityChart(d) {
     const trades = d.closedTrades || [];
     const labels = ['起始'];
     const data = [];
-    let balance = d.account.balance;
-
-    for (let i = trades.length - 1; i >= 0; i--) {
-        balance -= trades[i].profit;
-    }
+    const researchMode = isResearchMode(d);
+    let balance = Number(d?.account?.startingBalance ?? d?.account?.balance ?? 0);
 
     data.push(balance);
 
     for (let i = 0; i < trades.length; i++) {
-        balance += trades[i].profit;
+        balance += Number(trades[i].profit || 0);
         labels.push('#' + trades[i].ticket);
         data.push(balance);
     }
 
     labels.push('当前');
-    data.push(d.account.equity);
+    data.push(Number(d?.account?.equity ?? 0));
 
     const gradient = equityChart.ctx.createLinearGradient(0, 0, 0, 300);
     gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
@@ -2342,7 +2402,7 @@ function updateEquityChart(d) {
 
     equityChart.data.labels = labels;
     equityChart.data.datasets = [{
-        label: '净值曲线',
+        label: researchMode ? '研究净值曲线' : '净值曲线',
         data,
         borderColor: '#3b82f6',
         backgroundColor: gradient,
@@ -2382,6 +2442,7 @@ function updatePieChart(d) {
 
 function updateDailyPnlChart(d) {
     if (!dailyChart) return;
+    const researchMode = isResearchMode(d);
     const dailyPnl = {};
 
     (d.closedTrades || []).forEach(t => {
@@ -2395,7 +2456,7 @@ function updateDailyPnlChart(d) {
 
     dailyChart.data.labels = dates.map(date => date.replace('2026.', ''));
     dailyChart.data.datasets = [{
-        label: '每日盈亏',
+        label: researchMode ? '研究日盈亏' : '每日盈亏',
         data: values,
         backgroundColor: colors,
         borderRadius: 4,
