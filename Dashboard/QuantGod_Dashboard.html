@@ -1318,6 +1318,10 @@ function resolveCloudApiUrl() {
             return apiParam;
         }
 
+        if (isLocalRuntime()) {
+            return '';
+        }
+
         const stored = window.localStorage.getItem(DASHBOARD_API_STORAGE_KEY);
         if (stored) return stored;
     } catch (e) {

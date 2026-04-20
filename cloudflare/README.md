@@ -1,5 +1,9 @@
 # QuantGod Cloudflare Layer
 
+Cloudflare is optional. The repository is designed to run in **local-first** mode by default.
+
+If you are only running MT4 and the dashboard on your own machine, stop here and do not enable this folder.
+
 This folder deploys the existing dashboard plus a lightweight ingest API.
 
 ## What It Does
@@ -10,6 +14,8 @@ This folder deploys the existing dashboard plus a lightweight ingest API.
 - Exposes the latest snapshot at `/api/latest`
 
 ## Deploy Steps
+
+Use this only when you explicitly want remote viewing and accept external request usage.
 
 1. Open a terminal in this folder:
 
@@ -64,6 +70,13 @@ https://your-worker-domain.workers.dev
 
 ## Dashboard Source Selection
 
-- Local mode still reads `QuantGod_Dashboard.json`
+- Local mode is the default and reads `QuantGod_Dashboard.json`
 - Cloud mode defaults to `/api/latest`
 - You can force a custom API by appending `?api=https://your-domain/api/latest`
+
+## Local Uploader Safety
+
+The local uploader is opt-in.
+
+- `Start_QuantGod.bat` only starts cloud sync when `[MT4]/MQL4/Files/quantgod_cloud_sync.enabled.json` exists
+- if that file does not exist, the project stays fully local

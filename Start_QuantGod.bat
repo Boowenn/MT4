@@ -13,9 +13,11 @@ start "" "%QG_ROOT%\terminal.exe"
 echo 2. Starting dashboard server...
 start "QuantGod Dashboard Server" cmd /k "cd /d ""%QG_FILES%"" && node dashboard_server.js"
 
-if exist "%QG_FILES%\\quantgod_cloud_sync.json" (
+if exist "%QG_FILES%\\quantgod_cloud_sync.enabled.json" (
 echo 3. Starting cloud sync uploader...
 start "QuantGod Cloud Sync" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%QG_FILES%\\cloud_sync_uploader.ps1"
+) else (
+echo 3. Cloud sync disabled ^(local-first mode^)
 )
 
 for /f %%i in ('powershell -NoProfile -Command "[DateTimeOffset]::Now.ToUnixTimeSeconds()"') do set "QG_TS=%%i"

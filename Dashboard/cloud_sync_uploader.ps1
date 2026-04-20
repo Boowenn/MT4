@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $rootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$configPath = Join-Path $rootDir 'quantgod_cloud_sync.json'
+$configPath = Join-Path $rootDir 'quantgod_cloud_sync.enabled.json'
 $dataPath = Join-Path $rootDir 'QuantGod_Dashboard.json'
 $pollSeconds = 10
 $lastSignature = ''
@@ -26,7 +26,7 @@ Write-Log 'Uploader started.'
 while ($true) {
     try {
         if (-not (Test-Path $configPath)) {
-            Write-Log 'Missing quantgod_cloud_sync.json, uploader idle.'
+            Write-Log 'Missing quantgod_cloud_sync.enabled.json, uploader idle.'
             Start-Sleep -Seconds $pollSeconds
             continue
         }

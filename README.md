@@ -2,6 +2,16 @@
 
 MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard, and a virtual small-account research mode.
 
+## Default Mode
+
+This repository is now **local-first by default**.
+
+- MT4 runs locally on Windows
+- the dashboard reads the local `QuantGod_Dashboard.json`
+- Cloudflare is **optional** and should stay off unless you explicitly need remote viewing
+
+If you only want local research, you do **not** need any Cloudflare setup.
+
 ## What Changed In v2.6
 
 - Added **virtual research account** mode with a default starting balance of `10 USD`
@@ -77,6 +87,7 @@ This will:
 
 - start MT4
 - start the local dashboard server
+- keep Cloudflare sync **off** unless you explicitly create an enable file
 - open `http://localhost:8080/QuantGod_Dashboard.html` with a cache-busting timestamp
 
 If you only want the dashboard server:
@@ -85,7 +96,11 @@ If you only want the dashboard server:
 Dashboard\start_dashboard.bat
 ```
 
-## Cloudflare Deployment
+## Optional Cloudflare Deployment
+
+Cloudflare is **not part of the default local workflow**.
+
+Only use this if you explicitly want a remote dashboard and understand that it adds external requests / quota usage.
 
 The MT4 execution engine still runs on Windows / MT4. Cloudflare is used for:
 
@@ -111,11 +126,15 @@ Quick path:
    - `CloudSyncToken = <same token>`
 6. In MT4, allow the same domain under `Allow WebRequest for listed URL`
 
-If you do not want to rely on MT4 WebRequest allowlist handling, use the local uploader:
+If you do not want to rely on MT4 WebRequest allowlist handling, use the local uploader.
+
+This is still opt-in. It will stay off unless you manually create the enable file:
 
 - copy `Dashboard/cloud_sync_uploader.ps1` into `[MT4]/MQL4/Files/`
-- create `[MT4]/MQL4/Files/quantgod_cloud_sync.json`
-- `Start_QuantGod.bat` will auto-start the uploader when that file exists
+- create `[MT4]/MQL4/Files/quantgod_cloud_sync.enabled.json`
+- `Start_QuantGod.bat` will auto-start the uploader only when that file exists
+
+If you want to force local-only mode, make sure `quantgod_cloud_sync.enabled.json` does not exist.
 
 ## Dashboard
 

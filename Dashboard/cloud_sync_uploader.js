@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = __dirname;
-const configPath = path.join(rootDir, 'quantgod_cloud_sync.json');
+const configPath = path.join(rootDir, 'quantgod_cloud_sync.enabled.json');
 const dataPath = path.join(rootDir, 'QuantGod_Dashboard.json');
 const pollIntervalMs = 10000;
 
@@ -87,7 +87,7 @@ function enrichSnapshot(snapshot, config) {
 
 async function tick() {
   if (!fs.existsSync(configPath)) {
-    log('Missing quantgod_cloud_sync.json, uploader idle.');
+    log('Missing quantgod_cloud_sync.enabled.json, uploader idle.');
     return;
   }
 
