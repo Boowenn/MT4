@@ -20,9 +20,9 @@ int GetAncestor(int hWnd, int gaFlags);
 
 //=== 全局设置 ===
 input string   _g0 = "====== 全局设置 ======";
-input double   RiskPercent        = 0.10;    // 单笔风险 (%)
-input double   MaxDrawdownPercent = 8.0;     // 最大回撤保护 (%)
-input int      MaxTotalTrades     = 2;       // 最大并发持仓数
+input double   RiskPercent        = 0.04;    // 多策略并行研究：单笔风险进一步压低
+input double   MaxDrawdownPercent = 6.0;     // 组合研究模式更紧的回撤保护
+input int      MaxTotalTrades     = 4;       // 允许多策略并行，但仍保留组合上限
 input bool     UseTradeSession    = false;   // 关闭时段过滤，避免时区干扰
 input double   TrailingStopPips   = 0.0;     // 研究模式先关闭追踪止损
 input bool     EnableDashboard    = true;    // 导出 dashboard 数据
@@ -46,7 +46,7 @@ input int      MA_Magic           = 10001;   // Magic Number
 
 //=== 策略2: RSI 均值回归 ===
 input string   _s2 = "====== 策略2: RSI 均值回归 ======";
-input bool     Enable_RSI         = false;   // 研究模式先关闭
+input bool     Enable_RSI         = true;    // 并行研究开启
 input int      RSI_Period         = 2;       // RSI 周期
 input int      RSI_OB             = 80;      // 超买阈值
 input int      RSI_OS             = 20;      // 超卖阈值
@@ -55,7 +55,7 @@ input int      RSI_Magic          = 10002;   // Magic Number
 
 //=== 策略3: BB + RSI + MACD 三重确认 ===
 input string   _s3 = "====== 策略3: BB+RSI+MACD 三重确认 ======";
-input bool     Enable_BB          = false;   // 研究模式先关闭
+input bool     Enable_BB          = true;    // 并行研究开启
 input int      BB_Period          = 20;      // 布林周期
 input double   BB_Deviation       = 2.0;     // 布林标准差
 input int      BB_RSI_Period      = 14;      // RSI 周期
@@ -66,7 +66,7 @@ input int      BB_Magic           = 10003;   // Magic Number
 
 //=== 策略4: MACD 背离 ===
 input string   _s4 = "====== 策略4: MACD 背离 ======";
-input bool     Enable_MACD        = false;   // 研究模式先关闭
+input bool     Enable_MACD        = true;    // 并行研究开启
 input int      MACD_Fast          = 12;      // 快线
 input int      MACD_Slow          = 26;      // 慢线
 input int      MACD_Signal        = 9;       // 信号线
@@ -76,7 +76,7 @@ input int      MACD_Magic         = 10004;   // Magic Number
 
 //=== 策略5: 支撑阻力突破 ===
 input string   _s5 = "====== 策略5: 支撑阻力突破 ======";
-input bool     Enable_SR          = false;   // 研究模式先关闭
+input bool     Enable_SR          = true;    // 并行研究开启
 input int      SR_LookBack        = 24;      // 更短回溯窗口
 input double   SR_BreakPips       = 2.0;     // 更小突破确认
 input ENUM_TIMEFRAMES SR_Timeframe = PERIOD_M15; // 更活跃：M15
