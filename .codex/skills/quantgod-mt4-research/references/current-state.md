@@ -48,6 +48,7 @@ Responsibilities:
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
 - Reuse the same recommendation layer inside the symbol overview strategy chips so operators can see each live `strategy x symbol` slice's current action without leaving the monitoring section
 - Let operators expand each symbol overview strategy chip to inspect the matched `strategy x symbol x regime` slice, sample metrics, and whether the displayed action came from an exact match or a fallback rule
+- Let operators jump from that provenance panel directly into the research suggestion panel or the regime heatmap, with symbol filter sync and visual focus on the matching slice when available
 
 ### Data Layer
 
@@ -95,6 +96,7 @@ Primary runtime files:
 - Strategy evaluation rows consume the same recommendation layer, but match it to the current live `strategy x symbol x timeframe x regime` row and fall back to a 0-sample recommendation when that exact regime slice has not closed yet.
 - Symbol overview strategy chips consume the same recommendation layer too, but summarize it at the live `strategy x symbol` monitoring surface so the operator can see the current action earlier in the workflow.
 - The symbol overview chip detail panel exposes the recommendation provenance, including the exact live slice key and whether the displayed action was matched directly or produced by the fallback path.
+- The jump links in that chip detail panel do not change trading behavior; they only sync dashboard filter/highlight state so the operator can inspect the aligned suggestion card or heatmap cell faster.
 
 ## Working Rules
 

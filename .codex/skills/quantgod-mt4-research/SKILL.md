@@ -38,6 +38,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that the strategy evaluation table now also shows the current research action for each live `strategy x symbol x timeframe x current-regime` slice, using the same recommendation layer as the heatmap and suggestion cards.
 - Remember that the symbol overview strategy chips now also surface the current research action and fallback note for each live `strategy x symbol` slice; changes to recommendation matching must be checked there too.
 - Remember that the symbol overview strategy chips now also expose a collapsible provenance panel that shows which `strategy x symbol x regime` slice was matched, whether it was exact or fallback, and the supporting sample metrics.
+- Remember that the provenance panel now also contains jump links into the research section; those links are expected to sync the symbol filter and visually focus the matching suggestion card or heatmap cell when a match exists.
 
 ## Validation Rules
 
@@ -49,6 +50,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Check the strategy evaluation table whenever you change research recommendation matching, especially the fallback behavior when the current regime has no closed sample yet.
 - Check the symbol overview strategy chips whenever you change research recommendation matching, because they now expose the same current-slice action without requiring the operator to scroll to the evaluation section.
 - Check the symbol overview chip details whenever you change recommendation matching or fallback behavior, because operators now use that expanded panel to audit why a card is saying `KEEP / REDUCE / PAUSE`.
+- Check the research jump links whenever you change recommendation matching, filter state, or research-section layout, because operators now rely on one-click jumps from monitoring cards into the aligned suggestion/heatmap slice.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

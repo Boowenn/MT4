@@ -942,6 +942,36 @@
             line-height: 1.45;
         }
 
+        .symbol-strategy-action-links {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .symbol-strategy-action-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
+            padding: 0.34rem 0.62rem;
+            border-radius: 999px;
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent-blue);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-decoration: none;
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+
+        .symbol-strategy-action-link:hover {
+            transform: translateY(-1px);
+            border-color: rgba(6, 182, 212, 0.32);
+            background: rgba(6, 182, 212, 0.14);
+        }
+
         .symbol-strategy-reason {
             color: var(--text-muted);
             font-size: 11px;
@@ -1584,6 +1614,11 @@
             border-style: dashed;
         }
 
+        .regime-heatmap-cell.is-focused {
+            border-color: rgba(6, 182, 212, 0.72);
+            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.18), 0 10px 26px rgba(6, 182, 212, 0.12);
+        }
+
         .regime-heatmap-topline {
             display: flex;
             align-items: flex-start;
@@ -1713,6 +1748,11 @@
         .research-suggestion-card.pause {
             border-color: rgba(239, 68, 68, 0.28);
             box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.05);
+        }
+
+        .research-suggestion-card.is-focused {
+            border-color: rgba(6, 182, 212, 0.68);
+            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.16), inset 0 0 0 1px rgba(6, 182, 212, 0.14);
         }
 
         .research-suggestion-top {
@@ -2693,6 +2733,7 @@ const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
 const RESEARCH_SUGGESTION_LIMIT = 8;
 let regimeHeatmapSymbolFilter = 'ALL';
+let researchFocusTarget = null;
 const TIMEFRAME_ORDER = {
     M1: 1,
     M5: 2,
@@ -3435,6 +3476,108 @@ function getCurrentResearchActionForEvaluationRow(row, recommendationIndex) {
     };
 }
 
+function buildResearchFocusTarget(view, evaluationRow, researchAction) {
+    if (!evaluationRow || !researchAction) return null;
+
+    return {
+        view,
+        symbol: evaluationRow.symbol || '',
+        strategy: evaluationRow.strategy || '',
+        timeframe: evaluationRow.timeframe || '',
+        regime: researchAction.entryRegime || evaluationRow.regime || '',
+        sliceKey: getCurrentResearchSliceKey({
+            symbol: evaluationRow.symbol || '',
+            strategy: evaluationRow.strategy || '',
+            timeframe: evaluationRow.timeframe || '',
+            entryRegime: researchAction.entryRegime || evaluationRow.regime || ''
+        }),
+        exact: !researchAction.isFallback
+    };
+}
+
+function getResearchFocusHeatmapKey(target) {
+    return target ? `${target.strategy || ''}__${target.regime || ''}` : '';
+}
+
+function isFocusedSuggestionRow(row) {
+    return !!(researchFocusTarget
+        && researchFocusTarget.view === 'suggestion'
+        && getCurrentResearchSliceKey(row) === researchFocusTarget.sliceKey);
+}
+
+function isFocusedHeatmapBucket(bucket) {
+    return !!(researchFocusTarget
+        && researchFocusTarget.view === 'heatmap'
+        && bucket
+        && `${bucket.strategy || ''}__${bucket.regime || ''}` === getResearchFocusHeatmapKey(researchFocusTarget));
+}
+
+function getResearchFocusScrollElement(target) {
+    if (!target) return document.getElementById('section-research');
+
+    if (target.view === 'suggestion') {
+        return document.querySelector(`[data-research-slice-key="${CSS.escape(target.sliceKey || '')}"]`)
+            || document.getElementById('researchSuggestionBody')
+            || document.getElementById('section-research');
+    }
+
+    if (target.view === 'heatmap') {
+        return document.querySelector(`[data-heatmap-key="${CSS.escape(getResearchFocusHeatmapKey(target))}"]`)
+            || document.getElementById('regimeHeatmapBody')
+            || document.getElementById('section-research');
+    }
+
+    return document.getElementById('section-research');
+}
+
+function scrollToResearchFocusTarget(target) {
+    const element = getResearchFocusScrollElement(target);
+    if (!element || typeof element.scrollIntoView !== 'function') return;
+    element.scrollIntoView({ behavior: 'smooth', block: target?.view === 'heatmap' ? 'center' : 'nearest' });
+}
+
+function applyResearchFocusTarget(target) {
+    researchFocusTarget = target || null;
+    if (target?.symbol) {
+        regimeHeatmapSymbolFilter = target.symbol;
+    }
+    if (dashboardData) {
+        updateResearchSuggestions(dashboardData);
+        updateRegimeHeatmap(dashboardData);
+        updateSidebarSummary(dashboardData);
+    }
+
+    const section = document.getElementById('section-research');
+    if (section && window.location.hash !== '#section-research') {
+        window.location.hash = 'section-research';
+    } else if (section) {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    window.setTimeout(() => {
+        scrollToResearchFocusTarget(target);
+    }, 90);
+}
+
+function initResearchJumpLinks() {
+    document.addEventListener('click', (event) => {
+        const jumpLink = event.target.closest('[data-research-jump]');
+        if (!jumpLink) return;
+
+        event.preventDefault();
+        const target = {
+            view: jumpLink.dataset.researchJump || 'suggestion',
+            symbol: jumpLink.dataset.symbol || '',
+            strategy: jumpLink.dataset.strategy || '',
+            timeframe: jumpLink.dataset.timeframe || '',
+            regime: jumpLink.dataset.regime || '',
+            sliceKey: jumpLink.dataset.sliceKey || '',
+            exact: jumpLink.dataset.exact === 'true'
+        };
+        applyResearchFocusTarget(target);
+    });
+}
+
 function renderSymbolStrategyActionDetails(evaluationRow, researchAction) {
     if (!evaluationRow || !researchAction || !researchAction.recommendation) {
         return '';
@@ -3457,6 +3600,8 @@ function renderSymbolStrategyActionDetails(evaluationRow, researchAction) {
     const signalText = Number(researchAction.avgSignalScore || 0) > 0
         ? `${Number(researchAction.avgSignalScore || 0).toFixed(0)}/100`
         : '--';
+    const suggestionTarget = buildResearchFocusTarget('suggestion', evaluationRow, researchAction);
+    const heatmapTarget = buildResearchFocusTarget('heatmap', evaluationRow, researchAction);
 
     return `
         <details class="symbol-strategy-action-details">
@@ -3491,6 +3636,10 @@ function renderSymbolStrategyActionDetails(evaluationRow, researchAction) {
                         <div class="symbol-strategy-action-detail-label">建议动作</div>
                         <div class="symbol-strategy-action-detail-value">${escapeHtml(`${actionMeta.label} · ${actionMeta.confidenceText}`)}</div>
                     </div>
+                </div>
+                <div class="symbol-strategy-action-links">
+                    <a href="#section-research" class="symbol-strategy-action-link" data-research-jump="suggestion" data-symbol="${escapeHtml(suggestionTarget.symbol)}" data-strategy="${escapeHtml(suggestionTarget.strategy)}" data-timeframe="${escapeHtml(suggestionTarget.timeframe)}" data-regime="${escapeHtml(suggestionTarget.regime)}" data-slice-key="${escapeHtml(suggestionTarget.sliceKey)}" data-exact="${suggestionTarget.exact ? 'true' : 'false'}">跳到研究建议</a>
+                    <a href="#section-research" class="symbol-strategy-action-link" data-research-jump="heatmap" data-symbol="${escapeHtml(heatmapTarget.symbol)}" data-strategy="${escapeHtml(heatmapTarget.strategy)}" data-timeframe="${escapeHtml(heatmapTarget.timeframe)}" data-regime="${escapeHtml(heatmapTarget.regime)}" data-slice-key="${escapeHtml(heatmapTarget.sliceKey)}" data-exact="${heatmapTarget.exact ? 'true' : 'false'}">跳到热力图</a>
                 </div>
                 <div class="symbol-strategy-action-detail-note">${escapeHtml(actionMeta.reason)}</div>
                 <div class="symbol-strategy-action-detail-note">${escapeHtml(actionMeta.nextStep)}</div>
@@ -3604,6 +3753,7 @@ function renderRegimeHeatmapCell(bucket) {
     }
 
     const toneClass = getHeatmapCellTone(bucket);
+    const focusClass = isFocusedHeatmapBucket(bucket) ? ' is-focused' : '';
     const winRateText = `${bucket.winRate.toFixed(0)}%`;
     const pfText = formatProfitFactor(bucket.profitFactor);
     const netClass = bucket.netProfit >= 0 ? 'positive' : 'negative';
@@ -3625,7 +3775,7 @@ function renderRegimeHeatmapCell(bucket) {
     ].filter(Boolean).join('\n');
 
     return `
-        <div class="regime-heatmap-cell ${toneClass}" style="background: ${getHeatmapCellBackground(bucket)};" title="${escapeHtml(tooltip)}">
+        <div class="regime-heatmap-cell ${toneClass}${focusClass}" data-heatmap-key="${escapeHtml(`${bucket.strategy}__${bucket.regime}`)}" style="background: ${getHeatmapCellBackground(bucket)};" title="${escapeHtml(tooltip)}">
             <div class="regime-heatmap-topline">
                 <div class="regime-heatmap-winrate">${escapeHtml(winRateText)}</div>
                 <div class="regime-heatmap-pf">PF ${escapeHtml(pfText)}</div>
@@ -4206,6 +4356,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Chart initialization failed, continuing without charts.', e);
     }
     initSidebarNavigation();
+    initResearchJumpLinks();
     loadData();
     refreshInterval = setInterval(loadData, 5000);
     runtimeClockInterval = setInterval(() => {
@@ -4827,10 +4978,23 @@ function updateResearchSuggestions(d) {
     const keepCount = counts.KEEP || 0;
     const reduceCount = counts.REDUCE || 0;
     const pauseCount = counts.PAUSE || 0;
-    const visibleRows = rows.slice(0, RESEARCH_SUGGESTION_LIMIT);
+    let visibleRows = rows.slice(0, RESEARCH_SUGGESTION_LIMIT);
+    const focusedSuggestionExists = !!(researchFocusTarget
+        && researchFocusTarget.view === 'suggestion'
+        && rows.some((row) => getCurrentResearchSliceKey(row) === researchFocusTarget.sliceKey));
+    if (focusedSuggestionExists && researchFocusTarget?.view === 'suggestion') {
+        const focusIndex = rows.findIndex((row) => getCurrentResearchSliceKey(row) === researchFocusTarget.sliceKey);
+        if (focusIndex >= RESEARCH_SUGGESTION_LIMIT) {
+            visibleRows = [rows[focusIndex], ...rows.slice(0, Math.max(RESEARCH_SUGGESTION_LIMIT - 1, 0))];
+        }
+    }
 
-    summary.textContent = `${scopeText} | 保留 ${keepCount} | 降权 ${reduceCount} | 暂停观察 ${pauseCount} | 展示前 ${Math.min(visibleRows.length, RESEARCH_SUGGESTION_LIMIT)} 条`;
-    meta.textContent = `建议严格来自当前本地 regime 切片，不会直接改下单。当前范围 ${scopeText}，共 ${rows.length} 个切片；建议优先处理“暂停观察”和“降权”的切片。`;
+    summary.textContent = `${scopeText} | 保留 ${keepCount} | 降权 ${reduceCount} | 暂停观察 ${pauseCount} | 当前展示 ${visibleRows.length} 条`;
+    meta.textContent = researchFocusTarget?.view === 'suggestion'
+        ? (focusedSuggestionExists
+            ? `已定位到 ${researchFocusTarget.symbol} / ${strategyLabel(researchFocusTarget.strategy)} / ${translateRegime(researchFocusTarget.regime)} 的研究建议切片。当前范围 ${scopeText}，共 ${rows.length} 个切片。`
+            : `当前监控卡片使用的是 ${researchFocusTarget.exact ? 'exact' : 'fallback'} 建议，但当前筛选下没有可直接定位的建议卡；已先切到 ${scopeText} 范围供你继续查看。`)
+        : `建议严格来自当前本地 regime 切片，不会直接改下单。当前范围 ${scopeText}，共 ${rows.length} 个切片；建议优先处理“暂停观察”和“降权”的切片。`;
 
     body.innerHTML = visibleRows.map((row) => {
         const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy };
@@ -4841,9 +5005,11 @@ function updateResearchSuggestions(d) {
         const signalText = Number(row.avgSignalScore || 0) > 0 ? `${Number(row.avgSignalScore || 0).toFixed(0)}/100` : '--';
         const linkedText = `${Number(row.linkedTrades || 0)}/${Number(row.closedTrades || 0)} · ${Number(row.linkCoverage || 0).toFixed(0)}%`;
         const lastText = row.lastCloseTime || row.reportTimeLocal || '--';
+        const focusClass = isFocusedSuggestionRow(row) ? ' is-focused' : '';
+        const sliceKey = getCurrentResearchSliceKey(row);
 
         return `
-            <div class="research-suggestion-card ${actionMeta.className}">
+            <div class="research-suggestion-card ${actionMeta.className}${focusClass}" data-research-slice-key="${escapeHtml(sliceKey)}">
                 <div class="research-suggestion-top">
                     <div class="research-suggestion-header">
                         <div class="research-suggestion-headline">
@@ -4954,9 +5120,16 @@ function updateRegimeHeatmap(d) {
     const closedTrades = filteredRows.reduce((sum, row) => sum + Number(row.closedTrades || 0), 0);
     const netProfit = filteredRows.reduce((sum, row) => sum + Number(row.netProfit || 0), 0);
     const scopeText = regimeHeatmapSymbolFilter === 'ALL' ? '全部品种' : regimeHeatmapSymbolFilter;
+    const focusedHeatmapExists = !!(researchFocusTarget
+        && researchFocusTarget.view === 'heatmap'
+        && filteredRows.some((row) => row.strategy === researchFocusTarget.strategy && row.entryRegime === researchFocusTarget.regime));
 
     summary.textContent = `${scopeText} | ${strategyRows.length} 个策略 | ${visibleStrategies.length} 个已有样本 | ${regimes.length} 个 regime | 已平仓 ${closedTrades} 笔 | 链接 ${closedTrades > 0 ? (linkedTrades / closedTrades * 100).toFixed(0) : '0'}%`;
-    meta.textContent = `当前展示 ${scopeText} 的研究切片，颜色综合反映胜率、PF 和净收益；链接覆盖低或样本少会自动降权。累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`;
+    meta.textContent = researchFocusTarget?.view === 'heatmap'
+        ? (focusedHeatmapExists
+            ? `已定位到 ${researchFocusTarget.symbol} / ${strategyLabel(researchFocusTarget.strategy)} / ${translateRegime(researchFocusTarget.regime)} 的热力图切片。当前展示 ${scopeText}，累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`
+            : `当前监控卡片使用的是 ${researchFocusTarget.exact ? 'exact' : 'fallback'} 建议，但这个热力图切片在当前筛选下还没有可高亮样本；已先切到 ${scopeText} 范围。`)
+        : `当前展示 ${scopeText} 的研究切片，颜色综合反映胜率、PF 和净收益；链接覆盖低或样本少会自动降权。累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`;
 
     body.style.gridTemplateColumns = `minmax(180px, 190px) repeat(${regimes.length}, minmax(150px, 1fr))`;
     const headHtml = `
