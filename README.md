@@ -32,7 +32,9 @@ For the current implementation status, data-layer coverage, and the distinction 
 
 see:
 
-- `docs/QuantGod_Current_State_Design.md`
+- `.codex/skills/quantgod-mt4-research/`
+
+The repo-local skill is the durable operator guide for Codex-style maintenance work.
 
 ## Strategies
 

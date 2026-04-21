@@ -286,6 +286,10 @@ bool HasResearchTag(string comment);
 double ParseTaggedDouble(string text, string tag);
 double GetResearchLotsFromComment(string comment, double actualLots);
 double ScaleResearchNet(double actualNet, double actualLots, string comment);
+double ScaleResearchNetByLots(double actualNet, double actualLots, double researchLots);
+double GetResearchLotsFromTradeLink(int ticket, TradeEventLink &links[], int linkCount);
+double ResolveResearchLotsForOrder(int ticket, string comment, double actualLots, TradeEventLink &links[], int linkCount);
+double ResolveResearchNetForOrder(int ticket, double actualNet, double actualLots, string comment, TradeEventLink &links[], int linkCount);
 double GetResearchClosedNetProfit();
 double GetResearchOpenNetProfit();
 double GetResearchBalance();
@@ -583,10 +587,57 @@ double ScaleResearchNet(double actualNet, double actualLots, string comment)
    return actualNet * (researchLots / actualLots);
 }
 
+double ScaleResearchNetByLots(double actualNet, double actualLots, double researchLots)
+{
+   if(!UseVirtualResearchAccount)
+      return actualNet;
+
+   if(actualLots <= 0)
+      return 0.0;
+   if(researchLots <= 0)
+      return 0.0;
+
+   return actualNet * (researchLots / actualLots);
+}
+
+double GetResearchLotsFromTradeLink(int ticket, TradeEventLink &links[], int linkCount)
+{
+   if(ticket <= 0 || linkCount <= 0)
+      return 0.0;
+
+   int linkIndex = FindTradeEventLinkIndexByTicket(links, linkCount, ticket);
+   if(linkIndex < 0)
+      return 0.0;
+
+   return MathMax(0.0, links[linkIndex].researchLots);
+}
+
+double ResolveResearchLotsForOrder(int ticket, string comment, double actualLots, TradeEventLink &links[], int linkCount)
+{
+   if(!UseVirtualResearchAccount)
+      return actualLots;
+
+   double linkedLots = GetResearchLotsFromTradeLink(ticket, links, linkCount);
+   if(linkedLots > 0.0)
+      return linkedLots;
+
+   return GetResearchLotsFromComment(comment, actualLots);
+}
+
+double ResolveResearchNetForOrder(int ticket, double actualNet, double actualLots, string comment, TradeEventLink &links[], int linkCount)
+{
+   double researchLots = ResolveResearchLotsForOrder(ticket, comment, actualLots, links, linkCount);
+   return ScaleResearchNetByLots(actualNet, actualLots, researchLots);
+}
+
 double GetResearchClosedNetProfit()
 {
    if(!UseVirtualResearchAccount)
       return 0.0;
+
+   TradeEventLink links[];
+   int linkCount = 0;
+   LoadTradeEventLinks(links, linkCount);
 
    double closedNet = 0.0;
    for(int i = 0; i < OrdersHistoryTotal(); i++)
@@ -596,7 +647,7 @@ double GetResearchClosedNetProfit()
       if(IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      closedNet += ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      closedNet += ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
    }
 
    return closedNet;
@@ -607,6 +658,10 @@ double GetResearchOpenNetProfit()
    if(!UseVirtualResearchAccount)
       return 0.0;
 
+   TradeEventLink links[];
+   int linkCount = 0;
+   LoadTradeEventLinks(links, linkCount);
+
    double openNet = 0.0;
    for(int i = 0; i < OrdersTotal(); i++)
    {
@@ -615,7 +670,7 @@ double GetResearchOpenNetProfit()
       if(IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      openNet += ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      openNet += ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
    }
 
    return openNet;
@@ -1034,6 +1089,11 @@ void RefreshAdaptiveControl(bool force)
    ArrayInitialize(sampleCounts, 0);
    ArrayInitialize(totalSampleCounts, 0);
 
+   TradeEventLink links[];
+   int linkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(links, linkCount);
+
    for(int histIndex = historyTotal - 1; histIndex >= 0; histIndex--)
    {
       if(!OrderSelect(histIndex, SELECT_BY_POS, MODE_HISTORY)) continue;
@@ -1049,8 +1109,9 @@ void RefreshAdaptiveControl(bool force)
       if(sampleCounts[strategyIndex] >= windowTrades) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double closedNet = UseVirtualResearchAccount ? ScaleResearchNet(actualNet, OrderLots(), OrderComment())
-                                                   : actualNet;
+      double closedNet = UseVirtualResearchAccount
+                         ? ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount)
+                         : actualNet;
 
       sampleCounts[strategyIndex]++;
       gAdaptiveTradeCount[strategyIndex] = sampleCounts[strategyIndex];
@@ -1395,6 +1456,10 @@ double GetDisplayedDrawdownPercent()
 double GetResearchSymbolFloatingProfit(string symbol_name)
 {
    double symbolProfit = 0.0;
+   TradeEventLink links[];
+   int linkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(links, linkCount);
    for(int i = 0; i < OrdersTotal(); i++)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
@@ -1403,7 +1468,7 @@ double GetResearchSymbolFloatingProfit(string symbol_name)
       if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      symbolProfit += ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      symbolProfit += ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
    }
 
    return symbolProfit;
@@ -1416,6 +1481,10 @@ double GetResearchSymbolClosedProfit(string symbol_name, int &closedTrades, int 
    lastCloseTime = 0;
 
    double symbolProfit = 0.0;
+   TradeEventLink links[];
+   int linkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(links, linkCount);
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
@@ -1424,7 +1493,7 @@ double GetResearchSymbolClosedProfit(string symbol_name, int &closedTrades, int 
       if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchNet = ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
       datetime closeTime = OrderCloseTime();
 
       closedTrades++;
@@ -2913,6 +2982,11 @@ void GetStrategyClosedStats(int strategyIndex, string symbol_name, int &closedTr
    if(magic == 0)
       return;
 
+   TradeEventLink links[];
+   int linkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(links, linkCount);
+
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
@@ -2921,8 +2995,9 @@ void GetStrategyClosedStats(int strategyIndex, string symbol_name, int &closedTr
       if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double closedNet = UseVirtualResearchAccount ? ScaleResearchNet(actualNet, OrderLots(), OrderComment())
-                                                   : actualNet;
+      double closedNet = UseVirtualResearchAccount
+                         ? ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount)
+                         : actualNet;
 
       closedTrades++;
       netProfit += closedNet;
@@ -4405,6 +4480,11 @@ void ExportDashboardData()
    FileWriteString(handle, "  \"watchlist\": \"" + JsonEscape(GetManagedSymbolsLabel()) + "\",\n");
    FileWriteString(handle, "  \"symbols\": [\n");
 
+   TradeEventLink exportLinks[];
+   int exportLinkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(exportLinks, exportLinkCount);
+
    bool firstSymbolEntry = true;
    for(int symIndex = 0; symIndex < gManagedSymbolCount; symIndex++)
    {
@@ -4490,8 +4570,8 @@ void ExportDashboardData()
       if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchLots = ResolveResearchLotsForOrder(OrderTicket(), OrderComment(), OrderLots(), exportLinks, exportLinkCount);
+      double researchNet = ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), exportLinks, exportLinkCount);
       string stratName = GetStrategyName(OrderMagicNumber());
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
       int orderDigits = DigitsForSymbolName(OrderSymbol());
@@ -4529,8 +4609,8 @@ void ExportDashboardData()
       if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchLots = ResolveResearchLotsForOrder(OrderTicket(), OrderComment(), OrderLots(), exportLinks, exportLinkCount);
+      double researchNet = ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), exportLinks, exportLinkCount);
       string stratName = GetStrategyName(OrderMagicNumber());
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
       int orderDigits = DigitsForSymbolName(OrderSymbol());
@@ -4903,8 +4983,10 @@ void ExportTradeOutcomeLabels()
                             ? PriceToPips(OrderClosePrice() - OrderOpenPrice(), OrderSymbol())
                             : PriceToPips(OrderOpenPrice() - OrderClosePrice(), OrderSymbol());
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchLots = linked ? link.researchLots : GetResearchLotsFromComment(OrderComment(), OrderLots());
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchLots = linked
+                            ? MathMax(0.0, link.researchLots)
+                            : ResolveResearchLotsForOrder(OrderTicket(), OrderComment(), OrderLots(), links, linkCount);
+      double researchNet = ScaleResearchNetByLots(actualNet, OrderLots(), researchLots);
       int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
       string closeReason = DetectTradeCloseReason(OrderType(), OrderClosePrice(), entryStopLoss, entryTakeProfit,
                                                   durationMinutes, GetStrategyTimeframeByMagic(OrderMagicNumber()),
@@ -5014,6 +5096,10 @@ void AuditClosedTrades()
    }
 
    double runningDisplayBalance = UseVirtualResearchAccount ? VirtualStartingBalance : AccountBalance();
+   TradeEventLink links[];
+   int linkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(links, linkCount);
    if(!UseVirtualResearchAccount)
    {
       double totalClosedActual = 0.0;
@@ -5034,8 +5120,8 @@ void AuditClosedTrades()
 
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchLots = ResolveResearchLotsForOrder(OrderTicket(), OrderComment(), OrderLots(), links, linkCount);
+      double researchNet = ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
       double displayNet = UseVirtualResearchAccount ? researchNet : actualNet;
       int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
       int orderDigits = DigitsForSymbolName(OrderSymbol());
@@ -5077,6 +5163,10 @@ void ExportBalanceHistoryV2()
 
    int historyTotal = OrdersHistoryTotal();
    double totalClosedDisplayNet = 0;
+   TradeEventLink links[];
+   int linkCount = 0;
+   if(UseVirtualResearchAccount)
+      LoadTradeEventLinks(links, linkCount);
    for(int i = 0; i < historyTotal; i++)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
@@ -5084,7 +5174,7 @@ void ExportBalanceHistoryV2()
       if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchNet = ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
       totalClosedDisplayNet += (UseVirtualResearchAccount ? researchNet : actualNet);
    }
 
@@ -5097,9 +5187,9 @@ void ExportBalanceHistoryV2()
       if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
 
       double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
-      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      double researchNet = ResolveResearchNetForOrder(OrderTicket(), actualNet, OrderLots(), OrderComment(), links, linkCount);
       double displayNet = UseVirtualResearchAccount ? researchNet : actualNet;
-      double researchLots = GetResearchLotsFromComment(OrderComment(), OrderLots());
+      double researchLots = ResolveResearchLotsForOrder(OrderTicket(), OrderComment(), OrderLots(), links, linkCount);
       runningBalance += displayNet;
       int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
       string typeStr = (OrderType() == OP_BUY) ? "BUY" : "SELL";
