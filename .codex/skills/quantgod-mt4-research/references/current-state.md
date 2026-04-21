@@ -46,6 +46,7 @@ Responsibilities:
 - Render advisory research recommendations derived from `strategy x symbol x regime` slices
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
+- Reuse the same recommendation layer inside the symbol overview strategy chips so operators can see each live `strategy x symbol` slice's current action without leaving the monitoring section
 
 ### Data Layer
 
@@ -91,6 +92,7 @@ Primary runtime files:
 - Dashboard heatmap further aggregates `RegimeEvaluationReport` into operator-facing `strategy x regime` slices, optionally filtered by symbol.
 - Dashboard research suggestions consume the same regime report, but keep the finer `strategy x symbol x regime` slice when generating `KEEP / REDUCE / PAUSE` recommendations.
 - Strategy evaluation rows consume the same recommendation layer, but match it to the current live `strategy x symbol x timeframe x regime` row and fall back to a 0-sample recommendation when that exact regime slice has not closed yet.
+- Symbol overview strategy chips consume the same recommendation layer too, but summarize it at the live `strategy x symbol` monitoring surface so the operator can see the current action earlier in the workflow.
 
 ## Working Rules
 

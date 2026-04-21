@@ -827,6 +827,25 @@
             margin-bottom: 0.28rem;
         }
 
+        .symbol-strategy-action-row {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.28rem;
+        }
+
+        .symbol-strategy-action-note {
+            color: var(--text-muted);
+            font-size: 10px;
+            line-height: 1.35;
+            margin-bottom: 0.28rem;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 1;
+            overflow: hidden;
+        }
+
         .symbol-strategy-reason {
             color: var(--text-muted);
             font-size: 11px;
@@ -3739,13 +3758,24 @@ function getSymbolDiagnostic(symbolItem, key, data) {
     };
 }
 
-function renderSymbolStrategyBreakdown(symbolItem, data) {
+function renderSymbolStrategyBreakdown(symbolItem, data, researchRecommendationIndex) {
     return Object.entries(STRATEGY_CONFIG).map(([key, config]) => {
         const diagnostic = getSymbolDiagnostic(symbolItem, key, data);
         const meta = getStatusMeta(diagnostic.status || symbolItem?.status || 'NO_DATA');
         const score = Math.max(0, Math.min(100, Number(diagnostic.score || 0)));
         const reason = translateDiagnosticReason(diagnostic.reason);
         const toneClass = meta.cardTone ? ` ${meta.cardTone}` : '';
+        const evaluationRow = getSymbolStrategyEvaluationRows(data, symbolItem?.symbol || '')
+            .find((row) => row.strategy === key);
+        const researchAction = evaluationRow
+            ? getCurrentResearchActionForEvaluationRow(evaluationRow, researchRecommendationIndex)
+            : null;
+        const actionMeta = researchAction?.recommendation || null;
+        const actionNote = researchAction
+            ? (researchAction.isFallback
+                ? '当前 regime 暂无闭环样本'
+                : `当前 ${translateRegime(researchAction.entryRegime || evaluationRow?.regime || '')} · 样本 ${researchAction.closedTrades}`)
+            : '研究动作待评估';
 
         return `
         <div class="symbol-strategy-chip${toneClass}">
@@ -3757,6 +3787,12 @@ function renderSymbolStrategyBreakdown(symbolItem, data) {
                 <span class="symbol-strategy-status ${meta.tone}">${meta.label}</span>
             </div>
             <div class="symbol-strategy-score">评分 ${score.toFixed(0)} / 100</div>
+            <div class="symbol-strategy-action-row">
+                ${actionMeta
+                    ? `<span class="research-action-badge ${actionMeta.className}">${escapeHtml(actionMeta.label)}</span><span class="research-confidence-badge">${escapeHtml(actionMeta.confidenceText)}</span>`
+                    : '<span class="research-confidence-badge">待评估</span>'}
+            </div>
+            <div class="symbol-strategy-action-note">${escapeHtml(actionNote)}</div>
             <div class="symbol-strategy-reason">${reason}</div>
         </div>`;
     }).join('');
@@ -4810,6 +4846,10 @@ function updateSymbolOverview(d) {
     if (!container) return;
 
     const symbols = getSymbolOverviewData(d);
+    const researchRecommendationRows = getAllResearchRecommendationRows(d);
+    const researchRecommendationIndex = new Map(
+        researchRecommendationRows.map((item) => [getCurrentResearchSliceKey(item), item])
+    );
     if (countEl) {
         countEl.textContent = `${symbols.length} 个品种`;
     }
@@ -4839,7 +4879,7 @@ function updateSymbolOverview(d) {
             researchMode ? `真实历史收益 ${formatMoney(actualClosedProfit)}` : null,
             item.lastCloseTime ? `最近平仓 ${item.lastCloseTime}` : '近期暂无平仓'
         ].filter(Boolean);
-        const strategyBreakdown = renderSymbolStrategyBreakdown(item, d);
+        const strategyBreakdown = renderSymbolStrategyBreakdown(item, d, researchRecommendationIndex);
         const regimeRows = getSymbolRegimeSummary(d, item.symbol);
         const regimeHtml = regimeRows.length
             ? regimeRows.map((row) => renderRegimeChip(row.regime, row.timeframe)).join('')
