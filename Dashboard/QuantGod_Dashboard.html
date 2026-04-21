@@ -1047,6 +1047,187 @@
             font-family: 'Inter', sans-serif;
         }
 
+        .eval-board {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 18px;
+        }
+
+        .eval-board.report-table-wrapper {
+            max-height: none;
+            overflow: visible;
+        }
+
+        .eval-card {
+            background: var(--bg-secondary);
+            border: 1px solid rgba(42, 58, 78, 0.9);
+            border-radius: 14px;
+            padding: 18px 20px;
+            transition: border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .eval-card:hover {
+            border-color: rgba(59, 130, 246, 0.32);
+            transform: translateY(-1px);
+        }
+
+        .eval-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(42, 58, 78, 0.72);
+        }
+
+        .eval-card-title {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .eval-card-headline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .eval-card-symbol {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .eval-card-subline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .eval-card-times {
+            flex: 0 0 190px;
+            text-align: right;
+            align-self: stretch;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(59, 130, 246, 0.1);
+            background: rgba(10, 14, 23, 0.42);
+        }
+
+        .eval-card-time-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 4px;
+        }
+
+        .eval-card-time-value {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .eval-card-time-meta {
+            margin-top: 4px;
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .eval-card-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px 16px;
+            align-items: stretch;
+        }
+
+        .eval-block {
+            background: rgba(10, 14, 23, 0.42);
+            border: 1px solid rgba(59, 130, 246, 0.08);
+            border-radius: 10px;
+            padding: 14px 15px;
+            min-width: 0;
+        }
+
+        .eval-block-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+        }
+
+        .eval-block-hero {
+            color: var(--text-primary);
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.1;
+        }
+
+        .eval-block-subhero {
+            margin-top: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .eval-block-note {
+            margin-top: 8px;
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.5;
+            font-family: 'Inter', sans-serif;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 3;
+            overflow: hidden;
+        }
+
+        .eval-mini-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px 14px;
+        }
+
+        .eval-mini-item {
+            min-width: 0;
+        }
+
+        .eval-mini-item-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 3px;
+        }
+
+        .eval-mini-item-value {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .eval-mini-item-meta {
+            margin-top: 2px;
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.35;
+            font-family: 'Inter', sans-serif;
+        }
+
         /* 策略标签 */
         .strat-tag {
             padding: 2px 8px;
@@ -1100,6 +1281,17 @@
             .dashboard-grid { grid-template-columns: 1fr; }
             .trades-grid { grid-template-columns: 1fr; }
             .strategy-cards { grid-template-columns: 1fr; }
+            .eval-card-times { flex-basis: 180px; }
+        }
+
+        @media (max-width: 1024px) {
+            .eval-card-header { flex-direction: column; }
+            .eval-card-times {
+                flex-basis: auto;
+                width: 100%;
+                text-align: left;
+            }
+            .eval-card-grid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 768px) {
@@ -1108,6 +1300,10 @@
             .countdown-row { flex-direction: column; align-items: flex-start; gap: 0.4rem; }
             .radar-grid { grid-template-columns: 1fr; }
             .strategy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .eval-card-header { flex-direction: column; }
+            .eval-card-times { flex-basis: auto; text-align: left; }
+            .eval-card-grid { grid-template-columns: 1fr; }
+            .eval-mini-grid { grid-template-columns: 1fr 1fr; }
             .navbar { padding: 0 1rem; }
             .main { padding: 1rem; }
         }
@@ -1461,29 +1657,8 @@
             <span class="eval-summary" id="strategyEvalSummary">等待评估报表</span>
         </div>
         <div class="panel-body" style="padding: 0;">
-            <div class="table-wrapper report-table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>品种</th>
-                            <th>策略</th>
-                            <th>周期</th>
-                            <th>Regime</th>
-                            <th>运行 / 信号</th>
-                            <th>评分</th>
-                            <th>样本</th>
-                            <th>胜率 / PF</th>
-                            <th>净收益</th>
-                            <th>风险</th>
-                            <th>机会标签</th>
-                            <th>行情</th>
-                            <th>最近评估</th>
-                        </tr>
-                    </thead>
-                    <tbody id="strategyEvalBody">
-                        <tr><td colspan="13" class="empty-state">等待策略评估报表</td></tr>
-                    </tbody>
-                </table>
+            <div class="eval-board report-table-wrapper" id="strategyEvalBody">
+                <div class="empty-state">等待策略评估报表</div>
             </div>
         </div>
     </div>
@@ -2931,7 +3106,7 @@ function updateStrategyEvaluationTable(d) {
     }
 
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="13" class="empty-state">本地 `QuantGod_StrategyEvaluationReport.csv` 还没有可展示的数据</td></tr>';
+        tbody.innerHTML = '<div class="empty-state">本地 `QuantGod_StrategyEvaluationReport.csv` 还没有可展示的数据</div>';
         return;
     }
 
@@ -2957,53 +3132,113 @@ function updateStrategyEvaluationTable(d) {
         const oppCountText = opportunitySummary.count
             ? `${opportunitySummary.count}/${OPPORTUNITY_RECENT_WINDOW} 条`
             : (d?._opportunityLabelsError ? '本地标签缺失' : '等待标签');
+        const lastCloseText = row.lastClosedTime ? `最近平仓 ${row.lastClosedTime}` : '最近平仓 --';
 
         return `
-        <tr title="${escapeHtml(translatedReason)}">
-            <td>${escapeHtml(row.symbol)}</td>
-            <td><span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy)}</span></td>
-            <td>${escapeHtml(row.timeframe || '--')}</td>
-            <td>${renderRegimeChip(row.regime, row.timeframe)}</td>
-            <td class="eval-status-cell">
-                <div class="eval-status-row">
-                    <span class="table-badge ${statusMeta.tone}">${escapeHtml(statusMeta.label)}</span>
-                    <span class="table-badge ${runtimeTone}">${escapeHtml(runtimeLabel)}</span>
+        <div class="eval-card" title="${escapeHtml(translatedReason)}">
+            <div class="eval-card-header">
+                <div class="eval-card-title">
+                    <div class="eval-card-headline">
+                        <span class="eval-card-symbol">${escapeHtml(row.symbol)}</span>
+                        <span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy)}</span>
+                        ${renderRegimeChip(row.regime, row.timeframe)}
+                    </div>
+                    <div class="eval-card-subline">
+                        <span>${escapeHtml(row.timeframe || '--')} 周期</span>
+                        <span>样本 ${row.closedTrades}</span>
+                        <span>PF ${escapeHtml(pfText)}</span>
+                        <span>胜率 ${escapeHtml(winRateText)}</span>
+                    </div>
+                    <div class="eval-status-row">
+                        <span class="table-badge ${runtimeTone}">${escapeHtml(runtimeLabel)}</span>
+                        <span class="table-badge ${statusMeta.tone}">${escapeHtml(statusMeta.label)}</span>
+                    </div>
                 </div>
-                <div class="eval-subtext">${escapeHtml(translatedReason || '暂无评估说明')}</div>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>${escapeHtml(scoreText)}</strong>
-                <span>${escapeHtml(row.signalStatus || '--')}</span>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>${row.closedTrades}</strong>
-                <span>已平仓样本</span>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>${escapeHtml(winRateText)}</strong>
-                <span>PF ${escapeHtml(pfText)}</span>
-            </td>
-            <td class="eval-metric-cell ${netProfitClass}">
-                <strong>${row.netProfit >= 0 ? '+' : ''}$${Math.abs(row.netProfit).toFixed(2)}</strong>
-                <span>Avg ${row.avgNet >= 0 ? '+' : ''}$${Math.abs(row.avgNet).toFixed(2)}</span>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>${escapeHtml(riskText)}</strong>
-                <span>${escapeHtml(row.adaptiveState || '--')}</span>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>Bias ${escapeHtml(oppHitText)}</strong>
-                <span>偏离 ${escapeHtml(oppDeviationText)} | ${escapeHtml(oppLsText)} | ${escapeHtml(oppCountText)}</span>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>${escapeHtml(tickText)}</strong>
-                <span>点差 ${formatCompactMetric(row.spreadPips, 1)} | ADX ${formatCompactMetric(row.adx, 1)}</span>
-            </td>
-            <td class="eval-metric-cell">
-                <strong>${escapeHtml(lastEvalText)}</strong>
-                <span>${row.lastClosedTime ? `最近平仓 ${escapeHtml(row.lastClosedTime)}` : '最近平仓 --'}</span>
-            </td>
-        </tr>`;
+                <div class="eval-card-times">
+                    <div class="eval-card-time-label">最近评估</div>
+                    <div class="eval-card-time-value">${escapeHtml(lastEvalText)}</div>
+                    <div class="eval-card-time-meta">${escapeHtml(lastCloseText)}</div>
+                </div>
+            </div>
+            <div class="eval-card-grid">
+                <div class="eval-block">
+                    <div class="eval-block-label">信号诊断</div>
+                    <div class="eval-block-hero">${escapeHtml(scoreText)}</div>
+                    <div class="eval-block-subhero">${escapeHtml(row.signalStatus || '--')} · ${escapeHtml(row.adaptiveState || '--')}</div>
+                    <div class="eval-block-note">${escapeHtml(translatedReason || '暂无评估说明')}</div>
+                </div>
+                <div class="eval-block">
+                    <div class="eval-block-label">样本与收益</div>
+                    <div class="eval-mini-grid">
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">样本</div>
+                            <div class="eval-mini-item-value">${row.closedTrades}</div>
+                            <div class="eval-mini-item-meta">已平仓样本</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">胜率</div>
+                            <div class="eval-mini-item-value">${escapeHtml(winRateText)}</div>
+                            <div class="eval-mini-item-meta">PF ${escapeHtml(pfText)}</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">净收益</div>
+                            <div class="eval-mini-item-value ${netProfitClass}">${row.netProfit >= 0 ? '+' : ''}$${Math.abs(row.netProfit).toFixed(2)}</div>
+                            <div class="eval-mini-item-meta">Avg ${row.avgNet >= 0 ? '+' : '-'}$${Math.abs(row.avgNet).toFixed(2)}</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">风险</div>
+                            <div class="eval-mini-item-value">${escapeHtml(riskText)}</div>
+                            <div class="eval-mini-item-meta">${escapeHtml(row.adaptiveState || '--')}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="eval-block">
+                    <div class="eval-block-label">机会标签</div>
+                    <div class="eval-mini-grid">
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">Bias 命中</div>
+                            <div class="eval-mini-item-value">Bias ${escapeHtml(oppHitText)}</div>
+                            <div class="eval-mini-item-meta">${escapeHtml(oppCountText)}</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">Best-side 偏离</div>
+                            <div class="eval-mini-item-value">${escapeHtml(oppDeviationText)}</div>
+                            <div class="eval-mini-item-meta">偏离越低越稳</div>
+                        </div>
+                        <div class="eval-mini-item" style="grid-column: 1 / -1;">
+                            <div class="eval-mini-item-label">Avg Long / Short</div>
+                            <div class="eval-mini-item-value">${escapeHtml(oppLsText)}</div>
+                            <div class="eval-mini-item-meta">按最近 ${OPPORTUNITY_RECENT_WINDOW} 条机会标签聚合</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="eval-block">
+                    <div class="eval-block-label">市场环境</div>
+                    <div class="eval-mini-grid">
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">Tick</div>
+                            <div class="eval-mini-item-value">${escapeHtml(tickText)}</div>
+                            <div class="eval-mini-item-meta">行情新鲜度</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">点差</div>
+                            <div class="eval-mini-item-value">${formatCompactMetric(row.spreadPips, 1)}</div>
+                            <div class="eval-mini-item-meta">当前 spread</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">ADX</div>
+                            <div class="eval-mini-item-value">${formatCompactMetric(row.adx, 1)}</div>
+                            <div class="eval-mini-item-meta">趋势强度</div>
+                        </div>
+                        <div class="eval-mini-item">
+                            <div class="eval-mini-item-label">ATR</div>
+                            <div class="eval-mini-item-value">${formatCompactMetric(row.atrPips, 1, 'p')}</div>
+                            <div class="eval-mini-item-meta">${escapeHtml(row.regime || '--')}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
     }).join('');
 }
 
