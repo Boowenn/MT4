@@ -435,6 +435,75 @@
             gap: 0.65rem;
         }
 
+        .symbol-regime-block {
+            margin-bottom: 0.8rem;
+        }
+
+        .symbol-regime-title {
+            color: var(--text-muted);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.45rem;
+        }
+
+        .regime-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .regime-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.28rem 0.58rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(148, 163, 184, 0.10);
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .regime-chip .regime-tf {
+            padding-right: 0.35rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.72);
+        }
+
+        .regime-chip.regime-trend {
+            background: rgba(16, 185, 129, 0.16);
+            border-color: rgba(16, 185, 129, 0.28);
+            color: var(--accent-green);
+        }
+
+        .regime-chip.regime-range {
+            background: rgba(245, 158, 11, 0.16);
+            border-color: rgba(245, 158, 11, 0.28);
+            color: var(--accent-orange);
+        }
+
+        .regime-chip.regime-squeeze {
+            background: rgba(139, 92, 246, 0.16);
+            border-color: rgba(139, 92, 246, 0.28);
+            color: var(--accent-purple);
+        }
+
+        .regime-chip.regime-transition {
+            background: rgba(6, 182, 212, 0.16);
+            border-color: rgba(6, 182, 212, 0.28);
+            color: var(--accent-cyan);
+        }
+
+        .regime-chip.regime-muted {
+            background: rgba(100, 116, 139, 0.14);
+            border-color: rgba(100, 116, 139, 0.24);
+            color: var(--text-muted);
+        }
+
         .symbol-metric {
             padding: 0.7rem 0.75rem;
             border-radius: 10px;
@@ -652,6 +721,38 @@
             border-top: 1px solid rgba(42, 58, 78, 0.8);
         }
 
+        .strategy-context {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed rgba(148, 163, 184, 0.12);
+        }
+
+        .strategy-context-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .strategy-context-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .strategy-context-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .strategy-context-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.35;
+            text-align: right;
+        }
+
         .strategy-health-row {
             display: flex;
             justify-content: space-between;
@@ -725,6 +826,11 @@
             overflow-x: auto;
         }
 
+        .table-wrapper.report-table-wrapper {
+            max-height: 460px;
+            overflow: auto;
+        }
+
         .table-group-row td {
             background: rgba(59, 130, 246, 0.09);
             color: var(--accent-blue);
@@ -778,6 +884,100 @@
 
         .profit-cell {
             font-weight: 600;
+        }
+
+        .eval-summary {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .table-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .table-badge.status-info,
+        .table-badge.runtime-on {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+            border-color: rgba(59, 130, 246, 0.26);
+        }
+
+        .table-badge.status-live,
+        .table-badge.runtime-boost {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.26);
+        }
+
+        .table-badge.status-warn,
+        .table-badge.runtime-low {
+            background: rgba(245, 158, 11, 0.16);
+            color: var(--accent-orange);
+            border-color: rgba(245, 158, 11, 0.28);
+        }
+
+        .table-badge.status-danger,
+        .table-badge.runtime-paused {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border-color: rgba(239, 68, 68, 0.26);
+        }
+
+        .table-badge.status-muted,
+        .table-badge.runtime-off {
+            background: rgba(100, 116, 139, 0.16);
+            color: var(--text-muted);
+            border-color: rgba(100, 116, 139, 0.22);
+        }
+
+        .eval-status-cell {
+            white-space: normal;
+            min-width: 220px;
+        }
+
+        .eval-status-row {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.35rem;
+        }
+
+        .eval-subtext {
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.4;
+            font-family: 'Inter', sans-serif;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+        }
+
+        .eval-metric-cell {
+            line-height: 1.35;
+        }
+
+        .eval-metric-cell strong {
+            display: block;
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .eval-metric-cell span {
+            color: var(--text-muted);
+            font-size: 11px;
+            font-family: 'Inter', sans-serif;
         }
 
         /* 策略标签 */
@@ -1184,6 +1384,41 @@
         </div>
     </div>
 
+    <div class="panel fade-in">
+        <div class="panel-header">
+            <div class="panel-title">
+                <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">E</div>
+                策略评估表
+            </div>
+            <span class="eval-summary" id="strategyEvalSummary">等待评估报表</span>
+        </div>
+        <div class="panel-body" style="padding: 0;">
+            <div class="table-wrapper report-table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>品种</th>
+                            <th>策略</th>
+                            <th>周期</th>
+                            <th>Regime</th>
+                            <th>运行 / 信号</th>
+                            <th>评分</th>
+                            <th>样本</th>
+                            <th>胜率 / PF</th>
+                            <th>净收益</th>
+                            <th>风险</th>
+                            <th>行情</th>
+                            <th>最近评估</th>
+                        </tr>
+                    </thead>
+                    <tbody id="strategyEvalBody">
+                        <tr><td colspan="12" class="empty-state">等待策略评估报表</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- 策略收益分布 -->
     <div class="dashboard-grid fade-in" style="grid-template-columns: 1fr 1fr;">
         <div class="panel">
@@ -1232,8 +1467,20 @@ let refreshInterval = null;
 let runtimeClockInterval = null;
 let runtimeClockAnchor = null;
 const LOCAL_DASHBOARD_PATH = 'QuantGod_Dashboard.json';
+const LOCAL_STRATEGY_REPORT_PATH = 'QuantGod_StrategyEvaluationReport.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
+const TIMEFRAME_ORDER = {
+    M1: 1,
+    M5: 2,
+    M15: 3,
+    M30: 4,
+    H1: 5,
+    H4: 6,
+    D1: 7,
+    W1: 8,
+    MN1: 9
+};
 
 // ====== 策略配置 ======
 const STRATEGY_CONFIG = {
@@ -1371,6 +1618,237 @@ function formatCloudSyncStatus(cloudSync) {
         text += ` (${cloudSync.httpCode})`;
     }
     return text;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseCsvLine(line) {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+
+        if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (char === ',' && !inQuotes) {
+            values.push(current);
+            current = '';
+            continue;
+        }
+
+        current += char;
+    }
+
+    values.push(current);
+    return values;
+}
+
+function parseCsvTable(text) {
+    const normalized = String(text || '').replace(/^\uFEFF/, '').trim();
+    if (!normalized) return [];
+
+    const lines = normalized.split(/\r?\n/).filter(Boolean);
+    if (!lines.length) return [];
+
+    const headers = parseCsvLine(lines[0]).map((header) => header.trim().replace(/^\uFEFF/, ''));
+    return lines.slice(1).map((line) => {
+        const cells = parseCsvLine(line);
+        const row = {};
+        headers.forEach((header, index) => {
+            row[header] = (cells[index] ?? '').trim();
+        });
+        return row;
+    });
+}
+
+function toNumber(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBooleanFlag(value) {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    return normalized === 'Y' || normalized === 'TRUE' || normalized === '1';
+}
+
+function parseStrategyEvaluationCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        reportTimeLocal: row.ReportTimeLocal || '',
+        reportTimeServer: row.ReportTimeServer || '',
+        symbol: row.Symbol || '',
+        strategy: row.Strategy || '',
+        timeframe: row.Timeframe || '',
+        regime: row.Regime || '',
+        enabled: toBooleanFlag(row.Enabled),
+        active: toBooleanFlag(row.Active),
+        runtimeLabel: row.RuntimeLabel || '',
+        adaptiveState: row.AdaptiveState || '',
+        adaptiveReason: row.AdaptiveReason || '',
+        riskMultiplier: toNumber(row.RiskMultiplier, 1),
+        tradingStatus: row.TradingStatus || '',
+        signalStatus: row.SignalStatus || '',
+        signalReason: row.SignalReason || '',
+        signalScore: toNumber(row.SignalScore, 0),
+        closedTrades: toNumber(row.ClosedTrades, 0),
+        winRate: toNumber(row.WinRate, 0),
+        profitFactor: toNumber(row.ProfitFactor, 0),
+        avgNet: toNumber(row.AvgNet, 0),
+        netProfit: toNumber(row.NetProfit, 0),
+        grossProfit: toNumber(row.GrossProfit, 0),
+        grossLoss: toNumber(row.GrossLoss, 0),
+        openPositions: toNumber(row.OpenPositions, 0),
+        strategyPositions: toNumber(row.StrategyPositions, 0),
+        tickAgeSeconds: toNumber(row.TickAgeSeconds, -1),
+        spreadPips: toNumber(row.SpreadPips, 0),
+        atrPips: toNumber(row.ATRPips, 0),
+        adx: toNumber(row.ADX, 0),
+        bbWidthPips: toNumber(row.BBWidthPips, 0),
+        lastEvalTime: row.LastEvalTime || '',
+        lastClosedTime: row.LastClosedTime || ''
+    })).filter((row) => row.symbol && row.strategy);
+}
+
+async function attachSupplementalData(baseData, previousData = null) {
+    const data = {
+        ...baseData,
+        strategyEvaluationRows: Array.isArray(baseData?.strategyEvaluationRows)
+            ? baseData.strategyEvaluationRows
+            : (previousData?.strategyEvaluationRows || [])
+    };
+
+    if (!isLocalRuntime()) {
+        return data;
+    }
+
+    try {
+        const response = await fetch(appendCacheBust(LOCAL_STRATEGY_REPORT_PATH), { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const text = await response.text();
+        data.strategyEvaluationRows = parseStrategyEvaluationCsv(text);
+        data._strategyReportError = false;
+    } catch (error) {
+        data._strategyReportError = true;
+        console.warn('Strategy evaluation report load failed.', error);
+    }
+
+    return data;
+}
+
+function getStrategyEvaluationRows(d) {
+    return Array.isArray(d?.strategyEvaluationRows) ? d.strategyEvaluationRows : [];
+}
+
+function getFocusSymbol(d) {
+    const focusSymbol = (d?.symbols || []).find((item) => item.role === 'focus')?.symbol;
+    return focusSymbol || d?.market?.symbol || '';
+}
+
+function sortByTimeframe(a, b) {
+    const aOrder = TIMEFRAME_ORDER[a?.timeframe] || 999;
+    const bOrder = TIMEFRAME_ORDER[b?.timeframe] || 999;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return String(a?.strategy || '').localeCompare(String(b?.strategy || ''));
+}
+
+function getSymbolStrategyEvaluationRows(d, symbol) {
+    return getStrategyEvaluationRows(d)
+        .filter((row) => row.symbol === symbol)
+        .sort(sortByTimeframe);
+}
+
+function getStrategyEvaluationRow(d, strategyKey, preferredSymbol = '') {
+    const rows = getStrategyEvaluationRows(d).filter((row) => row.strategy === strategyKey);
+    if (!rows.length) return null;
+
+    const preferredRow = preferredSymbol
+        ? rows.find((row) => row.symbol === preferredSymbol)
+        : null;
+    if (preferredRow) return preferredRow;
+
+    return rows
+        .slice()
+        .sort((a, b) => {
+            if (a.active !== b.active) return Number(b.active) - Number(a.active);
+            if (a.signalScore !== b.signalScore) return b.signalScore - a.signalScore;
+            return sortByTimeframe(a, b);
+        })[0];
+}
+
+function translateRegime(regime) {
+    const map = {
+        TREND_EXP_UP: '趋势扩张上行',
+        TREND_EXP_DOWN: '趋势扩张下行',
+        TREND_EXP: '趋势扩张',
+        TREND_UP: '上行趋势',
+        TREND_DOWN: '下行趋势',
+        RANGE_HIGHVOL: '高波震荡',
+        RANGE: '震荡',
+        SQUEEZE: '挤压',
+        TRANSITION: '切换'
+    };
+    return map[regime] || (regime ? regime.replaceAll('_', ' ') : '待评估');
+}
+
+function getRegimeTone(regime) {
+    if (!regime) return 'regime-muted';
+    if (regime.startsWith('TREND')) return 'regime-trend';
+    if (regime.startsWith('RANGE')) return 'regime-range';
+    if (regime.startsWith('SQUEEZE')) return 'regime-squeeze';
+    return 'regime-transition';
+}
+
+function renderRegimeChip(regime, timeframe = '') {
+    const tone = getRegimeTone(regime);
+    const label = translateRegime(regime);
+    const tfHtml = timeframe ? `<span class="regime-tf">${escapeHtml(timeframe)}</span>` : '';
+    const rawTitle = regime ? `${timeframe ? timeframe + ' | ' : ''}${regime}` : '等待评估报表';
+    return `<span class="regime-chip ${tone}" title="${escapeHtml(rawTitle)}">${tfHtml}${escapeHtml(label)}</span>`;
+}
+
+function getSymbolRegimeSummary(d, symbol) {
+    const rows = getSymbolStrategyEvaluationRows(d, symbol);
+    const timeframeMap = new Map();
+
+    rows.forEach((row) => {
+        if (!row.timeframe) return;
+        const existing = timeframeMap.get(row.timeframe);
+        if (!existing || row.signalScore > existing.signalScore) {
+            timeframeMap.set(row.timeframe, row);
+        }
+    });
+
+    return Array.from(timeframeMap.values()).sort(sortByTimeframe);
+}
+
+function getRuntimeBadgeTone(runtimeLabel, isActive) {
+    const normalized = String(runtimeLabel || '').toUpperCase();
+    if (!isActive || normalized === 'PAUSED') return 'runtime-paused';
+    if (normalized === 'BOOST') return 'runtime-boost';
+    if (normalized === 'LOW') return 'runtime-low';
+    if (normalized === 'OFF') return 'runtime-off';
+    return 'runtime-on';
+}
+
+function formatCompactMetric(value, digits = 1, suffix = '') {
+    return Number.isFinite(Number(value)) ? `${Number(value).toFixed(digits)}${suffix}` : '--';
 }
 
 function isResearchMode(d) {
@@ -1836,7 +2314,8 @@ async function loadData() {
         try {
             const response = await fetch(target.url, { cache: 'no-store' });
             if (!response.ok) throw new Error('HTTP ' + response.status);
-            dashboardData = await response.json();
+            const nextData = await response.json();
+            dashboardData = await attachSupplementalData(nextData, dashboardData);
             dashboardData.isDemo = false;
             dashboardData._transportError = false;
             dashboardData._dataSource = target.source;
@@ -1862,7 +2341,7 @@ async function loadData() {
 
     console.warn('Dashboard data load failed.', lastError);
     document.getElementById('connectionStatus').textContent = '等待EA数据...';
-    dashboardData = generateDemoData();
+    dashboardData = await attachSupplementalData(generateDemoData(), dashboardData);
     dashboardData._dataSource = isLocalRuntime() ? 'local' : 'cloud';
     syncRuntimeClock(dashboardData);
     updateDashboard();
@@ -2042,6 +2521,7 @@ function updateDashboard() {
     document.getElementById('statWinRate').textContent = winRate + '%';
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
     updateStrategyCards(d);
+    updateStrategyEvaluationTable(d);
 
     const footer = document.querySelector('.footer');
     if (footer) {
@@ -2068,6 +2548,7 @@ function updateDashboard() {
 function updateStrategyCards(d) {
     const container = document.getElementById('strategyCards');
     let html = '';
+    const focusSymbol = getFocusSymbol(d);
 
     for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
         const strat = d.strategies[key] || { enabled: false, positions: 0 };
@@ -2092,6 +2573,14 @@ function updateStrategyCards(d) {
         const winRateText = adaptiveWinRate === '--' ? '--' : `${adaptiveWinRate}%`;
         const sampleText = Number.isFinite(adaptiveTrades) ? adaptiveTrades : '--';
         const riskText = `x${adaptiveRisk}`;
+        const reportRow = getStrategyEvaluationRow(d, key, focusSymbol);
+        const regimeChip = reportRow ? renderRegimeChip(reportRow.regime, reportRow.timeframe) : renderRegimeChip('', '');
+        const regimeMeta = reportRow
+            ? `${reportRow.symbol} · ADX ${formatCompactMetric(reportRow.adx, 1)} · ATR ${formatCompactMetric(reportRow.atrPips, 1, 'p')} · 点差 ${formatCompactMetric(reportRow.spreadPips, 1)}`
+            : '等待本地策略评估报表';
+        const runtimeText = reportRow?.runtimeLabel || strat.state || (strat.active === false ? 'PAUSED' : 'ON');
+        const runtimeTone = getRuntimeBadgeTone(reportRow?.runtimeLabel, reportRow?.active ?? (strat.active !== false));
+        const lastEvalText = reportRow?.lastEvalTime ? `最近评估 ${reportRow.lastEvalTime}` : '最近评估 --';
 
         html += `
         <div class="strategy-card${cardToneClass}">
@@ -2119,6 +2608,17 @@ function updateStrategyCards(d) {
                     <span class="diag-score">${sampleText} 样本 / PF ${adaptiveProfitFactor}</span>
                 </div>
                 <div class="diag-reason">${adaptiveReason}</div>
+            </div>
+            <div class="strategy-context">
+                <div class="strategy-context-row">
+                    <span class="strategy-context-label">当前 Regime</span>
+                    <div class="regime-row">${regimeChip}</div>
+                </div>
+                <div class="strategy-context-row">
+                    <span class="table-badge ${runtimeTone}">${escapeHtml(runtimeText)}</span>
+                    <span class="strategy-context-meta">${escapeHtml(lastEvalText)}</span>
+                </div>
+                <div class="strategy-context-meta">${escapeHtml(regimeMeta)}</div>
             </div>
             <div class="strategy-stats">
                 <div class="strategy-stat">
@@ -2159,6 +2659,98 @@ function updateStrategyCards(d) {
     });
 }
 
+function updateStrategyEvaluationTable(d) {
+    const tbody = document.getElementById('strategyEvalBody');
+    const summary = document.getElementById('strategyEvalSummary');
+    if (!tbody) return;
+
+    const rows = getStrategyEvaluationRows(d)
+        .slice()
+        .sort((a, b) => {
+            const symbolCompare = String(a.symbol || '').localeCompare(String(b.symbol || ''));
+            if (symbolCompare !== 0) return symbolCompare;
+            const timeframeCompare = sortByTimeframe(a, b);
+            if (timeframeCompare !== 0) return timeframeCompare;
+            return strategyLabel(a.strategy).localeCompare(strategyLabel(b.strategy));
+        });
+
+    if (summary) {
+        if (!rows.length) {
+            summary.textContent = d?._strategyReportError
+                ? '本地评估报表暂不可用'
+                : '等待策略评估报表';
+        } else {
+            const symbolCount = new Set(rows.map((row) => row.symbol)).size;
+            const activeCount = rows.filter((row) => row.active).length;
+            const pausedCount = rows.length - activeCount;
+            summary.textContent = `${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停`;
+        }
+    }
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="12" class="empty-state">本地 `QuantGod_StrategyEvaluationReport.csv` 还没有可展示的数据</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map((row) => {
+        const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy };
+        const statusMeta = getStatusMeta(row.signalStatus || 'NO_DATA');
+        const runtimeLabel = row.runtimeLabel || (row.active ? 'ON' : 'PAUSED');
+        const runtimeTone = getRuntimeBadgeTone(runtimeLabel, row.active);
+        const translatedReason = translateDiagnosticReason(row.signalReason || row.adaptiveReason || '');
+        const scoreText = `${Math.max(0, Math.min(100, Number(row.signalScore || 0))).toFixed(0)}/100`;
+        const pfText = row.profitFactor >= 999 ? '999+' : formatCompactMetric(row.profitFactor, 2);
+        const winRateText = row.closedTrades > 0 ? `${row.winRate.toFixed(1)}%` : '--';
+        const netProfitClass = row.netProfit >= 0 ? 'positive' : 'negative';
+        const riskText = `x${formatCompactMetric(row.riskMultiplier, 2)}`;
+        const tickText = row.tickAgeSeconds >= 0 ? `${row.tickAgeSeconds}s` : '--';
+        const lastEvalText = row.lastEvalTime || row.reportTimeLocal || '--';
+
+        return `
+        <tr title="${escapeHtml(translatedReason)}">
+            <td>${escapeHtml(row.symbol)}</td>
+            <td><span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy)}</span></td>
+            <td>${escapeHtml(row.timeframe || '--')}</td>
+            <td>${renderRegimeChip(row.regime, row.timeframe)}</td>
+            <td class="eval-status-cell">
+                <div class="eval-status-row">
+                    <span class="table-badge ${statusMeta.tone}">${escapeHtml(statusMeta.label)}</span>
+                    <span class="table-badge ${runtimeTone}">${escapeHtml(runtimeLabel)}</span>
+                </div>
+                <div class="eval-subtext">${escapeHtml(translatedReason || '暂无评估说明')}</div>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>${escapeHtml(scoreText)}</strong>
+                <span>${escapeHtml(row.signalStatus || '--')}</span>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>${row.closedTrades}</strong>
+                <span>已平仓样本</span>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>${escapeHtml(winRateText)}</strong>
+                <span>PF ${escapeHtml(pfText)}</span>
+            </td>
+            <td class="eval-metric-cell ${netProfitClass}">
+                <strong>${row.netProfit >= 0 ? '+' : ''}$${Math.abs(row.netProfit).toFixed(2)}</strong>
+                <span>Avg ${row.avgNet >= 0 ? '+' : ''}$${Math.abs(row.avgNet).toFixed(2)}</span>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>${escapeHtml(riskText)}</strong>
+                <span>${escapeHtml(row.adaptiveState || '--')}</span>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>${escapeHtml(tickText)}</strong>
+                <span>点差 ${formatCompactMetric(row.spreadPips, 1)} | ADX ${formatCompactMetric(row.adx, 1)}</span>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>${escapeHtml(lastEvalText)}</strong>
+                <span>${row.lastClosedTime ? `最近平仓 ${escapeHtml(row.lastClosedTime)}` : '最近平仓 --'}</span>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
 // ====== 持仓表格 ======
 function updateSymbolOverview(d) {
     const container = document.getElementById('symbolOverviewGrid');
@@ -2196,6 +2788,10 @@ function updateSymbolOverview(d) {
             item.lastCloseTime ? `最近平仓 ${item.lastCloseTime}` : '近期暂无平仓'
         ].filter(Boolean);
         const strategyBreakdown = renderSymbolStrategyBreakdown(item, d);
+        const regimeRows = getSymbolRegimeSummary(d, item.symbol);
+        const regimeHtml = regimeRows.length
+            ? regimeRows.map((row) => renderRegimeChip(row.regime, row.timeframe)).join('')
+            : renderRegimeChip('', '');
 
         return `
         <div class="symbol-card${meta.cardTone ? ` ${meta.cardTone}` : ''}">
@@ -2212,6 +2808,10 @@ function updateSymbolOverview(d) {
                     <div class="symbol-price-sub">买价 ${item.bid ?? '--'} / 卖价 ${item.ask ?? '--'}</div>
                 </div>
                 <span class="status-badge ${meta.tone}"><span class="status-dot"></span>${meta.label}</span>
+            </div>
+            <div class="symbol-regime-block">
+                <div class="symbol-regime-title">Market Regime</div>
+                <div class="regime-row">${regimeHtml}</div>
             </div>
             <div class="symbol-metrics">
                 <div class="symbol-metric">
