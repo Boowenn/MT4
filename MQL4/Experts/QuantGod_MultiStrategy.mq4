@@ -18,6 +18,49 @@ int GetAncestor(int hWnd, int gaFlags);
 #define GA_ROOT 2
 #define MT4_WMCMD_EXPERTS 33020
 #define ADAPTIVE_REFRESH_SECONDS 10
+#define OPPORTUNITY_LABEL_COLUMNS 27
+
+struct SignalFeatureSnapshot
+{
+   datetime eventBarTime;
+   datetime labelReadyTime;
+   int      horizonBars;
+   double   refPrice;
+   double   open1;
+   double   high1;
+   double   low1;
+   double   close1;
+   double   close2;
+   double   barRangePips;
+   double   barBodyPips;
+   double   closeDeltaPips;
+   double   spreadPips;
+   double   atrPips;
+   double   adxValue;
+   double   bbUpper;
+   double   bbMiddle;
+   double   bbLower;
+   double   bbWidthPips;
+   double   bbPosPct;
+   double   rsi2;
+   double   rsi14;
+   double   emaFast;
+   double   emaSlow;
+   double   trendMA;
+   double   maGapPips;
+   double   trendDistancePips;
+   double   macdMain;
+   double   macdSignal;
+   double   macdHist;
+   double   volume1;
+   double   avgVolume20;
+   double   volumeRatio20;
+   double   support;
+   double   resistance;
+   double   supportDistancePips;
+   double   resistanceDistancePips;
+   string   regime;
+};
 
 //=== 全局设置 ===
 input string   _g0 = "====== 全局设置 ======";
@@ -63,6 +106,12 @@ input string   _g1d = "====== SignalLog / Regime / Eval Report ======";
 input bool     EnableSignalLog = true; // 记录每次策略判定/信号状态
 input bool     EnableStrategyReport = true; // 周期性导出策略评估报表
 input bool     EnableAdaptiveStateHistory = true; // 仅在自适应状态变化时写入历史
+input bool     EnableOpportunityLabels = true; // 延迟生成固定 horizon 的机会标签
+input int      OpportunityLabelIntervalSeconds = 30; // 标签扫描最小间隔
+input int      OpportunityHorizonBars_M15 = 4; // M15 机会标签 horizon
+input int      OpportunityHorizonBars_H1 = 3; // H1 机会标签 horizon
+input int      OpportunityHorizonBars_H4 = 2; // H4 机会标签 horizon
+input double   OpportunityNeutralThresholdATR = 0.15; // 低于该 ATR 比例的收益记为中性
 input int      StrategyReportIntervalSeconds = 300; // 报表刷新周期
 input string   _g2 = "====== Cloud 同步 ======";
 input bool     EnableCloudSync = false; // 将 dashboard 数据推送到云端
@@ -184,6 +233,10 @@ string   gAdaptiveReason[STRATEGY_DIAG_COUNT];
 datetime gLastAdaptiveRefresh;
 int      gLastAdaptiveHistoryTotal;
 int      gCurrentEntryStrategyIndex;
+int      gSignalEventCounter;
+datetime gLastOpportunityLabelScan;
+string   gOpportunityProcessedIds[];
+int      gOpportunityProcessedCount;
 
 void Strategy_RSI_Reversal_V2();
 void Strategy_MACD_Divergence_V2();
@@ -239,6 +292,19 @@ int GetAdaptiveBoostMinTradeCount();
 string BuildAdaptiveSummary(int index);
 void AppendAdaptiveStateHistory(int strategyIndex, string prevState, bool prevActive,
                                 double prevRiskMultiplier, datetime prevDisabledUntil);
+int GetTimeframeSeconds(int timeframe);
+int GetOpportunityHorizonBars(int timeframe);
+string BuildSignalEventId();
+bool BuildSignalFeatureSnapshot(string symbol_name, int timeframe, SignalFeatureSnapshot &snapshot);
+bool ShouldQueueOpportunityLabel(string signalStatus);
+void AppendOpportunityQueue(string eventId, int strategyIndex, string symbol_name, int timeframe,
+                            string signalStatus, string signalDirection, double signalScore,
+                            double buyScore, double sellScore, string detail,
+                            SignalFeatureSnapshot &snapshot);
+void LoadOpportunityLabelState();
+bool HasProcessedOpportunityEvent(string eventId);
+void RememberProcessedOpportunityEvent(string eventId);
+void ProcessOpportunityLabels(bool force=false);
 int GetResearchMaxHoldMinutes(int timeframe);
 double AdjustTakeProfitPipsForResearch(double desiredTpPips, double slPips, string symbol_name);
 bool SafeOrderCloseCurrent(string reason);
@@ -290,6 +356,10 @@ int OnInit()
    gLastAdaptiveRefresh = 0;
    gLastAdaptiveHistoryTotal = -1;
    gCurrentEntryStrategyIndex = -1;
+   gSignalEventCounter = 0;
+   gLastOpportunityLabelScan = 0;
+   gOpportunityProcessedCount = 0;
+   ArrayResize(gOpportunityProcessedIds, 0);
    for(int initSym = 0; initSym < MAX_MANAGED_SYMBOLS; initSym++)
    {
       for(int initStrat = 0; initStrat < STRATEGY_DIAG_COUNT; initStrat++)
@@ -337,9 +407,12 @@ int OnInit()
          " | 鬟朱勦: ", RiskPercent, "% | 譛螟ｧ蝗樊彫: ", MaxDrawdownPercent, "%");
 
    LoadTradeLogState();
+   LoadOpportunityLabelState();
    LogAccountSnapshot("INIT");
    gLastSnapshotLog = TimeLocal();
    AuditClosedTrades();
+   if(EnableOpportunityLabels)
+      ProcessOpportunityLabels(true);
    if(EnableStrategyReport)
       ExportStrategyEvaluationReport(true);
    UpdateChartDisplayV2();
@@ -2088,6 +2161,7 @@ void OnTimer()
    ProcessManagedTrading();
    PrepareSymbolContext(gDashboardSymbol);
    AuditClosedTrades();
+   ProcessOpportunityLabels(false);
    ExportStrategyEvaluationReport(false);
    if(TimeLocal() - gLastSnapshotLog >= 300)
    {
@@ -2235,6 +2309,430 @@ string SanitizeCsvText(string value)
    return value;
 }
 
+int GetTimeframeSeconds(int timeframe)
+{
+   switch(timeframe)
+   {
+      case PERIOD_M1:  return 60;
+      case PERIOD_M5:  return 300;
+      case PERIOD_M15: return 900;
+      case PERIOD_M30: return 1800;
+      case PERIOD_H1:  return 3600;
+      case PERIOD_H4:  return 14400;
+      case PERIOD_D1:  return 86400;
+      case PERIOD_W1:  return 604800;
+      default:         return 0;
+   }
+}
+
+int GetOpportunityHorizonBars(int timeframe)
+{
+   int horizonBars = OpportunityHorizonBars_H4;
+   if(timeframe <= PERIOD_M15)
+      horizonBars = OpportunityHorizonBars_M15;
+   else if(timeframe <= PERIOD_H1)
+      horizonBars = OpportunityHorizonBars_H1;
+
+   if(horizonBars < 1)
+      horizonBars = 1;
+   return horizonBars;
+}
+
+string BuildSignalEventId()
+{
+   string eventId = IntegerToString((int)TimeCurrent()) + "_" + IntegerToString(gSignalEventCounter);
+   gSignalEventCounter++;
+   return eventId;
+}
+
+bool BuildSignalFeatureSnapshot(string symbol_name, int timeframe, SignalFeatureSnapshot &snapshot)
+{
+   snapshot.eventBarTime = iTime(symbol_name, timeframe, 1);
+   if(snapshot.eventBarTime <= 0)
+      snapshot.eventBarTime = TimeCurrent();
+
+   snapshot.horizonBars = GetOpportunityHorizonBars(timeframe);
+   int timeframeSeconds = GetTimeframeSeconds(timeframe);
+   snapshot.labelReadyTime = (timeframeSeconds > 0)
+                             ? snapshot.eventBarTime + (snapshot.horizonBars + 1) * timeframeSeconds
+                             : 0;
+
+   snapshot.open1 = iOpen(symbol_name, timeframe, 1);
+   snapshot.high1 = iHigh(symbol_name, timeframe, 1);
+   snapshot.low1 = iLow(symbol_name, timeframe, 1);
+   snapshot.close1 = iClose(symbol_name, timeframe, 1);
+   snapshot.close2 = iClose(symbol_name, timeframe, 2);
+   snapshot.refPrice = snapshot.close1;
+
+   snapshot.spreadPips = GetSpreadPips(symbol_name);
+   snapshot.atrPips = PriceToPips(iATR(symbol_name, timeframe, 14, 1), symbol_name);
+   snapshot.adxValue = iADX(symbol_name, timeframe, 14, PRICE_CLOSE, MODE_MAIN, 1);
+
+   snapshot.bbUpper = iBands(symbol_name, timeframe, BB_Period, BB_Deviation, 0, PRICE_CLOSE, MODE_UPPER, 1);
+   snapshot.bbMiddle = iBands(symbol_name, timeframe, BB_Period, BB_Deviation, 0, PRICE_CLOSE, MODE_MAIN, 1);
+   snapshot.bbLower = iBands(symbol_name, timeframe, BB_Period, BB_Deviation, 0, PRICE_CLOSE, MODE_LOWER, 1);
+   snapshot.bbWidthPips = PriceToPips(MathAbs(snapshot.bbUpper - snapshot.bbLower), symbol_name);
+
+   double bbWidthPrice = MathAbs(snapshot.bbUpper - snapshot.bbLower);
+   snapshot.bbPosPct = 50.0;
+   if(bbWidthPrice > 0.0)
+      snapshot.bbPosPct = (snapshot.close1 - snapshot.bbLower) / bbWidthPrice * 100.0;
+
+   snapshot.barRangePips = PriceToPips(snapshot.high1 - snapshot.low1, symbol_name);
+   snapshot.barBodyPips = PriceToPips(MathAbs(snapshot.close1 - snapshot.open1), symbol_name);
+   snapshot.closeDeltaPips = PriceToPips(snapshot.close1 - snapshot.close2, symbol_name);
+
+   snapshot.rsi2 = iRSI(symbol_name, timeframe, 2, PRICE_CLOSE, 1);
+   snapshot.rsi14 = iRSI(symbol_name, timeframe, 14, PRICE_CLOSE, 1);
+
+   snapshot.emaFast = iMA(symbol_name, timeframe, MA_FastPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
+   snapshot.emaSlow = iMA(symbol_name, timeframe, MA_SlowPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
+   snapshot.trendMA = iMA(symbol_name, timeframe, MA_TrendPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
+   snapshot.maGapPips = PriceToPips(snapshot.emaFast - snapshot.emaSlow, symbol_name);
+   snapshot.trendDistancePips = PriceToPips(snapshot.close1 - snapshot.trendMA, symbol_name);
+
+   snapshot.macdMain = iMACD(symbol_name, timeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE, MODE_MAIN, 1);
+   snapshot.macdSignal = iMACD(symbol_name, timeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE, MODE_SIGNAL, 1);
+   snapshot.macdHist = snapshot.macdMain - snapshot.macdSignal;
+
+   snapshot.volume1 = (double)iVolume(symbol_name, timeframe, 1);
+   snapshot.avgVolume20 = 0.0;
+   for(int volShift = 1; volShift <= 20; volShift++)
+      snapshot.avgVolume20 += (double)iVolume(symbol_name, timeframe, volShift);
+   snapshot.avgVolume20 /= 20.0;
+   snapshot.volumeRatio20 = (snapshot.avgVolume20 > 0.0) ? (snapshot.volume1 / snapshot.avgVolume20) : 0.0;
+
+   snapshot.support = 999999.0;
+   snapshot.resistance = 0.0;
+   int srLookback = MathMax(1, SR_LookBack);
+   for(int srShift = 1; srShift <= srLookback; srShift++)
+   {
+      double barHigh = iHigh(symbol_name, timeframe, srShift);
+      double barLow = iLow(symbol_name, timeframe, srShift);
+      if(barHigh > snapshot.resistance)
+         snapshot.resistance = barHigh;
+      if(barLow < snapshot.support)
+         snapshot.support = barLow;
+   }
+   snapshot.supportDistancePips = PriceToPips(snapshot.close1 - snapshot.support, symbol_name);
+   snapshot.resistanceDistancePips = PriceToPips(snapshot.resistance - snapshot.close1, symbol_name);
+
+   snapshot.regime = DetectMarketRegime(symbol_name, timeframe, snapshot.atrPips,
+                                        snapshot.adxValue, snapshot.bbWidthPips, snapshot.spreadPips);
+
+   if(snapshot.bbPosPct < 0.0) snapshot.bbPosPct = 0.0;
+   if(snapshot.bbPosPct > 100.0) snapshot.bbPosPct = 100.0;
+   if(snapshot.atrPips < 0.0) snapshot.atrPips = 0.0;
+   if(snapshot.adxValue < 0.0) snapshot.adxValue = 0.0;
+   if(snapshot.bbWidthPips < 0.0) snapshot.bbWidthPips = 0.0;
+   if(snapshot.spreadPips < 0.0) snapshot.spreadPips = 0.0;
+
+   return true;
+}
+
+bool ShouldQueueOpportunityLabel(string signalStatus)
+{
+   if(!EnableOpportunityLabels)
+      return false;
+
+   return (signalStatus == "NO_SETUP" ||
+           signalStatus == "QUALITY_FILTER" ||
+           signalStatus == "BUY_ORDER_SENT" ||
+           signalStatus == "SELL_ORDER_SENT" ||
+           signalStatus == "ORDER_SEND_FAILED");
+}
+
+bool HasProcessedOpportunityEvent(string eventId)
+{
+   if(eventId == "")
+      return true;
+
+   for(int i = 0; i < gOpportunityProcessedCount; i++)
+   {
+      if(gOpportunityProcessedIds[i] == eventId)
+         return true;
+   }
+   return false;
+}
+
+void RememberProcessedOpportunityEvent(string eventId)
+{
+   if(eventId == "" || HasProcessedOpportunityEvent(eventId))
+      return;
+
+   ArrayResize(gOpportunityProcessedIds, gOpportunityProcessedCount + 1);
+   gOpportunityProcessedIds[gOpportunityProcessedCount] = eventId;
+   gOpportunityProcessedCount++;
+}
+
+void LoadOpportunityLabelState()
+{
+   gOpportunityProcessedCount = 0;
+   ArrayResize(gOpportunityProcessedIds, 0);
+
+   if(!EnableOpportunityLabels)
+      return;
+
+   int handle = FileOpen("QuantGod_OpportunityLabels.csv", FILE_CSV | FILE_ANSI | FILE_READ, ',');
+   if(handle == INVALID_HANDLE)
+      return;
+
+   while(!FileIsEnding(handle))
+   {
+      string eventId = FileReadString(handle);
+      if(FileIsEnding(handle) && eventId == "")
+         break;
+
+      for(int col = 1; col < OPPORTUNITY_LABEL_COLUMNS && !FileIsEnding(handle); col++)
+         FileReadString(handle);
+
+      if(eventId == "" || eventId == "EventId")
+         continue;
+
+      RememberProcessedOpportunityEvent(eventId);
+   }
+
+   FileClose(handle);
+}
+
+void AppendOpportunityQueue(string eventId, int strategyIndex, string symbol_name, int timeframe,
+                            string signalStatus, string signalDirection, double signalScore,
+                            double buyScore, double sellScore, string detail,
+                            SignalFeatureSnapshot &snapshot)
+{
+   if(!ShouldQueueOpportunityLabel(signalStatus))
+      return;
+
+   int handle = FileOpen("QuantGod_SignalOpportunityQueue.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
+   if(handle == INVALID_HANDLE)
+      handle = FileOpen("QuantGod_SignalOpportunityQueue.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to open QuantGod_SignalOpportunityQueue.csv, error=", GetLastError());
+      return;
+   }
+
+   if(FileSize(handle) == 0)
+   {
+      FileWrite(handle,
+                "EventId", "TimeLocal", "TimeServer", "EventBarTime", "LabelReadyServer",
+                "Symbol", "Strategy", "TimeframeCode", "SignalStatus", "SignalDirection",
+                "SignalScore", "BuyScore", "SellScore", "Regime", "AdaptiveState",
+                "RiskMultiplier", "ReferencePrice", "SpreadPips", "ATRPips", "HorizonBars", "Detail");
+   }
+   else
+      FileSeek(handle, 0, SEEK_END);
+
+   FileWrite(handle,
+             eventId,
+             TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+             TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+             TimeToStr(snapshot.eventBarTime, TIME_DATE|TIME_MINUTES),
+             (snapshot.labelReadyTime > 0 ? TimeToStr(snapshot.labelReadyTime, TIME_DATE|TIME_MINUTES) : ""),
+             symbol_name,
+             GetStrategyNameByIndex(strategyIndex),
+             timeframe,
+             signalStatus,
+             (signalDirection == "" ? "NONE" : signalDirection),
+             DoubleToStr(signalScore, 1),
+             DoubleToStr(buyScore, 1),
+             DoubleToStr(sellScore, 1),
+             snapshot.regime,
+             gAdaptiveState[strategyIndex],
+             DoubleToStr(GetStrategyRiskMultiplier(strategyIndex), 2),
+             DoubleToStr(snapshot.refPrice, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.spreadPips, 1),
+             DoubleToStr(snapshot.atrPips, 1),
+             snapshot.horizonBars,
+             SanitizeCsvText(detail));
+
+   FileClose(handle);
+}
+
+void ProcessOpportunityLabels(bool force)
+{
+   if(!EnableOpportunityLabels)
+      return;
+
+   int intervalSeconds = OpportunityLabelIntervalSeconds;
+   if(intervalSeconds < 5)
+      intervalSeconds = 5;
+
+   datetime nowServer = TimeCurrent();
+   if(!force && gLastOpportunityLabelScan > 0 &&
+      nowServer - gLastOpportunityLabelScan < intervalSeconds)
+      return;
+
+   gLastOpportunityLabelScan = nowServer;
+
+   int queueHandle = FileOpen("QuantGod_SignalOpportunityQueue.csv", FILE_CSV | FILE_ANSI | FILE_READ, ',');
+   if(queueHandle == INVALID_HANDLE)
+      return;
+
+   int labelHandle = FileOpen("QuantGod_OpportunityLabels.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
+   if(labelHandle == INVALID_HANDLE)
+      labelHandle = FileOpen("QuantGod_OpportunityLabels.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+
+   if(labelHandle == INVALID_HANDLE)
+   {
+      FileClose(queueHandle);
+      Print("[QuantGod] Failed to open QuantGod_OpportunityLabels.csv, error=", GetLastError());
+      return;
+   }
+
+   if(FileSize(labelHandle) == 0)
+   {
+      FileWrite(labelHandle,
+                "EventId", "LabelTimeLocal", "LabelTimeServer", "EventTimeServer", "EventBarTime",
+                "Symbol", "Strategy", "Timeframe", "SignalStatus", "SignalDirection",
+                "SignalScore", "Regime", "AdaptiveState", "RiskMultiplier", "HorizonBars",
+                "ReferencePrice", "FutureClose", "LongClosePips", "ShortClosePips",
+                "LongMFEPips", "LongMAEPips", "ShortMFEPips", "ShortMAEPips",
+                "NeutralThresholdPips", "DirectionalOutcome", "BestOpportunity", "LabelReason");
+   }
+   else
+      FileSeek(labelHandle, 0, SEEK_END);
+
+   while(!FileIsEnding(queueHandle))
+   {
+      string eventId = FileReadString(queueHandle);
+      if(FileIsEnding(queueHandle) && eventId == "")
+         break;
+
+      string eventTimeLocal = FileReadString(queueHandle);
+      string eventTimeServer = FileReadString(queueHandle);
+      string eventBarTimeText = FileReadString(queueHandle);
+      string labelReadyText = FileReadString(queueHandle);
+      string symbol_name = FileReadString(queueHandle);
+      string strategyName = FileReadString(queueHandle);
+      int timeframe = (int)StrToInteger(FileReadString(queueHandle));
+      string signalStatus = FileReadString(queueHandle);
+      string signalDirection = FileReadString(queueHandle);
+      double signalScore = StrToDouble(FileReadString(queueHandle));
+      double buyScore = StrToDouble(FileReadString(queueHandle));
+      double sellScore = StrToDouble(FileReadString(queueHandle));
+      string regime = FileReadString(queueHandle);
+      string adaptiveState = FileReadString(queueHandle);
+      double riskMultiplier = StrToDouble(FileReadString(queueHandle));
+      double referencePrice = StrToDouble(FileReadString(queueHandle));
+      double spreadPips = StrToDouble(FileReadString(queueHandle));
+      double atrPips = StrToDouble(FileReadString(queueHandle));
+      int horizonBars = (int)StrToInteger(FileReadString(queueHandle));
+      string detail = FileReadString(queueHandle);
+
+      if(eventId == "EventId" || eventId == "")
+         continue;
+      if(HasProcessedOpportunityEvent(eventId))
+         continue;
+
+      datetime labelReadyTime = StrToTime(labelReadyText);
+      if(labelReadyTime > 0 && nowServer < labelReadyTime)
+         continue;
+
+      datetime eventBarTime = StrToTime(eventBarTimeText);
+      if(eventBarTime <= 0)
+         continue;
+
+      int eventShift = iBarShift(symbol_name, timeframe, eventBarTime, true);
+      if(eventShift < 0)
+         eventShift = iBarShift(symbol_name, timeframe, eventBarTime, false);
+      if(eventShift <= horizonBars)
+         continue;
+
+      int futureCloseShift = eventShift - horizonBars;
+      double futureClose = iClose(symbol_name, timeframe, futureCloseShift);
+      double futureHigh = -1.0e10;
+      double futureLow = 1.0e10;
+
+      for(int shift = eventShift - 1; shift >= eventShift - horizonBars; shift--)
+      {
+         double barHigh = iHigh(symbol_name, timeframe, shift);
+         double barLow = iLow(symbol_name, timeframe, shift);
+         if(barHigh > futureHigh)
+            futureHigh = barHigh;
+         if(barLow < futureLow)
+            futureLow = barLow;
+      }
+
+      if(futureClose <= 0.0 || futureHigh <= -1.0e9 || futureLow >= 1.0e9)
+         continue;
+
+      double longClosePips = PriceToPips(futureClose - referencePrice, symbol_name);
+      double shortClosePips = PriceToPips(referencePrice - futureClose, symbol_name);
+      double longMFEPips = PriceToPips(futureHigh - referencePrice, symbol_name);
+      double longMAEPips = PriceToPips(referencePrice - futureLow, symbol_name);
+      double shortMFEPips = PriceToPips(referencePrice - futureLow, symbol_name);
+      double shortMAEPips = PriceToPips(futureHigh - referencePrice, symbol_name);
+      double neutralThresholdPips = MathMax(0.5, MathMax(atrPips * OpportunityNeutralThresholdATR, spreadPips * 2.0));
+
+      string directionalOutcome = "UNSPECIFIED";
+      double biasClosePips = 0.0;
+      if(signalDirection == "BUY")
+      {
+         biasClosePips = longClosePips;
+         if(biasClosePips > neutralThresholdPips) directionalOutcome = "POSITIVE";
+         else if(biasClosePips < -neutralThresholdPips) directionalOutcome = "NEGATIVE";
+         else directionalOutcome = "NEUTRAL";
+      }
+      else if(signalDirection == "SELL")
+      {
+         biasClosePips = shortClosePips;
+         if(biasClosePips > neutralThresholdPips) directionalOutcome = "POSITIVE";
+         else if(biasClosePips < -neutralThresholdPips) directionalOutcome = "NEGATIVE";
+         else directionalOutcome = "NEUTRAL";
+      }
+
+      string bestOpportunity = "NEUTRAL";
+      if(longClosePips > neutralThresholdPips)
+         bestOpportunity = "BUY";
+      else if(shortClosePips > neutralThresholdPips)
+         bestOpportunity = "SELL";
+
+      string labelReason = "bias=" + directionalOutcome +
+                           " longClose=" + DoubleToStr(longClosePips, 1) +
+                           " shortClose=" + DoubleToStr(shortClosePips, 1) +
+                           " neutral=" + DoubleToStr(neutralThresholdPips, 1) +
+                           " buyScore=" + DoubleToStr(buyScore, 0) +
+                           " sellScore=" + DoubleToStr(sellScore, 0) +
+                           " detail=" + SanitizeCsvText(detail);
+
+      FileWrite(labelHandle,
+                eventId,
+                TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                TimeToStr(nowServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                eventTimeServer,
+                eventBarTimeText,
+                symbol_name,
+                strategyName,
+                TimeframeLabel(timeframe),
+                signalStatus,
+                signalDirection,
+                DoubleToStr(signalScore, 1),
+                regime,
+                adaptiveState,
+                DoubleToStr(riskMultiplier, 2),
+                horizonBars,
+                DoubleToStr(referencePrice, DigitsForSymbolName(symbol_name)),
+                DoubleToStr(futureClose, DigitsForSymbolName(symbol_name)),
+                DoubleToStr(longClosePips, 1),
+                DoubleToStr(shortClosePips, 1),
+                DoubleToStr(longMFEPips, 1),
+                DoubleToStr(longMAEPips, 1),
+                DoubleToStr(shortMFEPips, 1),
+                DoubleToStr(shortMAEPips, 1),
+                DoubleToStr(neutralThresholdPips, 1),
+                directionalOutcome,
+                bestOpportunity,
+                SanitizeCsvText(labelReason));
+
+      RememberProcessedOpportunityEvent(eventId);
+   }
+
+   FileClose(queueHandle);
+   FileClose(labelHandle);
+}
+
 void GetStrategyClosedStats(int strategyIndex, string symbol_name, int &closedTrades, int &winTrades,
                             double &netProfit, double &grossProfit, double &grossLoss, datetime &lastCloseTime)
 {
@@ -2359,6 +2857,10 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
    if(!EnableSignalLog)
       return;
 
+   SignalFeatureSnapshot snapshot;
+   BuildSignalFeatureSnapshot(symbol_name, timeframe, snapshot);
+   string eventId = BuildSignalEventId();
+
    int handle = FileOpen("QuantGod_SignalLog.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
    if(handle == INVALID_HANDLE)
       handle = FileOpen("QuantGod_SignalLog.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
@@ -2372,31 +2874,36 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
    if(FileSize(handle) == 0)
    {
       FileWrite(handle,
-                "TimeLocal", "TimeServer", "Symbol", "Strategy", "Timeframe", "Regime",
+                "EventId", "TimeLocal", "TimeServer", "EventBarTime", "OpportunityReadyServer",
+                "OpportunityHorizonBars", "Symbol", "Strategy", "Timeframe", "Regime",
                 "AdaptiveState", "RiskMultiplier", "TradingStatus", "SignalStatus", "SignalReason",
                 "SignalScore", "SignalDirection", "BuyScore", "SellScore", "SpreadPips",
-                "ATRPips", "ADX", "BBWidthPips", "OpenPositions", "StrategyPositions",
+                "ATRPips", "ADX", "BBWidthPips", "Open1", "High1", "Low1", "Close1", "Close2",
+                "BarRangePips", "BarBodyPips", "CloseDeltaPips", "RSI2", "RSI14",
+                "EMAFast", "EMASlow", "TrendMA", "MAGapPips", "TrendDistancePips",
+                "BBUpper", "BBMiddle", "BBLower", "BBPosPct", "MACDMain", "MACDSignal", "MACDHist",
+                "Volume1", "AvgVolume20", "VolumeRatio20", "Support", "Resistance",
+                "SupportDistancePips", "ResistanceDistancePips", "OpenPositions", "StrategyPositions",
                 "DisplayBalance", "DisplayEquity", "DisplayDrawdown", "Detail");
    }
    else
       FileSeek(handle, 0, SEEK_END);
 
-   double atrPips = 0.0;
-   double adxValue = 0.0;
-   double bbWidthPips = 0.0;
-   double spreadPips = 0.0;
-   string regime = DetectMarketRegime(symbol_name, timeframe, atrPips, adxValue, bbWidthPips, spreadPips);
    int magic = GetStrategyMagicByIndex(strategyIndex);
    int symbolOpenPositions = CountManagedPositionsForSymbol(symbol_name);
    int strategyPositions = (magic > 0) ? CountStrategyPositionsForSymbol(magic, symbol_name) : 0;
 
    FileWrite(handle,
+             eventId,
              TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
              TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+             TimeToStr(snapshot.eventBarTime, TIME_DATE|TIME_MINUTES),
+             (snapshot.labelReadyTime > 0 ? TimeToStr(snapshot.labelReadyTime, TIME_DATE|TIME_MINUTES) : ""),
+             snapshot.horizonBars,
              symbol_name,
              GetStrategyNameByIndex(strategyIndex),
              TimeframeLabel(timeframe),
-             regime,
+             snapshot.regime,
              gAdaptiveState[strategyIndex],
              DoubleToStr(GetStrategyRiskMultiplier(strategyIndex), 2),
              GetTradingStatusForSymbol(symbol_name),
@@ -2406,10 +2913,39 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
              (signalDirection == "" ? "NONE" : signalDirection),
              DoubleToStr(buyScore, 1),
              DoubleToStr(sellScore, 1),
-             DoubleToStr(spreadPips, 1),
-             DoubleToStr(atrPips, 1),
-             DoubleToStr(adxValue, 1),
-             DoubleToStr(bbWidthPips, 1),
+             DoubleToStr(snapshot.spreadPips, 1),
+             DoubleToStr(snapshot.atrPips, 1),
+             DoubleToStr(snapshot.adxValue, 1),
+             DoubleToStr(snapshot.bbWidthPips, 1),
+             DoubleToStr(snapshot.open1, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.high1, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.low1, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.close1, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.close2, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.barRangePips, 1),
+             DoubleToStr(snapshot.barBodyPips, 1),
+             DoubleToStr(snapshot.closeDeltaPips, 1),
+             DoubleToStr(snapshot.rsi2, 1),
+             DoubleToStr(snapshot.rsi14, 1),
+             DoubleToStr(snapshot.emaFast, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.emaSlow, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.trendMA, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.maGapPips, 1),
+             DoubleToStr(snapshot.trendDistancePips, 1),
+             DoubleToStr(snapshot.bbUpper, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.bbMiddle, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.bbLower, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.bbPosPct, 1),
+             DoubleToStr(snapshot.macdMain, 5),
+             DoubleToStr(snapshot.macdSignal, 5),
+             DoubleToStr(snapshot.macdHist, 5),
+             DoubleToStr(snapshot.volume1, 0),
+             DoubleToStr(snapshot.avgVolume20, 1),
+             DoubleToStr(snapshot.volumeRatio20, 2),
+             DoubleToStr(snapshot.support, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.resistance, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(snapshot.supportDistancePips, 1),
+             DoubleToStr(snapshot.resistanceDistancePips, 1),
              symbolOpenPositions,
              strategyPositions,
              DoubleToStr(GetDisplayedBalance(), 2),
@@ -2418,6 +2954,8 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
              SanitizeCsvText(detail));
 
    FileClose(handle);
+   AppendOpportunityQueue(eventId, strategyIndex, symbol_name, timeframe, signalStatus,
+                          signalDirection, signalScore, buyScore, sellScore, detail, snapshot);
 }
 
 void LogStrategySignal(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
