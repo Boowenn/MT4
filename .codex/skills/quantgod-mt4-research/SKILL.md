@@ -14,7 +14,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 ## Working Loop
 
 1. Inspect the live runtime artifacts.
-- Start with `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
+- Start with `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
 - Decide whether the issue is in execution, aggregation, export, or frontend rendering.
 
 2. Trace the matching code path.
@@ -37,6 +37,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 
 - Re-run any affected export path after changing research-stat logic.
 - Check at least `QuantGod_Dashboard.json`, `QuantGod_TradeOutcomeLabels.csv`, `QuantGod_TradeJournal.csv`, and `QuantGod_BalanceHistory.csv` when a fix touches profit scaling or trade labeling.
+- Check `QuantGod_RegimeEvaluationReport.csv` whenever you change event linkage, regime attribution, or outcome labeling.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

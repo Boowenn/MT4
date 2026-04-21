@@ -81,6 +81,50 @@ struct TradeEventLink
    double   actualLots;
    double   researchLots;
    string   orderComment;
+   string   regime;
+   string   adaptiveState;
+   double   riskMultiplier;
+   string   tradingStatus;
+};
+
+struct SignalEventContext
+{
+   string   eventId;
+   string   symbol;
+   string   strategy;
+   string   timeframe;
+   string   regime;
+   string   adaptiveState;
+   double   riskMultiplier;
+   string   tradingStatus;
+   string   signalStatus;
+   string   signalReason;
+   string   signalDirection;
+   double   signalScore;
+   datetime eventTimeServer;
+   datetime eventBarTime;
+};
+
+struct RegimeReportRow
+{
+   string   symbol;
+   string   strategy;
+   string   timeframe;
+   string   regime;
+   int      closedTrades;
+   int      linkedTrades;
+   int      signalSamples;
+   int      winTrades;
+   int      positiveTrades;
+   int      negativeTrades;
+   int      flatTrades;
+   double   netProfit;
+   double   grossProfit;
+   double   grossLoss;
+   double   totalDurationMinutes;
+   double   totalSignalScore;
+   datetime lastCloseTime;
+   datetime lastEventTime;
 };
 
 //=== 全局设置 ===
@@ -209,6 +253,7 @@ double gPoint;
 int    gTotalSignals;
 datetime gLastExport;
 datetime gLastStrategyReportExport;
+datetime gLastRegimeReportExport;
 datetime gLastTickTime;
 datetime gLastSnapshotLog;
 datetime gLastLoggedCloseTime;
@@ -381,6 +426,9 @@ void AppendTradeEventLink(string eventId, int ticket, int strategyIndex, string 
                           double requestedPrice, double stopLoss, double takeProfit,
                           double actualLots, double researchLots, string orderComment);
 bool LoadTradeEventLinks(TradeEventLink &links[], int &linkCount);
+void EnsureTradeEventLinksSchema();
+bool LoadSignalEventContexts(SignalEventContext &contexts[], int &contextCount);
+int FindSignalEventContextIndexByEventId(SignalEventContext &contexts[], int contextCount, string eventId);
 int FindTradeEventLinkIndexByTicket(TradeEventLink &links[], int linkCount, int ticket);
 int FindTradeEventLinkIndexByEventKey(TradeEventLink &links[], int linkCount, string eventKey);
 double GetInitialRiskPipsFromLink(TradeEventLink &link, int orderType, double openPrice, string symbol_name);
@@ -389,6 +437,7 @@ string DetectTradeCloseReason(int orderType, double closePrice, double stopLoss,
                               int durationMinutes, int timeframe, string comment, string symbol_name);
 void ExportTradeOutcomeLabels();
 void ExportStrategyEvaluationReport(bool force=false);
+void ExportRegimeEvaluationReport(bool force=false);
 
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
@@ -404,6 +453,7 @@ int OnInit()
    gTotalSignals = 0;
    gLastExport = 0;
    gLastStrategyReportExport = 0;
+   gLastRegimeReportExport = 0;
    gCurrentDiagSymbolIndex = -1;
    gLastAdaptiveRefresh = 0;
    gLastAdaptiveHistoryTotal = -1;
@@ -422,6 +472,7 @@ int OnInit()
       }
    }
    LoadManagedSymbols();
+   EnsureTradeEventLinksSchema();
    PrepareSymbolContext(gDashboardSymbol);
    gLastTickTime = (datetime)MarketInfo(gDashboardSymbol, MODE_TIME);
    gLastSnapshotLog = 0;
@@ -467,6 +518,8 @@ int OnInit()
       ProcessOpportunityLabels(true);
    if(EnableStrategyReport)
       ExportStrategyEvaluationReport(true);
+   if(EnableStrategyReport)
+      ExportRegimeEvaluationReport(true);
    UpdateChartDisplayV2();
    if(EnableDashboard) ExportDashboardData();
 
@@ -2552,6 +2605,7 @@ void OnTimer()
    AuditClosedTrades();
    ProcessOpportunityLabels(false);
    ExportStrategyEvaluationReport(false);
+   ExportRegimeEvaluationReport(false);
    if(TimeLocal() - gLastSnapshotLog >= 300)
    {
       LogAccountSnapshot("TIMER");
@@ -4551,6 +4605,219 @@ void ExportStrategyEvaluationReport(bool force)
    gLastStrategyReportExport = nowLocal;
 }
 
+void ExportRegimeEvaluationReport(bool force)
+{
+   if(!EnableStrategyReport)
+      return;
+
+   int intervalSeconds = StrategyReportIntervalSeconds;
+   if(intervalSeconds < 30)
+      intervalSeconds = 30;
+
+   datetime nowLocal = TimeLocal();
+   if(!force && gLastRegimeReportExport > 0 &&
+      nowLocal - gLastRegimeReportExport < intervalSeconds)
+      return;
+
+   TradeEventLink links[];
+   int linkCount = 0;
+   LoadTradeEventLinks(links, linkCount);
+
+   SignalEventContext contexts[];
+   int contextCount = 0;
+   LoadSignalEventContexts(contexts, contextCount);
+
+   RegimeReportRow rows[];
+   int rowCount = 0;
+   int historyTotal = OrdersHistoryTotal();
+
+   for(int i = 0; i < historyTotal; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      int linkIndex = FindTradeEventLinkIndexByTicket(links, linkCount, OrderTicket());
+      if(linkIndex < 0)
+      {
+         string historyEventKey = ParseTaggedText(OrderComment(), "|e=");
+         linkIndex = FindTradeEventLinkIndexByEventKey(links, linkCount, historyEventKey);
+      }
+
+      TradeEventLink link;
+      SignalEventContext context;
+      bool linked = (linkIndex >= 0);
+      if(linked)
+         link = links[linkIndex];
+
+      int contextIndex = -1;
+      bool hasContext = false;
+      if(linked && link.eventId != "")
+      {
+         contextIndex = FindSignalEventContextIndexByEventId(contexts, contextCount, link.eventId);
+         hasContext = (contextIndex >= 0);
+         if(hasContext)
+            context = contexts[contextIndex];
+      }
+
+      string strategyName = linked ? link.strategy : GetStrategyName(OrderMagicNumber());
+      string timeframeLabel = linked ? link.timeframe : TimeframeLabel(GetStrategyTimeframeByMagic(OrderMagicNumber()));
+      string regime = linked ? link.regime : "";
+      if(regime == "" && hasContext)
+         regime = context.regime;
+      if(regime == "")
+         regime = "UNKNOWN";
+
+      double signalScore = linked ? link.signalScore : 0.0;
+      if(signalScore <= 0.0 && hasContext)
+         signalScore = context.signalScore;
+      datetime eventTime = linked ? link.eventTimeServer : 0;
+      if(eventTime <= 0 && hasContext)
+         eventTime = context.eventTimeServer;
+
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchLots = linked
+                            ? MathMax(0.0, link.researchLots)
+                            : ResolveResearchLotsForOrder(OrderTicket(), OrderComment(), OrderLots(), links, linkCount);
+      double researchNet = ScaleResearchNetByLots(actualNet, OrderLots(), researchLots);
+      int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
+
+      int rowIndex = -1;
+      for(int rowScan = 0; rowScan < rowCount; rowScan++)
+      {
+         if(rows[rowScan].symbol == OrderSymbol() &&
+            rows[rowScan].strategy == strategyName &&
+            rows[rowScan].timeframe == timeframeLabel &&
+            rows[rowScan].regime == regime)
+         {
+            rowIndex = rowScan;
+            break;
+         }
+      }
+
+      if(rowIndex < 0)
+      {
+         rowIndex = rowCount;
+         ArrayResize(rows, rowIndex + 1);
+         rows[rowIndex].symbol = OrderSymbol();
+         rows[rowIndex].strategy = strategyName;
+         rows[rowIndex].timeframe = timeframeLabel;
+         rows[rowIndex].regime = regime;
+         rows[rowIndex].closedTrades = 0;
+         rows[rowIndex].linkedTrades = 0;
+         rows[rowIndex].signalSamples = 0;
+         rows[rowIndex].winTrades = 0;
+         rows[rowIndex].positiveTrades = 0;
+         rows[rowIndex].negativeTrades = 0;
+         rows[rowIndex].flatTrades = 0;
+         rows[rowIndex].netProfit = 0.0;
+         rows[rowIndex].grossProfit = 0.0;
+         rows[rowIndex].grossLoss = 0.0;
+         rows[rowIndex].totalDurationMinutes = 0.0;
+         rows[rowIndex].totalSignalScore = 0.0;
+         rows[rowIndex].lastCloseTime = 0;
+         rows[rowIndex].lastEventTime = 0;
+         rowCount++;
+      }
+
+      rows[rowIndex].closedTrades++;
+      if(linked)
+         rows[rowIndex].linkedTrades++;
+      if(linked || hasContext)
+      {
+         rows[rowIndex].signalSamples++;
+         rows[rowIndex].totalSignalScore += signalScore;
+      }
+
+      if(researchNet > 0.0)
+      {
+         rows[rowIndex].winTrades++;
+         rows[rowIndex].positiveTrades++;
+         rows[rowIndex].grossProfit += researchNet;
+      }
+      else if(researchNet < 0.0)
+      {
+         rows[rowIndex].negativeTrades++;
+         rows[rowIndex].grossLoss += MathAbs(researchNet);
+      }
+      else
+      {
+         rows[rowIndex].flatTrades++;
+      }
+
+      rows[rowIndex].netProfit += researchNet;
+      rows[rowIndex].totalDurationMinutes += durationMinutes;
+      if(OrderCloseTime() > rows[rowIndex].lastCloseTime)
+         rows[rowIndex].lastCloseTime = OrderCloseTime();
+      if(eventTime > rows[rowIndex].lastEventTime)
+         rows[rowIndex].lastEventTime = eventTime;
+   }
+
+   int handle = FileOpen("QuantGod_RegimeEvaluationReport.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to open QuantGod_RegimeEvaluationReport.csv, error=", GetLastError());
+      return;
+   }
+
+   FileWrite(handle,
+             "ReportTimeLocal", "ReportTimeServer", "Symbol", "Strategy", "Timeframe", "EntryRegime",
+             "ClosedTrades", "LinkedTrades", "LinkCoverage", "WinRate", "ProfitFactor", "AvgNet",
+             "NetProfit", "GrossProfit", "GrossLoss", "AvgDurationMinutes", "AvgSignalScore",
+             "PositiveTrades", "NegativeTrades", "FlatTrades", "LastEventTime", "LastCloseTime");
+
+   for(int rowIndex = 0; rowIndex < rowCount; rowIndex++)
+   {
+      double winRate = (rows[rowIndex].closedTrades > 0)
+                       ? ((double)rows[rowIndex].winTrades * 100.0 / rows[rowIndex].closedTrades)
+                       : 0.0;
+      double profitFactor = 0.0;
+      if(rows[rowIndex].grossLoss > 0.0)
+         profitFactor = rows[rowIndex].grossProfit / rows[rowIndex].grossLoss;
+      else if(rows[rowIndex].grossProfit > 0.0)
+         profitFactor = 999.0;
+      double avgNet = (rows[rowIndex].closedTrades > 0)
+                      ? (rows[rowIndex].netProfit / rows[rowIndex].closedTrades)
+                      : 0.0;
+      double avgDuration = (rows[rowIndex].closedTrades > 0)
+                           ? (rows[rowIndex].totalDurationMinutes / rows[rowIndex].closedTrades)
+                           : 0.0;
+      double avgSignalScore = (rows[rowIndex].signalSamples > 0)
+                              ? (rows[rowIndex].totalSignalScore / rows[rowIndex].signalSamples)
+                              : 0.0;
+      double linkCoverage = (rows[rowIndex].closedTrades > 0)
+                            ? ((double)rows[rowIndex].linkedTrades * 100.0 / rows[rowIndex].closedTrades)
+                            : 0.0;
+
+      FileWrite(handle,
+                TimeToStr(nowLocal, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                rows[rowIndex].symbol,
+                rows[rowIndex].strategy,
+                rows[rowIndex].timeframe,
+                rows[rowIndex].regime,
+                rows[rowIndex].closedTrades,
+                rows[rowIndex].linkedTrades,
+                DoubleToStr(linkCoverage, 1),
+                DoubleToStr(winRate, 1),
+                DoubleToStr(profitFactor, 2),
+                DoubleToStr(avgNet, 2),
+                DoubleToStr(rows[rowIndex].netProfit, 2),
+                DoubleToStr(rows[rowIndex].grossProfit, 2),
+                DoubleToStr(rows[rowIndex].grossLoss, 2),
+                DoubleToStr(avgDuration, 1),
+                DoubleToStr(avgSignalScore, 1),
+                rows[rowIndex].positiveTrades,
+                rows[rowIndex].negativeTrades,
+                rows[rowIndex].flatTrades,
+                (rows[rowIndex].lastEventTime > 0 ? TimeToStr(rows[rowIndex].lastEventTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : ""),
+                (rows[rowIndex].lastCloseTime > 0 ? TimeToStr(rows[rowIndex].lastCloseTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : ""));
+   }
+
+   FileClose(handle);
+   gLastRegimeReportExport = nowLocal;
+}
+
 //+------------------------------------------------------------------+
 //| 蟇ｼ蜃ｺ謨ｰ謐ｮ蛻ｰWeb髱｢譚ｿ                                                   |
 //+------------------------------------------------------------------+
@@ -4922,6 +5189,8 @@ void AppendTradeEventLink(string eventId, int ticket, int strategyIndex, string 
    if(eventId == "" || ticket <= 0)
       return;
 
+   EnsureTradeEventLinksSchema();
+
    int handle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
    if(handle == INVALID_HANDLE)
       handle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
@@ -4946,6 +5215,15 @@ void AppendTradeEventLink(string eventId, int ticket, int strategyIndex, string 
    if(eventBarTime <= 0)
       eventBarTime = TimeCurrent();
 
+   double atrPips = 0.0;
+   double adxValue = 0.0;
+   double bbWidthPips = 0.0;
+   double spreadPips = 0.0;
+   string regime = DetectMarketRegime(symbol_name, timeframe, atrPips, adxValue, bbWidthPips, spreadPips);
+   string adaptiveState = GetStrategyAdaptiveStateForSymbol(strategyIndex, symbol_name);
+   double riskMultiplier = GetStrategyRiskMultiplierForSymbol(strategyIndex, symbol_name);
+   string tradingStatus = GetTradingStatusForSymbol(symbol_name);
+
    FileWrite(handle,
              eventId,
              ParseTaggedText(orderComment, "|e="),
@@ -4964,15 +5242,94 @@ void AppendTradeEventLink(string eventId, int ticket, int strategyIndex, string 
              DoubleToStr(takeProfit, DigitsForSymbolName(symbol_name)),
              DoubleToStr(actualLots, 2),
              DoubleToStr(researchLots, 5),
-             orderComment);
+             orderComment,
+             regime,
+             adaptiveState,
+             DoubleToStr(riskMultiplier, 2),
+             tradingStatus);
 
    FileClose(handle);
+}
+
+void EnsureTradeEventLinksSchema()
+{
+   string filename = "QuantGod_TradeEventLinks.csv";
+   int readHandle = FileOpen(filename, FILE_TXT | FILE_ANSI | FILE_READ);
+   if(readHandle == INVALID_HANDLE)
+      return;
+
+   string header = "";
+   if(!FileIsEnding(readHandle))
+      header = FileReadString(readHandle);
+   FileClose(readHandle);
+
+   string expectedHeader = "EventId,EventKey,Ticket,TimeLocal,TimeServer,Strategy,Symbol,Timeframe,SignalStatus,SignalDirection,SignalScore,EventBarTime,RequestedPrice,StopLoss,TakeProfit,ActualLots,ResearchLots,OrderComment,Regime,AdaptiveState,RiskMultiplier,TradingStatus";
+   if(StringFind(header, expectedHeader) == 0)
+      return;
+
+   TradeEventLink links[];
+   int linkCount = 0;
+   LoadTradeEventLinks(links, linkCount);
+
+   int writeHandle = FileOpen(filename, FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+   if(writeHandle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to upgrade QuantGod_TradeEventLinks.csv schema, error=", GetLastError());
+      return;
+   }
+
+   FileWrite(writeHandle,
+             "EventId", "EventKey", "Ticket", "TimeLocal", "TimeServer", "Strategy", "Symbol", "Timeframe",
+             "SignalStatus", "SignalDirection", "SignalScore", "EventBarTime",
+             "RequestedPrice", "StopLoss", "TakeProfit", "ActualLots", "ResearchLots", "OrderComment",
+             "Regime", "AdaptiveState", "RiskMultiplier", "TradingStatus");
+
+   for(int i = 0; i < linkCount; i++)
+   {
+      FileWrite(writeHandle,
+                links[i].eventId,
+                links[i].eventKey,
+                links[i].ticket,
+                "",
+                (links[i].eventTimeServer > 0 ? TimeToStr(links[i].eventTimeServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : ""),
+                links[i].strategy,
+                links[i].symbol,
+                links[i].timeframe,
+                links[i].signalStatus,
+                links[i].signalDirection,
+                DoubleToStr(links[i].signalScore, 1),
+                (links[i].eventBarTime > 0 ? TimeToStr(links[i].eventBarTime, TIME_DATE|TIME_MINUTES) : ""),
+                DoubleToStr(links[i].requestedPrice, DigitsForSymbolName(links[i].symbol)),
+                DoubleToStr(links[i].stopLoss, DigitsForSymbolName(links[i].symbol)),
+                DoubleToStr(links[i].takeProfit, DigitsForSymbolName(links[i].symbol)),
+                DoubleToStr(links[i].actualLots, 2),
+                DoubleToStr(links[i].researchLots, 5),
+                links[i].orderComment,
+                links[i].regime,
+                links[i].adaptiveState,
+                DoubleToStr(links[i].riskMultiplier, 2),
+                links[i].tradingStatus);
+   }
+
+   FileClose(writeHandle);
+   Print("[QuantGod] Upgraded QuantGod_TradeEventLinks.csv to regime-aware schema");
 }
 
 bool LoadTradeEventLinks(TradeEventLink &links[], int &linkCount)
 {
    linkCount = 0;
    ArrayResize(links, 0);
+
+   bool hasExtendedSchema = false;
+   int schemaHandle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_TXT | FILE_ANSI | FILE_READ);
+   if(schemaHandle != INVALID_HANDLE)
+   {
+      string header = "";
+      if(!FileIsEnding(schemaHandle))
+         header = FileReadString(schemaHandle);
+      hasExtendedSchema = (StringFind(header, "EventId,EventKey,Ticket,TimeLocal,TimeServer,Strategy,Symbol,Timeframe,SignalStatus,SignalDirection,SignalScore,EventBarTime,RequestedPrice,StopLoss,TakeProfit,ActualLots,ResearchLots,OrderComment,Regime,AdaptiveState,RiskMultiplier,TradingStatus") == 0);
+      FileClose(schemaHandle);
+   }
 
    int handle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_CSV | FILE_ANSI | FILE_READ, ',');
    if(handle == INVALID_HANDLE)
@@ -5001,6 +5358,18 @@ bool LoadTradeEventLinks(TradeEventLink &links[], int &linkCount)
       double actualLots = StrToDouble(FileReadString(handle));
       double researchLots = StrToDouble(FileReadString(handle));
       string orderComment = FileReadString(handle);
+      string regime = "";
+      string adaptiveState = "";
+      double riskMultiplier = 0.0;
+      string tradingStatus = "";
+      if(hasExtendedSchema)
+         regime = FileReadString(handle);
+      if(hasExtendedSchema)
+         adaptiveState = FileReadString(handle);
+      if(hasExtendedSchema)
+         riskMultiplier = StrToDouble(FileReadString(handle));
+      if(hasExtendedSchema)
+         tradingStatus = FileReadString(handle);
 
       if(eventId == "" || eventId == "EventId")
          continue;
@@ -5024,6 +5393,10 @@ bool LoadTradeEventLinks(TradeEventLink &links[], int &linkCount)
       links[nextIndex].actualLots = actualLots;
       links[nextIndex].researchLots = researchLots;
       links[nextIndex].orderComment = orderComment;
+      links[nextIndex].regime = regime;
+      links[nextIndex].adaptiveState = adaptiveState;
+      links[nextIndex].riskMultiplier = riskMultiplier;
+      links[nextIndex].tradingStatus = tradingStatus;
       linkCount++;
    }
 
@@ -5049,6 +5422,84 @@ int FindTradeEventLinkIndexByEventKey(TradeEventLink &links[], int linkCount, st
    for(int i = 0; i < linkCount; i++)
    {
       if(links[i].eventKey == eventKey)
+         return i;
+   }
+   return -1;
+}
+
+bool LoadSignalEventContexts(SignalEventContext &contexts[], int &contextCount)
+{
+   contextCount = 0;
+   ArrayResize(contexts, 0);
+
+   int handle = FileOpen("QuantGod_SignalLog.csv", FILE_CSV | FILE_ANSI | FILE_READ, ',');
+   if(handle == INVALID_HANDLE)
+      return false;
+
+   while(!FileIsEnding(handle))
+   {
+      string eventId = FileReadString(handle);
+      if(FileIsEnding(handle) && eventId == "")
+         break;
+
+      string timeLocal = FileReadString(handle);
+      string timeServer = FileReadString(handle);
+      string eventBarTime = FileReadString(handle);
+      string opportunityReady = FileReadString(handle);
+      string opportunityHorizonBars = FileReadString(handle);
+      string symbolName = FileReadString(handle);
+      string strategy = FileReadString(handle);
+      string timeframe = FileReadString(handle);
+      string regime = FileReadString(handle);
+      string adaptiveState = FileReadString(handle);
+      double riskMultiplier = StrToDouble(FileReadString(handle));
+      string tradingStatus = FileReadString(handle);
+      string signalStatus = FileReadString(handle);
+      string signalReason = FileReadString(handle);
+      double signalScore = StrToDouble(FileReadString(handle));
+      string signalDirection = FileReadString(handle);
+
+      for(int skip = 0; skip < 41; skip++)
+      {
+         if(FileIsEnding(handle))
+            break;
+         FileReadString(handle);
+      }
+
+      if(eventId == "" || eventId == "EventId")
+         continue;
+
+      int nextIndex = contextCount;
+      ArrayResize(contexts, nextIndex + 1);
+      contexts[nextIndex].eventId = eventId;
+      contexts[nextIndex].symbol = symbolName;
+      contexts[nextIndex].strategy = strategy;
+      contexts[nextIndex].timeframe = timeframe;
+      contexts[nextIndex].regime = regime;
+      contexts[nextIndex].adaptiveState = adaptiveState;
+      contexts[nextIndex].riskMultiplier = riskMultiplier;
+      contexts[nextIndex].tradingStatus = tradingStatus;
+      contexts[nextIndex].signalStatus = signalStatus;
+      contexts[nextIndex].signalReason = signalReason;
+      contexts[nextIndex].signalDirection = signalDirection;
+      contexts[nextIndex].signalScore = signalScore;
+      contexts[nextIndex].eventTimeServer = StrToTime(timeServer);
+      contexts[nextIndex].eventBarTime = StrToTime(eventBarTime);
+      contextCount++;
+   }
+
+   FileClose(handle);
+   return contextCount > 0;
+}
+
+int FindSignalEventContextIndexByEventId(SignalEventContext &contexts[], int contextCount, string eventId)
+{
+   if(eventId == "")
+      return -1;
+
+   for(int i = 0; i < contextCount; i++)
+   {
+      if(contexts[i].eventId == eventId)
          return i;
    }
    return -1;
@@ -5100,6 +5551,9 @@ void ExportTradeOutcomeLabels()
    TradeEventLink links[];
    int linkCount = 0;
    LoadTradeEventLinks(links, linkCount);
+   SignalEventContext contexts[];
+   int contextCount = 0;
+   LoadSignalEventContexts(contexts, contextCount);
 
    int handle = FileOpen("QuantGod_TradeOutcomeLabels.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
    if(handle == INVALID_HANDLE)
@@ -5109,10 +5563,11 @@ void ExportTradeOutcomeLabels()
    }
 
    FileWrite(handle,
-             "EventId", "LinkStatus", "Ticket", "Strategy", "Symbol", "Timeframe", "SignalDirection", "SignalScore",
-             "EventTimeServer", "EventBarTime", "OpenTime", "CloseTime", "OrderType", "ActualLots", "ResearchLots",
-             "EntryPrice", "ClosePrice", "EntrySL", "EntryTP", "InitialRiskPips", "RealizedPips",
-             "ActualNet", "ResearchNet", "DurationMinutes", "Outcome", "CloseReason", "OrderComment");
+              "EventId", "LinkStatus", "Ticket", "Strategy", "Symbol", "Timeframe", "SignalDirection", "SignalScore",
+              "Regime", "AdaptiveState", "RiskMultiplier", "TradingStatus", "SignalStatus", "SignalReason",
+              "EventTimeServer", "EventBarTime", "OpenTime", "CloseTime", "OrderType", "ActualLots", "ResearchLots",
+              "EntryPrice", "ClosePrice", "EntrySL", "EntryTP", "InitialRiskPips", "RealizedPips",
+              "ActualNet", "ResearchNet", "DurationMinutes", "Outcome", "CloseReason", "OrderComment");
 
    int historyTotal = OrdersHistoryTotal();
    for(int i = 0; i < historyTotal; i++)
@@ -5129,16 +5584,48 @@ void ExportTradeOutcomeLabels()
       }
 
       TradeEventLink link;
+      SignalEventContext context;
       bool linked = (linkIndex >= 0);
       if(linked)
          link = links[linkIndex];
+      int contextIndex = -1;
+      bool hasContext = false;
+      if(linked && link.eventId != "")
+      {
+         contextIndex = FindSignalEventContextIndexByEventId(contexts, contextCount, link.eventId);
+         hasContext = (contextIndex >= 0);
+         if(hasContext)
+            context = contexts[contextIndex];
+      }
 
       string strategyName = linked ? link.strategy : GetStrategyName(OrderMagicNumber());
       string timeframeLabel = linked ? link.timeframe : TimeframeLabel(GetStrategyTimeframeByMagic(OrderMagicNumber()));
       string signalDirection = linked
                                ? link.signalDirection
                                : ((OrderType() == OP_BUY) ? "BUY" : "SELL");
+      if(signalDirection == "" && hasContext)
+         signalDirection = context.signalDirection;
       double signalScore = linked ? link.signalScore : 0.0;
+      if(signalScore <= 0.0 && hasContext)
+         signalScore = context.signalScore;
+      string regime = linked ? link.regime : "";
+      if(regime == "" && hasContext)
+         regime = context.regime;
+      if(regime == "")
+         regime = "UNKNOWN";
+      string adaptiveState = linked ? link.adaptiveState : "";
+      if(adaptiveState == "" && hasContext)
+         adaptiveState = context.adaptiveState;
+      double riskMultiplier = linked ? link.riskMultiplier : 0.0;
+      if(riskMultiplier <= 0.0 && hasContext)
+         riskMultiplier = context.riskMultiplier;
+      string tradingStatus = linked ? link.tradingStatus : "";
+      if(tradingStatus == "" && hasContext)
+         tradingStatus = context.tradingStatus;
+      string signalStatus = linked ? link.signalStatus : "";
+      if(signalStatus == "" && hasContext)
+         signalStatus = context.signalStatus;
+      string signalReason = hasContext ? context.signalReason : "";
       double entryStopLoss = linked ? link.stopLoss : OrderStopLoss();
       double entryTakeProfit = linked ? link.takeProfit : OrderTakeProfit();
       double initialRiskPips = linked
@@ -5167,8 +5654,14 @@ void ExportTradeOutcomeLabels()
                 timeframeLabel,
                 signalDirection,
                 DoubleToStr(signalScore, 1),
-                linked && link.eventTimeServer > 0 ? TimeToStr(link.eventTimeServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "",
-                linked && link.eventBarTime > 0 ? TimeToStr(link.eventBarTime, TIME_DATE|TIME_MINUTES) : "",
+                regime,
+                adaptiveState,
+                DoubleToStr(riskMultiplier, 2),
+                tradingStatus,
+                signalStatus,
+                SanitizeCsvText(signalReason),
+                linked && link.eventTimeServer > 0 ? TimeToStr(link.eventTimeServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : (hasContext && context.eventTimeServer > 0 ? TimeToStr(context.eventTimeServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : ""),
+                linked && link.eventBarTime > 0 ? TimeToStr(link.eventBarTime, TIME_DATE|TIME_MINUTES) : (hasContext && context.eventBarTime > 0 ? TimeToStr(context.eventBarTime, TIME_DATE|TIME_MINUTES) : ""),
                 TimeToStr(OrderOpenTime(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                 TimeToStr(OrderCloseTime(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                 (OrderType() == OP_BUY ? "BUY" : "SELL"),

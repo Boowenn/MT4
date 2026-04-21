@@ -58,6 +58,7 @@ Primary runtime files:
 - `QuantGod_TradeOutcomeLabels.csv`
 - `QuantGod_AdaptiveStateHistory.csv`
 - `QuantGod_StrategyEvaluationReport.csv`
+- `QuantGod_RegimeEvaluationReport.csv`
 
 ## Stable Design Facts
 
@@ -82,6 +83,7 @@ Primary runtime files:
 - `OpportunityLabels` measures delayed opportunity after a horizon.
 - `TradeEventLinks` maps `EventId -> Ticket` for newer trades.
 - `TradeOutcomeLabels` maps realized trade outcomes, with `UNLINKED` preserved for older trades.
+- `RegimeEvaluationReport` groups closed research outcomes by `strategy x symbol x entry-time regime`.
 
 ## Working Rules
 
@@ -96,6 +98,7 @@ Primary runtime files:
 - Check both:
   - the focus-symbol adaptive summary in dashboard root `strategies`
   - per-symbol slices in `QuantGod_StrategyEvaluationReport.csv`
+- Use `QuantGod_RegimeEvaluationReport.csv` when the question is about which market regime a strategy is handling well or badly.
 - Do not mix one symbol's adaptive state into another symbol's evaluation.
 
 ### When Updating Documentation
