@@ -31,6 +31,10 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--bg-primary);
@@ -152,11 +156,228 @@
             font-family: 'JetBrains Mono', monospace;
         }
 
+        /* 主布局 */
+        .app-shell {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem 2rem;
+            display: grid;
+            grid-template-columns: 250px minmax(0, 1fr);
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        .page-sidebar {
+            position: sticky;
+            top: 118px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .sidebar-card,
+        .sidebar-nav {
+            background: rgba(17, 24, 39, 0.92);
+            border: 1px solid rgba(42, 58, 78, 0.85);
+            border-radius: 16px;
+            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+            backdrop-filter: blur(20px);
+        }
+
+        .sidebar-card {
+            padding: 18px 16px;
+        }
+
+        .sidebar-kicker {
+            color: var(--accent-blue);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+        }
+
+        .sidebar-focus {
+            margin-top: 10px;
+            color: var(--text-primary);
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.25;
+        }
+
+        .sidebar-runtime {
+            margin-top: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .sidebar-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .sidebar-summary-item {
+            border-radius: 12px;
+            padding: 10px 11px;
+            background: rgba(10, 14, 23, 0.45);
+            border: 1px solid rgba(59, 130, 246, 0.08);
+        }
+
+        .sidebar-summary-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            line-height: 1.35;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .sidebar-summary-value {
+            margin-top: 4px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.35;
+        }
+
+        .sidebar-note {
+            margin-top: 12px;
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.5;
+        }
+
+        .sidebar-nav {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            border-radius: 12px;
+            padding: 11px 12px;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .sidebar-link:hover {
+            color: var(--text-primary);
+            background: rgba(59, 130, 246, 0.08);
+            border-color: rgba(59, 130, 246, 0.18);
+            transform: translateX(2px);
+        }
+
+        .sidebar-link.active {
+            color: var(--text-primary);
+            background: rgba(59, 130, 246, 0.12);
+            border-color: rgba(59, 130, 246, 0.24);
+            box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.06);
+        }
+
+        .sidebar-link-index {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            background: rgba(10, 14, 23, 0.58);
+            border: 1px solid rgba(100, 116, 139, 0.18);
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .sidebar-link-copy {
+            min-width: 0;
+        }
+
+        .sidebar-link-title {
+            color: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .sidebar-link-sub {
+            margin-top: 2px;
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .page-content {
+            min-width: 0;
+        }
+
         /* 主内容 */
         .main {
-            max-width: 1600px;
-            margin: 0 auto;
-            padding: 1.5rem 2rem;
+            max-width: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .content-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            scroll-margin-top: 112px;
+        }
+
+        .section-heading {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .section-heading-copy {
+            min-width: 0;
+        }
+
+        .section-kicker {
+            color: var(--accent-cyan);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .section-title {
+            margin-top: 6px;
+            color: var(--text-primary);
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .section-desc {
+            margin-top: 6px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.55;
+            max-width: 760px;
+        }
+
+        .section-meta {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.45;
+            text-align: right;
         }
 
         /* 统计卡片行 */
@@ -1339,6 +1560,183 @@
             border-color: rgba(239, 68, 68, 0.2);
         }
 
+        .research-suggestion-intro {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.55;
+            margin-bottom: 14px;
+        }
+
+        .research-suggestion-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .research-suggestion-card {
+            background: rgba(10, 14, 23, 0.42);
+            border: 1px solid rgba(42, 58, 78, 0.78);
+            border-radius: 14px;
+            padding: 15px 16px;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .research-suggestion-card:hover {
+            transform: translateY(-1px);
+        }
+
+        .research-suggestion-card.keep {
+            border-color: rgba(16, 185, 129, 0.28);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.05);
+        }
+
+        .research-suggestion-card.reduce {
+            border-color: rgba(245, 158, 11, 0.28);
+            box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.05);
+        }
+
+        .research-suggestion-card.pause {
+            border-color: rgba(239, 68, 68, 0.28);
+            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.05);
+        }
+
+        .research-suggestion-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .research-suggestion-header {
+            min-width: 0;
+        }
+
+        .research-suggestion-headline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .research-suggestion-symbol {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .research-suggestion-badges {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .research-action-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            border: 1px solid transparent;
+        }
+
+        .research-action-badge.keep {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.24);
+        }
+
+        .research-action-badge.reduce {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-orange);
+            border-color: rgba(245, 158, 11, 0.24);
+        }
+
+        .research-action-badge.pause {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border-color: rgba(239, 68, 68, 0.24);
+        }
+
+        .research-confidence-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(100, 116, 139, 0.2);
+            background: rgba(10, 14, 23, 0.38);
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .research-suggestion-subline {
+            margin-top: 7px;
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .research-suggestion-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .research-suggestion-metric {
+            border-radius: 10px;
+            padding: 9px 10px;
+            background: rgba(10, 14, 23, 0.32);
+        }
+
+        .research-suggestion-metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .research-suggestion-metric-value {
+            margin-top: 4px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .research-suggestion-reason,
+        .research-suggestion-next {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .research-suggestion-next {
+            margin-top: 8px;
+            color: var(--text-muted);
+        }
+
+        .research-suggestion-footer {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
         .eval-card {
             background: var(--bg-secondary);
             border: 1px solid rgba(42, 58, 78, 0.9);
@@ -1557,14 +1955,35 @@
 
         /* 响应式 */
         @media (max-width: 1200px) {
+            .app-shell {
+                grid-template-columns: 1fr;
+                padding: 1rem 1.25rem 1.5rem;
+            }
+            .page-sidebar {
+                position: static;
+            }
+            .sidebar-nav {
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+            .sidebar-link {
+                flex: 1 1 220px;
+            }
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .dashboard-grid { grid-template-columns: 1fr; }
             .trades-grid { grid-template-columns: 1fr; }
             .strategy-cards { grid-template-columns: 1fr; }
             .eval-card-times { flex-basis: 180px; }
+            .research-suggestion-grid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 1024px) {
+            .section-heading {
+                align-items: flex-start;
+            }
+            .section-meta {
+                text-align: left;
+            }
             .eval-card-header { flex-direction: column; }
             .eval-card-times {
                 flex-basis: auto;
@@ -1573,6 +1992,7 @@
             }
             .eval-card-grid { grid-template-columns: 1fr; }
             .regime-heatmap-toolbar { align-items: flex-start; }
+            .research-suggestion-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
         @media (max-width: 768px) {
@@ -1586,9 +2006,11 @@
             .eval-card-grid { grid-template-columns: 1fr; }
             .eval-mini-grid { grid-template-columns: 1fr 1fr; }
             .navbar { padding: 0 1rem; }
-            .main { padding: 1rem; }
             .regime-heatmap-panel { padding: 16px; }
             .regime-heatmap-grid { min-width: 860px; }
+            .sidebar-summary-grid { grid-template-columns: 1fr 1fr; }
+            .research-suggestion-metrics { grid-template-columns: 1fr 1fr; }
+            .research-suggestion-footer { flex-direction: column; align-items: flex-start; }
         }
 
         /* 滚动条 */
@@ -1708,298 +2130,425 @@
     </div>
 </div>
 
-<div class="main">
+<div class="app-shell">
+    <aside class="page-sidebar">
+        <div class="sidebar-card">
+            <div class="sidebar-kicker">研究工作台</div>
+            <div class="sidebar-focus" id="sidebarFocusSymbol">焦点品种 --</div>
+            <div class="sidebar-runtime" id="sidebarRuntimeStatus">运行状态 --</div>
+            <div class="sidebar-summary-grid">
+                <div class="sidebar-summary-item">
+                    <div class="sidebar-summary-label">研究净值</div>
+                    <div class="sidebar-summary-value" id="sidebarEquity">--</div>
+                </div>
+                <div class="sidebar-summary-item">
+                    <div class="sidebar-summary-label">当前持仓</div>
+                    <div class="sidebar-summary-value" id="sidebarOpenTrades">--</div>
+                </div>
+                <div class="sidebar-summary-item">
+                    <div class="sidebar-summary-label">研究建议</div>
+                    <div class="sidebar-summary-value" id="sidebarSuggestionCount">--</div>
+                </div>
+                <div class="sidebar-summary-item">
+                    <div class="sidebar-summary-label">筛选范围</div>
+                    <div class="sidebar-summary-value" id="sidebarFilterScope">全部</div>
+                </div>
+            </div>
+            <div class="sidebar-note">左侧导航负责分区跳转，研究建议会跟随本页的 regime 品种筛选同步更新。</div>
+        </div>
+        <nav class="sidebar-nav">
+            <a class="sidebar-link active" href="#section-overview" data-section-link="overview">
+                <span class="sidebar-link-index">01</span>
+                <span class="sidebar-link-copy">
+                    <span class="sidebar-link-title">概览</span>
+                    <span class="sidebar-link-sub">资金、倒计时、执行雷达</span>
+                </span>
+            </a>
+            <a class="sidebar-link" href="#section-monitor" data-section-link="monitor">
+                <span class="sidebar-link-index">02</span>
+                <span class="sidebar-link-copy">
+                    <span class="sidebar-link-title">监控</span>
+                    <span class="sidebar-link-sub">品种总览、策略状态</span>
+                </span>
+            </a>
+            <a class="sidebar-link" href="#section-trades" data-section-link="trades">
+                <span class="sidebar-link-index">03</span>
+                <span class="sidebar-link-copy">
+                    <span class="sidebar-link-title">交易</span>
+                    <span class="sidebar-link-sub">当前持仓、历史交易</span>
+                </span>
+            </a>
+            <a class="sidebar-link" href="#section-research" data-section-link="research">
+                <span class="sidebar-link-index">04</span>
+                <span class="sidebar-link-copy">
+                    <span class="sidebar-link-title">研究</span>
+                    <span class="sidebar-link-sub">研究建议、Regime 热力图</span>
+                </span>
+            </a>
+            <a class="sidebar-link" href="#section-reports" data-section-link="reports">
+                <span class="sidebar-link-index">05</span>
+                <span class="sidebar-link-copy">
+                    <span class="sidebar-link-title">报表</span>
+                    <span class="sidebar-link-sub">策略评估、收益分布</span>
+                </span>
+            </a>
+        </nav>
+    </aside>
 
-    <!-- 统计卡片 -->
-    <div class="stats-grid fade-in">
-        <div class="stat-card">
-            <div class="stat-label" id="labelBalance">研究余额</div>
-            <div class="stat-value" id="statBalance">$0.00</div>
-            <div class="stat-change neutral" id="statBalanceChange">---</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label" id="labelEquity">研究净值</div>
-            <div class="stat-value" id="statEquity">$0.00</div>
-            <div class="stat-change neutral" id="statEquityChange">---</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label" id="labelProfit">研究浮盈亏</div>
-            <div class="stat-value" id="statProfit">$0.00</div>
-            <div class="stat-change neutral" id="statProfitChange">实时</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label" id="labelDrawdown">研究回撤</div>
-            <div class="stat-value" id="statDrawdown">0.00%</div>
-            <div class="stat-change neutral" id="statDrawdownChange">最大限制: 15%</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">持仓数量</div>
-            <div class="stat-value" id="statOpenTrades">0</div>
-            <div class="stat-change neutral" id="statMaxTrades">最大: 6</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">历史胜率</div>
-            <div class="stat-value" id="statWinRate">---%</div>
-            <div class="stat-change neutral" id="statTotalTrades">0 笔交易</div>
-        </div>
-        <div class="stat-card stat-card-wide countdown-card">
-            <div class="stat-label">下次 M15 评估</div>
-            <div class="countdown-row">
-                <div class="stat-value" id="statNextH1">--:--</div>
-                <div class="countdown-server" id="statNextH1Server">--</div>
-            </div>
-            <div class="stat-change neutral" id="statNextH1Meta">均线交叉 / 支撑阻力突破</div>
-        </div>
-        <div class="stat-card stat-card-wide countdown-card">
-            <div class="stat-label">下次 H1 评估</div>
-            <div class="countdown-row">
-                <div class="stat-value" id="statNextH4">--:--</div>
-                <div class="countdown-server" id="statNextH4Server">--</div>
-            </div>
-            <div class="stat-change neutral" id="statNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
-        </div>
-    </div>
+    <div class="page-content">
+        <div class="main">
+            <section class="content-section fade-in" id="section-overview" data-nav-section="overview">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Overview</div>
+                        <div class="section-title">总览面板</div>
+                        <div class="section-desc">先看资金曲线、运行权限、服务器时钟和下一次评估窗口，这一段负责回答“系统现在是不是正常运转”。</div>
+                    </div>
+                    <div class="section-meta">适合开盘后第一眼确认环境、连接和节奏。</div>
+                </div>
 
-    <!-- 图表 + 执行雷达 -->
-    <div class="dashboard-grid dashboard-hero fade-in">
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">$</div>
-                    收益曲线
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label" id="labelBalance">研究余额</div>
+                        <div class="stat-value" id="statBalance">$0.00</div>
+                        <div class="stat-change neutral" id="statBalanceChange">---</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label" id="labelEquity">研究净值</div>
+                        <div class="stat-value" id="statEquity">$0.00</div>
+                        <div class="stat-change neutral" id="statEquityChange">---</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label" id="labelProfit">研究浮盈亏</div>
+                        <div class="stat-value" id="statProfit">$0.00</div>
+                        <div class="stat-change neutral" id="statProfitChange">实时</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label" id="labelDrawdown">研究回撤</div>
+                        <div class="stat-value" id="statDrawdown">0.00%</div>
+                        <div class="stat-change neutral" id="statDrawdownChange">最大限制: 15%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">持仓数量</div>
+                        <div class="stat-value" id="statOpenTrades">0</div>
+                        <div class="stat-change neutral" id="statMaxTrades">最大: 6</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">历史胜率</div>
+                        <div class="stat-value" id="statWinRate">---%</div>
+                        <div class="stat-change neutral" id="statTotalTrades">0 笔交易</div>
+                    </div>
+                    <div class="stat-card stat-card-wide countdown-card">
+                        <div class="stat-label">下次 M15 评估</div>
+                        <div class="countdown-row">
+                            <div class="stat-value" id="statNextH1">--:--</div>
+                            <div class="countdown-server" id="statNextH1Server">--</div>
+                        </div>
+                        <div class="stat-change neutral" id="statNextH1Meta">均线交叉 / 支撑阻力突破</div>
+                    </div>
+                    <div class="stat-card stat-card-wide countdown-card">
+                        <div class="stat-label">下次 H1 评估</div>
+                        <div class="countdown-row">
+                            <div class="stat-value" id="statNextH4">--:--</div>
+                            <div class="countdown-server" id="statNextH4Server">--</div>
+                        </div>
+                        <div class="stat-change neutral" id="statNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
+                    </div>
                 </div>
-            </div>
-            <div class="panel-body">
-                <div class="chart-container">
-                    <canvas id="equityChart" class="chart-canvas"></canvas>
-                </div>
-            </div>
-        </div>
 
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">R</div>
-                    执行雷达
-                </div>
-            </div>
-            <div class="panel-body">
-                <div class="radar-grid">
-                    <div class="radar-item">
-                        <div class="radar-label">运行状态</div>
-                        <div class="radar-value" id="radarRuntime">--</div>
-                        <div class="radar-sub" id="radarPermissions">权限 --</div>
+                <div class="dashboard-grid dashboard-hero">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">$</div>
+                                收益曲线
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="chart-container">
+                                <canvas id="equityChart" class="chart-canvas"></canvas>
+                            </div>
+                        </div>
                     </div>
-                    <div class="radar-item">
-                        <div class="radar-label">服务器时钟</div>
-                        <div class="radar-value" id="radarServerClock">--</div>
-                        <div class="radar-sub" id="radarLocalClock">本地 --</div>
-                    </div>
-                    <div class="radar-item">
-                        <div class="radar-label">行情新鲜度</div>
-                        <div class="radar-value" id="radarTickAge">--</div>
-                        <div class="radar-sub" id="radarSpread">点差 --</div>
-                    </div>
-                    <div class="radar-item">
-                        <div class="radar-label">仓位容量</div>
-                        <div class="radar-value" id="radarOpenCapacity">--</div>
-                        <div class="radar-sub" id="radarAccountLine">净值 --</div>
-                    </div>
-                    <div class="radar-item">
-                        <div class="radar-label">M15 评估窗口</div>
-                        <div class="radar-value" id="radarNextH1">--:--</div>
-                        <div class="radar-sub" id="radarNextH1Meta">均线交叉 / 支撑阻力突破</div>
-                    </div>
-                    <div class="radar-item">
-                        <div class="radar-label">H1 评估窗口</div>
-                        <div class="radar-value" id="radarNextH4">--:--</div>
-                        <div class="radar-sub" id="radarNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
-                    </div>
-                    <div class="radar-item">
-                        <div class="radar-label">机会焦点</div>
-                        <div class="radar-value" id="radarOpportunity">--</div>
-                        <div class="radar-sub" id="radarOpportunityMeta">等待新的高质量机会</div>
-                    </div>
-                    <div class="radar-item">
-                        <div class="radar-label">阻塞摘要</div>
-                        <div class="radar-value" id="radarBlockers">--</div>
-                        <div class="radar-sub" id="radarBlockersMeta">当前主要在等待信号</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- 品种总览 + 策略状态 -->
-    <div class="dashboard-grid dashboard-overview fade-in">
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">M</div>
-                    品种总览
-                </div>
-                <span style="font-size: 12px; color: var(--text-muted);" id="symbolOverviewCount">0 个品种</span>
-            </div>
-            <div class="panel-body">
-                <div class="symbol-overview-grid" id="symbolOverviewGrid">
-                    <!-- 动态填充 -->
-                </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(139,92,246,0.15); color: var(--accent-purple);">S</div>
-                    策略状态
-                </div>
-            </div>
-            <div class="panel-body">
-                <div class="strategy-cards" id="strategyCards">
-                    <!-- 动态填充 -->
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 持仓 + 历史 -->
-    <div class="trades-grid fade-in">
-        <!-- 当前持仓 -->
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">O</div>
-                    当前持仓
-                </div>
-                <span style="font-size: 12px; color: var(--text-muted);" id="openTradeCount">0 笔</span>
-            </div>
-            <div class="panel-body" style="padding: 0;">
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>订单号</th>
-                                <th>品种</th>
-                                <th>方向</th>
-                                <th>手数</th>
-                                <th>开仓价</th>
-                                <th>止损</th>
-                                <th>止盈</th>
-                                <th>盈亏</th>
-                                <th>策略</th>
-                            </tr>
-                        </thead>
-                        <tbody id="openTradesBody">
-                            <tr><td colspan="9" class="empty-state">当前没有持仓</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- 历史交易 -->
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">H</div>
-                    历史交易
-                </div>
-                <span style="font-size: 12px; color: var(--text-muted);" id="closedTradeCount">0 笔</span>
-            </div>
-            <div class="panel-body" style="padding: 0;">
-                <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>订单号</th>
-                                <th>品种</th>
-                                <th>方向</th>
-                                <th>手数</th>
-                                <th>开仓价</th>
-                                <th>平仓价</th>
-                                <th>盈亏</th>
-                                <th>策略</th>
-                                <th>时间</th>
-                            </tr>
-                        </thead>
-                        <tbody id="closedTradesBody">
-                            <tr><td colspan="9" class="empty-state">当前没有平仓记录</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="panel fade-in">
-        <div class="panel-header">
-            <div class="panel-title">
-                <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">E</div>
-                策略评估表
-            </div>
-            <span class="eval-summary" id="strategyEvalSummary">等待评估报表</span>
-        </div>
-        <div class="panel-body" style="padding: 0;">
-            <div class="eval-board report-table-wrapper" id="strategyEvalBody">
-                <div class="empty-state">等待策略评估报表</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="panel fade-in">
-        <div class="panel-header">
-            <div class="panel-title">
-                <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">R</div>
-                Regime 研究热力图
-            </div>
-            <span class="eval-summary" id="regimeHeatmapSummary">等待 regime 报表</span>
-        </div>
-        <div class="panel-body" style="padding: 0;">
-            <div class="regime-heatmap-panel">
-                <div class="regime-heatmap-toolbar">
-                    <div class="regime-heatmap-summary" id="regimeHeatmapMeta">
-                        每个格子展示该策略在对应市场状态下的胜率、PF、样本数和净收益。弱样本会自动降权显示。
-                    </div>
-                    <div class="regime-filter-row" id="regimeHeatmapFilters">
-                        <span class="regime-filter-label">筛选品种</span>
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">R</div>
+                                执行雷达
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="radar-grid">
+                                <div class="radar-item">
+                                    <div class="radar-label">运行状态</div>
+                                    <div class="radar-value" id="radarRuntime">--</div>
+                                    <div class="radar-sub" id="radarPermissions">权限 --</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">服务器时钟</div>
+                                    <div class="radar-value" id="radarServerClock">--</div>
+                                    <div class="radar-sub" id="radarLocalClock">本地 --</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">行情新鲜度</div>
+                                    <div class="radar-value" id="radarTickAge">--</div>
+                                    <div class="radar-sub" id="radarSpread">点差 --</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">仓位容量</div>
+                                    <div class="radar-value" id="radarOpenCapacity">--</div>
+                                    <div class="radar-sub" id="radarAccountLine">净值 --</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">M15 评估窗口</div>
+                                    <div class="radar-value" id="radarNextH1">--:--</div>
+                                    <div class="radar-sub" id="radarNextH1Meta">均线交叉 / 支撑阻力突破</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">H1 评估窗口</div>
+                                    <div class="radar-value" id="radarNextH4">--:--</div>
+                                    <div class="radar-sub" id="radarNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">机会焦点</div>
+                                    <div class="radar-value" id="radarOpportunity">--</div>
+                                    <div class="radar-sub" id="radarOpportunityMeta">等待新的高质量机会</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">阻塞摘要</div>
+                                    <div class="radar-value" id="radarBlockers">--</div>
+                                    <div class="radar-sub" id="radarBlockersMeta">当前主要在等待信号</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="regime-heatmap-scroll">
-                    <div class="regime-heatmap-grid" id="regimeHeatmapBody">
-                        <div class="empty-state">等待 regime 研究报表</div>
+            </section>
+
+            <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Monitor</div>
+                        <div class="section-title">监控视图</div>
+                        <div class="section-desc">这里把“按品种”和“按策略”的状态拆开，方便快速发现是谁在出机会、谁被风险限制卡住。</div>
+                    </div>
+                    <div class="section-meta">适合回答“当前哪些品种在跑、哪套策略最活跃”。</div>
+                </div>
+
+                <div class="dashboard-grid dashboard-overview">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">M</div>
+                                品种总览
+                            </div>
+                            <span style="font-size: 12px; color: var(--text-muted);" id="symbolOverviewCount">0 个品种</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="symbol-overview-grid" id="symbolOverviewGrid"></div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(139,92,246,0.15); color: var(--accent-purple);">S</div>
+                                策略状态
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="strategy-cards" id="strategyCards"></div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
+            </section>
 
-    <!-- 策略收益分布 -->
-    <div class="dashboard-grid fade-in" style="grid-template-columns: 1fr 1fr;">
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">P</div>
-                    策略收益分布
+            <section class="content-section fade-in" id="section-trades" data-nav-section="trades">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Trades</div>
+                        <div class="section-title">交易流水</div>
+                        <div class="section-desc">把当前持仓和最近历史交易分开放，避免分析时在一长页里来回找表格。</div>
+                    </div>
+                    <div class="section-meta">适合核对实际进场、出场、浮盈亏和成交节奏。</div>
                 </div>
-            </div>
-            <div class="panel-body">
-                <div class="chart-container" style="height: 260px;">
-                    <canvas id="strategyPieChart"></canvas>
+
+                <div class="trades-grid">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">O</div>
+                                当前持仓
+                            </div>
+                            <span style="font-size: 12px; color: var(--text-muted);" id="openTradeCount">0 笔</span>
+                        </div>
+                        <div class="panel-body" style="padding: 0;">
+                            <div class="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>订单号</th>
+                                            <th>品种</th>
+                                            <th>方向</th>
+                                            <th>手数</th>
+                                            <th>开仓价</th>
+                                            <th>止损</th>
+                                            <th>止盈</th>
+                                            <th>盈亏</th>
+                                            <th>策略</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="openTradesBody">
+                                        <tr><td colspan="9" class="empty-state">当前没有持仓</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">H</div>
+                                历史交易
+                            </div>
+                            <span style="font-size: 12px; color: var(--text-muted);" id="closedTradeCount">0 笔</span>
+                        </div>
+                        <div class="panel-body" style="padding: 0;">
+                            <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>订单号</th>
+                                            <th>品种</th>
+                                            <th>方向</th>
+                                            <th>手数</th>
+                                            <th>开仓价</th>
+                                            <th>平仓价</th>
+                                            <th>盈亏</th>
+                                            <th>策略</th>
+                                            <th>时间</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="closedTradesBody">
+                                        <tr><td colspan="9" class="empty-state">当前没有平仓记录</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <div class="icon" style="background: rgba(236,72,153,0.15); color: var(--accent-pink);">W</div>
-                    每日盈亏
+            </section>
+
+            <section class="content-section fade-in" id="section-research" data-nav-section="research">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Research</div>
+                        <div class="section-title">研究建议</div>
+                        <div class="section-desc">这一段不直接改下单，只把 `strategy x symbol x regime` 的历史切片翻译成研究动作，告诉你哪些值得继续、哪些应该降权、哪些该先暂停观察。</div>
+                    </div>
+                    <div class="section-meta">研究建议会跟随本节的 regime 品种筛选一起更新。</div>
                 </div>
-            </div>
-            <div class="panel-body">
-                <div class="chart-container" style="height: 260px;">
-                    <canvas id="dailyPnlChart"></canvas>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">A</div>
+                            切片研究建议
+                        </div>
+                        <span class="eval-summary" id="researchSuggestionSummary">等待 regime 建议</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-suggestion-intro" id="researchSuggestionMeta">建议来自本地 regime 研究报表，仅用于研究优先级排序，不会自动改实际交易逻辑。</div>
+                        <div class="research-suggestion-grid" id="researchSuggestionBody">
+                            <div class="empty-state">等待 regime 研究建议</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">R</div>
+                            Regime 研究热力图
+                        </div>
+                        <span class="eval-summary" id="regimeHeatmapSummary">等待 regime 报表</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="regime-heatmap-panel">
+                            <div class="regime-heatmap-toolbar">
+                                <div class="regime-heatmap-summary" id="regimeHeatmapMeta">
+                                    每个格子展示该策略在对应市场状态下的胜率、PF、样本数和净收益。弱样本会自动降权显示。
+                                </div>
+                                <div class="regime-filter-row" id="regimeHeatmapFilters">
+                                    <span class="regime-filter-label">筛选品种</span>
+                                </div>
+                            </div>
+                            <div class="regime-heatmap-scroll">
+                                <div class="regime-heatmap-grid" id="regimeHeatmapBody">
+                                    <div class="empty-state">等待 regime 研究报表</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="content-section fade-in" id="section-reports" data-nav-section="reports">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Reports</div>
+                        <div class="section-title">评估报表</div>
+                        <div class="section-desc">把策略评估明细和收益结构集中在一起，方便做复盘和下一轮研究计划。</div>
+                    </div>
+                    <div class="section-meta">适合回答“哪一套策略最近更好、最近收益结构长什么样”。</div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">E</div>
+                            策略评估表
+                        </div>
+                        <span class="eval-summary" id="strategyEvalSummary">等待评估报表</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="eval-board report-table-wrapper" id="strategyEvalBody">
+                            <div class="empty-state">等待策略评估报表</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">P</div>
+                                策略收益分布
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="chart-container" style="height: 260px;">
+                                <canvas id="strategyPieChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <div class="icon" style="background: rgba(236,72,153,0.15); color: var(--accent-pink);">W</div>
+                                每日盈亏
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="chart-container" style="height: 260px;">
+                                <canvas id="dailyPnlChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 </div>
@@ -2027,6 +2576,7 @@ const LOCAL_OPPORTUNITY_LABELS_PATH = 'QuantGod_OpportunityLabels.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
+const RESEARCH_SUGGESTION_LIMIT = 8;
 let regimeHeatmapSymbolFilter = 'ALL';
 const TIMEFRAME_ORDER = {
     M1: 1,
@@ -2605,6 +3155,103 @@ function getRegimeDisplayRows(d) {
 
 function getRegimeHeatmapAvailableSymbols(d) {
     return Array.from(new Set(getRegimeDisplayRows(d).map((row) => row.symbol))).sort((a, b) => a.localeCompare(b));
+}
+
+function getFilteredResearchScopeRows(d) {
+    const rows = getRegimeDisplayRows(d);
+    if (regimeHeatmapSymbolFilter === 'ALL') return rows;
+    return rows.filter((row) => row.symbol === regimeHeatmapSymbolFilter);
+}
+
+function getResearchActionMeta(action) {
+    if (action === 'KEEP') {
+        return { label: '保留', className: 'keep', priority: 2 };
+    }
+    if (action === 'PAUSE') {
+        return { label: '暂停观察', className: 'pause', priority: 0 };
+    }
+    return { label: '降权', className: 'reduce', priority: 1 };
+}
+
+function getResearchConfidenceText(row) {
+    const closedTrades = Number(row.closedTrades || 0);
+    const coverage = Number(row.linkCoverage || 0);
+    if (closedTrades >= 5 && coverage >= 70) return '高置信度';
+    if (closedTrades >= 3 && coverage >= 40) return '中置信度';
+    return '低置信度';
+}
+
+function buildResearchRecommendation(row) {
+    const closedTrades = Number(row.closedTrades || 0);
+    const linkedTrades = Number(row.linkedTrades || 0);
+    const coverage = Number(row.linkCoverage || 0);
+    const winRate = Number(row.winRate || 0);
+    const netProfit = Number(row.netProfit || 0);
+    const avgNet = Number(row.avgNet || 0);
+    const pf = Number(row.profitFactor || 0) >= 999 ? 3 : Number(row.profitFactor || 0);
+    const isUnknownRegime = String(row.entryRegime || 'UNKNOWN').toUpperCase() === 'UNKNOWN';
+    const enoughSample = closedTrades >= 3;
+    const strongSample = closedTrades >= 5;
+    const reliableContext = coverage >= 60 || linkedTrades >= 2 || strongSample;
+
+    let action = 'REDUCE';
+    let reason = '样本还不足以支撑强结论，先继续跟踪，但不要把它当成当前的主研究切片。';
+    let nextStep = '维持低优先级观察，优先等更多闭环和更高链接覆盖后再决定是否升权。';
+
+    if (!enoughSample) {
+        action = 'REDUCE';
+        reason = `当前只有 ${closedTrades} 笔闭环样本，统计波动很大，先轻量观察更稳妥。`;
+        nextStep = '继续采样，不建议因为单一好坏结果就放大这个切片。';
+    } else if (isUnknownRegime && coverage < 40) {
+        action = netProfit < 0 && strongSample ? 'PAUSE' : 'REDUCE';
+        reason = `这组样本主要来自历史未知 regime，链接覆盖只有 ${coverage.toFixed(0)}%，更适合作为回看，不适合作为当前主研究结论。`;
+        nextStep = action === 'PAUSE'
+            ? '先暂停把它当重点切片，等新链接样本进来后再重新判断。'
+            : '暂时降权，后续优先收集能明确带出 regime 的新样本。';
+    } else if (reliableContext && netProfit > 0 && pf >= 1.15 && winRate >= 50 && !isUnknownRegime) {
+        action = 'KEEP';
+        reason = `样本 ${closedTrades} 笔、PF ${formatProfitFactor(row.profitFactor)}、胜率 ${winRate.toFixed(1)}%、净收益 ${formatMoney(netProfit)}，这个切片目前保持正期望。`;
+        nextStep = '保留为重点研究切片，继续累计样本，观察它在后续市场环境里是否还能稳定成立。';
+    } else if (
+        (reliableContext && closedTrades >= 3 && netProfit < 0 && pf < 0.9 && winRate < 45) ||
+        (strongSample && netProfit < 0 && pf < 0.8) ||
+        (isUnknownRegime && strongSample && netProfit < 0)
+    ) {
+        action = 'PAUSE';
+        reason = `这组切片在已有 ${closedTrades} 笔样本下仍然表现偏弱，PF ${formatProfitFactor(row.profitFactor)}、胜率 ${winRate.toFixed(1)}%、净收益 ${formatMoney(netProfit)}。`;
+        nextStep = '先暂停把它列为当前主研究方向，除非后续参数调整或新增样本明显改善。';
+    } else {
+        action = 'REDUCE';
+        reason = `当前结果还不够干净：PF ${formatProfitFactor(row.profitFactor)}、胜率 ${winRate.toFixed(1)}%、净收益 ${formatMoney(netProfit)}，边际优势不够明确。`;
+        nextStep = avgNet >= 0
+            ? '保留低权重观察，后续优先看它能否从“弱正向”走到更稳定的正期望。'
+            : '继续低权重跟踪，等它要么恢复正向、要么进一步证伪，再决定是否暂停。';
+    }
+
+    return {
+        action,
+        ...getResearchActionMeta(action),
+        confidenceText: getResearchConfidenceText(row),
+        reason,
+        nextStep
+    };
+}
+
+function getResearchRecommendationRows(d) {
+    return getFilteredResearchScopeRows(d)
+        .map((row) => ({
+            ...row,
+            recommendation: buildResearchRecommendation(row)
+        }))
+        .sort((a, b) => {
+            const priorityCompare = a.recommendation.priority - b.recommendation.priority;
+            if (priorityCompare !== 0) return priorityCompare;
+            const sampleCompare = Number(b.closedTrades || 0) - Number(a.closedTrades || 0);
+            if (sampleCompare !== 0) return sampleCompare;
+            const netCompare = Math.abs(Number(b.netProfit || 0)) - Math.abs(Number(a.netProfit || 0));
+            if (netCompare !== 0) return netCompare;
+            return `${a.symbol}|${a.strategy}|${a.entryRegime}`.localeCompare(`${b.symbol}|${b.strategy}|${b.entryRegime}`);
+        });
 }
 
 function buildRegimeHeatmapMatrix(rows) {
@@ -3216,6 +3863,75 @@ function updateExecutionRadar(d) {
     byId('radarBlockersMeta').textContent = blockerMeta;
 }
 
+function updateSidebarSummary(d) {
+    const focusSymbolEl = document.getElementById('sidebarFocusSymbol');
+    const runtimeEl = document.getElementById('sidebarRuntimeStatus');
+    const equityEl = document.getElementById('sidebarEquity');
+    const openTradesEl = document.getElementById('sidebarOpenTrades');
+    const suggestionEl = document.getElementById('sidebarSuggestionCount');
+    const filterEl = document.getElementById('sidebarFilterScope');
+
+    if (!focusSymbolEl || !runtimeEl || !equityEl || !openTradesEl || !suggestionEl || !filterEl) return;
+
+    const account = getDisplayAccount(d);
+    const runtimeSummary = getRuntimeSummary(d);
+    const recommendationRows = getResearchRecommendationRows(d);
+    const pauseCount = recommendationRows.filter((row) => row.recommendation.action === 'PAUSE').length;
+    const keepCount = recommendationRows.filter((row) => row.recommendation.action === 'KEEP').length;
+    const scopeText = regimeHeatmapSymbolFilter === 'ALL' ? '全部品种' : regimeHeatmapSymbolFilter;
+
+    focusSymbolEl.textContent = `焦点 ${getFocusSymbol(d) || '--'}`;
+    runtimeEl.textContent = runtimeSummary.text;
+    equityEl.textContent = Number.isFinite(Number(account?.equity)) ? `$${Number(account.equity).toFixed(2)}` : '--';
+    openTradesEl.textContent = `${Array.isArray(d?.openTrades) ? d.openTrades.length : 0} 笔`;
+    suggestionEl.textContent = recommendationRows.length ? `${pauseCount} 停 / ${keepCount} 保` : '--';
+    filterEl.textContent = scopeText;
+}
+
+function updateSidebarActiveLink() {
+    const sections = Array.from(document.querySelectorAll('.content-section[data-nav-section]'));
+    const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
+    if (!sections.length || !links.length) return;
+
+    let activeSection = sections[0].dataset.navSection || '';
+    const threshold = 170;
+    sections.forEach((section) => {
+        if (section.getBoundingClientRect().top - threshold <= 0) {
+            activeSection = section.dataset.navSection || activeSection;
+        }
+    });
+
+    links.forEach((link) => {
+        link.classList.toggle('active', link.dataset.sectionLink === activeSection);
+    });
+}
+
+function updateSidebarActiveFromHash() {
+    const hash = String(window.location.hash || '').replace(/^#section-/, '').trim();
+    if (!hash) return false;
+
+    const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
+    if (!links.some((link) => link.dataset.sectionLink === hash)) return false;
+
+    links.forEach((link) => {
+        link.classList.toggle('active', link.dataset.sectionLink === hash);
+    });
+    return true;
+}
+
+function initSidebarNavigation() {
+    if (!updateSidebarActiveFromHash()) {
+        updateSidebarActiveLink();
+    }
+    window.addEventListener('scroll', updateSidebarActiveLink, { passive: true });
+    window.addEventListener('resize', updateSidebarActiveLink);
+    window.addEventListener('hashchange', () => {
+        if (!updateSidebarActiveFromHash()) {
+            updateSidebarActiveLink();
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     try {
         initCharts();
@@ -3223,6 +3939,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
         console.warn('Chart initialization failed, continuing without charts.', e);
     }
+    initSidebarNavigation();
     loadData();
     refreshInterval = setInterval(loadData, 5000);
     runtimeClockInterval = setInterval(() => {
@@ -3448,7 +4165,9 @@ function updateDashboard() {
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
+    updateResearchSuggestions(d);
     updateRegimeHeatmap(d);
+    updateSidebarSummary(d);
 
     const footer = document.querySelector('.footer');
     if (footer) {
@@ -3790,6 +4509,91 @@ function updateStrategyEvaluationTable(d) {
     }).join('');
 }
 
+function updateResearchSuggestions(d) {
+    const body = document.getElementById('researchSuggestionBody');
+    const summary = document.getElementById('researchSuggestionSummary');
+    const meta = document.getElementById('researchSuggestionMeta');
+    if (!body || !summary || !meta) return;
+
+    const allRows = getRegimeDisplayRows(d);
+    if (!allRows.length) {
+        summary.textContent = d?._regimeReportError ? '本地 regime 建议暂不可用' : '等待 regime 建议';
+        meta.textContent = d?._regimeReportError
+            ? '请先确认 `QuantGod_RegimeEvaluationReport.csv` 正常导出。'
+            : '建议来自本地 regime 研究报表，仅用于研究优先级排序，不会自动改实际交易逻辑。';
+        body.innerHTML = '<div class="empty-state">本地 regime 研究报表还没有足够的数据来生成建议</div>';
+        return;
+    }
+
+    const rows = getResearchRecommendationRows(d);
+    const scopeText = regimeHeatmapSymbolFilter === 'ALL' ? '全部品种' : regimeHeatmapSymbolFilter;
+    const counts = rows.reduce((acc, row) => {
+        acc[row.recommendation.action] = (acc[row.recommendation.action] || 0) + 1;
+        return acc;
+    }, {});
+    const keepCount = counts.KEEP || 0;
+    const reduceCount = counts.REDUCE || 0;
+    const pauseCount = counts.PAUSE || 0;
+    const visibleRows = rows.slice(0, RESEARCH_SUGGESTION_LIMIT);
+
+    summary.textContent = `${scopeText} | 保留 ${keepCount} | 降权 ${reduceCount} | 暂停观察 ${pauseCount} | 展示前 ${Math.min(visibleRows.length, RESEARCH_SUGGESTION_LIMIT)} 条`;
+    meta.textContent = `建议严格来自当前本地 regime 切片，不会直接改下单。当前范围 ${scopeText}，共 ${rows.length} 个切片；建议优先处理“暂停观察”和“降权”的切片。`;
+
+    body.innerHTML = visibleRows.map((row) => {
+        const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy };
+        const actionMeta = row.recommendation;
+        const pfText = formatProfitFactor(row.profitFactor);
+        const winRateText = `${Number(row.winRate || 0).toFixed(1)}%`;
+        const durationText = Number(row.avgDurationMinutes || 0) > 0 ? `${Number(row.avgDurationMinutes || 0).toFixed(0)}m` : '--';
+        const signalText = Number(row.avgSignalScore || 0) > 0 ? `${Number(row.avgSignalScore || 0).toFixed(0)}/100` : '--';
+        const linkedText = `${Number(row.linkedTrades || 0)}/${Number(row.closedTrades || 0)} · ${Number(row.linkCoverage || 0).toFixed(0)}%`;
+        const lastText = row.lastCloseTime || row.reportTimeLocal || '--';
+
+        return `
+            <div class="research-suggestion-card ${actionMeta.className}">
+                <div class="research-suggestion-top">
+                    <div class="research-suggestion-header">
+                        <div class="research-suggestion-headline">
+                            <span class="research-suggestion-symbol">${escapeHtml(row.symbol)}</span>
+                            <span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy)}</span>
+                            ${renderRegimeChip(row.entryRegime, row.timeframe)}
+                        </div>
+                        <div class="research-suggestion-subline">${escapeHtml(row.timeframe || '--')} 周期 · 最近平仓 ${escapeHtml(lastText)}</div>
+                    </div>
+                    <div class="research-suggestion-badges">
+                        <span class="research-action-badge ${actionMeta.className}">${escapeHtml(actionMeta.label)}</span>
+                        <span class="research-confidence-badge">${escapeHtml(actionMeta.confidenceText)}</span>
+                    </div>
+                </div>
+                <div class="research-suggestion-metrics">
+                    <div class="research-suggestion-metric">
+                        <div class="research-suggestion-metric-label">样本 / PF</div>
+                        <div class="research-suggestion-metric-value">${Number(row.closedTrades || 0)} / ${escapeHtml(pfText)}</div>
+                    </div>
+                    <div class="research-suggestion-metric">
+                        <div class="research-suggestion-metric-label">胜率 / 净收益</div>
+                        <div class="research-suggestion-metric-value">${escapeHtml(winRateText)} / ${escapeHtml(formatMoney(row.netProfit || 0))}</div>
+                    </div>
+                    <div class="research-suggestion-metric">
+                        <div class="research-suggestion-metric-label">链接覆盖</div>
+                        <div class="research-suggestion-metric-value">${escapeHtml(linkedText)}</div>
+                    </div>
+                    <div class="research-suggestion-metric">
+                        <div class="research-suggestion-metric-label">平均持仓 / 信号</div>
+                        <div class="research-suggestion-metric-value">${escapeHtml(durationText)} / ${escapeHtml(signalText)}</div>
+                    </div>
+                </div>
+                <div class="research-suggestion-reason">${escapeHtml(actionMeta.reason)}</div>
+                <div class="research-suggestion-next">${escapeHtml(actionMeta.nextStep)}</div>
+                <div class="research-suggestion-footer">
+                    <span>Avg ${escapeHtml(formatMoney(row.avgNet || 0))} / Gross ${escapeHtml(formatMoney(row.grossProfit || 0))} / Loss ${escapeHtml(formatMoney(-(row.grossLoss || 0)))} </span>
+                    <span>${escapeHtml(scopeText)} 研究切片</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
 function updateRegimeHeatmap(d) {
     const body = document.getElementById('regimeHeatmapBody');
     const summary = document.getElementById('regimeHeatmapSummary');
@@ -3817,7 +4621,9 @@ function updateRegimeHeatmap(d) {
             const symbol = button.dataset.symbol || 'ALL';
             if (regimeHeatmapSymbolFilter === symbol) return;
             regimeHeatmapSymbolFilter = symbol;
+            updateResearchSuggestions(dashboardData);
             updateRegimeHeatmap(dashboardData);
+            updateSidebarSummary(dashboardData);
         });
     });
 
@@ -3832,9 +4638,7 @@ function updateRegimeHeatmap(d) {
         return;
     }
 
-    const filteredRows = regimeHeatmapSymbolFilter === 'ALL'
-        ? allRows
-        : allRows.filter((row) => row.symbol === regimeHeatmapSymbolFilter);
+    const filteredRows = getFilteredResearchScopeRows(d);
 
     if (!filteredRows.length) {
         summary.textContent = `当前筛选 ${regimeHeatmapSymbolFilter} 暂无 regime 样本`;

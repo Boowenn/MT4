@@ -43,6 +43,8 @@ Responsibilities:
 - Read evaluation and labeling CSVs
 - Render per-symbol and per-strategy status
 - Render the regime research heatmap from `QuantGod_RegimeEvaluationReport.csv`
+- Render advisory research recommendations derived from `strategy x symbol x regime` slices
+- Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 
 ### Data Layer
 
@@ -86,6 +88,7 @@ Primary runtime files:
 - `TradeOutcomeLabels` maps realized trade outcomes, with `UNLINKED` preserved for older trades.
 - `RegimeEvaluationReport` groups closed research outcomes by `strategy x symbol x entry-time regime`.
 - Dashboard heatmap further aggregates `RegimeEvaluationReport` into operator-facing `strategy x regime` slices, optionally filtered by symbol.
+- Dashboard research suggestions consume the same regime report, but keep the finer `strategy x symbol x regime` slice when generating “保留 / 降权 / 暂停观察” recommendations.
 
 ## Working Rules
 
@@ -102,6 +105,7 @@ Primary runtime files:
   - per-symbol slices in `QuantGod_StrategyEvaluationReport.csv`
 - Use `QuantGod_RegimeEvaluationReport.csv` when the question is about which market regime a strategy is handling well or badly.
 - If dashboard heatmap and raw CSV disagree, treat the CSV as the source of truth first and debug the frontend aggregation/filtering path.
+- If research suggestions and heatmap disagree, debug the recommendation-threshold layer separately from the raw regime aggregation layer.
 - Do not mix one symbol's adaptive state into another symbol's evaluation.
 
 ### When Updating Documentation
