@@ -72,7 +72,9 @@ Primary runtime files:
 - Adaptive control is protective, not self-optimizing.
 - It adjusts risk and activation state.
 - It does not automatically mutate strategy parameters.
-- The current implementation aggregates by strategy globally, not by `strategy x symbol` or `strategy x symbol x regime`.
+- The current implementation evaluates adaptive state independently for each `strategy x symbol` pair.
+- Dashboard root `strategies` is scoped to the current dashboard focus symbol.
+- Cross-symbol comparison should come from `QuantGod_StrategyEvaluationReport.csv` or `symbols[].strategies` in `QuantGod_Dashboard.json`.
 
 ### Labeling and Attribution
 
@@ -92,9 +94,9 @@ Primary runtime files:
 ### When Investigating Strategy Quality
 
 - Check both:
-  - strategy-global adaptive state
+  - the focus-symbol adaptive summary in dashboard root `strategies`
   - per-symbol slices in `QuantGod_StrategyEvaluationReport.csv`
-- Do not assume a strategy-global state is valid for every symbol.
+- Do not mix one symbol's adaptive state into another symbol's evaluation.
 
 ### When Updating Documentation
 

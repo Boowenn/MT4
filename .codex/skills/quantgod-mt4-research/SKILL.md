@@ -31,6 +31,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Store durable architecture and workflow guidance here in the skill.
 - Keep this skill as the canonical repo-local knowledge base for Codex-style maintenance work.
 - Point volatile numbers back to runtime exports instead of hardcoding them into canonical docs.
+- Remember that dashboard root `strategies` now reflects the current dashboard focus symbol, while full cross-symbol adaptive truth lives in `QuantGod_StrategyEvaluationReport.csv` and `symbols[].strategies`.
 
 ## Validation Rules
 
