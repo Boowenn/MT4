@@ -257,6 +257,14 @@
             margin-bottom: 1.5rem;
         }
 
+        .dashboard-grid.dashboard-hero {
+            grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+        }
+
+        .dashboard-grid.dashboard-overview {
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        }
+
         .dashboard-column {
             display: flex;
             flex-direction: column;
@@ -622,9 +630,10 @@
 
         /* 策略卡片 */
         .strategy-cards {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            align-items: start;
         }
 
         .strategy-card {
@@ -695,7 +704,7 @@
 
         .strategy-stats {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 10px;
         }
 
@@ -1090,6 +1099,7 @@
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .dashboard-grid { grid-template-columns: 1fr; }
             .trades-grid { grid-template-columns: 1fr; }
+            .strategy-cards { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 768px) {
@@ -1097,6 +1107,7 @@
             .stat-card.stat-card-wide { grid-column: span 2; }
             .countdown-row { flex-direction: column; align-items: flex-start; gap: 0.4rem; }
             .radar-grid { grid-template-columns: 1fr; }
+            .strategy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .navbar { padding: 0 1rem; }
             .main { padding: 1rem; }
         }
@@ -1270,94 +1281,93 @@
         </div>
     </div>
 
-    <!-- 图表 + 策略 -->
-    <div class="dashboard-grid fade-in">
-        <div class="dashboard-column">
-            <!-- 收益曲线 -->
-            <div class="panel">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">$</div>
-                        收益曲线
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <div class="chart-container">
-                        <canvas id="equityChart" class="chart-canvas"></canvas>
-                    </div>
+    <!-- 图表 + 执行雷达 -->
+    <div class="dashboard-grid dashboard-hero fade-in">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">$</div>
+                    收益曲线
                 </div>
             </div>
-
-            <div class="panel">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">R</div>
-                        执行雷达
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <div class="radar-grid">
-                        <div class="radar-item">
-                            <div class="radar-label">运行状态</div>
-                            <div class="radar-value" id="radarRuntime">--</div>
-                            <div class="radar-sub" id="radarPermissions">权限 --</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">服务器时钟</div>
-                            <div class="radar-value" id="radarServerClock">--</div>
-                            <div class="radar-sub" id="radarLocalClock">本地 --</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">行情新鲜度</div>
-                            <div class="radar-value" id="radarTickAge">--</div>
-                            <div class="radar-sub" id="radarSpread">点差 --</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">仓位容量</div>
-                            <div class="radar-value" id="radarOpenCapacity">--</div>
-                            <div class="radar-sub" id="radarAccountLine">净值 --</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">M15 评估窗口</div>
-                            <div class="radar-value" id="radarNextH1">--:--</div>
-                            <div class="radar-sub" id="radarNextH1Meta">均线交叉 / 支撑阻力突破</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">H1 评估窗口</div>
-                            <div class="radar-value" id="radarNextH4">--:--</div>
-                            <div class="radar-sub" id="radarNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">机会焦点</div>
-                            <div class="radar-value" id="radarOpportunity">--</div>
-                            <div class="radar-sub" id="radarOpportunityMeta">等待新的高质量机会</div>
-                        </div>
-                        <div class="radar-item">
-                            <div class="radar-label">阻塞摘要</div>
-                            <div class="radar-value" id="radarBlockers">--</div>
-                            <div class="radar-sub" id="radarBlockersMeta">当前主要在等待信号</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">M</div>
-                        品种总览
-                    </div>
-                    <span style="font-size: 12px; color: var(--text-muted);" id="symbolOverviewCount">0 个品种</span>
-                </div>
-                <div class="panel-body">
-                    <div class="symbol-overview-grid" id="symbolOverviewGrid">
-                        <!-- 动态填充 -->
-                    </div>
+            <div class="panel-body">
+                <div class="chart-container">
+                    <canvas id="equityChart" class="chart-canvas"></canvas>
                 </div>
             </div>
         </div>
 
-        <!-- 策略状态 -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">R</div>
+                    执行雷达
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="radar-grid">
+                    <div class="radar-item">
+                        <div class="radar-label">运行状态</div>
+                        <div class="radar-value" id="radarRuntime">--</div>
+                        <div class="radar-sub" id="radarPermissions">权限 --</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">服务器时钟</div>
+                        <div class="radar-value" id="radarServerClock">--</div>
+                        <div class="radar-sub" id="radarLocalClock">本地 --</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">行情新鲜度</div>
+                        <div class="radar-value" id="radarTickAge">--</div>
+                        <div class="radar-sub" id="radarSpread">点差 --</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">仓位容量</div>
+                        <div class="radar-value" id="radarOpenCapacity">--</div>
+                        <div class="radar-sub" id="radarAccountLine">净值 --</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">M15 评估窗口</div>
+                        <div class="radar-value" id="radarNextH1">--:--</div>
+                        <div class="radar-sub" id="radarNextH1Meta">均线交叉 / 支撑阻力突破</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">H1 评估窗口</div>
+                        <div class="radar-value" id="radarNextH4">--:--</div>
+                        <div class="radar-sub" id="radarNextH4Meta">RSI 反转 / 布林三重确认 / MACD 背离</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">机会焦点</div>
+                        <div class="radar-value" id="radarOpportunity">--</div>
+                        <div class="radar-sub" id="radarOpportunityMeta">等待新的高质量机会</div>
+                    </div>
+                    <div class="radar-item">
+                        <div class="radar-label">阻塞摘要</div>
+                        <div class="radar-value" id="radarBlockers">--</div>
+                        <div class="radar-sub" id="radarBlockersMeta">当前主要在等待信号</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 品种总览 + 策略状态 -->
+    <div class="dashboard-grid dashboard-overview fade-in">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">M</div>
+                    品种总览
+                </div>
+                <span style="font-size: 12px; color: var(--text-muted);" id="symbolOverviewCount">0 个品种</span>
+            </div>
+            <div class="panel-body">
+                <div class="symbol-overview-grid" id="symbolOverviewGrid">
+                    <!-- 动态填充 -->
+                </div>
+            </div>
+        </div>
+
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-title">
