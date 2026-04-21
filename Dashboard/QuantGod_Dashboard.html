@@ -603,6 +603,11 @@
             box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
         }
 
+        .symbol-card.is-focused {
+            border-color: rgba(6, 182, 212, 0.72);
+            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15), 0 12px 28px rgba(6, 182, 212, 0.12);
+        }
+
         .symbol-card-header {
             display: flex;
             align-items: center;
@@ -789,6 +794,12 @@
             border-radius: 10px;
             padding: 0.65rem 0.7rem;
             min-height: 86px;
+        }
+
+        .symbol-strategy-chip.is-focused {
+            border-color: rgba(6, 182, 212, 0.64);
+            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.14), inset 0 0 0 1px rgba(6, 182, 212, 0.08);
+            background: rgba(6, 182, 212, 0.08);
         }
 
         .symbol-strategy-chip-header {
@@ -1577,6 +1588,15 @@
             overflow: hidden;
         }
 
+        .regime-heatmap-cell.is-jumpable {
+            cursor: pointer;
+        }
+
+        .regime-heatmap-cell.is-jumpable:focus-visible {
+            outline: 2px solid rgba(6, 182, 212, 0.65);
+            outline-offset: 2px;
+        }
+
         .regime-heatmap-cell::before {
             content: '';
             position: absolute;
@@ -1729,6 +1749,15 @@
             border-radius: 14px;
             padding: 15px 16px;
             transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .research-suggestion-card.is-jumpable {
+            cursor: pointer;
+        }
+
+        .research-suggestion-card.is-jumpable:focus-visible {
+            outline: 2px solid rgba(6, 182, 212, 0.65);
+            outline-offset: 2px;
         }
 
         .research-suggestion-card:hover {
@@ -2734,6 +2763,7 @@ const OPPORTUNITY_RECENT_WINDOW = 20;
 const RESEARCH_SUGGESTION_LIMIT = 8;
 let regimeHeatmapSymbolFilter = 'ALL';
 let researchFocusTarget = null;
+let monitorFocusTarget = null;
 const TIMEFRAME_ORDER = {
     M1: 1,
     M5: 2,
@@ -3578,6 +3608,116 @@ function initResearchJumpLinks() {
     });
 }
 
+function normalizeMonitorFocusSymbols(symbols) {
+    return Array.from(new Set((symbols || []).map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function buildMonitorFocusTarget(source, payload = {}) {
+    return {
+        source,
+        symbols: normalizeMonitorFocusSymbols(payload.symbols || []),
+        strategy: payload.strategy || '',
+        regime: payload.regime || '',
+        timeframe: payload.timeframe || '',
+        timeframes: normalizeMonitorFocusSymbols(payload.timeframes || []),
+        exact: payload.exact !== false
+    };
+}
+
+function isFocusedMonitorSymbolCard(symbol) {
+    return !!(monitorFocusTarget && monitorFocusTarget.symbols.includes(symbol));
+}
+
+function isFocusedMonitorStrategyChip(symbol, strategy) {
+    return !!(monitorFocusTarget
+        && monitorFocusTarget.strategy === strategy
+        && monitorFocusTarget.symbols.includes(symbol));
+}
+
+function getMonitorFocusScrollElement(target) {
+    if (!target) return document.getElementById('section-monitor');
+
+    const symbols = normalizeMonitorFocusSymbols(target.symbols || []);
+    if (target.strategy) {
+        for (const symbol of symbols) {
+            const chip = document.querySelector(`[data-monitor-symbol="${CSS.escape(symbol)}"][data-monitor-strategy="${CSS.escape(target.strategy)}"]`);
+            if (chip) return chip;
+        }
+        const firstChip = document.querySelector(`[data-monitor-strategy="${CSS.escape(target.strategy)}"]`);
+        if (firstChip) return firstChip;
+    }
+
+    for (const symbol of symbols) {
+        const card = document.querySelector(`[data-symbol-card="${CSS.escape(symbol)}"]`);
+        if (card) return card;
+    }
+
+    return document.getElementById('section-monitor');
+}
+
+function scrollToMonitorFocusTarget(target) {
+    const element = getMonitorFocusScrollElement(target);
+    if (!element || typeof element.scrollIntoView !== 'function') return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function applyMonitorFocusTarget(target) {
+    monitorFocusTarget = target || null;
+    if (dashboardData) {
+        updateSymbolOverview(dashboardData);
+    }
+
+    const section = document.getElementById('section-monitor');
+    if (section && window.location.hash !== '#section-monitor') {
+        window.location.hash = 'section-monitor';
+    } else if (section) {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    window.setTimeout(() => {
+        scrollToMonitorFocusTarget(target);
+    }, 90);
+}
+
+function initMonitorJumpLinks() {
+    document.addEventListener('click', (event) => {
+        const jumpTarget = event.target.closest('[data-monitor-jump]');
+        if (!jumpTarget) return;
+
+        event.preventDefault();
+        applyMonitorFocusTarget(buildMonitorFocusTarget(
+            jumpTarget.dataset.monitorJump || 'research',
+            {
+                symbols: String(jumpTarget.dataset.monitorSymbols || '').split(','),
+                strategy: jumpTarget.dataset.monitorStrategy || '',
+                regime: jumpTarget.dataset.monitorRegime || '',
+                timeframe: jumpTarget.dataset.monitorTimeframe || '',
+                timeframes: String(jumpTarget.dataset.monitorTimeframes || '').split(','),
+                exact: jumpTarget.dataset.monitorExact !== 'false'
+            }
+        ));
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const jumpTarget = event.target.closest('[data-monitor-jump]');
+        if (!jumpTarget) return;
+
+        event.preventDefault();
+        applyMonitorFocusTarget(buildMonitorFocusTarget(
+            jumpTarget.dataset.monitorJump || 'research',
+            {
+                symbols: String(jumpTarget.dataset.monitorSymbols || '').split(','),
+                strategy: jumpTarget.dataset.monitorStrategy || '',
+                regime: jumpTarget.dataset.monitorRegime || '',
+                timeframe: jumpTarget.dataset.monitorTimeframe || '',
+                timeframes: String(jumpTarget.dataset.monitorTimeframes || '').split(','),
+                exact: jumpTarget.dataset.monitorExact !== 'false'
+            }
+        ));
+    });
+}
+
 function renderSymbolStrategyActionDetails(evaluationRow, researchAction) {
     if (!evaluationRow || !researchAction || !researchAction.recommendation) {
         return '';
@@ -3754,6 +3894,7 @@ function renderRegimeHeatmapCell(bucket) {
 
     const toneClass = getHeatmapCellTone(bucket);
     const focusClass = isFocusedHeatmapBucket(bucket) ? ' is-focused' : '';
+    const jumpableClass = ' is-jumpable';
     const winRateText = `${bucket.winRate.toFixed(0)}%`;
     const pfText = formatProfitFactor(bucket.profitFactor);
     const netClass = bucket.netProfit >= 0 ? 'positive' : 'negative';
@@ -3764,6 +3905,8 @@ function renderRegimeHeatmapCell(bucket) {
         ? 'flag-positive'
         : (toneClass === 'heatmap-negative' ? 'flag-negative' : 'flag-caution');
     const scopeText = `${bucket.symbols.size} 品种 / ${bucket.timeframes.size} 周期`;
+    const monitorSymbols = Array.from(bucket.symbols || []).sort();
+    const monitorTimeframes = Array.from(bucket.timeframes || []).sort((a, b) => (TIMEFRAME_ORDER[a] || 99) - (TIMEFRAME_ORDER[b] || 99));
     const tooltip = [
         `策略: ${strategyLabel(bucket.strategy)}`,
         `Regime: ${bucket.regime}`,
@@ -3771,11 +3914,12 @@ function renderRegimeHeatmapCell(bucket) {
         `链接覆盖: ${bucket.linkCoverage.toFixed(0)}%`,
         `净收益: ${bucket.netProfit >= 0 ? '+' : ''}$${Math.abs(bucket.netProfit).toFixed(2)}`,
         bucket.lastCloseTime ? `最近平仓: ${bucket.lastCloseTime}` : '',
-        bucket.lastEventTime ? `最近入场: ${bucket.lastEventTime}` : ''
+        bucket.lastEventTime ? `最近入场: ${bucket.lastEventTime}` : '',
+        '点击可回到监控区定位对应品种卡片'
     ].filter(Boolean).join('\n');
 
     return `
-        <div class="regime-heatmap-cell ${toneClass}${focusClass}" data-heatmap-key="${escapeHtml(`${bucket.strategy}__${bucket.regime}`)}" style="background: ${getHeatmapCellBackground(bucket)};" title="${escapeHtml(tooltip)}">
+        <div class="regime-heatmap-cell ${toneClass}${focusClass}${jumpableClass}" data-heatmap-key="${escapeHtml(`${bucket.strategy}__${bucket.regime}`)}" data-monitor-jump="heatmap" data-monitor-symbols="${escapeHtml(monitorSymbols.join(','))}" data-monitor-strategy="${escapeHtml(bucket.strategy)}" data-monitor-regime="${escapeHtml(bucket.regime)}" data-monitor-timeframes="${escapeHtml(monitorTimeframes.join(','))}" data-monitor-exact="true" role="button" tabindex="0" style="background: ${getHeatmapCellBackground(bucket)};" title="${escapeHtml(tooltip)}">
             <div class="regime-heatmap-topline">
                 <div class="regime-heatmap-winrate">${escapeHtml(winRateText)}</div>
                 <div class="regime-heatmap-pf">PF ${escapeHtml(pfText)}</div>
@@ -4089,9 +4233,10 @@ function renderSymbolStrategyBreakdown(symbolItem, data, researchRecommendationI
         const actionDetailsHtml = researchAction
             ? renderSymbolStrategyActionDetails(evaluationRow, researchAction)
             : '';
+        const monitorFocusClass = isFocusedMonitorStrategyChip(symbolItem?.symbol || '', key) ? ' is-focused' : '';
 
         return `
-        <div class="symbol-strategy-chip${toneClass}">
+        <div class="symbol-strategy-chip${toneClass}${monitorFocusClass}" data-monitor-symbol="${escapeHtml(symbolItem?.symbol || '')}" data-monitor-strategy="${escapeHtml(key)}">
             <div class="symbol-strategy-chip-header">
                 <span class="symbol-strategy-name">
                     <span class="symbol-strategy-dot" style="background: ${config.color}; box-shadow: 0 0 8px ${config.color}55;"></span>
@@ -4357,6 +4502,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     initSidebarNavigation();
     initResearchJumpLinks();
+    initMonitorJumpLinks();
     loadData();
     refreshInterval = setInterval(loadData, 5000);
     runtimeClockInterval = setInterval(() => {
@@ -5007,9 +5153,10 @@ function updateResearchSuggestions(d) {
         const lastText = row.lastCloseTime || row.reportTimeLocal || '--';
         const focusClass = isFocusedSuggestionRow(row) ? ' is-focused' : '';
         const sliceKey = getCurrentResearchSliceKey(row);
+        const jumpTitle = `点击可回到监控区定位 ${row.symbol} / ${strategyLabel(row.strategy)} 的策略卡片`;
 
         return `
-            <div class="research-suggestion-card ${actionMeta.className}${focusClass}" data-research-slice-key="${escapeHtml(sliceKey)}">
+            <div class="research-suggestion-card ${actionMeta.className}${focusClass} is-jumpable" data-research-slice-key="${escapeHtml(sliceKey)}" data-monitor-jump="suggestion" data-monitor-symbols="${escapeHtml(row.symbol)}" data-monitor-strategy="${escapeHtml(row.strategy)}" data-monitor-regime="${escapeHtml(row.entryRegime)}" data-monitor-timeframe="${escapeHtml(row.timeframe)}" data-monitor-timeframes="${escapeHtml(row.timeframe)}" data-monitor-exact="true" role="button" tabindex="0" title="${escapeHtml(jumpTitle)}">
                 <div class="research-suggestion-top">
                     <div class="research-suggestion-header">
                         <div class="research-suggestion-headline">
@@ -5198,6 +5345,7 @@ function updateSymbolOverview(d) {
 
     const html = symbols.map((item) => {
         const meta = getStatusMeta(item.status || 'NO_DATA');
+        const monitorFocusClass = isFocusedMonitorSymbolCard(item.symbol) ? ' is-focused' : '';
         const researchMode = isResearchMode(d);
         const spread = Number(item.spread ?? 0);
         const tickAge = Number(item.tickAgeSeconds ?? -1);
@@ -5223,7 +5371,7 @@ function updateSymbolOverview(d) {
             : renderRegimeChip('', '');
 
         return `
-        <div class="symbol-card${meta.cardTone ? ` ${meta.cardTone}` : ''}">
+        <div class="symbol-card${meta.cardTone ? ` ${meta.cardTone}` : ''}${monitorFocusClass}" data-symbol-card="${escapeHtml(item.symbol)}">
             <div class="symbol-card-header">
                 <div class="symbol-name">
                     <span class="symbol-dot"></span>
