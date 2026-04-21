@@ -20,6 +20,20 @@ If you only want local research, you do **not** need any Cloudflare setup.
 - Added a **Node-based local dashboard server** to avoid Windows file-lock issues from `python -m http.server`
 - Added a **one-click launcher** for MT4 + dashboard
 
+## Current Design Status
+
+The onboarding information in this README is intentionally lightweight.
+
+For the current implementation status, data-layer coverage, and the distinction between:
+
+- already implemented
+- partially implemented
+- not implemented yet
+
+see:
+
+- `docs/QuantGod_Current_State_Design.md`
+
 ## Strategies
 
 | # | Strategy | Description | Research Timeframe |
