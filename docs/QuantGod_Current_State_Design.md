@@ -84,16 +84,16 @@
 
 以下数据基于本地运行文件的统一快照:
 
-- 时间: `2026.04.21 15:14:18` 本地
+- 时间: `2026.04.21 15:20:43` 本地
 - Build: `QuantGod-v2.7-fast-exit`
 - 模式: `virtual_research`
 - 观察品种: `EURUSD,USDJPY`
 - 当前持仓: 2 笔
-- 已平仓样本: 25 笔
-- `SignalLog` 行数: 843
+- 已平仓样本: 27 笔
+- `SignalLog` 行数: 978
 - `OpportunityLabels` 行数: 14
-- `TradeOutcomeLabels` 行数: 25
-- `TradeEventLinks` 行数: 1
+- `TradeOutcomeLabels` 行数: 27
+- `TradeEventLinks` 行数: 3
 - `StrategyEvaluationReport` 行数: 10
 
 ### 3.1 按策略的已平仓样本
@@ -101,7 +101,7 @@
 | 策略 | 已平仓 | 胜率 | 研究净收益 |
 |---|---:|---:|---:|
 | `MA_Cross` | 3 | 66.7% | 0.09 |
-| `RSI_Reversal` | 15 | 40.0% | -0.14 |
+| `RSI_Reversal` | 17 | 41.2% | -0.13 |
 | `MACD_Divergence` | 7 | 28.6% | -0.01 |
 | `BB_Triple` | 0 | 0.0% | 0.00 |
 | `SR_Breakout` | 0 | 0.0% | 0.00 |
@@ -112,8 +112,8 @@
 |---|---|---:|---:|
 | `MA_Cross` | `EURUSD` | 1 | 0.00 |
 | `MA_Cross` | `USDJPY` | 2 | 0.09 |
-| `RSI_Reversal` | `EURUSD` | 8 | -0.07 |
-| `RSI_Reversal` | `USDJPY` | 7 | -0.07 |
+| `RSI_Reversal` | `EURUSD` | 9 | -0.08 |
+| `RSI_Reversal` | `USDJPY` | 8 | -0.05 |
 | `MACD_Divergence` | `EURUSD` | 5 | 0.01 |
 | `MACD_Divergence` | `USDJPY` | 2 | -0.02 |
 
@@ -128,8 +128,8 @@
 
 | 策略 | `SignalLog` 行数 | 已覆盖 regime |
 |---|---:|---|
-| `MA_Cross` | 62 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
-| `RSI_Reversal` | 783 | `RANGE_HIGHVOL / TRANSITION` |
+| `MA_Cross` | 96 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
+| `RSI_Reversal` | 853 | `RANGE_HIGHVOL / TRANSITION` |
 | `BB_Triple` | 7 | `RANGE_HIGHVOL / TRANSITION` |
 | `MACD_Divergence` | 7 | `RANGE_HIGHVOL / TRANSITION` |
 | `SR_Breakout` | 15 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
@@ -159,13 +159,13 @@
 
 | 文件 | 当前状态 | 说明 |
 |---|---|---|
-| `QuantGod_TradeEventLinks.csv` | 已生成 | 当前已有 1 条 `EventId -> Ticket` 精确映射 |
-| `QuantGod_TradeOutcomeLabels.csv` | 已生成 | 当前已有 25 条平仓结果导出 |
+| `QuantGod_TradeEventLinks.csv` | 已生成 | 当前已有 3 条 `EventId -> Ticket` 精确映射 |
+| `QuantGod_TradeOutcomeLabels.csv` | 已生成 | 当前已有 27 条平仓结果导出 |
 
 当前观测到:
 
-- `TradeOutcomeLabels` 里 `LINKED = 0`，`UNLINKED = 25`
-- 这是符合预期的，因为现有 25 条历史平仓发生在这次 `EventId -> Ticket` 持久化上线之前
+- `TradeOutcomeLabels` 里 `LINKED = 0`，`UNLINKED = 27`
+- 这是符合预期的，因为现有 27 条历史平仓发生在这次 `EventId -> Ticket` 持久化上线之前
 - 新版本上线后，已经有新的 `TradeEventLinks` 记录写入；等这批新单平仓后，`LINKED` 行会开始出现
 - 这意味着“主链路首版已经落地”，但“历史数据全量精确回挂”不可能自动补齐
 
@@ -650,7 +650,7 @@
 
 ### 9.1 平仓样本仍然偏少
 
-当前最活跃策略也只有 15 笔已平仓。
+当前最活跃策略也只有 17 笔已平仓。
 
 相比推荐门槛:
 
