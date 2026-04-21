@@ -625,8 +625,9 @@
         }
 
         .strategy-stats {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
         }
 
         .strategy-stat {
@@ -1250,6 +1251,7 @@ const STATUS_META = {
     WAIT_BAR:                 { label: '等待新 K 线',      tone: 'status-info',   cardTone: '' },
     NO_SETUP:                 { label: '暂无形态',         tone: 'status-muted',  cardTone: '' },
     IN_POSITION:              { label: '持仓中',           tone: 'status-warn',   cardTone: 'card-watch' },
+    AUTO_PAUSED:              { label: '自动暂停',         tone: 'status-danger', cardTone: 'card-danger' },
     OUT_OF_SESSION:           { label: '交易时段外',       tone: 'status-warn',   cardTone: 'card-watch' },
     TOO_MANY_POSITIONS:       { label: '仓位上限',         tone: 'status-warn',   cardTone: 'card-watch' },
     POSITION_LIMIT:           { label: '仓位上限',         tone: 'status-warn',   cardTone: 'card-watch' },
@@ -1567,6 +1569,32 @@ function formatBoundaryLabel(boundaryDate) {
 function getStatusMeta(status) {
     if (!status) return STATUS_META.NO_DATA;
     return STATUS_META[status] || { label: status.replaceAll('_', ' '), tone: 'status-muted', cardTone: '' };
+}
+
+function getAdaptiveMeta(strategy) {
+    const enabled = strategy?.enabled !== false;
+    const active = strategy?.active !== false;
+    const state = String(strategy?.state || '').toUpperCase();
+
+    if (!enabled || state === 'DISABLED' || state === 'ADAPTIVE_OFF') {
+        return { label: '关闭', tone: 'status-muted' };
+    }
+    if (!active || state === 'COOLDOWN') {
+        return { label: '暂停', tone: 'status-danger' };
+    }
+    if (state === 'BOOST') {
+        return { label: '放大', tone: 'status-live' };
+    }
+    if (state === 'CAUTION') {
+        return { label: '谨慎', tone: 'status-warn' };
+    }
+    if (state === 'RETEST') {
+        return { label: '复测', tone: 'status-info' };
+    }
+    if (state === 'WARMUP') {
+        return { label: '预热', tone: 'status-muted' };
+    }
+    return { label: '在线', tone: 'status-info' };
 }
 
 function getDiagnostic(d, key) {
@@ -2047,12 +2075,23 @@ function updateStrategyCards(d) {
         const stratWins = stratTrades.filter(t => t.profit > 0).length;
         const stratTotal = stratTrades.length;
         const stratWinRate = stratTotal > 0 ? (stratWins / stratTotal * 100).toFixed(0) : '--';
-        const stratProfit = stratTrades.reduce((s, t) => s + t.profit, 0);
+        const fallbackProfit = stratTrades.reduce((s, t) => s + t.profit, 0);
+        const stratProfit = Number.isFinite(Number(strat.netProfit)) ? Number(strat.netProfit) : fallbackProfit;
         const diagnostic = getDiagnostic(d, key);
         const meta = getStatusMeta(diagnostic.status);
+        const adaptiveMeta = getAdaptiveMeta(strat);
         const score = Math.max(0, Math.min(100, Number(diagnostic.score || 0)));
         const cardToneClass = meta.cardTone ? ` ${meta.cardTone}` : '';
-        const winrateWidth = stratWinRate === '--' ? 0 : stratWinRate;
+        const adaptiveTrades = Number.isFinite(Number(strat.sampleTrades)) ? Number(strat.sampleTrades) : stratTotal;
+        const adaptiveWinRateRaw = Number.isFinite(Number(strat.winRate)) ? Number(strat.winRate) : null;
+        const adaptiveWinRate = adaptiveWinRateRaw !== null ? adaptiveWinRateRaw.toFixed(0) : stratWinRate;
+        const adaptiveRisk = Number.isFinite(Number(strat.riskMultiplier)) ? Number(strat.riskMultiplier).toFixed(2) : '1.00';
+        const adaptiveProfitFactor = Number.isFinite(Number(strat.profitFactor)) ? Number(strat.profitFactor).toFixed(2) : '--';
+        const adaptiveReason = translateDiagnosticReason(strat.reason || diagnostic.reason);
+        const winrateWidth = adaptiveWinRate === '--' ? 0 : adaptiveWinRate;
+        const winRateText = adaptiveWinRate === '--' ? '--' : `${adaptiveWinRate}%`;
+        const sampleText = Number.isFinite(adaptiveTrades) ? adaptiveTrades : '--';
+        const riskText = `x${adaptiveRisk}`;
 
         html += `
         <div class="strategy-card${cardToneClass}">
@@ -2068,14 +2107,18 @@ function updateStrategyCards(d) {
                     <span class="strategy-health-label">运行状态</span>
                     <span class="strategy-health-badge ${meta.tone}">${meta.label}</span>
                 </div>
+                <div class="strategy-health-row">
+                    <span class="strategy-health-label">自适应</span>
+                    <span class="strategy-health-badge ${adaptiveMeta.tone}">${adaptiveMeta.label}</span>
+                </div>
                 <div class="diag-bar">
                     <div class="diag-fill" style="width: ${score}%; background: ${config.color};"></div>
                 </div>
                 <div class="diag-meta">
                     <span class="diag-score">评分 ${score.toFixed(0)}/100</span>
-                    <span class="diag-score">${stratTotal} 笔已平仓</span>
+                    <span class="diag-score">${sampleText} 样本 / PF ${adaptiveProfitFactor}</span>
                 </div>
-                <div class="diag-reason">${translateDiagnosticReason(diagnostic.reason)}</div>
+                <div class="diag-reason">${adaptiveReason}</div>
             </div>
             <div class="strategy-stats">
                 <div class="strategy-stat">
@@ -2083,12 +2126,16 @@ function updateStrategyCards(d) {
                     <div class="strategy-stat-value">${strat.positions}</div>
                 </div>
                 <div class="strategy-stat">
-                    <div class="strategy-stat-label">交易数</div>
-                    <div class="strategy-stat-value">${stratTotal}</div>
+                    <div class="strategy-stat-label">样本</div>
+                    <div class="strategy-stat-value">${sampleText}</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">风险</div>
+                    <div class="strategy-stat-value">${riskText}</div>
                 </div>
                 <div class="strategy-stat">
                     <div class="strategy-stat-label">胜率</div>
-                    <div class="strategy-stat-value">${stratWinRate}%</div>
+                    <div class="strategy-stat-value">${winRateText}</div>
                 </div>
                 <div class="strategy-stat">
                     <div class="strategy-stat-label">收益</div>
@@ -2103,7 +2150,7 @@ function updateStrategyCards(d) {
     container.innerHTML = html;
     container.querySelectorAll('.strategy-card').forEach(card => {
         const labels = card.querySelectorAll('.strategy-stat-label');
-        const text = ['持仓', '交易数', '胜率', '收益'];
+        const text = ['持仓', '样本', '风险', '胜率', '收益'];
         labels.forEach((label, index) => {
             if (text[index]) {
                 label.textContent = text[index];

@@ -17,6 +17,7 @@ int GetAncestor(int hWnd, int gaFlags);
 
 #define GA_ROOT 2
 #define MT4_WMCMD_EXPERTS 33020
+#define ADAPTIVE_REFRESH_SECONDS 10
 
 //=== 全局设置 ===
 input string   _g0 = "====== 全局设置 ======";
@@ -44,6 +45,18 @@ input double   ResearchBreakEvenLockPips = 0.2; // 保本后锁住少量盈利
 input int      ResearchMaxHoldMinutes_M15 = 45; // M15 策略最长持仓时间
 input int      ResearchMaxHoldMinutes_H1 = 90; // H1 策略最长持仓时间
 input int      ResearchMaxHoldMinutes_H4 = 240; // 更高周期最长持仓时间
+input string   _g1c = "====== 自适应闭环 ======";
+input bool     EnableAdaptiveControl = true; // 根据最近已平仓样本自动启停策略与缩放风险
+input int      AdaptiveWindowTrades = 12; // 每个策略统计最近 N 笔平仓样本
+input int      AdaptiveMinClosedTrades = 6; // 至少达到该样本量后再启用闭环
+input int      AdaptiveCooldownMinutes = 180; // 低质量策略暂停后的最短冷却时间
+input double   AdaptiveDisableAvgNet = -0.01; // 平均单笔收益低于此值时进入暂停候选
+input double   AdaptiveDisableProfitFactor = 0.90; // profit factor 低于此值时进入暂停候选
+input double   AdaptiveLowRiskScale = 0.75; // 弱势策略/重启试运行时的风险系数
+input double   AdaptiveHighRiskScale = 1.25; // 强势策略的风险系数上调
+input double   AdaptiveHighAvgNet = 0.03; // 提高风险所需的平均单笔收益
+input double   AdaptiveHighProfitFactor = 1.35; // 提高风险所需的 profit factor
+input double   AdaptiveHighWinRate = 55.0; // 提高风险所需的胜率
 input string   _g2 = "====== Cloud 同步 ======";
 input bool     EnableCloudSync = false; // 将 dashboard 数据推送到云端
 input string   CloudSyncEndpoint = ""; // 例如 https://your-domain.workers.dev/api/ingest
@@ -142,6 +155,24 @@ string gStrategyLastEvalReason[MAX_MANAGED_SYMBOLS][STRATEGY_DIAG_COUNT];
 double gStrategyLastEvalScore[MAX_MANAGED_SYMBOLS][STRATEGY_DIAG_COUNT];
 datetime gStrategyLastEvalTime[MAX_MANAGED_SYMBOLS][STRATEGY_DIAG_COUNT];
 
+bool     gAdaptiveStrategyActive[STRATEGY_DIAG_COUNT];
+double   gAdaptiveRiskMultiplier[STRATEGY_DIAG_COUNT];
+int      gAdaptiveTradeCount[STRATEGY_DIAG_COUNT];
+int      gAdaptiveWinCount[STRATEGY_DIAG_COUNT];
+double   gAdaptiveGrossProfit[STRATEGY_DIAG_COUNT];
+double   gAdaptiveGrossLoss[STRATEGY_DIAG_COUNT];
+double   gAdaptiveNetProfit[STRATEGY_DIAG_COUNT];
+double   gAdaptiveAvgNet[STRATEGY_DIAG_COUNT];
+double   gAdaptiveWinRate[STRATEGY_DIAG_COUNT];
+double   gAdaptiveProfitFactor[STRATEGY_DIAG_COUNT];
+datetime gAdaptiveLastCloseTime[STRATEGY_DIAG_COUNT];
+datetime gAdaptiveDisabledUntil[STRATEGY_DIAG_COUNT];
+string   gAdaptiveState[STRATEGY_DIAG_COUNT];
+string   gAdaptiveReason[STRATEGY_DIAG_COUNT];
+datetime gLastAdaptiveRefresh;
+int      gLastAdaptiveHistoryTotal;
+int      gCurrentEntryStrategyIndex;
+
 void Strategy_RSI_Reversal_V2();
 void Strategy_MACD_Divergence_V2();
 void Strategy_SR_Breakout_V2();
@@ -180,6 +211,18 @@ double CalculateManagedLots(double slPips, string symbol_name, double &virtualLo
 string BuildManagedOrderComment(string baseComment, double virtualLots);
 double PriceToPips(double priceDistance, string symbol_name);
 int GetStrategyTimeframeByMagic(int magic);
+int GetStrategyIndexByMagic(int magic);
+string GetStrategyNameByIndex(int index);
+bool IsStrategyConfiguredEnabled(int index);
+void RefreshAdaptiveControl(bool force=false);
+bool IsStrategyRuntimeActive(int index);
+double GetStrategyRiskMultiplier(int index);
+string GetStrategyAdaptiveReason(int index);
+string GetStrategyRuntimeLabel(int index);
+double ClampAdaptiveRiskScale(double scale);
+int GetAdaptiveWindowTradeCount();
+int GetAdaptiveMinTradeCount();
+string BuildAdaptiveSummary(int index);
 int GetResearchMaxHoldMinutes(int timeframe);
 double AdjustTakeProfitPipsForResearch(double desiredTpPips, double slPips, string symbol_name);
 bool SafeOrderCloseCurrent(string reason);
@@ -210,6 +253,9 @@ int OnInit()
    gTotalSignals = 0;
    gLastExport = 0;
    gCurrentDiagSymbolIndex = -1;
+   gLastAdaptiveRefresh = 0;
+   gLastAdaptiveHistoryTotal = -1;
+   gCurrentEntryStrategyIndex = -1;
    LoadManagedSymbols();
    PrepareSymbolContext(gDashboardSymbol);
    gLastTickTime = (datetime)MarketInfo(gDashboardSymbol, MODE_TIME);
@@ -240,6 +286,7 @@ int OnInit()
    Comment("");
    EventSetTimer(5);
    EnsureAutoTradingEnabled();
+   RefreshAdaptiveControl(true);
    RefreshAllManagedDiagnostics();
 
    Print("[QuantGod] Multi-Strategy Engine v2.0 initialized");
@@ -447,13 +494,14 @@ bool CheckResearchDrawdownLimit()
 double CalculateManagedLots(double slPips, string symbol_name, double &virtualLots)
 {
    virtualLots = 0.0;
+   double riskScale = GetStrategyRiskMultiplier(gCurrentEntryStrategyIndex);
 
    if(!UseVirtualResearchAccount)
-      return CalcLotSize(RiskPercent, slPips, symbol_name);
+      return CalcLotSize(RiskPercent * riskScale, slPips, symbol_name);
 
-   virtualLots = CalcLotSizeForBalance(GetResearchBalance(), VirtualRiskPercent, slPips, symbol_name);
+   virtualLots = CalcLotSizeForBalance(GetResearchBalance(), VirtualRiskPercent * riskScale, slPips, symbol_name);
 
-   double executionLot = ResearchExecutionLot;
+   double executionLot = ResearchExecutionLot * riskScale;
    if(executionLot <= 0)
       executionLot = MarketInfo(symbol_name, MODE_MINLOT);
 
@@ -495,6 +543,282 @@ int GetStrategyTimeframeByMagic(int magic)
    if(magic == MACD_Magic) return MACD_Timeframe;
    if(magic == SR_Magic)   return SR_Timeframe;
    return PERIOD_H1;
+}
+
+int GetStrategyIndexByMagic(int magic)
+{
+   if(magic == MA_Magic)   return 0;
+   if(magic == RSI_Magic)  return 1;
+   if(magic == BB_Magic)   return 2;
+   if(magic == MACD_Magic) return 3;
+   if(magic == SR_Magic)   return 4;
+   return -1;
+}
+
+string GetStrategyNameByIndex(int index)
+{
+   if(index == 0) return "MA_Cross";
+   if(index == 1) return "RSI_Reversal";
+   if(index == 2) return "BB_Triple";
+   if(index == 3) return "MACD_Divergence";
+   if(index == 4) return "SR_Breakout";
+   return "Unknown";
+}
+
+bool IsStrategyConfiguredEnabled(int index)
+{
+   if(index == 0) return Enable_MA;
+   if(index == 1) return Enable_RSI;
+   if(index == 2) return Enable_BB;
+   if(index == 3) return Enable_MACD;
+   if(index == 4) return Enable_SR;
+   return false;
+}
+
+double ClampAdaptiveRiskScale(double scale)
+{
+   if(scale < 0.10) return 0.10;
+   if(scale > 2.50) return 2.50;
+   return scale;
+}
+
+int GetAdaptiveWindowTradeCount()
+{
+   int windowTrades = AdaptiveWindowTrades;
+   if(windowTrades < 1)
+      windowTrades = 1;
+   if(windowTrades > 50)
+      windowTrades = 50;
+   return windowTrades;
+}
+
+int GetAdaptiveMinTradeCount()
+{
+   int minTrades = AdaptiveMinClosedTrades;
+   int windowTrades = GetAdaptiveWindowTradeCount();
+   if(minTrades < 1)
+      minTrades = 1;
+   if(minTrades > windowTrades)
+      minTrades = windowTrades;
+   return minTrades;
+}
+
+string BuildAdaptiveSummary(int index)
+{
+   if(index < 0 || index >= STRATEGY_DIAG_COUNT)
+      return "n/a";
+
+   return IntegerToString(gAdaptiveTradeCount[index]) +
+          "t WR " + DoubleToStr(gAdaptiveWinRate[index], 1) +
+          "% PF " + DoubleToStr(gAdaptiveProfitFactor[index], 2) +
+          " avg " + DoubleToStr(gAdaptiveAvgNet[index], 2) +
+          " net " + DoubleToStr(gAdaptiveNetProfit[index], 2);
+}
+
+void RefreshAdaptiveControl(bool force)
+{
+   int historyTotal = OrdersHistoryTotal();
+   if(!force && historyTotal == gLastAdaptiveHistoryTotal &&
+      TimeCurrent() - gLastAdaptiveRefresh < ADAPTIVE_REFRESH_SECONDS)
+      return;
+
+   gLastAdaptiveRefresh = TimeCurrent();
+   gLastAdaptiveHistoryTotal = historyTotal;
+
+   for(int idx = 0; idx < STRATEGY_DIAG_COUNT; idx++)
+   {
+      bool configured = IsStrategyConfiguredEnabled(idx);
+      gAdaptiveStrategyActive[idx] = configured;
+      gAdaptiveRiskMultiplier[idx] = 1.0;
+      gAdaptiveTradeCount[idx] = 0;
+      gAdaptiveWinCount[idx] = 0;
+      gAdaptiveGrossProfit[idx] = 0.0;
+      gAdaptiveGrossLoss[idx] = 0.0;
+      gAdaptiveNetProfit[idx] = 0.0;
+      gAdaptiveAvgNet[idx] = 0.0;
+      gAdaptiveWinRate[idx] = 0.0;
+      gAdaptiveProfitFactor[idx] = 0.0;
+      gAdaptiveLastCloseTime[idx] = 0;
+      gAdaptiveDisabledUntil[idx] = 0;
+      gAdaptiveState[idx] = configured ? "WARMUP" : "DISABLED";
+      gAdaptiveReason[idx] = configured ? "Adaptive warm-up: waiting for first closed sample"
+                                        : "Strategy disabled by input";
+   }
+
+   if(!EnableAdaptiveControl)
+   {
+      for(int offIndex = 0; offIndex < STRATEGY_DIAG_COUNT; offIndex++)
+      {
+         if(!IsStrategyConfiguredEnabled(offIndex))
+            continue;
+         gAdaptiveState[offIndex] = "ADAPTIVE_OFF";
+         gAdaptiveReason[offIndex] = "Adaptive control disabled";
+      }
+      return;
+   }
+
+   int windowTrades = GetAdaptiveWindowTradeCount();
+   int minTrades = GetAdaptiveMinTradeCount();
+   int sampleCounts[STRATEGY_DIAG_COUNT];
+   ArrayInitialize(sampleCounts, 0);
+
+   for(int histIndex = historyTotal - 1; histIndex >= 0; histIndex--)
+   {
+      bool needsMore = false;
+      for(int needIndex = 0; needIndex < STRATEGY_DIAG_COUNT; needIndex++)
+      {
+         if(IsStrategyConfiguredEnabled(needIndex) && sampleCounts[needIndex] < windowTrades)
+         {
+            needsMore = true;
+            break;
+         }
+      }
+      if(!needsMore)
+         break;
+
+      if(!OrderSelect(histIndex, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      int strategyIndex = GetStrategyIndexByMagic(OrderMagicNumber());
+      if(strategyIndex < 0 || !IsStrategyConfiguredEnabled(strategyIndex)) continue;
+      if(sampleCounts[strategyIndex] >= windowTrades) continue;
+
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double closedNet = UseVirtualResearchAccount ? ScaleResearchNet(actualNet, OrderLots(), OrderComment())
+                                                   : actualNet;
+
+      sampleCounts[strategyIndex]++;
+      gAdaptiveTradeCount[strategyIndex] = sampleCounts[strategyIndex];
+      if(closedNet > 0)
+      {
+         gAdaptiveWinCount[strategyIndex]++;
+         gAdaptiveGrossProfit[strategyIndex] += closedNet;
+      }
+      else if(closedNet < 0)
+      {
+         gAdaptiveGrossLoss[strategyIndex] += MathAbs(closedNet);
+      }
+      gAdaptiveNetProfit[strategyIndex] += closedNet;
+      if(OrderCloseTime() > gAdaptiveLastCloseTime[strategyIndex])
+         gAdaptiveLastCloseTime[strategyIndex] = OrderCloseTime();
+   }
+
+   for(int evalIndex = 0; evalIndex < STRATEGY_DIAG_COUNT; evalIndex++)
+   {
+      if(!IsStrategyConfiguredEnabled(evalIndex))
+         continue;
+
+      int trades = gAdaptiveTradeCount[evalIndex];
+      if(trades <= 0)
+         continue;
+
+      gAdaptiveAvgNet[evalIndex] = gAdaptiveNetProfit[evalIndex] / trades;
+      gAdaptiveWinRate[evalIndex] = (double)gAdaptiveWinCount[evalIndex] * 100.0 / trades;
+      if(gAdaptiveGrossLoss[evalIndex] > 0.0)
+         gAdaptiveProfitFactor[evalIndex] = gAdaptiveGrossProfit[evalIndex] / gAdaptiveGrossLoss[evalIndex];
+      else if(gAdaptiveGrossProfit[evalIndex] > 0.0)
+         gAdaptiveProfitFactor[evalIndex] = 999.0;
+
+      if(trades < minTrades)
+      {
+         gAdaptiveState[evalIndex] = "WARMUP";
+         gAdaptiveReason[evalIndex] = "Adaptive warm-up | " + BuildAdaptiveSummary(evalIndex) +
+                                      " | need " + IntegerToString(minTrades) + " trades";
+         continue;
+      }
+
+      if(gAdaptiveLastCloseTime[evalIndex] > 0 && AdaptiveCooldownMinutes > 0)
+         gAdaptiveDisabledUntil[evalIndex] = gAdaptiveLastCloseTime[evalIndex] + AdaptiveCooldownMinutes * 60;
+
+      bool pauseCandidate = (gAdaptiveNetProfit[evalIndex] < 0.0) &&
+                            (gAdaptiveAvgNet[evalIndex] <= AdaptiveDisableAvgNet ||
+                             gAdaptiveProfitFactor[evalIndex] <= AdaptiveDisableProfitFactor);
+
+      if(pauseCandidate && gAdaptiveDisabledUntil[evalIndex] > 0 && TimeCurrent() < gAdaptiveDisabledUntil[evalIndex])
+      {
+         gAdaptiveStrategyActive[evalIndex] = false;
+         gAdaptiveRiskMultiplier[evalIndex] = ClampAdaptiveRiskScale(AdaptiveLowRiskScale);
+         gAdaptiveState[evalIndex] = "COOLDOWN";
+         gAdaptiveReason[evalIndex] = "Adaptive pause | " + BuildAdaptiveSummary(evalIndex) +
+                                      " | until " + TimeToStr(gAdaptiveDisabledUntil[evalIndex], TIME_DATE|TIME_MINUTES);
+         continue;
+      }
+
+      if(pauseCandidate)
+      {
+         gAdaptiveRiskMultiplier[evalIndex] = ClampAdaptiveRiskScale(AdaptiveLowRiskScale);
+         gAdaptiveState[evalIndex] = "RETEST";
+         gAdaptiveReason[evalIndex] = "Adaptive retest | " + BuildAdaptiveSummary(evalIndex);
+         continue;
+      }
+
+      bool strong = (gAdaptiveNetProfit[evalIndex] > 0.0) &&
+                    (gAdaptiveAvgNet[evalIndex] >= AdaptiveHighAvgNet) &&
+                    (gAdaptiveProfitFactor[evalIndex] >= AdaptiveHighProfitFactor) &&
+                    (gAdaptiveWinRate[evalIndex] >= AdaptiveHighWinRate);
+      if(strong)
+      {
+         gAdaptiveRiskMultiplier[evalIndex] = ClampAdaptiveRiskScale(AdaptiveHighRiskScale);
+         gAdaptiveState[evalIndex] = "BOOST";
+         gAdaptiveReason[evalIndex] = "Adaptive boost | " + BuildAdaptiveSummary(evalIndex);
+         continue;
+      }
+
+      bool cautious = (gAdaptiveNetProfit[evalIndex] <= 0.0) ||
+                      (gAdaptiveProfitFactor[evalIndex] < 1.05) ||
+                      (gAdaptiveWinRate[evalIndex] < 50.0);
+      if(cautious)
+      {
+         gAdaptiveRiskMultiplier[evalIndex] = ClampAdaptiveRiskScale(AdaptiveLowRiskScale);
+         gAdaptiveState[evalIndex] = "CAUTION";
+         gAdaptiveReason[evalIndex] = "Adaptive caution | " + BuildAdaptiveSummary(evalIndex);
+         continue;
+      }
+
+      gAdaptiveState[evalIndex] = "NORMAL";
+      gAdaptiveReason[evalIndex] = "Adaptive normal | " + BuildAdaptiveSummary(evalIndex);
+   }
+}
+
+bool IsStrategyRuntimeActive(int index)
+{
+   if(index < 0 || index >= STRATEGY_DIAG_COUNT)
+      return true;
+   if(!IsStrategyConfiguredEnabled(index))
+      return false;
+   return gAdaptiveStrategyActive[index];
+}
+
+double GetStrategyRiskMultiplier(int index)
+{
+   if(index < 0 || index >= STRATEGY_DIAG_COUNT)
+      return 1.0;
+   if(!IsStrategyConfiguredEnabled(index))
+      return 1.0;
+   return ClampAdaptiveRiskScale(gAdaptiveRiskMultiplier[index]);
+}
+
+string GetStrategyAdaptiveReason(int index)
+{
+   if(index < 0 || index >= STRATEGY_DIAG_COUNT)
+      return "";
+   return gAdaptiveReason[index];
+}
+
+string GetStrategyRuntimeLabel(int index)
+{
+   if(index < 0 || index >= STRATEGY_DIAG_COUNT)
+      return "N/A";
+   if(!IsStrategyConfiguredEnabled(index))
+      return "OFF";
+   if(!IsStrategyRuntimeActive(index))
+      return "PAUSED";
+   if(gAdaptiveState[index] == "BOOST")
+      return "BOOST";
+   if(gAdaptiveState[index] == "CAUTION" || gAdaptiveState[index] == "RETEST")
+      return "LOW";
+   return "ON";
 }
 
 int GetResearchMaxHoldMinutes(int timeframe)
@@ -942,11 +1266,62 @@ void ProcessManagedSymbol(string symbol_name)
       return;
    }
 
-   if(Enable_MA)   Strategy_MA_Cross();
-   if(Enable_RSI)  Strategy_RSI_Reversal_V2();
-   if(Enable_BB)   Strategy_BB_Triple();
-   if(Enable_MACD) Strategy_MACD_Divergence_V2();
-   if(Enable_SR)   Strategy_SR_Breakout_V2();
+   if(Enable_MA)
+   {
+      if(IsStrategyRuntimeActive(0))
+      {
+         gCurrentEntryStrategyIndex = 0;
+         Strategy_MA_Cross();
+      }
+      else
+         SetStrategyDiagnostic(0, "AUTO_PAUSED", GetStrategyAdaptiveReason(0), 100);
+   }
+
+   if(Enable_RSI)
+   {
+      if(IsStrategyRuntimeActive(1))
+      {
+         gCurrentEntryStrategyIndex = 1;
+         Strategy_RSI_Reversal_V2();
+      }
+      else
+         SetStrategyDiagnostic(1, "AUTO_PAUSED", GetStrategyAdaptiveReason(1), 100);
+   }
+
+   if(Enable_BB)
+   {
+      if(IsStrategyRuntimeActive(2))
+      {
+         gCurrentEntryStrategyIndex = 2;
+         Strategy_BB_Triple();
+      }
+      else
+         SetStrategyDiagnostic(2, "AUTO_PAUSED", GetStrategyAdaptiveReason(2), 100);
+   }
+
+   if(Enable_MACD)
+   {
+      if(IsStrategyRuntimeActive(3))
+      {
+         gCurrentEntryStrategyIndex = 3;
+         Strategy_MACD_Divergence_V2();
+      }
+      else
+         SetStrategyDiagnostic(3, "AUTO_PAUSED", GetStrategyAdaptiveReason(3), 100);
+   }
+
+   if(Enable_SR)
+   {
+      if(IsStrategyRuntimeActive(4))
+      {
+         gCurrentEntryStrategyIndex = 4;
+         Strategy_SR_Breakout_V2();
+      }
+      else
+         SetStrategyDiagnostic(4, "AUTO_PAUSED", GetStrategyAdaptiveReason(4), 100);
+   }
+
+   gCurrentEntryStrategyIndex = -1;
 
    if(TrailingStopPips > 0)
    {
@@ -962,6 +1337,8 @@ void ProcessManagedTrading()
 {
    static datetime lastGuardLog = 0;
    bool logGuard = (TimeCurrent() - lastGuardLog >= 60);
+
+   RefreshAdaptiveControl();
 
    if(FlattenManagedPositions)
    {
@@ -1388,6 +1765,7 @@ void OnTimer()
 {
    EnsureAutoTradingEnabled();
    PrepareSymbolContext(gDashboardSymbol);
+   RefreshAdaptiveControl();
    RefreshAllManagedDiagnostics();
    ProcessManagedTrading();
    PrepareSymbolContext(gDashboardSymbol);
@@ -1416,6 +1794,7 @@ void OnTick()
 
    gLastTickTime = (datetime)MarketInfo(gDashboardSymbol, MODE_TIME);
    PrepareSymbolContext(gDashboardSymbol);
+   RefreshAdaptiveControl();
    RefreshAllManagedDiagnostics();
 
    // 执行交易策略
@@ -1555,9 +1934,9 @@ bool ReadBinaryFile(string filename, char &data[])
    }
 
    ArrayResize(data, fileSize);
-   int bytesRead = FileReadArray(handle, data, 0, fileSize);
+   uint bytesRead = FileReadArray(handle, data, 0, fileSize);
    FileClose(handle);
-   return bytesRead == fileSize;
+   return bytesRead == (uint)fileSize;
 }
 
 void RecordCloudSyncResult(string status, int httpCode, string message, bool success)
@@ -1770,14 +2149,20 @@ void RefreshStrategyDiagnostics()
       return;
    }
 
+   for(int adaptiveIndex = 0; adaptiveIndex < STRATEGY_DIAG_COUNT; adaptiveIndex++)
+   {
+      if(IsStrategyConfiguredEnabled(adaptiveIndex) && !IsStrategyRuntimeActive(adaptiveIndex))
+         SetStrategyDiagnostic(adaptiveIndex, "AUTO_PAUSED", GetStrategyAdaptiveReason(adaptiveIndex), 100);
+   }
+
    if(CountAllPositions() >= MaxTotalTrades)
    {
       string capReason = "Max concurrent trades reached";
-      if(Enable_MA)   SetStrategyDiagnostic(0, "PORTFOLIO_LIMIT", capReason, 100);
-      if(Enable_RSI)  SetStrategyDiagnostic(1, "PORTFOLIO_LIMIT", capReason, 100);
-      if(Enable_BB)   SetStrategyDiagnostic(2, "PORTFOLIO_LIMIT", capReason, 100);
-      if(Enable_MACD) SetStrategyDiagnostic(3, "PORTFOLIO_LIMIT", capReason, 100);
-      if(Enable_SR)   SetStrategyDiagnostic(4, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_MA && IsStrategyRuntimeActive(0))   SetStrategyDiagnostic(0, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_RSI && IsStrategyRuntimeActive(1))  SetStrategyDiagnostic(1, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_BB && IsStrategyRuntimeActive(2))   SetStrategyDiagnostic(2, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_MACD && IsStrategyRuntimeActive(3)) SetStrategyDiagnostic(3, "PORTFOLIO_LIMIT", capReason, 100);
+      if(Enable_SR && IsStrategyRuntimeActive(4))   SetStrategyDiagnostic(4, "PORTFOLIO_LIMIT", capReason, 100);
    }
 }
 
@@ -2431,11 +2816,16 @@ void UpdateChartDisplayV2()
       info += "Last Tick Age: N/A\n";
    info += "Open Positions: " + IntegerToString(CountAllPositions()) + "/" + IntegerToString(MaxTotalTrades) + "\n";
    info += "Spread: " + DoubleToStr(GetSpreadPips(gSymbol), 1) + " pips\n";
-   info += "MA: " + (Enable_MA ? "ON" : "OFF") + " (" + IntegerToString(CountPositionsAllSymbols(MA_Magic)) + ")\n";
-   info += "RSI: " + (Enable_RSI ? "ON" : "OFF") + " (" + IntegerToString(CountPositionsAllSymbols(RSI_Magic)) + ")\n";
-   info += "BB: " + (Enable_BB ? "ON" : "OFF") + " (" + IntegerToString(CountPositionsAllSymbols(BB_Magic)) + ")\n";
-   info += "MACD: " + (Enable_MACD ? "ON" : "OFF") + " (" + IntegerToString(CountPositionsAllSymbols(MACD_Magic)) + ")\n";
-   info += "SR: " + (Enable_SR ? "ON" : "OFF") + " (" + IntegerToString(CountPositionsAllSymbols(SR_Magic)) + ")";
+   info += "MA: " + GetStrategyRuntimeLabel(0) + " x" + DoubleToStr(GetStrategyRiskMultiplier(0), 2) +
+           " (" + IntegerToString(CountPositionsAllSymbols(MA_Magic)) + ")\n";
+   info += "RSI: " + GetStrategyRuntimeLabel(1) + " x" + DoubleToStr(GetStrategyRiskMultiplier(1), 2) +
+           " (" + IntegerToString(CountPositionsAllSymbols(RSI_Magic)) + ")\n";
+   info += "BB: " + GetStrategyRuntimeLabel(2) + " x" + DoubleToStr(GetStrategyRiskMultiplier(2), 2) +
+           " (" + IntegerToString(CountPositionsAllSymbols(BB_Magic)) + ")\n";
+   info += "MACD: " + GetStrategyRuntimeLabel(3) + " x" + DoubleToStr(GetStrategyRiskMultiplier(3), 2) +
+           " (" + IntegerToString(CountPositionsAllSymbols(MACD_Magic)) + ")\n";
+   info += "SR: " + GetStrategyRuntimeLabel(4) + " x" + DoubleToStr(GetStrategyRiskMultiplier(4), 2) +
+           " (" + IntegerToString(CountPositionsAllSymbols(SR_Magic)) + ")";
 
    Comment(info);
 }
@@ -2707,11 +3097,66 @@ void ExportDashboardData()
    FileWriteString(handle, "\n  ],\n");
 
    FileWriteString(handle, "  \"strategies\": {\n");
-   FileWriteString(handle, "    \"MA_Cross\": {\"enabled\": " + (Enable_MA ? "true" : "false") + ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(MA_Magic)) + "},\n");
-   FileWriteString(handle, "    \"RSI_Reversal\": {\"enabled\": " + (Enable_RSI ? "true" : "false") + ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(RSI_Magic)) + "},\n");
-   FileWriteString(handle, "    \"BB_Triple\": {\"enabled\": " + (Enable_BB ? "true" : "false") + ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(BB_Magic)) + "},\n");
-   FileWriteString(handle, "    \"MACD_Divergence\": {\"enabled\": " + (Enable_MACD ? "true" : "false") + ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(MACD_Magic)) + "},\n");
-   FileWriteString(handle, "    \"SR_Breakout\": {\"enabled\": " + (Enable_SR ? "true" : "false") + ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(SR_Magic)) + "}\n");
+   FileWriteString(handle, "    \"MA_Cross\": {\"enabled\": " + (Enable_MA ? "true" : "false") +
+                               ", \"active\": " + (IsStrategyRuntimeActive(0) ? "true" : "false") +
+                               ", \"state\": \"" + JsonEscape(gAdaptiveState[0]) + "\"" +
+                               ", \"riskMultiplier\": " + DoubleToStr(GetStrategyRiskMultiplier(0), 2) +
+                               ", \"sampleTrades\": " + IntegerToString(gAdaptiveTradeCount[0]) +
+                               ", \"winRate\": " + DoubleToStr(gAdaptiveWinRate[0], 1) +
+                               ", \"profitFactor\": " + DoubleToStr(gAdaptiveProfitFactor[0], 2) +
+                               ", \"avgNet\": " + DoubleToStr(gAdaptiveAvgNet[0], 2) +
+                               ", \"netProfit\": " + DoubleToStr(gAdaptiveNetProfit[0], 2) +
+                               ", \"disabledUntil\": \"" + (gAdaptiveDisabledUntil[0] > 0 ? TimeToStr(gAdaptiveDisabledUntil[0], TIME_DATE|TIME_MINUTES) : "") + "\"" +
+                               ", \"reason\": \"" + JsonEscape(gAdaptiveReason[0]) + "\"" +
+                               ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(MA_Magic)) + "},\n");
+   FileWriteString(handle, "    \"RSI_Reversal\": {\"enabled\": " + (Enable_RSI ? "true" : "false") +
+                               ", \"active\": " + (IsStrategyRuntimeActive(1) ? "true" : "false") +
+                               ", \"state\": \"" + JsonEscape(gAdaptiveState[1]) + "\"" +
+                               ", \"riskMultiplier\": " + DoubleToStr(GetStrategyRiskMultiplier(1), 2) +
+                               ", \"sampleTrades\": " + IntegerToString(gAdaptiveTradeCount[1]) +
+                               ", \"winRate\": " + DoubleToStr(gAdaptiveWinRate[1], 1) +
+                               ", \"profitFactor\": " + DoubleToStr(gAdaptiveProfitFactor[1], 2) +
+                               ", \"avgNet\": " + DoubleToStr(gAdaptiveAvgNet[1], 2) +
+                               ", \"netProfit\": " + DoubleToStr(gAdaptiveNetProfit[1], 2) +
+                               ", \"disabledUntil\": \"" + (gAdaptiveDisabledUntil[1] > 0 ? TimeToStr(gAdaptiveDisabledUntil[1], TIME_DATE|TIME_MINUTES) : "") + "\"" +
+                               ", \"reason\": \"" + JsonEscape(gAdaptiveReason[1]) + "\"" +
+                               ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(RSI_Magic)) + "},\n");
+   FileWriteString(handle, "    \"BB_Triple\": {\"enabled\": " + (Enable_BB ? "true" : "false") +
+                               ", \"active\": " + (IsStrategyRuntimeActive(2) ? "true" : "false") +
+                               ", \"state\": \"" + JsonEscape(gAdaptiveState[2]) + "\"" +
+                               ", \"riskMultiplier\": " + DoubleToStr(GetStrategyRiskMultiplier(2), 2) +
+                               ", \"sampleTrades\": " + IntegerToString(gAdaptiveTradeCount[2]) +
+                               ", \"winRate\": " + DoubleToStr(gAdaptiveWinRate[2], 1) +
+                               ", \"profitFactor\": " + DoubleToStr(gAdaptiveProfitFactor[2], 2) +
+                               ", \"avgNet\": " + DoubleToStr(gAdaptiveAvgNet[2], 2) +
+                               ", \"netProfit\": " + DoubleToStr(gAdaptiveNetProfit[2], 2) +
+                               ", \"disabledUntil\": \"" + (gAdaptiveDisabledUntil[2] > 0 ? TimeToStr(gAdaptiveDisabledUntil[2], TIME_DATE|TIME_MINUTES) : "") + "\"" +
+                               ", \"reason\": \"" + JsonEscape(gAdaptiveReason[2]) + "\"" +
+                               ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(BB_Magic)) + "},\n");
+   FileWriteString(handle, "    \"MACD_Divergence\": {\"enabled\": " + (Enable_MACD ? "true" : "false") +
+                               ", \"active\": " + (IsStrategyRuntimeActive(3) ? "true" : "false") +
+                               ", \"state\": \"" + JsonEscape(gAdaptiveState[3]) + "\"" +
+                               ", \"riskMultiplier\": " + DoubleToStr(GetStrategyRiskMultiplier(3), 2) +
+                               ", \"sampleTrades\": " + IntegerToString(gAdaptiveTradeCount[3]) +
+                               ", \"winRate\": " + DoubleToStr(gAdaptiveWinRate[3], 1) +
+                               ", \"profitFactor\": " + DoubleToStr(gAdaptiveProfitFactor[3], 2) +
+                               ", \"avgNet\": " + DoubleToStr(gAdaptiveAvgNet[3], 2) +
+                               ", \"netProfit\": " + DoubleToStr(gAdaptiveNetProfit[3], 2) +
+                               ", \"disabledUntil\": \"" + (gAdaptiveDisabledUntil[3] > 0 ? TimeToStr(gAdaptiveDisabledUntil[3], TIME_DATE|TIME_MINUTES) : "") + "\"" +
+                               ", \"reason\": \"" + JsonEscape(gAdaptiveReason[3]) + "\"" +
+                               ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(MACD_Magic)) + "},\n");
+   FileWriteString(handle, "    \"SR_Breakout\": {\"enabled\": " + (Enable_SR ? "true" : "false") +
+                               ", \"active\": " + (IsStrategyRuntimeActive(4) ? "true" : "false") +
+                               ", \"state\": \"" + JsonEscape(gAdaptiveState[4]) + "\"" +
+                               ", \"riskMultiplier\": " + DoubleToStr(GetStrategyRiskMultiplier(4), 2) +
+                               ", \"sampleTrades\": " + IntegerToString(gAdaptiveTradeCount[4]) +
+                               ", \"winRate\": " + DoubleToStr(gAdaptiveWinRate[4], 1) +
+                               ", \"profitFactor\": " + DoubleToStr(gAdaptiveProfitFactor[4], 2) +
+                               ", \"avgNet\": " + DoubleToStr(gAdaptiveAvgNet[4], 2) +
+                               ", \"netProfit\": " + DoubleToStr(gAdaptiveNetProfit[4], 2) +
+                               ", \"disabledUntil\": \"" + (gAdaptiveDisabledUntil[4] > 0 ? TimeToStr(gAdaptiveDisabledUntil[4], TIME_DATE|TIME_MINUTES) : "") + "\"" +
+                               ", \"reason\": \"" + JsonEscape(gAdaptiveReason[4]) + "\"" +
+                               ", \"positions\": " + IntegerToString(CountPositionsAllSymbols(SR_Magic)) + "}\n");
    FileWriteString(handle, "  },\n");
 
    FileWriteString(handle, "  \"diagnostics\": {\n");
@@ -3007,11 +3452,6 @@ void ExportTradeJournal()
 //+------------------------------------------------------------------+
 string GetStrategyName(int magic)
 {
-   if(magic == MA_Magic)   return "MA_Cross";
-   if(magic == RSI_Magic)  return "RSI_Reversal";
-   if(magic == BB_Magic)   return "BB_Triple";
-   if(magic == MACD_Magic) return "MACD_Divergence";
-   if(magic == SR_Magic)   return "SR_Breakout";
-   return "Unknown";
+   return GetStrategyNameByIndex(GetStrategyIndexByMagic(magic));
 }
 //+------------------------------------------------------------------+
