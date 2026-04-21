@@ -32,12 +32,14 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Keep this skill as the canonical repo-local knowledge base for Codex-style maintenance work.
 - Point volatile numbers back to runtime exports instead of hardcoding them into canonical docs.
 - Remember that dashboard root `strategies` now reflects the current dashboard focus symbol, while full cross-symbol adaptive truth lives in `QuantGod_StrategyEvaluationReport.csv` and `symbols[].strategies`.
+- Remember that the dashboard now also renders a `strategy x regime` heatmap from `QuantGod_RegimeEvaluationReport.csv`; dashboard bugs may be in CSV parsing or in the frontend aggregation layer, not only in EA exports.
 
 ## Validation Rules
 
 - Re-run any affected export path after changing research-stat logic.
 - Check at least `QuantGod_Dashboard.json`, `QuantGod_TradeOutcomeLabels.csv`, `QuantGod_TradeJournal.csv`, and `QuantGod_BalanceHistory.csv` when a fix touches profit scaling or trade labeling.
 - Check `QuantGod_RegimeEvaluationReport.csv` whenever you change event linkage, regime attribution, or outcome labeling.
+- Check the heatmap panel in `Dashboard/QuantGod_Dashboard.html` whenever you change regime-report columns, aggregation meaning, or symbol filtering behavior.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

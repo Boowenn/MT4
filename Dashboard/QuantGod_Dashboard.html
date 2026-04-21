@@ -1059,6 +1059,286 @@
             overflow: visible;
         }
 
+        .regime-heatmap-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 18px;
+        }
+
+        .regime-heatmap-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .regime-heatmap-summary {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .regime-filter-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .regime-filter-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .regime-filter-chip {
+            border: 1px solid rgba(59, 130, 246, 0.18);
+            background: rgba(10, 14, 23, 0.56);
+            color: var(--text-secondary);
+            border-radius: 999px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .regime-filter-chip:hover {
+            color: var(--text-primary);
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .regime-filter-chip.active {
+            background: rgba(59, 130, 246, 0.18);
+            color: var(--accent-blue);
+            border-color: rgba(59, 130, 246, 0.38);
+            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.12);
+        }
+
+        .regime-heatmap-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding-bottom: 2px;
+        }
+
+        .regime-heatmap-grid {
+            display: grid;
+            gap: 10px;
+            min-width: 980px;
+        }
+
+        .regime-heatmap-head {
+            display: contents;
+        }
+
+        .regime-heatmap-head-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 64px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(59, 130, 246, 0.12);
+            background: rgba(10, 14, 23, 0.54);
+            text-align: center;
+        }
+
+        .regime-heatmap-head-cell.corner {
+            justify-content: flex-start;
+            background: transparent;
+            border-style: dashed;
+            color: var(--text-muted);
+        }
+
+        .regime-heatmap-head-main {
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .regime-heatmap-head-sub {
+            margin-top: 4px;
+            color: var(--text-muted);
+            font-size: 10px;
+            line-height: 1.35;
+        }
+
+        .regime-heatmap-row-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 116px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid rgba(42, 58, 78, 0.82);
+            background: rgba(10, 14, 23, 0.58);
+        }
+
+        .regime-heatmap-strategy-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            flex: 0 0 auto;
+            box-shadow: 0 0 12px currentColor;
+        }
+
+        .regime-heatmap-row-main {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.4;
+        }
+
+        .regime-heatmap-row-sub {
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.45;
+            margin-top: 4px;
+        }
+
+        .regime-heatmap-cell {
+            position: relative;
+            min-height: 116px;
+            padding: 14px 15px;
+            border-radius: 14px;
+            border: 1px solid rgba(42, 58, 78, 0.82);
+            background: rgba(10, 14, 23, 0.5);
+            overflow: hidden;
+        }
+
+        .regime-heatmap-cell::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.02));
+            pointer-events: none;
+        }
+
+        .regime-heatmap-cell.heatmap-positive {
+            border-color: rgba(16, 185, 129, 0.34);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.06);
+        }
+
+        .regime-heatmap-cell.heatmap-caution {
+            border-color: rgba(245, 158, 11, 0.34);
+            box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.06);
+        }
+
+        .regime-heatmap-cell.heatmap-negative {
+            border-color: rgba(239, 68, 68, 0.34);
+            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.06);
+        }
+
+        .regime-heatmap-cell.heatmap-muted {
+            border-style: dashed;
+        }
+
+        .regime-heatmap-cell.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 12px;
+            border-style: dashed;
+        }
+
+        .regime-heatmap-topline {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .regime-heatmap-winrate {
+            color: var(--text-primary);
+            font-size: 22px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1;
+        }
+
+        .regime-heatmap-pf {
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: right;
+        }
+
+        .regime-heatmap-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .regime-heatmap-metric {
+            border-radius: 10px;
+            background: rgba(10, 14, 23, 0.26);
+            padding: 8px 9px;
+        }
+
+        .regime-heatmap-metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            line-height: 1.35;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .regime-heatmap-metric-value {
+            margin-top: 4px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .regime-heatmap-footer {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--text-muted);
+            font-size: 10px;
+            line-height: 1.35;
+        }
+
+        .regime-heatmap-flag {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(10, 14, 23, 0.42);
+            border: 1px solid rgba(100, 116, 139, 0.22);
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .regime-heatmap-flag.flag-positive {
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+
+        .regime-heatmap-flag.flag-caution {
+            color: var(--accent-orange);
+            border-color: rgba(245, 158, 11, 0.22);
+        }
+
+        .regime-heatmap-flag.flag-negative {
+            color: var(--accent-red);
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+
         .eval-card {
             background: var(--bg-secondary);
             border: 1px solid rgba(42, 58, 78, 0.9);
@@ -1292,6 +1572,7 @@
                 text-align: left;
             }
             .eval-card-grid { grid-template-columns: 1fr; }
+            .regime-heatmap-toolbar { align-items: flex-start; }
         }
 
         @media (max-width: 768px) {
@@ -1306,6 +1587,8 @@
             .eval-mini-grid { grid-template-columns: 1fr 1fr; }
             .navbar { padding: 0 1rem; }
             .main { padding: 1rem; }
+            .regime-heatmap-panel { padding: 16px; }
+            .regime-heatmap-grid { min-width: 860px; }
         }
 
         /* 滚动条 */
@@ -1663,6 +1946,33 @@
         </div>
     </div>
 
+    <div class="panel fade-in">
+        <div class="panel-header">
+            <div class="panel-title">
+                <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">R</div>
+                Regime 研究热力图
+            </div>
+            <span class="eval-summary" id="regimeHeatmapSummary">等待 regime 报表</span>
+        </div>
+        <div class="panel-body" style="padding: 0;">
+            <div class="regime-heatmap-panel">
+                <div class="regime-heatmap-toolbar">
+                    <div class="regime-heatmap-summary" id="regimeHeatmapMeta">
+                        每个格子展示该策略在对应市场状态下的胜率、PF、样本数和净收益。弱样本会自动降权显示。
+                    </div>
+                    <div class="regime-filter-row" id="regimeHeatmapFilters">
+                        <span class="regime-filter-label">筛选品种</span>
+                    </div>
+                </div>
+                <div class="regime-heatmap-scroll">
+                    <div class="regime-heatmap-grid" id="regimeHeatmapBody">
+                        <div class="empty-state">等待 regime 研究报表</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 策略收益分布 -->
     <div class="dashboard-grid fade-in" style="grid-template-columns: 1fr 1fr;">
         <div class="panel">
@@ -1712,10 +2022,12 @@ let runtimeClockInterval = null;
 let runtimeClockAnchor = null;
 const LOCAL_DASHBOARD_PATH = 'QuantGod_Dashboard.json';
 const LOCAL_STRATEGY_REPORT_PATH = 'QuantGod_StrategyEvaluationReport.csv';
+const LOCAL_REGIME_REPORT_PATH = 'QuantGod_RegimeEvaluationReport.csv';
 const LOCAL_OPPORTUNITY_LABELS_PATH = 'QuantGod_OpportunityLabels.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
+let regimeHeatmapSymbolFilter = 'ALL';
 const TIMEFRAME_ORDER = {
     M1: 1,
     M5: 2,
@@ -1727,6 +2039,19 @@ const TIMEFRAME_ORDER = {
     W1: 8,
     MN1: 9
 };
+
+const REGIME_DISPLAY_ORDER = [
+    'TREND_EXP_UP',
+    'TREND_EXP_DOWN',
+    'TREND_EXP',
+    'TREND_UP',
+    'TREND_DOWN',
+    'RANGE_HIGHVOL',
+    'RANGE',
+    'SQUEEZE',
+    'TRANSITION',
+    'UNKNOWN'
+];
 
 // ====== 策略配置 ======
 const STRATEGY_CONFIG = {
@@ -1972,6 +2297,33 @@ function parseStrategyEvaluationCsv(text) {
     })).filter((row) => row.symbol && row.strategy);
 }
 
+function parseRegimeEvaluationCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        reportTimeLocal: row.ReportTimeLocal || '',
+        reportTimeServer: row.ReportTimeServer || '',
+        symbol: row.Symbol || '',
+        strategy: row.Strategy || '',
+        timeframe: row.Timeframe || '',
+        entryRegime: row.EntryRegime || row.Regime || 'UNKNOWN',
+        closedTrades: toNumber(row.ClosedTrades, 0),
+        linkedTrades: toNumber(row.LinkedTrades, 0),
+        linkCoverage: toNumber(row.LinkCoverage, 0),
+        winRate: toNumber(row.WinRate, 0),
+        profitFactor: toNumber(row.ProfitFactor, 0),
+        avgNet: toNumber(row.AvgNet, 0),
+        netProfit: toNumber(row.NetProfit, 0),
+        grossProfit: toNumber(row.GrossProfit, 0),
+        grossLoss: toNumber(row.GrossLoss, 0),
+        avgDurationMinutes: toNumber(row.AvgDurationMinutes, 0),
+        avgSignalScore: toNumber(row.AvgSignalScore, 0),
+        positiveTrades: toNumber(row.PositiveTrades, 0),
+        negativeTrades: toNumber(row.NegativeTrades, 0),
+        flatTrades: toNumber(row.FlatTrades, 0),
+        lastEventTime: row.LastEventTime || '',
+        lastCloseTime: row.LastCloseTime || ''
+    })).filter((row) => row.symbol && row.strategy);
+}
+
 function parseOpportunityLabelsCsv(text) {
     return parseCsvTable(text).map((row) => ({
         eventId: row.EventId || '',
@@ -2010,6 +2362,9 @@ async function attachSupplementalData(baseData, previousData = null) {
         strategyEvaluationRows: Array.isArray(baseData?.strategyEvaluationRows)
             ? baseData.strategyEvaluationRows
             : (previousData?.strategyEvaluationRows || []),
+        regimeEvaluationRows: Array.isArray(baseData?.regimeEvaluationRows)
+            ? baseData.regimeEvaluationRows
+            : (previousData?.regimeEvaluationRows || []),
         opportunityLabelRows: Array.isArray(baseData?.opportunityLabelRows)
             ? baseData.opportunityLabelRows
             : (previousData?.opportunityLabelRows || [])
@@ -2031,6 +2386,17 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        const response = await fetch(appendCacheBust(LOCAL_REGIME_REPORT_PATH), { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const text = await response.text();
+        data.regimeEvaluationRows = parseRegimeEvaluationCsv(text);
+        data._regimeReportError = false;
+    } catch (error) {
+        data._regimeReportError = true;
+        console.warn('Regime evaluation report load failed.', error);
+    }
+
+    try {
         const response = await fetch(appendCacheBust(LOCAL_OPPORTUNITY_LABELS_PATH), { cache: 'no-store' });
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const text = await response.text();
@@ -2046,6 +2412,10 @@ async function attachSupplementalData(baseData, previousData = null) {
 
 function getStrategyEvaluationRows(d) {
     return Array.isArray(d?.strategyEvaluationRows) ? d.strategyEvaluationRows : [];
+}
+
+function getRegimeEvaluationRows(d) {
+    return Array.isArray(d?.regimeEvaluationRows) ? d.regimeEvaluationRows : [];
 }
 
 function getOpportunityLabelRows(d) {
@@ -2181,13 +2551,14 @@ function translateRegime(regime) {
         RANGE_HIGHVOL: '高波震荡',
         RANGE: '震荡',
         SQUEEZE: '挤压',
-        TRANSITION: '切换'
+        TRANSITION: '切换',
+        UNKNOWN: '历史未知'
     };
     return map[regime] || (regime ? regime.replaceAll('_', ' ') : '待评估');
 }
 
 function getRegimeTone(regime) {
-    if (!regime) return 'regime-muted';
+    if (!regime || regime === 'UNKNOWN') return 'regime-muted';
     if (regime.startsWith('TREND')) return 'regime-trend';
     if (regime.startsWith('RANGE')) return 'regime-range';
     if (regime.startsWith('SQUEEZE')) return 'regime-squeeze';
@@ -2215,6 +2586,182 @@ function getSymbolRegimeSummary(d, symbol) {
     });
 
     return Array.from(timeframeMap.values()).sort(sortByTimeframe);
+}
+
+function getRegimeDisplayRows(d) {
+    return getRegimeEvaluationRows(d)
+        .filter((row) => row.strategy && row.symbol)
+        .slice()
+        .sort((a, b) => {
+            const strategyCompare = strategyLabel(a.strategy).localeCompare(strategyLabel(b.strategy));
+            if (strategyCompare !== 0) return strategyCompare;
+            const aRegimeOrder = REGIME_DISPLAY_ORDER.includes(a.entryRegime) ? REGIME_DISPLAY_ORDER.indexOf(a.entryRegime) : 999;
+            const bRegimeOrder = REGIME_DISPLAY_ORDER.includes(b.entryRegime) ? REGIME_DISPLAY_ORDER.indexOf(b.entryRegime) : 999;
+            const regimeCompare = aRegimeOrder - bRegimeOrder;
+            if (regimeCompare !== 0) return regimeCompare;
+            return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+        });
+}
+
+function getRegimeHeatmapAvailableSymbols(d) {
+    return Array.from(new Set(getRegimeDisplayRows(d).map((row) => row.symbol))).sort((a, b) => a.localeCompare(b));
+}
+
+function buildRegimeHeatmapMatrix(rows) {
+    const matrix = new Map();
+
+    rows.forEach((row) => {
+        const key = `${row.strategy}__${row.entryRegime}`;
+        if (!matrix.has(key)) {
+            matrix.set(key, {
+                strategy: row.strategy,
+                regime: row.entryRegime,
+                closedTrades: 0,
+                linkedTrades: 0,
+                positiveTrades: 0,
+                negativeTrades: 0,
+                flatTrades: 0,
+                netProfit: 0,
+                grossProfit: 0,
+                grossLoss: 0,
+                durationWeighted: 0,
+                signalWeighted: 0,
+                signalSamples: 0,
+                symbols: new Set(),
+                timeframes: new Set(),
+                lastCloseTime: '',
+                lastEventTime: ''
+            });
+        }
+
+        const bucket = matrix.get(key);
+        const closedTrades = Number(row.closedTrades || 0);
+        const linkedTrades = Number(row.linkedTrades || 0);
+        bucket.closedTrades += closedTrades;
+        bucket.linkedTrades += linkedTrades;
+        bucket.positiveTrades += Number(row.positiveTrades || 0);
+        bucket.negativeTrades += Number(row.negativeTrades || 0);
+        bucket.flatTrades += Number(row.flatTrades || 0);
+        bucket.netProfit += Number(row.netProfit || 0);
+        bucket.grossProfit += Number(row.grossProfit || 0);
+        bucket.grossLoss += Number(row.grossLoss || 0);
+        bucket.durationWeighted += Number(row.avgDurationMinutes || 0) * closedTrades;
+        bucket.signalWeighted += Number(row.avgSignalScore || 0) * linkedTrades;
+        bucket.signalSamples += linkedTrades;
+        if (row.symbol) bucket.symbols.add(row.symbol);
+        if (row.timeframe) bucket.timeframes.add(row.timeframe);
+        if (row.lastCloseTime && row.lastCloseTime > bucket.lastCloseTime) bucket.lastCloseTime = row.lastCloseTime;
+        if (row.lastEventTime && row.lastEventTime > bucket.lastEventTime) bucket.lastEventTime = row.lastEventTime;
+    });
+
+    matrix.forEach((bucket) => {
+        bucket.winRate = bucket.closedTrades > 0
+            ? (bucket.positiveTrades / bucket.closedTrades) * 100
+            : 0;
+        bucket.profitFactor = bucket.grossLoss > 0
+            ? bucket.grossProfit / bucket.grossLoss
+            : (bucket.grossProfit > 0 ? 999 : 0);
+        bucket.avgNet = bucket.closedTrades > 0 ? bucket.netProfit / bucket.closedTrades : 0;
+        bucket.linkCoverage = bucket.closedTrades > 0 ? (bucket.linkedTrades / bucket.closedTrades) * 100 : 0;
+        bucket.avgDurationMinutes = bucket.closedTrades > 0 ? bucket.durationWeighted / bucket.closedTrades : 0;
+        bucket.avgSignalScore = bucket.signalSamples > 0 ? bucket.signalWeighted / bucket.signalSamples : 0;
+    });
+
+    return matrix;
+}
+
+function getHeatmapCellTone(bucket) {
+    if (!bucket || bucket.closedTrades <= 0) return 'heatmap-muted';
+    const weakSample = bucket.closedTrades < 3 || bucket.linkCoverage < 60;
+    const pf = bucket.profitFactor >= 999 ? 3 : bucket.profitFactor;
+    if (bucket.netProfit > 0 && pf >= 1.15 && bucket.winRate >= 50) {
+        return weakSample ? 'heatmap-caution' : 'heatmap-positive';
+    }
+    if (bucket.netProfit < 0 || (pf > 0 && pf < 0.85 && bucket.closedTrades >= 2)) {
+        return 'heatmap-negative';
+    }
+    return weakSample ? 'heatmap-muted' : 'heatmap-caution';
+}
+
+function getHeatmapCellBackground(bucket) {
+    if (!bucket || bucket.closedTrades <= 0) {
+        return 'rgba(10, 14, 23, 0.35)';
+    }
+
+    const confidence = Math.min(bucket.closedTrades / 6, 1);
+    const alpha = 0.12 + confidence * 0.18;
+    const pf = bucket.profitFactor >= 999 ? 3 : bucket.profitFactor;
+
+    if (bucket.netProfit > 0 && pf >= 1.15 && bucket.winRate >= 50) {
+        return `linear-gradient(135deg, rgba(16, 185, 129, ${alpha}), rgba(6, 182, 212, ${Math.max(alpha - 0.04, 0.08)}))`;
+    }
+    if (bucket.netProfit < 0 || (pf > 0 && pf < 0.85 && bucket.closedTrades >= 2)) {
+        return `linear-gradient(135deg, rgba(239, 68, 68, ${alpha}), rgba(245, 158, 11, ${Math.max(alpha - 0.05, 0.07)}))`;
+    }
+    return `linear-gradient(135deg, rgba(245, 158, 11, ${alpha}), rgba(59, 130, 246, ${Math.max(alpha - 0.05, 0.07)}))`;
+}
+
+function formatProfitFactor(pf) {
+    if (!Number.isFinite(Number(pf))) return '--';
+    return Number(pf) >= 999 ? '999+' : Number(pf).toFixed(2);
+}
+
+function renderRegimeHeatmapCell(bucket) {
+    if (!bucket || bucket.closedTrades <= 0) {
+        return '<div class="regime-heatmap-cell empty">暂无样本</div>';
+    }
+
+    const toneClass = getHeatmapCellTone(bucket);
+    const winRateText = `${bucket.winRate.toFixed(0)}%`;
+    const pfText = formatProfitFactor(bucket.profitFactor);
+    const netClass = bucket.netProfit >= 0 ? 'positive' : 'negative';
+    const durationText = bucket.avgDurationMinutes > 0 ? `${bucket.avgDurationMinutes.toFixed(0)}m` : '--';
+    const signalText = bucket.avgSignalScore > 0 ? `${bucket.avgSignalScore.toFixed(0)}/100` : '--';
+    const sampleFlag = bucket.closedTrades < 3 ? '弱样本' : (bucket.linkCoverage < 60 ? '遗留样本偏多' : '样本可靠');
+    const flagClass = toneClass === 'heatmap-positive'
+        ? 'flag-positive'
+        : (toneClass === 'heatmap-negative' ? 'flag-negative' : 'flag-caution');
+    const scopeText = `${bucket.symbols.size} 品种 / ${bucket.timeframes.size} 周期`;
+    const tooltip = [
+        `策略: ${strategyLabel(bucket.strategy)}`,
+        `Regime: ${bucket.regime}`,
+        `样本: ${bucket.closedTrades}`,
+        `链接覆盖: ${bucket.linkCoverage.toFixed(0)}%`,
+        `净收益: ${bucket.netProfit >= 0 ? '+' : ''}$${Math.abs(bucket.netProfit).toFixed(2)}`,
+        bucket.lastCloseTime ? `最近平仓: ${bucket.lastCloseTime}` : '',
+        bucket.lastEventTime ? `最近入场: ${bucket.lastEventTime}` : ''
+    ].filter(Boolean).join('\n');
+
+    return `
+        <div class="regime-heatmap-cell ${toneClass}" style="background: ${getHeatmapCellBackground(bucket)};" title="${escapeHtml(tooltip)}">
+            <div class="regime-heatmap-topline">
+                <div class="regime-heatmap-winrate">${escapeHtml(winRateText)}</div>
+                <div class="regime-heatmap-pf">PF ${escapeHtml(pfText)}</div>
+            </div>
+            <div class="regime-heatmap-metrics">
+                <div class="regime-heatmap-metric">
+                    <div class="regime-heatmap-metric-label">样本</div>
+                    <div class="regime-heatmap-metric-value">${bucket.closedTrades}</div>
+                </div>
+                <div class="regime-heatmap-metric">
+                    <div class="regime-heatmap-metric-label">净收益</div>
+                    <div class="regime-heatmap-metric-value ${netClass}">${bucket.netProfit >= 0 ? '+' : ''}$${Math.abs(bucket.netProfit).toFixed(2)}</div>
+                </div>
+                <div class="regime-heatmap-metric">
+                    <div class="regime-heatmap-metric-label">平均持仓</div>
+                    <div class="regime-heatmap-metric-value">${escapeHtml(durationText)}</div>
+                </div>
+                <div class="regime-heatmap-metric">
+                    <div class="regime-heatmap-metric-label">平均信号</div>
+                    <div class="regime-heatmap-metric-value">${escapeHtml(signalText)}</div>
+                </div>
+            </div>
+            <div class="regime-heatmap-footer">
+                <span>${escapeHtml(scopeText)}</span>
+                <span class="regime-heatmap-flag ${flagClass}">${escapeHtml(sampleFlag)} · 链接 ${bucket.linkCoverage.toFixed(0)}%</span>
+            </div>
+        </div>
+    `;
 }
 
 function getRuntimeBadgeTone(runtimeLabel, isActive) {
@@ -2901,6 +3448,7 @@ function updateDashboard() {
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
+    updateRegimeHeatmap(d);
 
     const footer = document.querySelector('.footer');
     if (footer) {
@@ -3240,6 +3788,122 @@ function updateStrategyEvaluationTable(d) {
             </div>
         </div>`;
     }).join('');
+}
+
+function updateRegimeHeatmap(d) {
+    const body = document.getElementById('regimeHeatmapBody');
+    const summary = document.getElementById('regimeHeatmapSummary');
+    const meta = document.getElementById('regimeHeatmapMeta');
+    const filters = document.getElementById('regimeHeatmapFilters');
+    if (!body || !summary || !meta || !filters) return;
+
+    const allRows = getRegimeDisplayRows(d);
+    const availableSymbols = getRegimeHeatmapAvailableSymbols(d);
+    if (regimeHeatmapSymbolFilter !== 'ALL' && !availableSymbols.includes(regimeHeatmapSymbolFilter)) {
+        regimeHeatmapSymbolFilter = 'ALL';
+    }
+
+    const filterOptions = ['ALL', ...availableSymbols];
+    filters.innerHTML = `
+        <span class="regime-filter-label">筛选品种</span>
+        ${filterOptions.map((symbol) => {
+            const label = symbol === 'ALL' ? '全部品种' : symbol;
+            const activeClass = symbol === regimeHeatmapSymbolFilter ? ' active' : '';
+            return `<button type="button" class="regime-filter-chip${activeClass}" data-symbol="${escapeHtml(symbol)}">${escapeHtml(label)}</button>`;
+        }).join('')}
+    `;
+    filters.querySelectorAll('.regime-filter-chip').forEach((button) => {
+        button.addEventListener('click', () => {
+            const symbol = button.dataset.symbol || 'ALL';
+            if (regimeHeatmapSymbolFilter === symbol) return;
+            regimeHeatmapSymbolFilter = symbol;
+            updateRegimeHeatmap(dashboardData);
+        });
+    });
+
+    if (!allRows.length) {
+        summary.textContent = d?._regimeReportError
+            ? '本地 regime 报表暂不可用'
+            : '等待 regime 研究报表';
+        meta.textContent = d?._regimeReportError
+            ? '请检查 `QuantGod_RegimeEvaluationReport.csv` 是否持续导出。'
+            : '每个格子展示该策略在对应市场状态下的胜率、PF、样本数和净收益。弱样本会自动降权显示。';
+        body.innerHTML = '<div class="empty-state">本地 `QuantGod_RegimeEvaluationReport.csv` 还没有可展示的数据</div>';
+        return;
+    }
+
+    const filteredRows = regimeHeatmapSymbolFilter === 'ALL'
+        ? allRows
+        : allRows.filter((row) => row.symbol === regimeHeatmapSymbolFilter);
+
+    if (!filteredRows.length) {
+        summary.textContent = `当前筛选 ${regimeHeatmapSymbolFilter} 暂无 regime 样本`;
+        meta.textContent = '可以先切回“全部品种”，或继续等待该品种产生更多已平仓研究样本。';
+        body.innerHTML = '<div class="empty-state">当前品种还没有可聚合的 regime 样本</div>';
+        return;
+    }
+
+    const matrix = buildRegimeHeatmapMatrix(filteredRows);
+    const presentRegimes = REGIME_DISPLAY_ORDER.filter((regime) =>
+        filteredRows.some((row) => row.entryRegime === regime)
+    );
+    const regimes = presentRegimes.length ? presentRegimes : ['UNKNOWN'];
+    const strategies = Object.keys(STRATEGY_CONFIG);
+    const visibleStrategies = strategies.filter((strategy) =>
+        regimes.some((regime) => matrix.has(`${strategy}__${regime}`))
+    );
+    const strategyRows = strategies;
+    const linkedTrades = filteredRows.reduce((sum, row) => sum + Number(row.linkedTrades || 0), 0);
+    const closedTrades = filteredRows.reduce((sum, row) => sum + Number(row.closedTrades || 0), 0);
+    const netProfit = filteredRows.reduce((sum, row) => sum + Number(row.netProfit || 0), 0);
+    const scopeText = regimeHeatmapSymbolFilter === 'ALL' ? '全部品种' : regimeHeatmapSymbolFilter;
+
+    summary.textContent = `${scopeText} | ${strategyRows.length} 个策略 | ${visibleStrategies.length} 个已有样本 | ${regimes.length} 个 regime | 已平仓 ${closedTrades} 笔 | 链接 ${closedTrades > 0 ? (linkedTrades / closedTrades * 100).toFixed(0) : '0'}%`;
+    meta.textContent = `当前展示 ${scopeText} 的研究切片，颜色综合反映胜率、PF 和净收益；链接覆盖低或样本少会自动降权。累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`;
+
+    body.style.gridTemplateColumns = `minmax(180px, 190px) repeat(${regimes.length}, minmax(150px, 1fr))`;
+    const headHtml = `
+        <div class="regime-heatmap-head-cell corner">
+            <div>
+                <div class="regime-heatmap-head-main">策略 / Regime</div>
+                <div class="regime-heatmap-head-sub">按入场时市场状态聚合</div>
+            </div>
+        </div>
+        ${regimes.map((regime) => {
+            const regimeRows = filteredRows.filter((row) => row.entryRegime === regime);
+            const trades = regimeRows.reduce((sum, row) => sum + Number(row.closedTrades || 0), 0);
+            const linked = regimeRows.reduce((sum, row) => sum + Number(row.linkedTrades || 0), 0);
+            return `
+                <div class="regime-heatmap-head-cell">
+                    <div>
+                        <div class="regime-heatmap-head-main">${escapeHtml(translateRegime(regime))}</div>
+                        <div class="regime-heatmap-head-sub">${trades} 笔闭环 · 链接 ${trades > 0 ? (linked / trades * 100).toFixed(0) : '0'}%</div>
+                    </div>
+                </div>
+            `;
+        }).join('')}
+    `;
+
+    const rowHtml = strategyRows.map((strategy) => {
+        const config = STRATEGY_CONFIG[strategy] || { label: strategy, color: 'var(--accent-blue)' };
+        const strategySlices = filteredRows.filter((row) => row.strategy === strategy);
+        const sliceTrades = strategySlices.reduce((sum, row) => sum + Number(row.closedTrades || 0), 0);
+        const sliceNet = strategySlices.reduce((sum, row) => sum + Number(row.netProfit || 0), 0);
+        const linked = strategySlices.reduce((sum, row) => sum + Number(row.linkedTrades || 0), 0);
+        const rowLabel = `
+            <div class="regime-heatmap-row-label">
+                <span class="regime-heatmap-strategy-dot" style="background: ${config.color}; color: ${config.color};"></span>
+                <div>
+                    <div class="regime-heatmap-row-main">${escapeHtml(config.label || strategy)}</div>
+                    <div class="regime-heatmap-row-sub">${sliceTrades} 笔闭环 · 净收益 ${sliceNet >= 0 ? '+' : ''}$${Math.abs(sliceNet).toFixed(2)} · 链接 ${sliceTrades > 0 ? (linked / sliceTrades * 100).toFixed(0) : '0'}%</div>
+                </div>
+            </div>
+        `;
+        const cells = regimes.map((regime) => renderRegimeHeatmapCell(matrix.get(`${strategy}__${regime}`))).join('');
+        return rowLabel + cells;
+    }).join('');
+
+    body.innerHTML = `<div class="regime-heatmap-head">${headHtml}</div>${rowHtml}`;
 }
 
 // ====== 持仓表格 ======

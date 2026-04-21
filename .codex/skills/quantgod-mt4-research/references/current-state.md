@@ -42,6 +42,7 @@ Responsibilities:
 - Read `QuantGod_Dashboard.json`
 - Read evaluation and labeling CSVs
 - Render per-symbol and per-strategy status
+- Render the regime research heatmap from `QuantGod_RegimeEvaluationReport.csv`
 
 ### Data Layer
 
@@ -84,6 +85,7 @@ Primary runtime files:
 - `TradeEventLinks` maps `EventId -> Ticket` for newer trades.
 - `TradeOutcomeLabels` maps realized trade outcomes, with `UNLINKED` preserved for older trades.
 - `RegimeEvaluationReport` groups closed research outcomes by `strategy x symbol x entry-time regime`.
+- Dashboard heatmap further aggregates `RegimeEvaluationReport` into operator-facing `strategy x regime` slices, optionally filtered by symbol.
 
 ## Working Rules
 
@@ -99,6 +101,7 @@ Primary runtime files:
   - the focus-symbol adaptive summary in dashboard root `strategies`
   - per-symbol slices in `QuantGod_StrategyEvaluationReport.csv`
 - Use `QuantGod_RegimeEvaluationReport.csv` when the question is about which market regime a strategy is handling well or badly.
+- If dashboard heatmap and raw CSV disagree, treat the CSV as the source of truth first and debug the frontend aggregation/filtering path.
 - Do not mix one symbol's adaptive state into another symbol's evaluation.
 
 ### When Updating Documentation
