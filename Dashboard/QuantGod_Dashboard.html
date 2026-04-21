@@ -846,6 +846,102 @@
             overflow: hidden;
         }
 
+        .symbol-strategy-action-details {
+            margin: 0 0 0.3rem;
+            border-top: 1px dashed rgba(100, 116, 139, 0.18);
+            padding-top: 0.32rem;
+        }
+
+        .symbol-strategy-action-details summary {
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }
+
+        .symbol-strategy-action-details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .symbol-strategy-action-summary-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            color: var(--text-muted);
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .symbol-strategy-action-summary-tag::before {
+            content: '▸';
+            font-size: 9px;
+            line-height: 1;
+            transition: transform 0.18s ease;
+        }
+
+        .symbol-strategy-action-details[open] .symbol-strategy-action-summary-tag::before {
+            transform: rotate(90deg);
+        }
+
+        .symbol-strategy-action-detail-body {
+            margin-top: 0.42rem;
+            display: grid;
+            gap: 0.38rem;
+        }
+
+        .symbol-strategy-action-detail-key {
+            color: var(--text-primary);
+            font-size: 10px;
+            line-height: 1.4;
+        }
+
+        .symbol-strategy-action-detail-key strong {
+            color: var(--text-secondary);
+            font-weight: 700;
+        }
+
+        .symbol-strategy-action-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.38rem;
+        }
+
+        .symbol-strategy-action-detail-item {
+            border-radius: 8px;
+            border: 1px solid rgba(100, 116, 139, 0.14);
+            background: rgba(10, 14, 23, 0.22);
+            padding: 0.4rem 0.45rem;
+        }
+
+        .symbol-strategy-action-detail-label {
+            color: var(--text-muted);
+            font-size: 9px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin-bottom: 0.14rem;
+        }
+
+        .symbol-strategy-action-detail-value {
+            color: var(--text-primary);
+            font-size: 10px;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .symbol-strategy-action-detail-note {
+            color: var(--text-muted);
+            font-size: 10px;
+            line-height: 1.45;
+        }
+
         .symbol-strategy-reason {
             color: var(--text-muted);
             font-size: 11px;
@@ -3339,6 +3435,70 @@ function getCurrentResearchActionForEvaluationRow(row, recommendationIndex) {
     };
 }
 
+function renderSymbolStrategyActionDetails(evaluationRow, researchAction) {
+    if (!evaluationRow || !researchAction || !researchAction.recommendation) {
+        return '';
+    }
+
+    const actionMeta = researchAction.recommendation;
+    const sliceText = [
+        evaluationRow.symbol || '--',
+        strategyLabel(evaluationRow.strategy || ''),
+        evaluationRow.timeframe || '--',
+        translateRegime(researchAction.entryRegime || evaluationRow.regime || '')
+    ].join(' × ');
+    const matchText = researchAction.isFallback
+        ? '当前 regime 暂无闭环样本，按 0 样本 fallback 建议展示。'
+        : '已命中对应的 strategy x symbol x regime 研究建议切片。';
+    const linkedText = `${Number(researchAction.linkedTrades || 0)}/${Number(researchAction.closedTrades || 0)} · ${Number(researchAction.linkCoverage || 0).toFixed(0)}%`;
+    const durationText = Number(researchAction.avgDurationMinutes || 0) > 0
+        ? `${Number(researchAction.avgDurationMinutes || 0).toFixed(0)}m`
+        : '--';
+    const signalText = Number(researchAction.avgSignalScore || 0) > 0
+        ? `${Number(researchAction.avgSignalScore || 0).toFixed(0)}/100`
+        : '--';
+
+    return `
+        <details class="symbol-strategy-action-details">
+            <summary>
+                <span>查看依据</span>
+                <span class="symbol-strategy-action-summary-tag">${researchAction.isFallback ? 'Fallback' : 'Exact'}</span>
+            </summary>
+            <div class="symbol-strategy-action-detail-body">
+                <div class="symbol-strategy-action-detail-key"><strong>依据切片</strong> ${escapeHtml(sliceText)}</div>
+                <div class="symbol-strategy-action-detail-grid">
+                    <div class="symbol-strategy-action-detail-item">
+                        <div class="symbol-strategy-action-detail-label">匹配方式</div>
+                        <div class="symbol-strategy-action-detail-value">${escapeHtml(matchText)}</div>
+                    </div>
+                    <div class="symbol-strategy-action-detail-item">
+                        <div class="symbol-strategy-action-detail-label">样本 / PF</div>
+                        <div class="symbol-strategy-action-detail-value">${Number(researchAction.closedTrades || 0)} / ${escapeHtml(formatProfitFactor(researchAction.profitFactor))}</div>
+                    </div>
+                    <div class="symbol-strategy-action-detail-item">
+                        <div class="symbol-strategy-action-detail-label">胜率 / 净收益</div>
+                        <div class="symbol-strategy-action-detail-value">${escapeHtml(`${Number(researchAction.winRate || 0).toFixed(1)}% / ${formatMoney(researchAction.netProfit || 0)}`)}</div>
+                    </div>
+                    <div class="symbol-strategy-action-detail-item">
+                        <div class="symbol-strategy-action-detail-label">链接覆盖</div>
+                        <div class="symbol-strategy-action-detail-value">${escapeHtml(linkedText)}</div>
+                    </div>
+                    <div class="symbol-strategy-action-detail-item">
+                        <div class="symbol-strategy-action-detail-label">平均持仓 / 信号</div>
+                        <div class="symbol-strategy-action-detail-value">${escapeHtml(`${durationText} / ${signalText}`)}</div>
+                    </div>
+                    <div class="symbol-strategy-action-detail-item">
+                        <div class="symbol-strategy-action-detail-label">建议动作</div>
+                        <div class="symbol-strategy-action-detail-value">${escapeHtml(`${actionMeta.label} · ${actionMeta.confidenceText}`)}</div>
+                    </div>
+                </div>
+                <div class="symbol-strategy-action-detail-note">${escapeHtml(actionMeta.reason)}</div>
+                <div class="symbol-strategy-action-detail-note">${escapeHtml(actionMeta.nextStep)}</div>
+            </div>
+        </details>
+    `;
+}
+
 function buildRegimeHeatmapMatrix(rows) {
     const matrix = new Map();
 
@@ -3776,6 +3936,9 @@ function renderSymbolStrategyBreakdown(symbolItem, data, researchRecommendationI
                 ? '当前 regime 暂无闭环样本'
                 : `当前 ${translateRegime(researchAction.entryRegime || evaluationRow?.regime || '')} · 样本 ${researchAction.closedTrades}`)
             : '研究动作待评估';
+        const actionDetailsHtml = researchAction
+            ? renderSymbolStrategyActionDetails(evaluationRow, researchAction)
+            : '';
 
         return `
         <div class="symbol-strategy-chip${toneClass}">
@@ -3793,6 +3956,7 @@ function renderSymbolStrategyBreakdown(symbolItem, data, researchRecommendationI
                     : '<span class="research-confidence-badge">待评估</span>'}
             </div>
             <div class="symbol-strategy-action-note">${escapeHtml(actionNote)}</div>
+            ${actionDetailsHtml}
             <div class="symbol-strategy-reason">${reason}</div>
         </div>`;
     }).join('');
