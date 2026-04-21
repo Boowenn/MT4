@@ -753,6 +753,64 @@
             text-align: right;
         }
 
+        .strategy-opportunity {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed rgba(59, 130, 246, 0.12);
+        }
+
+        .strategy-opportunity-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .strategy-opportunity-stat {
+            background: rgba(10, 14, 23, 0.42);
+            border: 1px solid rgba(59, 130, 246, 0.08);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+
+        .strategy-opportunity-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 4px;
+        }
+
+        .strategy-opportunity-value {
+            font-size: 13px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .strategy-opportunity-value.opportunity-positive {
+            color: var(--accent-green);
+        }
+
+        .strategy-opportunity-value.opportunity-watch {
+            color: var(--accent-orange);
+        }
+
+        .strategy-opportunity-value.opportunity-danger {
+            color: var(--accent-red);
+        }
+
+        .strategy-opportunity-value.opportunity-muted {
+            color: var(--text-secondary);
+        }
+
+        .strategy-opportunity-meta {
+            margin-top: 8px;
+            color: var(--text-muted);
+            font-size: 11px;
+            line-height: 1.45;
+            font-family: 'Inter', sans-serif;
+        }
+
         .strategy-health-row {
             display: flex;
             justify-content: space-between;
@@ -1407,12 +1465,13 @@
                             <th>胜率 / PF</th>
                             <th>净收益</th>
                             <th>风险</th>
+                            <th>机会标签</th>
                             <th>行情</th>
                             <th>最近评估</th>
                         </tr>
                     </thead>
                     <tbody id="strategyEvalBody">
-                        <tr><td colspan="12" class="empty-state">等待策略评估报表</td></tr>
+                        <tr><td colspan="13" class="empty-state">等待策略评估报表</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1468,8 +1527,10 @@ let runtimeClockInterval = null;
 let runtimeClockAnchor = null;
 const LOCAL_DASHBOARD_PATH = 'QuantGod_Dashboard.json';
 const LOCAL_STRATEGY_REPORT_PATH = 'QuantGod_StrategyEvaluationReport.csv';
+const LOCAL_OPPORTUNITY_LABELS_PATH = 'QuantGod_OpportunityLabels.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
+const OPPORTUNITY_RECENT_WINDOW = 20;
 const TIMEFRAME_ORDER = {
     M1: 1,
     M5: 2,
@@ -1726,12 +1787,47 @@ function parseStrategyEvaluationCsv(text) {
     })).filter((row) => row.symbol && row.strategy);
 }
 
+function parseOpportunityLabelsCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        eventId: row.EventId || '',
+        labelTimeLocal: row.LabelTimeLocal || '',
+        labelTimeServer: row.LabelTimeServer || '',
+        eventTimeServer: row.EventTimeServer || '',
+        eventBarTime: row.EventBarTime || '',
+        symbol: row.Symbol || '',
+        strategy: row.Strategy || '',
+        timeframe: row.Timeframe || '',
+        signalStatus: row.SignalStatus || '',
+        signalDirection: row.SignalDirection || '',
+        signalScore: toNumber(row.SignalScore, 0),
+        regime: row.Regime || '',
+        adaptiveState: row.AdaptiveState || '',
+        riskMultiplier: toNumber(row.RiskMultiplier, 1),
+        horizonBars: toNumber(row.HorizonBars, 0),
+        referencePrice: toNumber(row.ReferencePrice, 0),
+        futureClose: toNumber(row.FutureClose, 0),
+        longClosePips: toNumber(row.LongClosePips, 0),
+        shortClosePips: toNumber(row.ShortClosePips, 0),
+        longMFEPips: toNumber(row.LongMFEPips, 0),
+        longMAEPips: toNumber(row.LongMAEPips, 0),
+        shortMFEPips: toNumber(row.ShortMFEPips, 0),
+        shortMAEPips: toNumber(row.ShortMAEPips, 0),
+        neutralThresholdPips: toNumber(row.NeutralThresholdPips, 0),
+        directionalOutcome: row.DirectionalOutcome || '',
+        bestOpportunity: row.BestOpportunity || '',
+        labelReason: row.LabelReason || ''
+    })).filter((row) => row.eventId && row.strategy);
+}
+
 async function attachSupplementalData(baseData, previousData = null) {
     const data = {
         ...baseData,
         strategyEvaluationRows: Array.isArray(baseData?.strategyEvaluationRows)
             ? baseData.strategyEvaluationRows
-            : (previousData?.strategyEvaluationRows || [])
+            : (previousData?.strategyEvaluationRows || []),
+        opportunityLabelRows: Array.isArray(baseData?.opportunityLabelRows)
+            ? baseData.opportunityLabelRows
+            : (previousData?.opportunityLabelRows || [])
     };
 
     if (!isLocalRuntime()) {
@@ -1749,11 +1845,26 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Strategy evaluation report load failed.', error);
     }
 
+    try {
+        const response = await fetch(appendCacheBust(LOCAL_OPPORTUNITY_LABELS_PATH), { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const text = await response.text();
+        data.opportunityLabelRows = parseOpportunityLabelsCsv(text);
+        data._opportunityLabelsError = false;
+    } catch (error) {
+        data._opportunityLabelsError = true;
+        console.warn('Opportunity labels load failed.', error);
+    }
+
     return data;
 }
 
 function getStrategyEvaluationRows(d) {
     return Array.isArray(d?.strategyEvaluationRows) ? d.strategyEvaluationRows : [];
+}
+
+function getOpportunityLabelRows(d) {
+    return Array.isArray(d?.opportunityLabelRows) ? d.opportunityLabelRows : [];
 }
 
 function getFocusSymbol(d) {
@@ -1790,6 +1901,89 @@ function getStrategyEvaluationRow(d, strategyKey, preferredSymbol = '') {
             if (a.signalScore !== b.signalScore) return b.signalScore - a.signalScore;
             return sortByTimeframe(a, b);
         })[0];
+}
+
+function normalizeTradeSide(side) {
+    const normalized = String(side || '').toUpperCase();
+    return normalized === 'BUY' || normalized === 'SELL' ? normalized : '';
+}
+
+function getOpportunityRowTimestamp(row) {
+    const labelTime = parseRuntimeClock(row?.labelTimeServer);
+    if (labelTime) return labelTime.getTime();
+    const eventTime = parseRuntimeClock(row?.eventTimeServer);
+    if (eventTime) return eventTime.getTime();
+    return 0;
+}
+
+function getStrategyOpportunityRows(d, strategyKey) {
+    return getOpportunityLabelRows(d)
+        .filter((row) => row.strategy === strategyKey)
+        .slice()
+        .sort((a, b) => getOpportunityRowTimestamp(b) - getOpportunityRowTimestamp(a));
+}
+
+function buildOpportunitySummary(rows, limit = OPPORTUNITY_RECENT_WINDOW) {
+    const recentRows = (rows || []).slice(0, limit);
+    const directionalRows = recentRows.filter((row) => normalizeTradeSide(row.signalDirection));
+    const biasHits = directionalRows.filter((row) => String(row.directionalOutcome || '').toUpperCase() === 'POSITIVE').length;
+    const bestSideDriftCount = directionalRows.filter((row) => {
+        const signalSide = normalizeTradeSide(row.signalDirection);
+        const bestSide = normalizeTradeSide(row.bestOpportunity);
+        return signalSide && bestSide && bestSide !== signalSide;
+    }).length;
+    const avgLongClose = recentRows.length
+        ? recentRows.reduce((sum, row) => sum + Number(row.longClosePips || 0), 0) / recentRows.length
+        : null;
+    const avgShortClose = recentRows.length
+        ? recentRows.reduce((sum, row) => sum + Number(row.shortClosePips || 0), 0) / recentRows.length
+        : null;
+    const biasHitRate = directionalRows.length ? (biasHits / directionalRows.length * 100) : null;
+    const bestSideDeviation = directionalRows.length ? (bestSideDriftCount / directionalRows.length * 100) : null;
+    const lastLabelTime = recentRows[0]?.labelTimeServer || recentRows[0]?.eventTimeServer || '';
+
+    return {
+        count: recentRows.length,
+        directionalCount: directionalRows.length,
+        biasHits,
+        bestSideDriftCount,
+        biasHitRate,
+        bestSideDeviation,
+        avgLongClose,
+        avgShortClose,
+        lastLabelTime
+    };
+}
+
+function getOpportunitySummaryMap(d, limit = OPPORTUNITY_RECENT_WINDOW) {
+    const map = {};
+    Object.keys(STRATEGY_CONFIG).forEach((strategyKey) => {
+        map[strategyKey] = buildOpportunitySummary(getStrategyOpportunityRows(d, strategyKey), limit);
+    });
+    return map;
+}
+
+function getOpportunityValueTone(value, positiveIsGood = true) {
+    if (!Number.isFinite(Number(value))) return 'opportunity-muted';
+    const num = Number(value);
+    if (positiveIsGood) {
+        if (num >= 60) return 'opportunity-positive';
+        if (num >= 40) return 'opportunity-watch';
+        return 'opportunity-danger';
+    }
+    if (num <= 20) return 'opportunity-positive';
+    if (num <= 40) return 'opportunity-watch';
+    return 'opportunity-danger';
+}
+
+function formatPercentValue(value, digits = 0) {
+    return Number.isFinite(Number(value)) ? `${Number(value).toFixed(digits)}%` : '--';
+}
+
+function formatSignedPips(value, digits = 1) {
+    if (!Number.isFinite(Number(value))) return '--';
+    const num = Number(value);
+    return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}p`;
 }
 
 function translateRegime(regime) {
@@ -2549,6 +2743,7 @@ function updateStrategyCards(d) {
     const container = document.getElementById('strategyCards');
     let html = '';
     const focusSymbol = getFocusSymbol(d);
+    const opportunitySummaryMap = getOpportunitySummaryMap(d);
 
     for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
         const strat = d.strategies[key] || { enabled: false, positions: 0 };
@@ -2581,6 +2776,21 @@ function updateStrategyCards(d) {
         const runtimeText = reportRow?.runtimeLabel || strat.state || (strat.active === false ? 'PAUSED' : 'ON');
         const runtimeTone = getRuntimeBadgeTone(reportRow?.runtimeLabel, reportRow?.active ?? (strat.active !== false));
         const lastEvalText = reportRow?.lastEvalTime ? `最近评估 ${reportRow.lastEvalTime}` : '最近评估 --';
+        const opportunitySummary = opportunitySummaryMap[key] || buildOpportunitySummary([]);
+        const opportunityCountText = opportunitySummary.count
+            ? `最近 ${opportunitySummary.count}/${OPPORTUNITY_RECENT_WINDOW} 条`
+            : '等待标签';
+        const opportunityHitText = formatPercentValue(opportunitySummary.biasHitRate, 0);
+        const opportunityDeviationText = formatPercentValue(opportunitySummary.bestSideDeviation, 0);
+        const opportunityLongShortText = opportunitySummary.count
+            ? `${formatSignedPips(opportunitySummary.avgLongClose)} / ${formatSignedPips(opportunitySummary.avgShortClose)}`
+            : '--';
+        const opportunityMeta = opportunitySummary.count
+            ? `Bias 命中 ${opportunitySummary.biasHits}/${opportunitySummary.directionalCount || opportunitySummary.count} · 最新标签 ${opportunitySummary.lastLabelTime || '--'}`
+            : (d?._opportunityLabelsError ? '本地 OpportunityLabels 报表暂不可用' : '等待 OpportunityLabels 累积样本');
+        const opportunityHitTone = getOpportunityValueTone(opportunitySummary.biasHitRate, true);
+        const opportunityDeviationTone = getOpportunityValueTone(opportunitySummary.bestSideDeviation, false);
+        const opportunityCountTone = opportunitySummary.count ? 'runtime-on' : 'runtime-off';
 
         html += `
         <div class="strategy-card${cardToneClass}">
@@ -2619,6 +2829,27 @@ function updateStrategyCards(d) {
                     <span class="strategy-context-meta">${escapeHtml(lastEvalText)}</span>
                 </div>
                 <div class="strategy-context-meta">${escapeHtml(regimeMeta)}</div>
+            </div>
+            <div class="strategy-opportunity">
+                <div class="strategy-context-row">
+                    <span class="strategy-context-label">Opportunity Labels</span>
+                    <span class="table-badge ${opportunityCountTone}">${escapeHtml(opportunityCountText)}</span>
+                </div>
+                <div class="strategy-opportunity-grid">
+                    <div class="strategy-opportunity-stat">
+                        <div class="strategy-opportunity-label">Bias 命中率</div>
+                        <div class="strategy-opportunity-value ${opportunityHitTone}">${escapeHtml(opportunityHitText)}</div>
+                    </div>
+                    <div class="strategy-opportunity-stat">
+                        <div class="strategy-opportunity-label">Best-side 偏离</div>
+                        <div class="strategy-opportunity-value ${opportunityDeviationTone}">${escapeHtml(opportunityDeviationText)}</div>
+                    </div>
+                    <div class="strategy-opportunity-stat">
+                        <div class="strategy-opportunity-label">Avg Long / Short</div>
+                        <div class="strategy-opportunity-value opportunity-muted">${escapeHtml(opportunityLongShortText)}</div>
+                    </div>
+                </div>
+                <div class="strategy-opportunity-meta">${escapeHtml(opportunityMeta)}</div>
             </div>
             <div class="strategy-stats">
                 <div class="strategy-stat">
@@ -2663,6 +2894,8 @@ function updateStrategyEvaluationTable(d) {
     const tbody = document.getElementById('strategyEvalBody');
     const summary = document.getElementById('strategyEvalSummary');
     if (!tbody) return;
+    const opportunitySummaryMap = getOpportunitySummaryMap(d);
+    const labelRows = getOpportunityLabelRows(d);
 
     const rows = getStrategyEvaluationRows(d)
         .slice()
@@ -2683,12 +2916,12 @@ function updateStrategyEvaluationTable(d) {
             const symbolCount = new Set(rows.map((row) => row.symbol)).size;
             const activeCount = rows.filter((row) => row.active).length;
             const pausedCount = rows.length - activeCount;
-            summary.textContent = `${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停`;
+            summary.textContent = `${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停 | Opportunity ${labelRows.length} 条 | 统计窗口 ${OPPORTUNITY_RECENT_WINDOW}`;
         }
     }
 
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="12" class="empty-state">本地 `QuantGod_StrategyEvaluationReport.csv` 还没有可展示的数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="empty-state">本地 `QuantGod_StrategyEvaluationReport.csv` 还没有可展示的数据</td></tr>';
         return;
     }
 
@@ -2705,6 +2938,15 @@ function updateStrategyEvaluationTable(d) {
         const riskText = `x${formatCompactMetric(row.riskMultiplier, 2)}`;
         const tickText = row.tickAgeSeconds >= 0 ? `${row.tickAgeSeconds}s` : '--';
         const lastEvalText = row.lastEvalTime || row.reportTimeLocal || '--';
+        const opportunitySummary = opportunitySummaryMap[row.strategy] || buildOpportunitySummary([]);
+        const oppHitText = formatPercentValue(opportunitySummary.biasHitRate, 0);
+        const oppDeviationText = formatPercentValue(opportunitySummary.bestSideDeviation, 0);
+        const oppLsText = opportunitySummary.count
+            ? `L ${formatSignedPips(opportunitySummary.avgLongClose)} / S ${formatSignedPips(opportunitySummary.avgShortClose)}`
+            : '--';
+        const oppCountText = opportunitySummary.count
+            ? `${opportunitySummary.count}/${OPPORTUNITY_RECENT_WINDOW} 条`
+            : (d?._opportunityLabelsError ? '本地标签缺失' : '等待标签');
 
         return `
         <tr title="${escapeHtml(translatedReason)}">
@@ -2738,6 +2980,10 @@ function updateStrategyEvaluationTable(d) {
             <td class="eval-metric-cell">
                 <strong>${escapeHtml(riskText)}</strong>
                 <span>${escapeHtml(row.adaptiveState || '--')}</span>
+            </td>
+            <td class="eval-metric-cell">
+                <strong>Bias ${escapeHtml(oppHitText)}</strong>
+                <span>偏离 ${escapeHtml(oppDeviationText)} | ${escapeHtml(oppLsText)} | ${escapeHtml(oppCountText)}</span>
             </td>
             <td class="eval-metric-cell">
                 <strong>${escapeHtml(tickText)}</strong>
