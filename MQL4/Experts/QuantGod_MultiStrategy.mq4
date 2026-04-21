@@ -262,7 +262,8 @@ void GetStrategyClosedStats(int strategyIndex, string symbol_name, int &closedTr
                             double &netProfit, double &grossProfit, double &grossLoss, datetime &lastCloseTime);
 string DetectMarketRegime(string symbol_name, int timeframe, double &atrPips, double &adxValue,
                           double &bbWidthPips, double &spreadPips);
-bool ShouldLogSignalEvent(int strategyIndex, string symbol_name, int timeframe, string eventKey);
+bool ShouldLogSignalEvent(int strategyIndex, string symbol_name, int timeframe, string eventKey,
+                          bool transitionOnly=false);
 void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
                      string signalReason, string signalDirection, double signalScore,
                      double buyScore, double sellScore, string detail);
