@@ -45,6 +45,7 @@ Responsibilities:
 - Render the regime research heatmap from `QuantGod_RegimeEvaluationReport.csv`
 - Render advisory research recommendations derived from `strategy x symbol x regime` slices
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
+- Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
 
 ### Data Layer
 
@@ -88,7 +89,8 @@ Primary runtime files:
 - `TradeOutcomeLabels` maps realized trade outcomes, with `UNLINKED` preserved for older trades.
 - `RegimeEvaluationReport` groups closed research outcomes by `strategy x symbol x entry-time regime`.
 - Dashboard heatmap further aggregates `RegimeEvaluationReport` into operator-facing `strategy x regime` slices, optionally filtered by symbol.
-- Dashboard research suggestions consume the same regime report, but keep the finer `strategy x symbol x regime` slice when generating “保留 / 降权 / 暂停观察” recommendations.
+- Dashboard research suggestions consume the same regime report, but keep the finer `strategy x symbol x regime` slice when generating `KEEP / REDUCE / PAUSE` recommendations.
+- Strategy evaluation rows consume the same recommendation layer, but match it to the current live `strategy x symbol x timeframe x regime` row and fall back to a 0-sample recommendation when that exact regime slice has not closed yet.
 
 ## Working Rules
 

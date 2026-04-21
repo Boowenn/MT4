@@ -3173,6 +3173,15 @@ function getResearchActionMeta(action) {
     return { label: '降权', className: 'reduce', priority: 1 };
 }
 
+function getCurrentResearchSliceKey(row) {
+    return [
+        row?.symbol || '',
+        row?.strategy || '',
+        row?.timeframe || '',
+        row?.entryRegime || row?.regime || ''
+    ].join('|');
+}
+
 function getResearchConfidenceText(row) {
     const closedTrades = Number(row.closedTrades || 0);
     const coverage = Number(row.linkCoverage || 0);
@@ -3237,12 +3246,9 @@ function buildResearchRecommendation(row) {
     };
 }
 
-function getResearchRecommendationRows(d) {
-    return getFilteredResearchScopeRows(d)
-        .map((row) => ({
-            ...row,
-            recommendation: buildResearchRecommendation(row)
-        }))
+function sortResearchRecommendationRows(rows) {
+    return (rows || [])
+        .slice()
         .sort((a, b) => {
             const priorityCompare = a.recommendation.priority - b.recommendation.priority;
             if (priorityCompare !== 0) return priorityCompare;
@@ -3252,6 +3258,66 @@ function getResearchRecommendationRows(d) {
             if (netCompare !== 0) return netCompare;
             return `${a.symbol}|${a.strategy}|${a.entryRegime}`.localeCompare(`${b.symbol}|${b.strategy}|${b.entryRegime}`);
         });
+}
+
+function enrichResearchRecommendationRows(rows) {
+    return (rows || [])
+        .map((row) => ({
+            ...row,
+            recommendation: buildResearchRecommendation(row)
+        }));
+}
+
+function getAllResearchRecommendationRows(d) {
+    return sortResearchRecommendationRows(enrichResearchRecommendationRows(getRegimeDisplayRows(d)));
+}
+
+function getResearchRecommendationRows(d) {
+    return sortResearchRecommendationRows(enrichResearchRecommendationRows(getFilteredResearchScopeRows(d)));
+}
+
+function getCurrentResearchActionForEvaluationRow(row, recommendationIndex) {
+    const exactKey = getCurrentResearchSliceKey({
+        symbol: row?.symbol,
+        strategy: row?.strategy,
+        timeframe: row?.timeframe,
+        entryRegime: row?.regime
+    });
+    const exactMatch = recommendationIndex?.get(exactKey);
+    if (exactMatch) {
+        return { ...exactMatch, isFallback: false };
+    }
+
+    const fallbackRow = {
+        symbol: row?.symbol || '',
+        strategy: row?.strategy || '',
+        timeframe: row?.timeframe || '',
+        entryRegime: row?.regime || 'UNKNOWN',
+        closedTrades: 0,
+        linkedTrades: 0,
+        linkCoverage: 0,
+        winRate: 0,
+        profitFactor: 0,
+        avgNet: 0,
+        netProfit: 0,
+        grossProfit: 0,
+        grossLoss: 0,
+        avgDurationMinutes: 0,
+        avgSignalScore: 0,
+        positiveTrades: 0,
+        negativeTrades: 0,
+        flatTrades: 0,
+        reportTimeLocal: row?.reportTimeLocal || '',
+        reportTimeServer: row?.reportTimeServer || '',
+        lastCloseTime: row?.lastClosedTime || '',
+        lastEventTime: row?.lastEvalTime || ''
+    };
+
+    return {
+        ...fallbackRow,
+        recommendation: buildResearchRecommendation(fallbackRow),
+        isFallback: true
+    };
 }
 
 function buildRegimeHeatmapMatrix(rows) {
@@ -4348,6 +4414,10 @@ function updateStrategyEvaluationTable(d) {
     if (!tbody) return;
     const opportunitySummaryMap = getOpportunitySummaryMap(d);
     const labelRows = getOpportunityLabelRows(d);
+    const researchRecommendationRows = getAllResearchRecommendationRows(d);
+    const researchRecommendationIndex = new Map(
+        researchRecommendationRows.map((item) => [getCurrentResearchSliceKey(item), item])
+    );
 
     const rows = getStrategyEvaluationRows(d)
         .slice()
@@ -4368,7 +4438,12 @@ function updateStrategyEvaluationTable(d) {
             const symbolCount = new Set(rows.map((row) => row.symbol)).size;
             const activeCount = rows.filter((row) => row.active).length;
             const pausedCount = rows.length - activeCount;
-            summary.textContent = `${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停 | Opportunity ${labelRows.length} 条 | 统计窗口 ${OPPORTUNITY_RECENT_WINDOW}`;
+            const actionCounts = rows.reduce((acc, row) => {
+                const action = getCurrentResearchActionForEvaluationRow(row, researchRecommendationIndex).recommendation.action;
+                acc[action] = (acc[action] || 0) + 1;
+                return acc;
+            }, {});
+            summary.textContent = `${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停 | 研究动作 保留 ${actionCounts.KEEP || 0} / 降权 ${actionCounts.REDUCE || 0} / 暂停 ${actionCounts.PAUSE || 0} | Opportunity ${labelRows.length} 条`;
         }
     }
 
@@ -4400,6 +4475,14 @@ function updateStrategyEvaluationTable(d) {
             ? `${opportunitySummary.count}/${OPPORTUNITY_RECENT_WINDOW} 条`
             : (d?._opportunityLabelsError ? '本地标签缺失' : '等待标签');
         const lastCloseText = row.lastClosedTime ? `最近平仓 ${row.lastClosedTime}` : '最近平仓 --';
+        const researchAction = getCurrentResearchActionForEvaluationRow(row, researchRecommendationIndex);
+        const actionMeta = researchAction.recommendation;
+        const actionCoverageText = researchAction.isFallback
+            ? '当前 regime 还没有闭环样本'
+            : `当前 regime 样本 ${researchAction.closedTrades} 笔 · 链接 ${Number(researchAction.linkCoverage || 0).toFixed(0)}%`;
+        const actionNextText = researchAction.isFallback
+            ? '先按低优先级观察，等这个 regime 产生闭环样本后再决定是否升权。'
+            : actionMeta.nextStep;
 
         return `
         <div class="eval-card" title="${escapeHtml(translatedReason)}">
@@ -4503,6 +4586,16 @@ function updateStrategyEvaluationTable(d) {
                             <div class="eval-mini-item-meta">${escapeHtml(row.regime || '--')}</div>
                         </div>
                     </div>
+                </div>
+                <div class="eval-block">
+                    <div class="eval-block-label">当前研究动作</div>
+                    <div class="eval-status-row">
+                        <span class="research-action-badge ${actionMeta.className}">${escapeHtml(actionMeta.label)}</span>
+                        <span class="research-confidence-badge">${escapeHtml(actionMeta.confidenceText)}</span>
+                    </div>
+                    <div class="eval-block-subhero">${escapeHtml(actionCoverageText)}</div>
+                    <div class="eval-block-note">${escapeHtml(actionMeta.reason)}</div>
+                    <div class="eval-mini-item-meta" style="margin-top: 8px;">${escapeHtml(actionNextText)}</div>
                 </div>
             </div>
         </div>`;
