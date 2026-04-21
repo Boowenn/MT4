@@ -62,6 +62,27 @@ struct SignalFeatureSnapshot
    string   regime;
 };
 
+struct TradeEventLink
+{
+   string   eventId;
+   string   eventKey;
+   int      ticket;
+   string   strategy;
+   string   symbol;
+   string   timeframe;
+   string   signalStatus;
+   string   signalDirection;
+   double   signalScore;
+   datetime eventTimeServer;
+   datetime eventBarTime;
+   double   requestedPrice;
+   double   stopLoss;
+   double   takeProfit;
+   double   actualLots;
+   double   researchLots;
+   string   orderComment;
+};
+
 //=== 全局设置 ===
 input string   _g0 = "====== 全局设置 ======";
 input double   RiskPercent        = 0.04;    // 多策略并行研究：单笔风险进一步压低
@@ -274,6 +295,10 @@ double GetResearchDrawdownPercent();
 bool CheckResearchDrawdownLimit();
 double CalculateManagedLots(double slPips, string symbol_name, double &virtualLots);
 string BuildManagedOrderComment(string baseComment, double virtualLots);
+string BuildManagedOrderCommentWithEvent(string baseComment, double virtualLots, string eventId);
+string BuildCompactEventKey(string eventId, int keyLength);
+string BuildVirtualLotsTag(double virtualLots);
+string ParseTaggedText(string text, string tag);
 double PriceToPips(double priceDistance, string symbol_name);
 int GetStrategyTimeframeByMagic(int magic);
 int GetStrategyIndexByMagic(int magic);
@@ -333,9 +358,27 @@ bool ShouldLogSignalEvent(int strategyIndex, string symbol_name, int timeframe, 
 void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
                      string signalReason, string signalDirection, double signalScore,
                      double buyScore, double sellScore, string detail);
+void AppendSignalLogWithEvent(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
+                              string signalReason, string signalDirection, double signalScore,
+                              double buyScore, double sellScore, string detail, string eventId);
 void LogStrategySignal(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
                        string signalReason, string signalDirection, double signalScore,
                        double buyScore, double sellScore, string detail);
+void LogStrategySignalWithEvent(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
+                                string signalReason, string signalDirection, double signalScore,
+                                double buyScore, double sellScore, string detail, string eventId);
+void AppendTradeEventLink(string eventId, int ticket, int strategyIndex, string symbol_name, int timeframe,
+                          string signalStatus, string signalDirection, double signalScore,
+                          double requestedPrice, double stopLoss, double takeProfit,
+                          double actualLots, double researchLots, string orderComment);
+bool LoadTradeEventLinks(TradeEventLink &links[], int &linkCount);
+int FindTradeEventLinkIndexByTicket(TradeEventLink &links[], int linkCount, int ticket);
+int FindTradeEventLinkIndexByEventKey(TradeEventLink &links[], int linkCount, string eventKey);
+double GetInitialRiskPipsFromLink(TradeEventLink &link, int orderType, double openPrice, string symbol_name);
+string GetTradeOutcomeFromPips(double realizedPips);
+string DetectTradeCloseReason(int orderType, double closePrice, double stopLoss, double takeProfit,
+                              int durationMinutes, int timeframe, string comment, string symbol_name);
+void ExportTradeOutcomeLabels();
 void ExportStrategyEvaluationReport(bool force=false);
 
 //+------------------------------------------------------------------+
@@ -486,6 +529,28 @@ double ParseTaggedDouble(string text, string tag)
       valueText = StringSubstr(valueText, 0, stopPos);
 
    return StrToDouble(valueText);
+}
+
+string ParseTaggedText(string text, string tag)
+{
+   int start = StringFind(text, tag);
+   if(start < 0)
+      return "";
+
+   string valueText = StringSubstr(text, start + StringLen(tag));
+   int stopPos = StringFind(valueText, "|");
+   if(stopPos >= 0)
+      valueText = StringSubstr(valueText, 0, stopPos);
+
+   stopPos = StringFind(valueText, "[");
+   if(stopPos >= 0)
+      valueText = StringSubstr(valueText, 0, stopPos);
+
+   stopPos = StringFind(valueText, " ");
+   if(stopPos >= 0)
+      valueText = StringSubstr(valueText, 0, stopPos);
+
+   return valueText;
 }
 
 double GetResearchLotsFromComment(string comment, double actualLots)
@@ -640,6 +705,77 @@ string BuildManagedOrderComment(string baseComment, double virtualLots)
       return baseComment + tag;
 
    return baseComment;
+}
+
+string BuildCompactEventKey(string eventId, int keyLength)
+{
+   if(eventId == "")
+      return "";
+
+   if(keyLength < 2)
+      keyLength = 2;
+   if(keyLength > 6)
+      keyLength = 6;
+
+   int modulo = 1;
+   for(int i = 0; i < keyLength; i++)
+      modulo *= 36;
+
+   int hash = 7;
+   for(int j = 0; j < StringLen(eventId); j++)
+   {
+      hash = (hash * 131 + StringGetChar(eventId, j)) % modulo;
+      if(hash < 0)
+         hash += modulo;
+   }
+
+   string alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+   string key = "";
+   for(int k = 0; k < keyLength; k++)
+   {
+      int index = hash % 36;
+      key = StringSubstr(alphabet, index, 1) + key;
+      hash /= 36;
+   }
+
+   return key;
+}
+
+string BuildVirtualLotsTag(double virtualLots)
+{
+   double safeLots = MathMax(0.0, virtualLots);
+   string raw = DoubleToStr(safeLots, 5);
+   if(StringLen(raw) > 1 && StringSubstr(raw, 0, 1) == "0")
+      raw = StringSubstr(raw, 1);
+   return "|v=" + raw;
+}
+
+string BuildManagedOrderCommentWithEvent(string baseComment, double virtualLots, string eventId)
+{
+   string comment = UseVirtualResearchAccount ? BuildManagedOrderComment(baseComment, virtualLots) : baseComment;
+   if(eventId == "")
+      return comment;
+
+   string lotTag = UseVirtualResearchAccount ? BuildVirtualLotsTag(virtualLots) : "";
+   string eventKey = BuildCompactEventKey(eventId, 3);
+   string eventTag = (eventKey == "" ? "" : "|e=" + eventKey);
+
+   if(eventTag != "" && StringLen(baseComment) + StringLen(eventTag) + StringLen(lotTag) > 31)
+   {
+      eventKey = BuildCompactEventKey(eventId, 2);
+      eventTag = (eventKey == "" ? "" : "|e=" + eventKey);
+   }
+
+   if(eventTag == "")
+      return comment;
+
+   if(UseVirtualResearchAccount && StringLen(baseComment) + StringLen(eventTag) + StringLen(lotTag) <= 31)
+      return baseComment + eventTag + lotTag;
+
+   if(StringLen(comment) + StringLen(eventTag) <= 31)
+      return comment + eventTag;
+
+   return comment;
 }
 
 double PriceToPips(double priceDistance, string symbol_name)
@@ -1760,24 +1896,29 @@ void Strategy_RSI_Reversal_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "reversal=Y band=Y";
+      string buyReason = "RSI_Reversal buy order sent on " + TimeframeLabel(RSI_Timeframe);
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_RSI_Rev_BUY", virtualLots, eventId);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_RSI_Rev_BUY", virtualLots), RSI_Magic, 0, clrDodgerBlue);
+                            orderComment, RSI_Magic, 0, clrDodgerBlue);
       if(ticket > 0) Print("[RSI蝗槫ｽ綻 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
       if(ticket > 0)
       {
-         string buyReason = "RSI_Reversal buy order sent on " + TimeframeLabel(RSI_Timeframe);
-         string detail = "reversal=Y band=Y";
+         AppendTradeEventLink(eventId, ticket, 1, gSymbol, RSI_Timeframe, "BUY_ORDER_SENT", "BUY", 100,
+                              ask, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(1, "BUY_ORDER_SENT", buyReason, 100);
-         LogStrategySignal(1, gSymbol, RSI_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(1, gSymbol, RSI_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       else
       {
          string failReason = "RSI buy setup failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "reversal=Y band=Y";
          SetStrategyDiagnostic(1, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(1, gSymbol, RSI_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(1, gSymbol, RSI_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       return;
    }
@@ -1790,24 +1931,29 @@ void Strategy_RSI_Reversal_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "reversal=Y band=Y";
+      string sellReason = "RSI_Reversal sell order sent on " + TimeframeLabel(RSI_Timeframe);
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_RSI_Rev_SELL", virtualLots, eventId);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_RSI_Rev_SELL", virtualLots), RSI_Magic, 0, clrOrange);
+                            orderComment, RSI_Magic, 0, clrOrange);
       if(ticket > 0) Print("[RSI蝗槫ｽ綻 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
       if(ticket > 0)
       {
-         string sellReason = "RSI_Reversal sell order sent on " + TimeframeLabel(RSI_Timeframe);
-         string detail = "reversal=Y band=Y";
+         AppendTradeEventLink(eventId, ticket, 1, gSymbol, RSI_Timeframe, "SELL_ORDER_SENT", "SELL", 100,
+                              bid, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(1, "SELL_ORDER_SENT", sellReason, 100);
-         LogStrategySignal(1, gSymbol, RSI_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(1, gSymbol, RSI_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       else
       {
          string failReason = "RSI sell setup failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "reversal=Y band=Y";
          SetStrategyDiagnostic(1, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(1, gSymbol, RSI_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(1, gSymbol, RSI_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       return;
    }
@@ -1947,24 +2093,29 @@ void Strategy_MACD_Divergence_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "bullDiv=Y bearDiv=N";
+      string buyReason = "Bullish MACD divergence triggered a buy";
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_MACD_Div_BUY", virtualLots, eventId);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_MACD_Div_BUY", virtualLots), MACD_Magic, 0, clrAqua);
+                            orderComment, MACD_Magic, 0, clrAqua);
       if(ticket > 0) Print("[MACD閭檎ｦｻ] 蠎戊レ遖ｻ荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
       if(ticket > 0)
       {
-         string buyReason = "Bullish MACD divergence triggered a buy";
-         string detail = "bullDiv=Y bearDiv=N";
+         AppendTradeEventLink(eventId, ticket, 3, gSymbol, MACD_Timeframe, "BUY_ORDER_SENT", "BUY", 100,
+                              ask, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(3, "BUY_ORDER_SENT", buyReason, 100);
-         LogStrategySignal(3, gSymbol, MACD_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100, 100, 0, detail);
+         LogStrategySignalWithEvent(3, gSymbol, MACD_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100,
+                                    100, 0, detail, eventId);
       }
       else
       {
          string failReason = "Bullish MACD divergence failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "bullDiv=Y bearDiv=N";
          SetStrategyDiagnostic(3, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(3, gSymbol, MACD_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100, 100, 0, detail);
+         LogStrategySignalWithEvent(3, gSymbol, MACD_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100,
+                                    100, 0, detail, eventId);
       }
       return;
    }
@@ -1977,24 +2128,29 @@ void Strategy_MACD_Divergence_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "bullDiv=N bearDiv=Y";
+      string sellReason = "Bearish MACD divergence triggered a sell";
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_MACD_Div_SELL", virtualLots, eventId);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_MACD_Div_SELL", virtualLots), MACD_Magic, 0, clrCrimson);
+                            orderComment, MACD_Magic, 0, clrCrimson);
       if(ticket > 0) Print("[MACD閭檎ｦｻ] 鬘ｶ閭檎ｦｻ蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
       if(ticket > 0)
       {
-         string sellReason = "Bearish MACD divergence triggered a sell";
-         string detail = "bullDiv=N bearDiv=Y";
+         AppendTradeEventLink(eventId, ticket, 3, gSymbol, MACD_Timeframe, "SELL_ORDER_SENT", "SELL", 100,
+                              bid, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(3, "SELL_ORDER_SENT", sellReason, 100);
-         LogStrategySignal(3, gSymbol, MACD_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100, 0, 100, detail);
+         LogStrategySignalWithEvent(3, gSymbol, MACD_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100,
+                                    0, 100, detail, eventId);
       }
       else
       {
          string failReason = "Bearish MACD divergence failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "bullDiv=N bearDiv=Y";
          SetStrategyDiagnostic(3, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(3, gSymbol, MACD_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100, 0, 100, detail);
+         LogStrategySignalWithEvent(3, gSymbol, MACD_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100,
+                                    0, 100, detail, eventId);
       }
       return;
    }
@@ -2067,24 +2223,29 @@ void Strategy_SR_Breakout_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "prevBelow=Y break=Y volume=" + BoolLabel(volumeConfirm);
+      string buyReason = "SR_Breakout resistance breakout buy";
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_SR_Break_BUY", virtualLots, eventId);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_SR_Break_BUY", virtualLots), SR_Magic, 0, clrSpringGreen);
+                            orderComment, SR_Magic, 0, clrSpringGreen);
       if(ticket > 0) Print("[SR遯∫ｴ] 遯∫ｴ髦ｻ蜉帑ｹｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol, " R=", resistance);
       if(ticket > 0)
       {
-         string buyReason = "SR_Breakout resistance breakout buy";
-         string detail = "prevBelow=Y break=Y volume=" + BoolLabel(volumeConfirm);
+         AppendTradeEventLink(eventId, ticket, 4, gSymbol, SR_Timeframe, "BUY_ORDER_SENT", "BUY", 100,
+                              ask, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(4, "BUY_ORDER_SENT", buyReason, 100);
-         LogStrategySignal(4, gSymbol, SR_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(4, gSymbol, SR_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       else
       {
          string failReason = "SR breakout buy failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "prevBelow=Y break=Y volume=" + BoolLabel(volumeConfirm);
          SetStrategyDiagnostic(4, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(4, gSymbol, SR_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(4, gSymbol, SR_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       return;
    }
@@ -2097,24 +2258,29 @@ void Strategy_SR_Breakout_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "prevAbove=Y break=Y volume=" + BoolLabel(volumeConfirm);
+      string sellReason = "SR_Breakout support breakdown sell";
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_SR_Break_SELL", virtualLots, eventId);
 
       ResetLastError();
       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_SR_Break_SELL", virtualLots), SR_Magic, 0, clrTomato);
+                            orderComment, SR_Magic, 0, clrTomato);
       if(ticket > 0) Print("[SR遯∫ｴ] 霍檎ｴ謾ｯ謦大獄蜃ｺ ", lots, " 謇・@ ", bid, " | ", gSymbol, " S=", support);
       if(ticket > 0)
       {
-         string sellReason = "SR_Breakout support breakdown sell";
-         string detail = "prevAbove=Y break=Y volume=" + BoolLabel(volumeConfirm);
+         AppendTradeEventLink(eventId, ticket, 4, gSymbol, SR_Timeframe, "SELL_ORDER_SENT", "SELL", 100,
+                              bid, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(4, "SELL_ORDER_SENT", sellReason, 100);
-         LogStrategySignal(4, gSymbol, SR_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(4, gSymbol, SR_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       else
       {
          string failReason = "SR breakout sell failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "prevAbove=Y break=Y volume=" + BoolLabel(volumeConfirm);
          SetStrategyDiagnostic(4, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(4, gSymbol, SR_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(4, gSymbol, SR_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       return;
    }
@@ -2854,12 +3020,22 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
                      string signalReason, string signalDirection, double signalScore,
                      double buyScore, double sellScore, string detail)
 {
+   AppendSignalLogWithEvent(strategyIndex, symbol_name, timeframe, signalStatus, signalReason,
+                            signalDirection, signalScore, buyScore, sellScore, detail, "");
+}
+
+void AppendSignalLogWithEvent(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
+                              string signalReason, string signalDirection, double signalScore,
+                              double buyScore, double sellScore, string detail, string eventId)
+{
    if(!EnableSignalLog)
       return;
 
    SignalFeatureSnapshot snapshot;
    BuildSignalFeatureSnapshot(symbol_name, timeframe, snapshot);
-   string eventId = BuildSignalEventId();
+   string resolvedEventId = eventId;
+   if(resolvedEventId == "")
+      resolvedEventId = BuildSignalEventId();
 
    int handle = FileOpen("QuantGod_SignalLog.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
    if(handle == INVALID_HANDLE)
@@ -2894,7 +3070,7 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
    int strategyPositions = (magic > 0) ? CountStrategyPositionsForSymbol(magic, symbol_name) : 0;
 
    FileWrite(handle,
-             eventId,
+             resolvedEventId,
              TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
              TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
              TimeToStr(snapshot.eventBarTime, TIME_DATE|TIME_MINUTES),
@@ -2954,13 +3130,21 @@ void AppendSignalLog(int strategyIndex, string symbol_name, int timeframe, strin
              SanitizeCsvText(detail));
 
    FileClose(handle);
-   AppendOpportunityQueue(eventId, strategyIndex, symbol_name, timeframe, signalStatus,
+   AppendOpportunityQueue(resolvedEventId, strategyIndex, symbol_name, timeframe, signalStatus,
                           signalDirection, signalScore, buyScore, sellScore, detail, snapshot);
 }
 
 void LogStrategySignal(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
                        string signalReason, string signalDirection, double signalScore,
                        double buyScore, double sellScore, string detail)
+{
+   LogStrategySignalWithEvent(strategyIndex, symbol_name, timeframe, signalStatus, signalReason,
+                              signalDirection, signalScore, buyScore, sellScore, detail, "");
+}
+
+void LogStrategySignalWithEvent(int strategyIndex, string symbol_name, int timeframe, string signalStatus,
+                                string signalReason, string signalDirection, double signalScore,
+                                double buyScore, double sellScore, string detail, string eventId)
 {
    bool transitionOnly = (signalStatus == "AUTO_PAUSED");
    string eventKey = signalStatus + "|" + signalDirection;
@@ -2976,8 +3160,8 @@ void LogStrategySignal(int strategyIndex, string symbol_name, int timeframe, str
    if(!ShouldLogSignalEvent(strategyIndex, symbol_name, timeframe, eventKey, transitionOnly))
       return;
 
-   AppendSignalLog(strategyIndex, symbol_name, timeframe, signalStatus, signalReason,
-                   signalDirection, signalScore, buyScore, sellScore, detail);
+   AppendSignalLogWithEvent(strategyIndex, symbol_name, timeframe, signalStatus, signalReason,
+                            signalDirection, signalScore, buyScore, sellScore, detail, eventId);
 }
 
 bool CanSyncToCloud()
@@ -3340,25 +3524,30 @@ void Strategy_MA_Cross()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "cross=Y trend=Y spread=" + BoolLabel(spreadOk) + " dist=" + BoolLabel(entryDistanceOk);
+      string buyReason = "MA_Cross buy order sent on " + TimeframeLabel(MA_Timeframe);
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_MA_Cross_BUY", virtualLots, eventId);
 
       ResetLastError();
       buyTicket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_MA_Cross_BUY", virtualLots), MA_Magic, 0, clrLime);
+                            orderComment, MA_Magic, 0, clrLime);
       ticket = buyTicket;
       if(ticket > 0) Print("[MA莠､蜿云 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol);
       if(ticket > 0)
       {
-         string buyReason = "MA_Cross buy order sent on " + TimeframeLabel(MA_Timeframe);
-         string detail = "cross=Y trend=Y spread=" + BoolLabel(spreadOk) + " dist=" + BoolLabel(entryDistanceOk);
+         AppendTradeEventLink(eventId, ticket, 0, gSymbol, MA_Timeframe, "BUY_ORDER_SENT", "BUY", 100,
+                              ask, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(0, "BUY_ORDER_SENT", buyReason, 100);
-         LogStrategySignal(0, gSymbol, MA_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(0, gSymbol, MA_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       else
       {
          string failReason = "MA buy setup failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "cross=Y trend=Y spread=" + BoolLabel(spreadOk) + " dist=" + BoolLabel(entryDistanceOk);
          SetStrategyDiagnostic(0, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(0, gSymbol, MA_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(0, gSymbol, MA_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       return;
    }
@@ -3372,25 +3561,30 @@ void Strategy_MA_Cross()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "cross=Y trend=Y spread=" + BoolLabel(spreadOk) + " dist=" + BoolLabel(entryDistanceOk);
+      string sellReason = "MA_Cross sell order sent on " + TimeframeLabel(MA_Timeframe);
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_MA_Cross_SELL", virtualLots, eventId);
 
       ResetLastError();
       sellTicket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_MA_Cross_SELL", virtualLots), MA_Magic, 0, clrRed);
+                            orderComment, MA_Magic, 0, clrRed);
       ticket = sellTicket;
       if(ticket > 0) Print("[MA莠､蜿云 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol);
       if(ticket > 0)
       {
-         string sellReason = "MA_Cross sell order sent on " + TimeframeLabel(MA_Timeframe);
-         string detail = "cross=Y trend=Y spread=" + BoolLabel(spreadOk) + " dist=" + BoolLabel(entryDistanceOk);
+         AppendTradeEventLink(eventId, ticket, 0, gSymbol, MA_Timeframe, "SELL_ORDER_SENT", "SELL", 100,
+                              bid, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(0, "SELL_ORDER_SENT", sellReason, 100);
-         LogStrategySignal(0, gSymbol, MA_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(0, gSymbol, MA_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       else
       {
          string failReason = "MA sell setup failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "cross=Y trend=Y spread=" + BoolLabel(spreadOk) + " dist=" + BoolLabel(entryDistanceOk);
          SetStrategyDiagnostic(0, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(0, gSymbol, MA_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100, buyScore, sellScore, detail);
+         LogStrategySignalWithEvent(0, gSymbol, MA_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100,
+                                    buyScore, sellScore, detail, eventId);
       }
       return;
    }
@@ -3535,27 +3729,32 @@ void Strategy_BB_Triple()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "band=Y rsi=Y macd=" + BoolLabel(macdBuyConfirm);
+      string buyReason = "BB_Triple buy order sent on " + TimeframeLabel(BB_Timeframe);
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_BB_Triple_BUY", virtualLots, eventId);
 
-       ResetLastError();
-       int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_BB_Triple_BUY", virtualLots), BB_Magic, 0, clrGold);
-       if(ticket > 0) Print("[BB荳蛾㍾] 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol, " TP->荳願ｽｨ");
-       if(ticket > 0)
+      ResetLastError();
+      int ticket = SafeOrderSend(gSymbol, OP_BUY, lots, ask, 3, slPrice, tpPrice,
+                           orderComment, BB_Magic, 0, clrGold);
+      if(ticket > 0) Print("[BB荳蛾㍾] 荵ｰ蜈･ ", lots, " 謇・@ ", ask, " | ", gSymbol, " TP->荳願ｽｨ");
+      if(ticket > 0)
       {
-         string buyReason = "BB_Triple buy order sent on " + TimeframeLabel(BB_Timeframe);
-         string detail = "band=Y rsi=Y macd=" + BoolLabel(macdBuyConfirm);
+         AppendTradeEventLink(eventId, ticket, 2, gSymbol, BB_Timeframe, "BUY_ORDER_SENT", "BUY", 100,
+                              ask, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(2, "BUY_ORDER_SENT", buyReason, 100);
-         LogStrategySignal(2, gSymbol, BB_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100, 100, 0, detail);
+         LogStrategySignalWithEvent(2, gSymbol, BB_Timeframe, "BUY_ORDER_SENT", buyReason, "BUY", 100,
+                                    100, 0, detail, eventId);
       }
-       else
+      else
       {
          string failReason = "BB triple buy failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "band=Y rsi=Y macd=" + BoolLabel(macdBuyConfirm);
          SetStrategyDiagnostic(2, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(2, gSymbol, BB_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100, 100, 0, detail);
+         LogStrategySignalWithEvent(2, gSymbol, BB_Timeframe, "ORDER_SEND_FAILED", failReason, "BUY", 100,
+                                    100, 0, detail, eventId);
       }
-       return;
-    }
+      return;
+   }
 
     // 荳蛾㍾遑ｮ隶､蜊門・
    bool bbSellSignal = (close1 >= bbUpper * 0.995);
@@ -3571,27 +3770,32 @@ void Strategy_BB_Triple()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
+      string detail = "band=Y rsi=Y macd=" + BoolLabel(macdSellConfirm);
+      string sellReason = "BB_Triple sell order sent on " + TimeframeLabel(BB_Timeframe);
+      string eventId = BuildSignalEventId();
+      string orderComment = BuildManagedOrderCommentWithEvent("QG_BB_Triple_SELL", virtualLots, eventId);
 
-       ResetLastError();
-       int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
-                            BuildManagedOrderComment("QG_BB_Triple_SELL", virtualLots), BB_Magic, 0, clrMagenta);
-       if(ticket > 0) Print("[BB荳蛾㍾] 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol, " TP->荳玖ｽｨ");
-       if(ticket > 0)
+      ResetLastError();
+      int ticket = SafeOrderSend(gSymbol, OP_SELL, lots, bid, 3, slPrice, tpPrice,
+                           orderComment, BB_Magic, 0, clrMagenta);
+      if(ticket > 0) Print("[BB荳蛾㍾] 蜊門・ ", lots, " 謇・@ ", bid, " | ", gSymbol, " TP->荳玖ｽｨ");
+      if(ticket > 0)
       {
-         string sellReason = "BB_Triple sell order sent on " + TimeframeLabel(BB_Timeframe);
-         string detail = "band=Y rsi=Y macd=" + BoolLabel(macdSellConfirm);
+         AppendTradeEventLink(eventId, ticket, 2, gSymbol, BB_Timeframe, "SELL_ORDER_SENT", "SELL", 100,
+                              bid, slPrice, tpPrice, lots, virtualLots, orderComment);
          SetStrategyDiagnostic(2, "SELL_ORDER_SENT", sellReason, 100);
-         LogStrategySignal(2, gSymbol, BB_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100, 0, 100, detail);
+         LogStrategySignalWithEvent(2, gSymbol, BB_Timeframe, "SELL_ORDER_SENT", sellReason, "SELL", 100,
+                                    0, 100, detail, eventId);
       }
-       else
+      else
       {
          string failReason = "BB triple sell failed, error=" + IntegerToString(gLastOrderSendError);
-         string detail = "band=Y rsi=Y macd=" + BoolLabel(macdSellConfirm);
          SetStrategyDiagnostic(2, "ORDER_SEND_FAILED", failReason, 100);
-         LogStrategySignal(2, gSymbol, BB_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100, 0, 100, detail);
+         LogStrategySignalWithEvent(2, gSymbol, BB_Timeframe, "ORDER_SEND_FAILED", failReason, "SELL", 100,
+                                    0, 100, detail, eventId);
       }
-       return;
-    }
+      return;
+   }
 
    double buyScore = (double)((bbBuySignal ? 1 : 0) + (rsiBuySignal ? 1 : 0) + (macdBuyConfirm ? 1 : 0)) / 3.0 * 100.0;
    double sellScore = (double)((bbSellSignal ? 1 : 0) + (rsiSellSignal ? 1 : 0) + (macdSellConfirm ? 1 : 0)) / 3.0 * 100.0;
@@ -4465,6 +4669,281 @@ void LoadTradeLogState()
    FileClose(handle);
 }
 
+void AppendTradeEventLink(string eventId, int ticket, int strategyIndex, string symbol_name, int timeframe,
+                          string signalStatus, string signalDirection, double signalScore,
+                          double requestedPrice, double stopLoss, double takeProfit,
+                          double actualLots, double researchLots, string orderComment)
+{
+   if(eventId == "" || ticket <= 0)
+      return;
+
+   int handle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_CSV | FILE_ANSI | FILE_READ | FILE_WRITE, ',');
+   if(handle == INVALID_HANDLE)
+      handle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to open QuantGod_TradeEventLinks.csv, error=", GetLastError());
+      return;
+   }
+
+   if(FileSize(handle) == 0)
+   {
+      FileWrite(handle,
+                "EventId", "EventKey", "Ticket", "TimeLocal", "TimeServer", "Strategy", "Symbol", "Timeframe",
+                "SignalStatus", "SignalDirection", "SignalScore", "EventBarTime",
+                "RequestedPrice", "StopLoss", "TakeProfit", "ActualLots", "ResearchLots", "OrderComment");
+   }
+   else
+      FileSeek(handle, 0, SEEK_END);
+
+   datetime eventBarTime = iTime(symbol_name, timeframe, 1);
+   if(eventBarTime <= 0)
+      eventBarTime = TimeCurrent();
+
+   FileWrite(handle,
+             eventId,
+             ParseTaggedText(orderComment, "|e="),
+             ticket,
+             TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+             TimeToStr(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+             GetStrategyNameByIndex(strategyIndex),
+             symbol_name,
+             TimeframeLabel(timeframe),
+             signalStatus,
+             signalDirection,
+             DoubleToStr(signalScore, 1),
+             TimeToStr(eventBarTime, TIME_DATE|TIME_MINUTES),
+             DoubleToStr(requestedPrice, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(stopLoss, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(takeProfit, DigitsForSymbolName(symbol_name)),
+             DoubleToStr(actualLots, 2),
+             DoubleToStr(researchLots, 5),
+             orderComment);
+
+   FileClose(handle);
+}
+
+bool LoadTradeEventLinks(TradeEventLink &links[], int &linkCount)
+{
+   linkCount = 0;
+   ArrayResize(links, 0);
+
+   int handle = FileOpen("QuantGod_TradeEventLinks.csv", FILE_CSV | FILE_ANSI | FILE_READ, ',');
+   if(handle == INVALID_HANDLE)
+      return false;
+
+   while(!FileIsEnding(handle))
+   {
+      string eventId = FileReadString(handle);
+      if(FileIsEnding(handle) && eventId == "")
+         break;
+
+      string eventKey = FileReadString(handle);
+      int ticket = (int)StrToInteger(FileReadString(handle));
+      string timeLocal = FileReadString(handle);
+      string timeServer = FileReadString(handle);
+      string strategy = FileReadString(handle);
+      string symbolName = FileReadString(handle);
+      string timeframe = FileReadString(handle);
+      string signalStatus = FileReadString(handle);
+      string signalDirection = FileReadString(handle);
+      double signalScore = StrToDouble(FileReadString(handle));
+      string eventBarTime = FileReadString(handle);
+      double requestedPrice = StrToDouble(FileReadString(handle));
+      double stopLoss = StrToDouble(FileReadString(handle));
+      double takeProfit = StrToDouble(FileReadString(handle));
+      double actualLots = StrToDouble(FileReadString(handle));
+      double researchLots = StrToDouble(FileReadString(handle));
+      string orderComment = FileReadString(handle);
+
+      if(eventId == "" || eventId == "EventId")
+         continue;
+
+      int nextIndex = linkCount;
+      ArrayResize(links, nextIndex + 1);
+      links[nextIndex].eventId = eventId;
+      links[nextIndex].eventKey = eventKey;
+      links[nextIndex].ticket = ticket;
+      links[nextIndex].strategy = strategy;
+      links[nextIndex].symbol = symbolName;
+      links[nextIndex].timeframe = timeframe;
+      links[nextIndex].signalStatus = signalStatus;
+      links[nextIndex].signalDirection = signalDirection;
+      links[nextIndex].signalScore = signalScore;
+      links[nextIndex].eventTimeServer = StrToTime(timeServer);
+      links[nextIndex].eventBarTime = StrToTime(eventBarTime);
+      links[nextIndex].requestedPrice = requestedPrice;
+      links[nextIndex].stopLoss = stopLoss;
+      links[nextIndex].takeProfit = takeProfit;
+      links[nextIndex].actualLots = actualLots;
+      links[nextIndex].researchLots = researchLots;
+      links[nextIndex].orderComment = orderComment;
+      linkCount++;
+   }
+
+   FileClose(handle);
+   return linkCount > 0;
+}
+
+int FindTradeEventLinkIndexByTicket(TradeEventLink &links[], int linkCount, int ticket)
+{
+   for(int i = 0; i < linkCount; i++)
+   {
+      if(links[i].ticket == ticket)
+         return i;
+   }
+   return -1;
+}
+
+int FindTradeEventLinkIndexByEventKey(TradeEventLink &links[], int linkCount, string eventKey)
+{
+   if(eventKey == "")
+      return -1;
+
+   for(int i = 0; i < linkCount; i++)
+   {
+      if(links[i].eventKey == eventKey)
+         return i;
+   }
+   return -1;
+}
+
+double GetInitialRiskPipsFromLink(TradeEventLink &link, int orderType, double openPrice, string symbol_name)
+{
+   if(orderType == OP_BUY && link.stopLoss > 0.0)
+      return MathAbs(PriceToPips(openPrice - link.stopLoss, symbol_name));
+   if(orderType == OP_SELL && link.stopLoss > 0.0)
+      return MathAbs(PriceToPips(link.stopLoss - openPrice, symbol_name));
+   return 0.0;
+}
+
+string GetTradeOutcomeFromPips(double realizedPips)
+{
+   if(realizedPips > 0.1)
+      return "POSITIVE";
+   if(realizedPips < -0.1)
+      return "NEGATIVE";
+   return "FLAT";
+}
+
+string DetectTradeCloseReason(int orderType, double closePrice, double stopLoss, double takeProfit,
+                              int durationMinutes, int timeframe, string comment, string symbol_name)
+{
+   string upperComment = comment;
+   StringToUpper(upperComment);
+   if(StringFind(upperComment, "[TP]") >= 0)
+      return "TAKE_PROFIT";
+   if(StringFind(upperComment, "[SL]") >= 0)
+      return "STOP_LOSS";
+
+   double tolerancePrice = PipsToPrice(MathMax(0.3, GetSpreadPips(symbol_name) * 0.5), symbol_name);
+   if(takeProfit > 0.0 && MathAbs(closePrice - takeProfit) <= tolerancePrice)
+      return "TAKE_PROFIT";
+   if(stopLoss > 0.0 && MathAbs(closePrice - stopLoss) <= tolerancePrice)
+      return "STOP_LOSS";
+
+   int maxHoldMinutes = GetResearchMaxHoldMinutes(timeframe);
+   if(EnableResearchFastExit && maxHoldMinutes > 0 && durationMinutes >= maxHoldMinutes)
+      return "TIME_EXIT_OR_FAST_EXIT";
+
+   return "MANUAL_OR_OTHER";
+}
+
+void ExportTradeOutcomeLabels()
+{
+   TradeEventLink links[];
+   int linkCount = 0;
+   LoadTradeEventLinks(links, linkCount);
+
+   int handle = FileOpen("QuantGod_TradeOutcomeLabels.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[QuantGod] Failed to open QuantGod_TradeOutcomeLabels.csv, error=", GetLastError());
+      return;
+   }
+
+   FileWrite(handle,
+             "EventId", "LinkStatus", "Ticket", "Strategy", "Symbol", "Timeframe", "SignalDirection", "SignalScore",
+             "EventTimeServer", "EventBarTime", "OpenTime", "CloseTime", "OrderType", "ActualLots", "ResearchLots",
+             "EntryPrice", "ClosePrice", "EntrySL", "EntryTP", "InitialRiskPips", "RealizedPips",
+             "ActualNet", "ResearchNet", "DurationMinutes", "Outcome", "CloseReason", "OrderComment");
+
+   int historyTotal = OrdersHistoryTotal();
+   for(int i = 0; i < historyTotal; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(!IsManagedSymbol(OrderSymbol()) || !IsManagedMagic(OrderMagicNumber())) continue;
+      if(UseVirtualResearchAccount && IgnoreLegacyTradesInVirtualStats && !HasResearchTag(OrderComment())) continue;
+
+      int linkIndex = FindTradeEventLinkIndexByTicket(links, linkCount, OrderTicket());
+      if(linkIndex < 0)
+      {
+         string historyEventKey = ParseTaggedText(OrderComment(), "|e=");
+         linkIndex = FindTradeEventLinkIndexByEventKey(links, linkCount, historyEventKey);
+      }
+
+      TradeEventLink link;
+      bool linked = (linkIndex >= 0);
+      if(linked)
+         link = links[linkIndex];
+
+      string strategyName = linked ? link.strategy : GetStrategyName(OrderMagicNumber());
+      string timeframeLabel = linked ? link.timeframe : TimeframeLabel(GetStrategyTimeframeByMagic(OrderMagicNumber()));
+      string signalDirection = linked
+                               ? link.signalDirection
+                               : ((OrderType() == OP_BUY) ? "BUY" : "SELL");
+      double signalScore = linked ? link.signalScore : 0.0;
+      double entryStopLoss = linked ? link.stopLoss : OrderStopLoss();
+      double entryTakeProfit = linked ? link.takeProfit : OrderTakeProfit();
+      double initialRiskPips = linked
+                               ? GetInitialRiskPipsFromLink(link, OrderType(), OrderOpenPrice(), OrderSymbol())
+                               : 0.0;
+      double realizedPips = (OrderType() == OP_BUY)
+                            ? PriceToPips(OrderClosePrice() - OrderOpenPrice(), OrderSymbol())
+                            : PriceToPips(OrderOpenPrice() - OrderClosePrice(), OrderSymbol());
+      double actualNet = OrderProfit() + OrderSwap() + OrderCommission();
+      double researchLots = linked ? link.researchLots : GetResearchLotsFromComment(OrderComment(), OrderLots());
+      double researchNet = ScaleResearchNet(actualNet, OrderLots(), OrderComment());
+      int durationMinutes = (int)((OrderCloseTime() - OrderOpenTime()) / 60);
+      string closeReason = DetectTradeCloseReason(OrderType(), OrderClosePrice(), entryStopLoss, entryTakeProfit,
+                                                  durationMinutes, GetStrategyTimeframeByMagic(OrderMagicNumber()),
+                                                  OrderComment(), OrderSymbol());
+      string outcome = GetTradeOutcomeFromPips(realizedPips);
+
+      FileWrite(handle,
+                linked ? link.eventId : "",
+                linked ? "LINKED" : "UNLINKED",
+                OrderTicket(),
+                strategyName,
+                OrderSymbol(),
+                timeframeLabel,
+                signalDirection,
+                DoubleToStr(signalScore, 1),
+                linked && link.eventTimeServer > 0 ? TimeToStr(link.eventTimeServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "",
+                linked && link.eventBarTime > 0 ? TimeToStr(link.eventBarTime, TIME_DATE|TIME_MINUTES) : "",
+                TimeToStr(OrderOpenTime(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                TimeToStr(OrderCloseTime(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                (OrderType() == OP_BUY ? "BUY" : "SELL"),
+                DoubleToStr(OrderLots(), 2),
+                DoubleToStr(researchLots, 5),
+                DoubleToStr(OrderOpenPrice(), DigitsForSymbolName(OrderSymbol())),
+                DoubleToStr(OrderClosePrice(), DigitsForSymbolName(OrderSymbol())),
+                DoubleToStr(entryStopLoss, DigitsForSymbolName(OrderSymbol())),
+                DoubleToStr(entryTakeProfit, DigitsForSymbolName(OrderSymbol())),
+                DoubleToStr(initialRiskPips, 1),
+                DoubleToStr(realizedPips, 1),
+                DoubleToStr(actualNet, 2),
+                DoubleToStr(researchNet, 2),
+                durationMinutes,
+                outcome,
+                closeReason,
+                OrderComment());
+   }
+
+   FileClose(handle);
+}
+
 void SaveTradeLogState()
 {
    int handle = FileOpen("QuantGod_LogState.csv", FILE_CSV | FILE_ANSI | FILE_WRITE, ',');
@@ -4530,6 +5009,7 @@ void AuditClosedTrades()
    if(historyTotal <= 0)
    {
       FileClose(handle);
+      ExportTradeOutcomeLabels();
       return;
    }
 
@@ -4584,6 +5064,7 @@ void AuditClosedTrades()
    }
 
    FileClose(handle);
+   ExportTradeOutcomeLabels();
 }
 
 void ExportBalanceHistoryV2()

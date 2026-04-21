@@ -64,6 +64,8 @@
 - `MQL4/Files/QuantGod_SignalLog.csv`
 - `MQL4/Files/QuantGod_SignalOpportunityQueue.csv`
 - `MQL4/Files/QuantGod_OpportunityLabels.csv`
+- `MQL4/Files/QuantGod_TradeEventLinks.csv`
+- `MQL4/Files/QuantGod_TradeOutcomeLabels.csv`
 - `MQL4/Files/QuantGod_AdaptiveStateHistory.csv`
 - `MQL4/Files/QuantGod_StrategyEvaluationReport.csv`
 
@@ -82,21 +84,23 @@
 
 以下数据基于本地运行文件的统一快照:
 
-- 时间: `2026.04.21 14:45:48` 本地
+- 时间: `2026.04.21 15:14:18` 本地
 - Build: `QuantGod-v2.7-fast-exit`
 - 模式: `virtual_research`
 - 观察品种: `EURUSD,USDJPY`
 - 当前持仓: 2 笔
-- 已平仓样本: 24 笔
-- `SignalLog` 行数: 465
-- `OpportunityLabels` 行数: 6
+- 已平仓样本: 25 笔
+- `SignalLog` 行数: 843
+- `OpportunityLabels` 行数: 14
+- `TradeOutcomeLabels` 行数: 25
+- `TradeEventLinks` 行数: 1
 - `StrategyEvaluationReport` 行数: 10
 
 ### 3.1 按策略的已平仓样本
 
 | 策略 | 已平仓 | 胜率 | 研究净收益 |
 |---|---:|---:|---:|
-| `MA_Cross` | 2 | 50.0% | 0.01 |
+| `MA_Cross` | 3 | 66.7% | 0.09 |
 | `RSI_Reversal` | 15 | 40.0% | -0.14 |
 | `MACD_Divergence` | 7 | 28.6% | -0.01 |
 | `BB_Triple` | 0 | 0.0% | 0.00 |
@@ -107,7 +111,7 @@
 | 策略 | 品种 | 已平仓 | 研究净收益 |
 |---|---|---:|---:|
 | `MA_Cross` | `EURUSD` | 1 | 0.00 |
-| `MA_Cross` | `USDJPY` | 1 | 0.01 |
+| `MA_Cross` | `USDJPY` | 2 | 0.09 |
 | `RSI_Reversal` | `EURUSD` | 8 | -0.07 |
 | `RSI_Reversal` | `USDJPY` | 7 | -0.07 |
 | `MACD_Divergence` | `EURUSD` | 5 | 0.01 |
@@ -124,11 +128,11 @@
 
 | 策略 | `SignalLog` 行数 | 已覆盖 regime |
 |---|---:|---|
-| `MA_Cross` | 9 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
-| `RSI_Reversal` | 441 | `RANGE_HIGHVOL / TRANSITION` |
-| `BB_Triple` | 3 | `RANGE_HIGHVOL / TRANSITION` |
-| `MACD_Divergence` | 3 | `RANGE_HIGHVOL / TRANSITION` |
-| `SR_Breakout` | 9 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
+| `MA_Cross` | 62 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
+| `RSI_Reversal` | 783 | `RANGE_HIGHVOL / TRANSITION` |
+| `BB_Triple` | 7 | `RANGE_HIGHVOL / TRANSITION` |
+| `MACD_Divergence` | 7 | `RANGE_HIGHVOL / TRANSITION` |
+| `SR_Breakout` | 15 | `RANGE / TRANSITION / TREND_EXP / TREND_EXP_DOWN / TREND_EXP_UP` |
 
 结论:
 
@@ -140,16 +144,30 @@
 
 | 策略 | 标签数 | 有方向标签数 | Bias 命中 | Bias 命中率 |
 |---|---:|---:|---:|---:|
-| `MA_Cross` | 1 | 1 | 1 | 100.0% |
-| `BB_Triple` | 2 | 2 | 1 | 50.0% |
-| `MACD_Divergence` | 2 | 0 | 0 | 0.0% |
-| `SR_Breakout` | 1 | 1 | 0 | 0.0% |
+| `MA_Cross` | 5 | 5 | 0 | 0.0% |
+| `BB_Triple` | 2 | 2 | 0 | 0.0% |
+| `MACD_Divergence` | 2 | 2 | 0 | 0.0% |
+| `SR_Breakout` | 5 | 5 | 0 | 0.0% |
 | `RSI_Reversal` | 0 | 0 | 0 | 0.0% |
 
 结论:
 
 - `OpportunityLabels` 功能已经打通。
 - 但总体样本量还非常小，当前更适合用于 dashboard 观察，不适合直接驱动策略升级。
+
+### 3.5 交易标签闭环现状
+
+| 文件 | 当前状态 | 说明 |
+|---|---|---|
+| `QuantGod_TradeEventLinks.csv` | 已生成 | 当前已有 1 条 `EventId -> Ticket` 精确映射 |
+| `QuantGod_TradeOutcomeLabels.csv` | 已生成 | 当前已有 25 条平仓结果导出 |
+
+当前观测到:
+
+- `TradeOutcomeLabels` 里 `LINKED = 0`，`UNLINKED = 25`
+- 这是符合预期的，因为现有 25 条历史平仓发生在这次 `EventId -> Ticket` 持久化上线之前
+- 新版本上线后，已经有新的 `TradeEventLinks` 记录写入；等这批新单平仓后，`LINKED` 行会开始出现
+- 这意味着“主链路首版已经落地”，但“历史数据全量精确回挂”不可能自动补齐
 
 ## 4. 已实现的能力
 
@@ -395,11 +413,12 @@
 - regime
 - adaptive state
 - opportunity labels
+- `EventId -> Ticket -> TradeOutcomeLabels` 首版链路
 
 未实现:
 
-- 交易标签与信号事件的强关联主键
-- 同一信号从“评估 -> 下单 -> 平仓结果”的完整生命周期拼接
+- 历史旧单的精确回挂
+- 同一信号从“评估 -> 下单 -> 平仓结果 -> 机会标签”的统一生命周期拼接
 - 标准化布尔条件列
 
 说明:
@@ -442,6 +461,25 @@
 - walk-forward 结果展示
 - canary / rollback 面板
 - 每策略数据门槛进度条
+
+### 5.5 TradeOutcomeLabels 首版
+
+状态: 部分实现
+
+已实现:
+
+- 下单前生成 `Signal EventId`
+- 下单成功时把 `EventId -> Ticket` 写入 `QuantGod_TradeEventLinks.csv`
+- 平仓审计时导出 `QuantGod_TradeOutcomeLabels.csv`
+- 对新版本上线后的成交，支持按 `Ticket` 精确回挂到原始信号事件
+- 对旧历史成交，保留 `UNLINKED` 导出而不是静默丢失
+
+未实现:
+
+- 上线前历史交易的精确回补
+- `TradeOutcomeLabels` 与 `OpportunityLabels` 的统一聚合视图
+- `RealizedR / MFE / MAE / HoldBars` 这类更强研究字段
+- 打开中交易的中间生命周期跟踪
 
 ## 6. 尚未实现的关键能力
 
@@ -490,16 +528,17 @@
 - 观察期自动回退
 - 参数版本切换日志
 
-### 6.4 交易标签闭环
+### 6.4 交易标签统一聚合与增强标签
 
 状态: 未实现
 
-当前虽然有 `TradeJournal.csv`，但还没有把单笔交易结果严格回挂到对应的信号事件。
+当前已经有 `TradeOutcomeLabels` 首版，但还没有完成“交易标签 + 机会标签 + 生命周期指标”的统一研究层。
 
 缺失点:
 
-- `Signal EventId -> Order -> Close Result` 的主链路
-- 每次下单信号的真实平仓标签
+- `TradeOutcomeLabels` 与 `OpportunityLabels` 的统一聚合
+- 每次下单信号的完整生命周期标签
+- `RealizedR / MFE / MAE / HoldBars` 等增强结果字段
 - 每次没下单信号的机会标签与后验结果统一聚合
 
 ### 6.5 真正的模型学习层
@@ -630,17 +669,18 @@
 - `MACD_Divergence` 有成交，但很薄
 - regime 覆盖也不均衡
 
-### 9.3 交易标签主链路没打通
+### 9.3 交易标签主链路已打通首版，但历史回补不完整
 
 系统已经能回答:
 
 - 当时是什么 regime
 - 当时信号强弱如何
 - 如果不下单，后面机会如何
+- 新版本下单信号对应的 `EventId` 和 `Ticket` 是什么
 
-但还不能稳定回答:
+仍然不能完整回答:
 
-- 某个具体 signal event 最终平仓结果是什么
+- 历史旧单的某个具体 signal event 最终平仓结果是什么
 - 哪类信号质量高、哪类信号质量低
 - 哪类过滤器真正改善了成交质量
 
@@ -656,18 +696,19 @@
 - README 只负责安装、启动、入口说明
 - 所有新功能先写入“已实现 / 部分实现 / 未实现”矩阵再改代码
 
-### 10.2 P1: 打通交易标签主链路
+### 10.2 P1: 交易标签主链路首版已完成
 
-目标:
+已完成:
 
 - 给每个下单信号保留 `EventId`
 - 在平仓后把结果回写成 trade outcome label
 
-新增建议:
+当前文件:
 
+- `QuantGod_TradeEventLinks.csv`
 - `QuantGod_TradeOutcomeLabels.csv`
 
-最关键字段:
+下一步增强字段:
 
 - `EventId`
 - `OrderTicket`
@@ -682,7 +723,10 @@
 - `MAE`
 - `DurationMinutes`
 
-这是下一阶段最值得优先做的事。
+结论:
+
+- 这条主链路已经不是待办，而是“首版已落地”
+- 下一阶段优先级应从“有没有”转成“字段做深 + 统一聚合 + 做研究可用性”
 
 ### 10.3 P2: 标准化条件列
 
@@ -774,8 +818,8 @@
 最准确的状态判断是:
 
 - 已实现: 研究执行、快出场、保护型 adaptive、signal log、机会标签、评估报表、dashboard 联动
-- 部分实现: 自学习数据层、周期性评估、研究控制台
-- 未实现: trade outcome label、walk-forward、参数候选系统、自动调参、canary/rollback、模型训练层
+- 部分实现: 自学习数据层、周期性评估、研究控制台、trade outcome label 首版
+- 未实现: walk-forward、参数候选系统、自动调参、canary/rollback、模型训练层
 
 如果只用一句话总结:
 
