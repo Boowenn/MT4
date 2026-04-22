@@ -2716,7 +2716,7 @@
                         <span class="eval-summary" id="researchWindowSummary">等待平仓摘要</span>
                     </div>
                     <div class="panel-body">
-                        <div class="research-window-meta" id="researchWindowMeta">窗口按本地时间计算：昨晚 20:00-今天 08:00，对比今天 08:00-现在。</div>
+                        <div class="research-window-meta" id="researchWindowMeta">窗口按服务器时间计算：昨晚 20:00-今天 08:00，对比今天 08:00-现在。</div>
                         <div class="research-window-grid" id="researchWindowBody">
                             <div class="empty-state">等待研究平仓样本</div>
                         </div>
@@ -4385,7 +4385,7 @@ function updateResearchWindowSummary(d) {
     const overnightLabel = `${formatResearchWindowDateTime(windows.overnightStart)} - ${formatResearchWindowDateTime(windows.overnightEnd)}`;
     const todayLabel = `${formatResearchWindowDateTime(windows.todayStart)} - ${formatResearchWindowDateTime(windows.todayEnd)}`;
 
-    metaEl.textContent = `窗口按本地时间计算：昨晚 ${overnightLabel}；今天 ${todayLabel}。适合晨检时快速对比隔夜与白天接力表现。`;
+    metaEl.textContent = `窗口按服务器时间计算：昨晚 ${overnightLabel}；今天 ${todayLabel}。适合晨检时快速对比隔夜与白天接力表现。`;
     summaryEl.textContent = `昨晚 ${overnightSummary.count} 笔 ${formatMoney(overnightSummary.net, 2)} | 今天 ${todaySummary.count} 笔 ${formatMoney(todaySummary.net, 2)}`;
     body.innerHTML = [
         renderResearchWindowCard('昨晚', overnightLabel, overnightSummary, '优先看隔夜拖累切片'),
@@ -4578,7 +4578,9 @@ function formatResearchWindowDateTime(date, withSeconds = false) {
 }
 
 function getResearchReviewWindows(d) {
-    const anchor = parseRuntimeClock(d?.runtime?.localTime) || new Date();
+    const anchor = parseRuntimeClock(d?.runtime?.serverTime)
+        || parseRuntimeClock(d?.runtime?.localTime)
+        || new Date();
     const todayStart = new Date(Date.UTC(
         anchor.getUTCFullYear(),
         anchor.getUTCMonth(),
