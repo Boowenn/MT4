@@ -43,6 +43,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that monitor focus now carries a breadcrumb explaining whether the current highlight came from a research suggestion card or a heatmap cell; stale monitor focus should be cleared when the operator jumps back into the research section.
 - Remember that `EURUSD / RSI_Reversal` now has an additional research-only guard: when virtual research mode is on, that slice requires an exact RSI crossback, a tighter Bollinger touch, and it skips mean-reversion entries during `TREND_EXP*` regimes.
 - Remember that the overview section now also contains a server-time `昨晚 vs 今天` research summary card, with windows split as `昨天 20:00 -> 今天 08:00` and `今天 08:00 -> 现在`, using MT4 server timestamps instead of local desktop time.
+- Remember that this summary card is no longer closed-trades-only; it now also surfaces window-scoped new opens and their current floating PnL, so "today has activity but no exits yet" does not look blank.
 
 ## Validation Rules
 
@@ -57,7 +58,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Check the research jump links whenever you change recommendation matching, filter state, or research-section layout, because operators now rely on one-click jumps from monitoring cards into the aligned suggestion/heatmap slice.
 - Check the reverse jumps from suggestion cards and heatmap cells whenever you change monitor-card markup or research aggregation, because operators now use those clicks to return to the right monitor card and strategy chip.
 - Check the monitor breadcrumb whenever you change reverse-jump state handling, because operators now rely on that label to understand why a symbol card or strategy chip is highlighted.
-- Check the `昨晚 vs 今天` summary card whenever you change trade timestamp parsing, server-time handling, or the closed-trade aggregation path.
+- Check the `昨晚 vs 今天` summary card whenever you change trade timestamp parsing, server-time handling, the closed-trade aggregation path, or the open-trade/floating summary path.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

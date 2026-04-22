@@ -45,6 +45,7 @@ Responsibilities:
 - Render the regime research heatmap from `QuantGod_RegimeEvaluationReport.csv`
 - Render advisory research recommendations derived from `strategy x symbol x regime` slices
 - Render a server-time `昨晚 vs 今天` research summary card in the overview section, using `昨天 20:00 -> 今天 08:00` versus `今天 08:00 -> 现在`
+- Surface both closed-trade outcomes and window-scoped new opens on that summary card, so operators can see when the current day has started trading but has not produced exits yet
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
 - Reuse the same recommendation layer inside the symbol overview strategy chips so operators can see each live `strategy x symbol` slice's current action without leaving the monitoring section

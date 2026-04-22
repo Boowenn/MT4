@@ -646,7 +646,7 @@
 
         .research-window-metrics {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 0.75rem;
         }
 
@@ -2381,7 +2381,7 @@
             .stat-card.stat-card-wide { grid-column: span 2; }
             .countdown-row { flex-direction: column; align-items: flex-start; gap: 0.4rem; }
             .radar-grid { grid-template-columns: 1fr; }
-            .research-window-metrics { grid-template-columns: 1fr; }
+            .research-window-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .strategy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .eval-card-header { flex-direction: column; }
             .eval-card-times { flex-basis: auto; text-align: left; }
@@ -4298,34 +4298,98 @@ function summarizeResearchWindowTrades(trades) {
     return summary;
 }
 
-function getResearchWindowTone(summary) {
-    if (!summary || summary.count <= 0) return 'neutral';
-    if (summary.net > 0.001) return 'positive';
-    if (summary.net < -0.001) return 'negative';
+function summarizeResearchWindowOpenTrades(trades) {
+    const strategyCounts = {};
+    const symbolCounts = {};
+    const summary = {
+        count: 0,
+        floatingNet: 0,
+        lastOpenTime: '',
+        topStrategy: '',
+        topStrategyCount: 0,
+        symbolList: []
+    };
+
+    (trades || []).forEach((trade) => {
+        const profit = Number(trade?.profit || 0);
+        const strategy = String(trade?.strategy || 'UNKNOWN');
+        const symbol = String(trade?.symbol || 'UNKNOWN');
+        summary.count += 1;
+        summary.floatingNet += profit;
+        strategyCounts[strategy] = (strategyCounts[strategy] || 0) + 1;
+        symbolCounts[symbol] = (symbolCounts[symbol] || 0) + 1;
+        if (trade?.openTime && (!summary.lastOpenTime || trade.openTime > summary.lastOpenTime)) {
+            summary.lastOpenTime = trade.openTime;
+        }
+    });
+
+    const rankedStrategies = Object.entries(strategyCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (rankedStrategies.length > 0) {
+        summary.topStrategy = rankedStrategies[0][0];
+        summary.topStrategyCount = rankedStrategies[0][1];
+    }
+    summary.symbolList = Object.entries(symbolCounts)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 3)
+        .map(([symbol]) => symbol);
+
+    return summary;
+}
+
+function getResearchWindowTone(summary, openSummary) {
+    if (summary?.count > 0) {
+        if (summary.net > 0.001) return 'positive';
+        if (summary.net < -0.001) return 'negative';
+    }
+    if (openSummary?.count > 0) {
+        if (openSummary.floatingNet > 0.001) return 'positive';
+        if (openSummary.floatingNet < -0.001) return 'negative';
+    }
     return 'neutral';
 }
 
-function renderResearchWindowCard(title, windowLabel, summary, noteLabel) {
-    const toneClass = getResearchWindowTone(summary);
-    const pfText = summary?.count ? formatProfitFactor(summary.profitFactor) : '--';
-    const netText = summary?.count ? formatMoney(summary.net, 2) : '--';
-    const winRateText = summary?.count ? `${summary.winRate.toFixed(1)}%` : '--';
-    const notePrimary = summary?.count
-        ? (summary.topStrategy
-            ? `主贡献 <strong>${escapeHtml(strategyLabel(summary.topStrategy))}</strong> ${escapeHtml(formatMoney(summary.topStrategyNet, 2))}`
-            : '暂无正贡献策略')
-        : '暂无平仓样本';
-    const noteSecondary = summary?.count
+function formatResearchWindowSummaryText(title, closedSummary, openSummary) {
+    const closedPart = `${title} ${closedSummary?.count || 0} 平`;
+    if (openSummary?.count > 0) {
+        return `${closedPart} / ${openSummary.count} 开 浮动 ${formatMoney(openSummary.floatingNet, 2)}`;
+    }
+    return `${closedPart} ${formatMoney(closedSummary?.net || 0, 2)}`;
+}
+
+function renderResearchWindowCard(title, windowLabel, summary, openSummary, noteLabel) {
+    const toneClass = getResearchWindowTone(summary, openSummary);
+    const hasClosed = (summary?.count || 0) > 0;
+    const hasOpen = (openSummary?.count || 0) > 0;
+    const pfText = hasClosed ? formatProfitFactor(summary.profitFactor) : '--';
+    const headlineText = hasClosed
+        ? formatMoney(summary.net, 2)
+        : (hasOpen ? `浮动 ${formatMoney(openSummary.floatingNet, 2)}` : '--');
+    const winRateText = hasClosed ? `${summary.winRate.toFixed(1)}%` : '--';
+    const openContext = hasOpen
+        ? `${title === '今天' ? '今天已新开' : '窗口内新开'} <strong>${openSummary.count}</strong> 笔，当前浮动 <strong>${escapeHtml(formatMoney(openSummary.floatingNet, 2))}</strong>${openSummary.topStrategy ? ` | 主力 <strong>${escapeHtml(strategyLabel(openSummary.topStrategy))}</strong>` : ''}`
+        : '';
+    const notePrimary = hasOpen
+        ? openContext
+        : (hasClosed
+            ? (summary.topStrategy
+                ? `主贡献 <strong>${escapeHtml(strategyLabel(summary.topStrategy))}</strong> ${escapeHtml(formatMoney(summary.topStrategyNet, 2))}`
+                : '暂无正贡献策略')
+            : '暂无平仓样本');
+    const noteSecondary = hasClosed
         ? (summary.lagStrategy
             ? `主拖累 <strong>${escapeHtml(strategyLabel(summary.lagStrategy))}</strong> ${escapeHtml(formatMoney(summary.lagStrategyNet, 2))}`
             : '暂无明显拖累策略')
         : `${escapeHtml(noteLabel)}`;
-    const noteTertiary = summary?.lastCloseTime
-        ? `最近平仓 <strong>${escapeHtml(summary.lastCloseTime)}</strong>`
-        : '最近暂无新的平仓记录';
-    const toneLabel = toneClass === 'positive'
-        ? '表现偏强'
-        : (toneClass === 'negative' ? '需要收紧' : '继续观察');
+    const noteTertiary = hasOpen
+        ? `最近开仓 <strong>${escapeHtml(openSummary.lastOpenTime || '--')}</strong>${openSummary.symbolList?.length ? ` | 品种 <strong>${escapeHtml(openSummary.symbolList.join(' / '))}</strong>` : ''}`
+        : (summary?.lastCloseTime
+            ? `最近平仓 <strong>${escapeHtml(summary.lastCloseTime)}</strong>`
+            : '最近暂无新的平仓记录');
+    const toneLabel = hasClosed
+        ? (toneClass === 'positive'
+            ? '表现偏强'
+            : (toneClass === 'negative' ? '需要收紧' : '继续观察'))
+        : (hasOpen ? '等待闭环' : '继续观察');
 
     return `
         <div class="research-window-card ${toneClass}">
@@ -4336,7 +4400,7 @@ function renderResearchWindowCard(title, windowLabel, summary, noteLabel) {
                     <div class="research-window-time">${escapeHtml(windowLabel)}</div>
                 </div>
                 <div style="text-align: right;">
-                    <div class="research-window-net ${toneClass === 'positive' ? 'positive' : (toneClass === 'negative' ? 'negative' : 'neutral')}">${escapeHtml(netText)}</div>
+                    <div class="research-window-net ${toneClass === 'positive' ? 'positive' : (toneClass === 'negative' ? 'negative' : 'neutral')}">${escapeHtml(headlineText)}</div>
                     <span class="research-window-tone">${escapeHtml(toneLabel)}</span>
                 </div>
             </div>
@@ -4344,6 +4408,10 @@ function renderResearchWindowCard(title, windowLabel, summary, noteLabel) {
                 <div class="research-window-metric">
                     <div class="research-window-metric-label">平仓</div>
                     <div class="research-window-metric-value">${summary?.count || 0}</div>
+                </div>
+                <div class="research-window-metric">
+                    <div class="research-window-metric-label">新开</div>
+                    <div class="research-window-metric-value">${openSummary?.count || 0}</div>
                 </div>
                 <div class="research-window-metric">
                     <div class="research-window-metric-label">胜率</div>
@@ -4370,6 +4438,7 @@ function updateResearchWindowSummary(d) {
     if (!body || !summaryEl || !metaEl) return;
 
     const trades = Array.isArray(d?.closedTrades) ? d.closedTrades : [];
+    const openTrades = Array.isArray(d?.openTrades) ? d.openTrades : [];
     const windows = getResearchReviewWindows(d);
     const overnightTrades = trades.filter((trade) => {
         const closeTime = parseDashboardTradeTime(trade?.closeTime);
@@ -4379,17 +4448,27 @@ function updateResearchWindowSummary(d) {
         const closeTime = parseDashboardTradeTime(trade?.closeTime);
         return closeTime && closeTime >= windows.todayStart && closeTime <= windows.todayEnd;
     });
+    const overnightOpenTrades = openTrades.filter((trade) => {
+        const openTime = parseDashboardTradeTime(trade?.openTime);
+        return openTime && openTime >= windows.overnightStart && openTime < windows.overnightEnd;
+    });
+    const todayOpenTrades = openTrades.filter((trade) => {
+        const openTime = parseDashboardTradeTime(trade?.openTime);
+        return openTime && openTime >= windows.todayStart && openTime <= windows.todayEnd;
+    });
 
     const overnightSummary = summarizeResearchWindowTrades(overnightTrades);
     const todaySummary = summarizeResearchWindowTrades(todayTrades);
+    const overnightOpenSummary = summarizeResearchWindowOpenTrades(overnightOpenTrades);
+    const todayOpenSummary = summarizeResearchWindowOpenTrades(todayOpenTrades);
     const overnightLabel = `${formatResearchWindowDateTime(windows.overnightStart)} - ${formatResearchWindowDateTime(windows.overnightEnd)}`;
     const todayLabel = `${formatResearchWindowDateTime(windows.todayStart)} - ${formatResearchWindowDateTime(windows.todayEnd)}`;
 
     metaEl.textContent = `窗口按服务器时间计算：昨晚 ${overnightLabel}；今天 ${todayLabel}。适合晨检时快速对比隔夜与白天接力表现。`;
-    summaryEl.textContent = `昨晚 ${overnightSummary.count} 笔 ${formatMoney(overnightSummary.net, 2)} | 今天 ${todaySummary.count} 笔 ${formatMoney(todaySummary.net, 2)}`;
+    summaryEl.textContent = `${formatResearchWindowSummaryText('昨晚', overnightSummary, overnightOpenSummary)} | ${formatResearchWindowSummaryText('今天', todaySummary, todayOpenSummary)}`;
     body.innerHTML = [
-        renderResearchWindowCard('昨晚', overnightLabel, overnightSummary, '优先看隔夜拖累切片'),
-        renderResearchWindowCard('今天', todayLabel, todaySummary, '优先看白天是否接力修复')
+        renderResearchWindowCard('昨晚', overnightLabel, overnightSummary, overnightOpenSummary, '优先看隔夜拖累切片'),
+        renderResearchWindowCard('今天', todayLabel, todaySummary, todayOpenSummary, '优先看白天是否接力修复')
     ].join('');
 }
 
