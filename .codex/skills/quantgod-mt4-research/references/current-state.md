@@ -44,6 +44,7 @@ Responsibilities:
 - Render per-symbol and per-strategy status
 - Render the regime research heatmap from `QuantGod_RegimeEvaluationReport.csv`
 - Render advisory research recommendations derived from `strategy x symbol x regime` slices
+- Render a local-time `昨晚 vs 今天` research summary card in the overview section, using `昨天 20:00 -> 今天 08:00` versus `今天 08:00 -> 现在`
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
 - Reuse the same recommendation layer inside the symbol overview strategy chips so operators can see each live `strategy x symbol` slice's current action without leaving the monitoring section
@@ -83,6 +84,7 @@ Primary runtime files:
 - It adjusts risk and activation state.
 - It does not automatically mutate strategy parameters.
 - The current implementation evaluates adaptive state independently for each `strategy x symbol` pair.
+- `EURUSD / RSI_Reversal` also has an additional research-only execution guard: it requires an exact RSI threshold crossback, uses a tighter Bollinger touch, and skips new entries during `TREND_EXP*` regimes.
 - Dashboard root `strategies` is scoped to the current dashboard focus symbol.
 - Cross-symbol comparison should come from `QuantGod_StrategyEvaluationReport.csv` or `symbols[].strategies` in `QuantGod_Dashboard.json`.
 

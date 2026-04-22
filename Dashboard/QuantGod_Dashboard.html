@@ -545,6 +545,150 @@
             min-height: 92px;
         }
 
+        .research-window-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .research-window-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .research-window-card {
+            background: linear-gradient(135deg, rgba(10, 14, 23, 0.92), rgba(17, 24, 39, 0.88));
+            border: 1px solid rgba(42, 58, 78, 0.88);
+            border-radius: 14px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+            min-height: 212px;
+        }
+
+        .research-window-card.positive {
+            border-color: rgba(16, 185, 129, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
+        }
+
+        .research-window-card.negative {
+            border-color: rgba(239, 68, 68, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+        }
+
+        .research-window-card.neutral {
+            border-color: rgba(59, 130, 246, 0.2);
+        }
+
+        .research-window-topline {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .research-window-kicker {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .research-window-title {
+            margin-top: 0.25rem;
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .research-window-time {
+            margin-top: 0.4rem;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .research-window-net {
+            color: var(--text-primary);
+            font-size: 28px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .research-window-tone {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.28rem 0.6rem;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        .research-window-card.positive .research-window-tone {
+            background: rgba(16, 185, 129, 0.16);
+            color: var(--accent-green);
+        }
+
+        .research-window-card.negative .research-window-tone {
+            background: rgba(239, 68, 68, 0.16);
+            color: var(--accent-red);
+        }
+
+        .research-window-card.neutral .research-window-tone {
+            background: rgba(59, 130, 246, 0.16);
+            color: var(--accent-blue);
+        }
+
+        .research-window-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .research-window-metric {
+            background: rgba(17, 24, 39, 0.72);
+            border: 1px solid rgba(42, 58, 78, 0.78);
+            border-radius: 10px;
+            padding: 0.7rem 0.75rem;
+        }
+
+        .research-window-metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .research-window-metric-value {
+            margin-top: 0.3rem;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .research-window-notes {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+
+        .research-window-note {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .research-window-note strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
         .radar-label {
             color: var(--text-muted);
             font-size: 11px;
@@ -2211,6 +2355,7 @@
             .strategy-cards { grid-template-columns: 1fr; }
             .eval-card-times { flex-basis: 180px; }
             .research-suggestion-grid { grid-template-columns: 1fr; }
+            .research-window-grid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 1024px) {
@@ -2236,6 +2381,7 @@
             .stat-card.stat-card-wide { grid-column: span 2; }
             .countdown-row { flex-direction: column; align-items: flex-start; gap: 0.4rem; }
             .radar-grid { grid-template-columns: 1fr; }
+            .research-window-metrics { grid-template-columns: 1fr; }
             .strategy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .eval-card-header { flex-direction: column; }
             .eval-card-times { flex-basis: auto; text-align: left; }
@@ -2560,6 +2706,22 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">N</div>
+                            昨晚 vs 今天
+                        </div>
+                        <span class="eval-summary" id="researchWindowSummary">等待平仓摘要</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="researchWindowMeta">窗口按本地时间计算：昨晚 20:00-今天 08:00，对比今天 08:00-现在。</div>
+                        <div class="research-window-grid" id="researchWindowBody">
+                            <div class="empty-state">等待研究平仓样本</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
@@ -2790,7 +2952,7 @@
 </div>
 
 <div class="footer">
-    QuantGod Multi-Strategy Engine v2.0 | 数据每30秒自动刷新 | 仅供模拟测试使用
+    QuantGod Multi-Strategy Engine v2.8 | 数据每30秒自动刷新 | 仅供模拟测试使用
 </div>
 
 <!-- Chart.js CDN -->
@@ -2813,6 +2975,8 @@ const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
 const RESEARCH_SUGGESTION_LIMIT = 8;
+const OVERNIGHT_RESEARCH_START_HOUR = 20;
+const RESEARCH_DAY_START_HOUR = 8;
 let regimeHeatmapSymbolFilter = 'ALL';
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
@@ -4070,6 +4234,165 @@ function formatLots(value) {
     return num.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function summarizeResearchWindowTrades(trades) {
+    const strategyNet = {};
+    const summary = {
+        count: 0,
+        wins: 0,
+        losses: 0,
+        flats: 0,
+        net: 0,
+        grossProfit: 0,
+        grossLoss: 0,
+        winRate: 0,
+        profitFactor: 0,
+        lastCloseTime: '',
+        topStrategy: '',
+        topStrategyNet: 0,
+        lagStrategy: '',
+        lagStrategyNet: 0
+    };
+
+    (trades || []).forEach((trade) => {
+        const profit = Number(trade?.profit || 0);
+        const strategy = String(trade?.strategy || 'UNKNOWN');
+        summary.count += 1;
+        summary.net += profit;
+        if (profit > 0) {
+            summary.wins += 1;
+            summary.grossProfit += profit;
+        } else if (profit < 0) {
+            summary.losses += 1;
+            summary.grossLoss += Math.abs(profit);
+        } else {
+            summary.flats += 1;
+        }
+        strategyNet[strategy] = (strategyNet[strategy] || 0) + profit;
+        if (trade?.closeTime && (!summary.lastCloseTime || trade.closeTime > summary.lastCloseTime)) {
+            summary.lastCloseTime = trade.closeTime;
+        }
+    });
+
+    if (summary.count > 0) {
+        summary.winRate = summary.wins / summary.count * 100;
+    }
+    if (summary.grossLoss > 0) {
+        summary.profitFactor = summary.grossProfit / summary.grossLoss;
+    } else if (summary.grossProfit > 0) {
+        summary.profitFactor = 999;
+    }
+
+    const ranked = Object.entries(strategyNet).sort((a, b) => b[1] - a[1]);
+    if (ranked.length > 0 && ranked[0][1] > 0) {
+        summary.topStrategy = ranked[0][0];
+        summary.topStrategyNet = ranked[0][1];
+    }
+    if (ranked.length > 0) {
+        const lagging = ranked[ranked.length - 1];
+        if (lagging[1] < 0) {
+            summary.lagStrategy = lagging[0];
+            summary.lagStrategyNet = lagging[1];
+        }
+    }
+
+    return summary;
+}
+
+function getResearchWindowTone(summary) {
+    if (!summary || summary.count <= 0) return 'neutral';
+    if (summary.net > 0.001) return 'positive';
+    if (summary.net < -0.001) return 'negative';
+    return 'neutral';
+}
+
+function renderResearchWindowCard(title, windowLabel, summary, noteLabel) {
+    const toneClass = getResearchWindowTone(summary);
+    const pfText = summary?.count ? formatProfitFactor(summary.profitFactor) : '--';
+    const netText = summary?.count ? formatMoney(summary.net, 2) : '--';
+    const winRateText = summary?.count ? `${summary.winRate.toFixed(1)}%` : '--';
+    const notePrimary = summary?.count
+        ? (summary.topStrategy
+            ? `主贡献 <strong>${escapeHtml(strategyLabel(summary.topStrategy))}</strong> ${escapeHtml(formatMoney(summary.topStrategyNet, 2))}`
+            : '暂无正贡献策略')
+        : '暂无平仓样本';
+    const noteSecondary = summary?.count
+        ? (summary.lagStrategy
+            ? `主拖累 <strong>${escapeHtml(strategyLabel(summary.lagStrategy))}</strong> ${escapeHtml(formatMoney(summary.lagStrategyNet, 2))}`
+            : '暂无明显拖累策略')
+        : `${escapeHtml(noteLabel)}`;
+    const noteTertiary = summary?.lastCloseTime
+        ? `最近平仓 <strong>${escapeHtml(summary.lastCloseTime)}</strong>`
+        : '最近暂无新的平仓记录';
+    const toneLabel = toneClass === 'positive'
+        ? '表现偏强'
+        : (toneClass === 'negative' ? '需要收紧' : '继续观察');
+
+    return `
+        <div class="research-window-card ${toneClass}">
+            <div class="research-window-topline">
+                <div>
+                    <div class="research-window-kicker">Research Window</div>
+                    <div class="research-window-title">${escapeHtml(title)}</div>
+                    <div class="research-window-time">${escapeHtml(windowLabel)}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div class="research-window-net ${toneClass === 'positive' ? 'positive' : (toneClass === 'negative' ? 'negative' : 'neutral')}">${escapeHtml(netText)}</div>
+                    <span class="research-window-tone">${escapeHtml(toneLabel)}</span>
+                </div>
+            </div>
+            <div class="research-window-metrics">
+                <div class="research-window-metric">
+                    <div class="research-window-metric-label">平仓</div>
+                    <div class="research-window-metric-value">${summary?.count || 0}</div>
+                </div>
+                <div class="research-window-metric">
+                    <div class="research-window-metric-label">胜率</div>
+                    <div class="research-window-metric-value">${escapeHtml(winRateText)}</div>
+                </div>
+                <div class="research-window-metric">
+                    <div class="research-window-metric-label">PF</div>
+                    <div class="research-window-metric-value">${escapeHtml(pfText)}</div>
+                </div>
+            </div>
+            <div class="research-window-notes">
+                <div class="research-window-note">${notePrimary}</div>
+                <div class="research-window-note">${noteSecondary}</div>
+                <div class="research-window-note">${noteTertiary}</div>
+            </div>
+        </div>
+    `;
+}
+
+function updateResearchWindowSummary(d) {
+    const body = document.getElementById('researchWindowBody');
+    const summaryEl = document.getElementById('researchWindowSummary');
+    const metaEl = document.getElementById('researchWindowMeta');
+    if (!body || !summaryEl || !metaEl) return;
+
+    const trades = Array.isArray(d?.closedTrades) ? d.closedTrades : [];
+    const windows = getResearchReviewWindows(d);
+    const overnightTrades = trades.filter((trade) => {
+        const closeTime = parseDashboardTradeTime(trade?.closeTime);
+        return closeTime && closeTime >= windows.overnightStart && closeTime < windows.overnightEnd;
+    });
+    const todayTrades = trades.filter((trade) => {
+        const closeTime = parseDashboardTradeTime(trade?.closeTime);
+        return closeTime && closeTime >= windows.todayStart && closeTime <= windows.todayEnd;
+    });
+
+    const overnightSummary = summarizeResearchWindowTrades(overnightTrades);
+    const todaySummary = summarizeResearchWindowTrades(todayTrades);
+    const overnightLabel = `${formatResearchWindowDateTime(windows.overnightStart)} - ${formatResearchWindowDateTime(windows.overnightEnd)}`;
+    const todayLabel = `${formatResearchWindowDateTime(windows.todayStart)} - ${formatResearchWindowDateTime(windows.todayEnd)}`;
+
+    metaEl.textContent = `窗口按本地时间计算：昨晚 ${overnightLabel}；今天 ${todayLabel}。适合晨检时快速对比隔夜与白天接力表现。`;
+    summaryEl.textContent = `昨晚 ${overnightSummary.count} 笔 ${formatMoney(overnightSummary.net, 2)} | 今天 ${todaySummary.count} 笔 ${formatMoney(todaySummary.net, 2)}`;
+    body.innerHTML = [
+        renderResearchWindowCard('昨晚', overnightLabel, overnightSummary, '优先看隔夜拖累切片'),
+        renderResearchWindowCard('今天', todayLabel, todaySummary, '优先看白天是否接力修复')
+    ].join('');
+}
+
 function getSymbolOverviewData(d) {
     if (Array.isArray(d?.symbols) && d.symbols.length > 0) {
         return d.symbols;
@@ -4128,6 +4451,8 @@ function translateDiagnosticReason(reason) {
         .replace(/^Bullish MACD divergence triggered a buy$/, 'MACD 底背离触发买入')
         .replace(/^Bearish MACD divergence triggered a sell$/, 'MACD 顶背离触发卖出')
         .replace(/^No MACD divergence found in the last (\d+) bars$/, (_, bars) => `最近 ${bars} 根 K 线未发现 MACD 背离`)
+        .replace(/^EURUSD RSI research guard skipped trend-expansion setup \| regime=(.+)$/, (_, regime) => `EURUSD 的 RSI 研究保护已跳过趋势扩张阶段信号：${translateRegime(regime)}`)
+        .replace(/^EURUSD RSI research guard requires exact crossback and tighter band touch$/, 'EURUSD 的 RSI 研究保护要求更严格：必须精确回穿阈值并且更贴近布林边界')
         .replace(/^RSI buy setup failed, error=(\d+)$/, (_, code) => `RSI 买入下单失败，错误码 ${code}`)
         .replace(/^RSI sell setup failed, error=(\d+)$/, (_, code) => `RSI 卖出下单失败，错误码 ${code}`)
         .replace(/^Bullish MACD divergence failed, error=(\d+)$/, (_, code) => `MACD 底背离下单失败，错误码 ${code}`)
@@ -4235,6 +4560,43 @@ function formatCountdown(msRemaining) {
 function formatBoundaryLabel(boundaryDate) {
     if (!boundaryDate) return '--';
     return `${pad2(boundaryDate.getUTCHours())}:${pad2(boundaryDate.getUTCMinutes())} 服务器`;
+}
+
+function parseDashboardTradeTime(value) {
+    if (!value || typeof value !== 'string') return null;
+    const normalized = /^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}$/.test(value) ? `${value}:00` : value;
+    return parseRuntimeClock(normalized);
+}
+
+function formatResearchWindowDateTime(date, withSeconds = false) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '--';
+    const datePart = `${pad2(date.getUTCMonth() + 1)}.${pad2(date.getUTCDate())}`;
+    const timePart = withSeconds
+        ? `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`
+        : `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}`;
+    return `${datePart} ${timePart}`;
+}
+
+function getResearchReviewWindows(d) {
+    const anchor = parseRuntimeClock(d?.runtime?.localTime) || new Date();
+    const todayStart = new Date(Date.UTC(
+        anchor.getUTCFullYear(),
+        anchor.getUTCMonth(),
+        anchor.getUTCDate(),
+        RESEARCH_DAY_START_HOUR,
+        0,
+        0
+    ));
+    const overnightStart = new Date(todayStart.getTime() - ((24 - OVERNIGHT_RESEARCH_START_HOUR + RESEARCH_DAY_START_HOUR) * 60 * 60 * 1000));
+    const overnightEnd = anchor.getTime() < todayStart.getTime() ? anchor : todayStart;
+
+    return {
+        anchor,
+        overnightStart,
+        overnightEnd,
+        todayStart,
+        todayEnd: anchor.getTime() < todayStart.getTime() ? todayStart : anchor
+    };
 }
 
 function getStatusMeta(status) {
@@ -4811,6 +5173,7 @@ function updateDashboard() {
     const winRate = total > 0 ? (wins / total * 100).toFixed(1) : '---';
     document.getElementById('statWinRate').textContent = winRate + '%';
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
+    updateResearchWindowSummary(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
     updateResearchSuggestions(d);

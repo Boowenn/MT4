@@ -205,6 +205,10 @@ input int      RSI_Period         = 2;       // RSI 周期
 input int      RSI_OB             = 80;      // 超买阈值
 input int      RSI_OS             = 20;      // 超卖阈值
 input ENUM_TIMEFRAMES RSI_Timeframe = PERIOD_H1; // 更活跃：H1
+input bool     RSI_EURUSD_TightResearchGuard = true; // 仅收紧 EURUSD / RSI_Reversal
+input bool     RSI_EURUSD_RequireCrossBack = true; // EURUSD 需要精确回穿阈值
+input bool     RSI_EURUSD_BlockTrendExpansion = true; // EURUSD 趋势扩张期不做 RSI 均值回归
+input double   RSI_EURUSD_BandTolerancePct = 0.004; // EURUSD 贴近布林边界的额外容忍度
 input int      RSI_Magic          = 10002;   // Magic Number
 
 //=== 策略3: BB + RSI + MACD 三重确认 ===
@@ -2147,22 +2151,72 @@ void Strategy_RSI_Reversal_V2()
    double bbUpper = iBands(gSymbol, RSI_Timeframe, 20, 2.0, 0, PRICE_CLOSE, MODE_UPPER, 1);
    double close1 = iClose(gSymbol, RSI_Timeframe, 1);
    double atrSL = GetATRStopLoss(gSymbol, RSI_Timeframe, 14, 1.5);
+   double atrPips = 0.0;
+   double adxValue = 0.0;
+   double bbWidthPips = 0.0;
+   double spreadPips = 0.0;
+   string regime = DetectMarketRegime(gSymbol, RSI_Timeframe, atrPips, adxValue, bbWidthPips, spreadPips);
    double ask = MarketInfo(gSymbol, MODE_ASK);
    double bid = MarketInfo(gSymbol, MODE_BID);
    if(ask <= 0 || bid <= 0)
       return;
 
-   bool buyReversal = (rsi1 <= RSI_OS || (rsi2 < RSI_OS && rsi1 > RSI_OS));
-   bool buyBand = (close1 <= bbLower * 1.008);
-   bool sellReversal = (rsi1 >= RSI_OB || (rsi2 > RSI_OB && rsi1 < RSI_OB));
-   bool sellBand = (close1 >= bbUpper * 0.992);
+   bool eurusdResearchGuard = UseEurUsdRsiResearchGuard(gSymbol);
+   bool exactBuyReversal = (rsi2 < RSI_OS && rsi1 > RSI_OS);
+   bool exactSellReversal = (rsi2 > RSI_OB && rsi1 < RSI_OB);
+   bool buyReversalLoose = (rsi1 <= RSI_OS || exactBuyReversal);
+   bool sellReversalLoose = (rsi1 >= RSI_OB || exactSellReversal);
+   double legacyBuyBandMultiplier = 1.008;
+   double legacySellBandMultiplier = 0.992;
+   double eurusdBandTolerance = MathMax(0.0, RSI_EURUSD_BandTolerancePct);
+   double buyBandMultiplier = eurusdResearchGuard ? (1.0 + eurusdBandTolerance) : legacyBuyBandMultiplier;
+   double sellBandMultiplier = eurusdResearchGuard ? (1.0 - eurusdBandTolerance) : legacySellBandMultiplier;
+   bool buyReversal = (eurusdResearchGuard && RSI_EURUSD_RequireCrossBack) ? exactBuyReversal : buyReversalLoose;
+   bool sellReversal = (eurusdResearchGuard && RSI_EURUSD_RequireCrossBack) ? exactSellReversal : sellReversalLoose;
+   bool buyBand = (close1 <= bbLower * buyBandMultiplier);
+   bool sellBand = (close1 >= bbUpper * sellBandMultiplier);
+   bool legacyBuySetup = buyReversalLoose && (close1 <= bbLower * legacyBuyBandMultiplier);
+   bool legacySellSetup = sellReversalLoose && (close1 >= bbUpper * legacySellBandMultiplier);
    double buyScore = (double)((buyReversal ? 1 : 0) + (buyBand ? 1 : 0)) / 2.0 * 100.0;
    double sellScore = (double)((sellReversal ? 1 : 0) + (sellBand ? 1 : 0)) / 2.0 * 100.0;
 
    Print("[RSI] ", gSymbol, " | RSI2=", DoubleToStr(rsi1,1), " prev=", DoubleToStr(rsi2,1),
          " close=", DoubleToStr(close1,5), " bbL=", DoubleToStr(bbLower,5), " bbU=", DoubleToStr(bbUpper,5),
          " | rev=", (buyReversal?"BUY":(sellReversal?"SELL":"NONE")),
-         " band=", (buyBand?"LOW":(sellBand?"HIGH":"MID")));
+         " band=", (buyBand?"LOW":(sellBand?"HIGH":"MID")),
+         " regime=", regime,
+         eurusdResearchGuard ? " guard=EURUSD_TIGHT" : "");
+
+   string guardDetail = "regime=" + regime +
+                        " exactBuy=" + BoolLabel(exactBuyReversal) +
+                        " exactSell=" + BoolLabel(exactSellReversal) +
+                        " bandTol=" + DoubleToStr((buyBandMultiplier - 1.0) * 100.0, 2) + "%";
+   bool guardBlockedByRegime = eurusdResearchGuard && RSI_EURUSD_BlockTrendExpansion &&
+                               IsTrendExpansionRegime(regime) && (legacyBuySetup || legacySellSetup);
+   if(guardBlockedByRegime)
+   {
+      string guardReason = "EURUSD RSI research guard skipped trend-expansion setup | regime=" + regime;
+      double guardScore = MathMax(buyScore, sellScore);
+      SetStrategyDiagnostic(1, "QUALITY_FILTER", guardReason, guardScore);
+      LogStrategySignal(1, gSymbol, RSI_Timeframe, "QUALITY_FILTER", guardReason,
+                        (legacyBuySetup ? "BUY" : (legacySellSetup ? "SELL" : "NONE")),
+                        guardScore, buyScore, sellScore, guardDetail);
+      return;
+   }
+
+   bool guardBlockedByStrictness = eurusdResearchGuard &&
+                                   ((legacyBuySetup && !(buyReversal && buyBand)) ||
+                                    (legacySellSetup && !(sellReversal && sellBand)));
+   if(guardBlockedByStrictness)
+   {
+      string strictReason = "EURUSD RSI research guard requires exact crossback and tighter band touch";
+      double strictScore = MathMax(buyScore, sellScore);
+      SetStrategyDiagnostic(1, "QUALITY_FILTER", strictReason, strictScore);
+      LogStrategySignal(1, gSymbol, RSI_Timeframe, "QUALITY_FILTER", strictReason,
+                        (legacyBuySetup ? "BUY" : (legacySellSetup ? "SELL" : "NONE")),
+                        strictScore, buyScore, sellScore, guardDetail);
+      return;
+   }
 
    if(buyReversal && buyBand)
    {
@@ -2172,7 +2226,7 @@ void Strategy_RSI_Reversal_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
-      string detail = "reversal=Y band=Y";
+      string detail = "regime=" + regime + " reversal=Y band=Y";
       string buyReason = "RSI_Reversal buy order sent on " + TimeframeLabel(RSI_Timeframe);
       string eventId = BuildSignalEventId();
       string orderComment = BuildManagedOrderCommentWithEvent("QG_RSI_Rev_BUY", virtualLots, eventId);
@@ -2207,7 +2261,7 @@ void Strategy_RSI_Reversal_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
-      string detail = "reversal=Y band=Y";
+      string detail = "regime=" + regime + " reversal=Y band=Y";
       string sellReason = "RSI_Reversal sell order sent on " + TimeframeLabel(RSI_Timeframe);
       string eventId = BuildSignalEventId();
       string orderComment = BuildManagedOrderCommentWithEvent("QG_RSI_Rev_SELL", virtualLots, eventId);
@@ -2237,16 +2291,16 @@ void Strategy_RSI_Reversal_V2()
    if(buyScore >= sellScore)
    {
       string reason = "BUY bias " + DoubleToStr(buyScore, 0) + "/100 | reversal=" + BoolLabel(buyReversal) +
-                      " band=" + BoolLabel(buyBand);
-      string detail = "reversal=" + BoolLabel(buyReversal) + " band=" + BoolLabel(buyBand);
+                      " band=" + BoolLabel(buyBand) + " regime=" + regime;
+      string detail = "regime=" + regime + " reversal=" + BoolLabel(buyReversal) + " band=" + BoolLabel(buyBand);
       SetStrategyDiagnostic(1, "NO_SETUP", reason, buyScore);
       LogStrategySignal(1, gSymbol, RSI_Timeframe, "NO_SETUP", reason, "BUY", buyScore, buyScore, sellScore, detail);
    }
    else
    {
       string reason = "SELL bias " + DoubleToStr(sellScore, 0) + "/100 | reversal=" + BoolLabel(sellReversal) +
-                      " band=" + BoolLabel(sellBand);
-      string detail = "reversal=" + BoolLabel(sellReversal) + " band=" + BoolLabel(sellBand);
+                      " band=" + BoolLabel(sellBand) + " regime=" + regime;
+      string detail = "regime=" + regime + " reversal=" + BoolLabel(sellReversal) + " band=" + BoolLabel(sellBand);
       SetStrategyDiagnostic(1, "NO_SETUP", reason, sellScore);
       LogStrategySignal(1, gSymbol, RSI_Timeframe, "NO_SETUP", reason, "SELL", sellScore, buyScore, sellScore, detail);
    }
@@ -3263,6 +3317,18 @@ string DetectMarketRegime(string symbol_name, int timeframe, double &atrPips, do
       return "RANGE";
 
    return "TRANSITION";
+}
+
+bool IsTrendExpansionRegime(string regime)
+{
+   return regime == "TREND_EXP" || regime == "TREND_EXP_UP" || regime == "TREND_EXP_DOWN";
+}
+
+bool UseEurUsdRsiResearchGuard(string symbol_name)
+{
+   if(!UseVirtualResearchAccount || !RSI_EURUSD_TightResearchGuard)
+      return false;
+   return StringFind(symbol_name, "EURUSD") == 0;
 }
 
 bool ShouldLogSignalEvent(int strategyIndex, string symbol_name, int timeframe, string eventKey,
@@ -4844,7 +4910,7 @@ void ExportDashboardData()
 
    FileWriteString(handle, "{\n");
    FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
-   FileWriteString(handle, "  \"build\": \"QuantGod-v2.7-fast-exit\",\n");
+   FileWriteString(handle, "  \"build\": \"QuantGod-v2.8-eurusd-rsi-guard\",\n");
    FileWriteString(handle, "  \"runtime\": {\n");
    FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
    FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");
