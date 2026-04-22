@@ -40,6 +40,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that the symbol overview strategy chips now also expose a collapsible provenance panel that shows which `strategy x symbol x regime` slice was matched, whether it was exact or fallback, and the supporting sample metrics.
 - Remember that the provenance panel now also contains jump links into the research section; those links are expected to sync the symbol filter and visually focus the matching suggestion card or heatmap cell when a match exists.
 - Remember that research suggestion cards and heatmap cells now also support reverse jumps back into the monitor section; those jumps are expected to highlight the relevant symbol card and strategy chip, even when a heatmap cell represents multiple symbols.
+- Remember that monitor focus now carries a breadcrumb explaining whether the current highlight came from a research suggestion card or a heatmap cell; stale monitor focus should be cleared when the operator jumps back into the research section.
 
 ## Validation Rules
 
@@ -53,6 +54,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Check the symbol overview chip details whenever you change recommendation matching or fallback behavior, because operators now use that expanded panel to audit why a card is saying `KEEP / REDUCE / PAUSE`.
 - Check the research jump links whenever you change recommendation matching, filter state, or research-section layout, because operators now rely on one-click jumps from monitoring cards into the aligned suggestion/heatmap slice.
 - Check the reverse jumps from suggestion cards and heatmap cells whenever you change monitor-card markup or research aggregation, because operators now use those clicks to return to the right monitor card and strategy chip.
+- Check the monitor breadcrumb whenever you change reverse-jump state handling, because operators now rely on that label to understand why a symbol card or strategy chip is highlighted.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

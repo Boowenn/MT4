@@ -50,6 +50,7 @@ Responsibilities:
 - Let operators expand each symbol overview strategy chip to inspect the matched `strategy x symbol x regime` slice, sample metrics, and whether the displayed action came from an exact match or a fallback rule
 - Let operators jump from that provenance panel directly into the research suggestion panel or the regime heatmap, with symbol filter sync and visual focus on the matching slice when available
 - Let operators jump back from research suggestion cards and regime heatmap cells into the monitor section, where the corresponding symbol card and strategy chip are visually focused for fast cross-checking
+- Explain that monitor-section focus with a breadcrumb, so the operator can tell whether the current highlight came from a research suggestion card or from a heatmap cell
 
 ### Data Layer
 
@@ -99,6 +100,7 @@ Primary runtime files:
 - The symbol overview chip detail panel exposes the recommendation provenance, including the exact live slice key and whether the displayed action was matched directly or produced by the fallback path.
 - The jump links in that chip detail panel do not change trading behavior; they only sync dashboard filter/highlight state so the operator can inspect the aligned suggestion card or heatmap cell faster.
 - Reverse jumps from the research section also do not change trading behavior; they only sync monitor-section highlight state so the operator can see which live symbol card and strategy chip correspond to the selected research slice.
+- Monitor breadcrumbs are part of that non-trading UI state too; they exist only to explain the current highlight source and should be cleared when the user initiates a fresh jump into the research section.
 
 ## Working Rules
 
