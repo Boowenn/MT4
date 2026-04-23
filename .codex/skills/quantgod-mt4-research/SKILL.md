@@ -1,6 +1,6 @@
 ---
 name: quantgod-mt4-research
-description: Operate, review, and modify the QuantGod MT4 research system in this repository. Use when working on the MT4 EA, dashboard, runtime data exports, virtual research-account statistics, adaptive controls, or QuantGod design documentation. Trigger this skill for requests about strategy evaluation, data-pipeline debugging, dashboard mismatches, performance reviews, or turning project knowledge into stable repo-local guidance.
+description: Operate, review, and modify the QuantGod MT4 research system in this repository, and maintain the phase 1 MT5 migration skeleton. Use when working on the MT4 EA, MT5 skeleton EA, dashboard, runtime data exports, virtual research-account statistics, adaptive controls, or QuantGod design documentation. Trigger this skill for requests about strategy evaluation, data-pipeline debugging, dashboard mismatches, MT4-to-MT5 migration scaffolding, performance reviews, or turning project knowledge into stable repo-local guidance.
 ---
 
 # QuantGod MT4 Research
@@ -9,17 +9,21 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 
 - Read [references/current-state.md](references/current-state.md) before changing behavior or documenting system status.
 - Treat local MT4 runtime exports under `C:\Program Files (x86)\MetaTrader 4\MQL4\Files\` as the source of truth for live counts and recent outcomes.
+- Treat local MT5 runtime exports under `C:\Program Files\MetaTrader 5\MQL5\Files\` as the source of truth for MT5 migration-smoke validation.
 - When docs and runtime disagree, trust code plus runtime exports first, then update the docs.
 
 ## Working Loop
 
 1. Inspect the live runtime artifacts.
-- Start with `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
+- For MT4 research, start with `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
+- For MT5 migration phase 1, start with `QuantGod_Dashboard.json` and the placeholder CSVs under `C:\Program Files\MetaTrader 5\MQL5\Files\`.
 - Decide whether the issue is in execution, aggregation, export, or frontend rendering.
 
 2. Trace the matching code path.
-- EA and export logic live in `MQL4/Experts/QuantGod_MultiStrategy.mq4`.
-- Shared trading helpers live in `MQL4/Include/QuantEngine.mqh`.
+- MT4 EA and export logic live in `MQL4/Experts/QuantGod_MultiStrategy.mq4`.
+- Shared MT4 trading helpers live in `MQL4/Include/QuantEngine.mqh`.
+- MT5 migration skeleton export logic lives in `MQL5/Experts/QuantGod_MultiStrategy.mq5`.
+- MT5 startup automation for phase 1 lives in `MQL5/Config/QuantGod_MT5_Start.ini` and `Start_QuantGod_MT5.bat`.
 - Dashboard rendering lives in `Dashboard/QuantGod_Dashboard.html`.
 
 3. Protect research statistics before trusting conclusions.
@@ -44,12 +48,14 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that `EURUSD / RSI_Reversal` now has an additional research-only guard: when virtual research mode is on, that slice requires an exact RSI crossback, a tighter Bollinger touch, and it skips mean-reversion entries during `TREND_EXP*` regimes.
 - Remember that `EURUSD / MACD_Divergence` now also has a research-only downtrend guard: in virtual research mode it skips bullish divergence buys during `TREND_DOWN` and `TREND_EXP_DOWN`.
 - Remember that `EURUSD / BB_Triple` now also has a research-only downtrend guard: in virtual research mode it skips buy setups during `TREND_EXP_DOWN`.
-- Remember that the overview section now also contains a server-time `昨晚 vs 今天` research summary card, with windows split as `昨天 20:00 -> 今天 08:00` and `今天 08:00 -> 现在`, using MT4 server timestamps instead of local desktop time.
+- Remember that the overview section now also contains a server-time `昨晚 vs 今天` research summary card, with windows split as `昨晚 20:00 -> 今天 08:00` and `今天 08:00 -> 现在`, using MT4 server timestamps instead of local desktop time.
 - Remember that this summary card is no longer closed-trades-only; it now also surfaces window-scoped new opens and their current floating PnL, so "today has activity but no exits yet" does not look blank.
+- Remember that MT5 is currently only in phase 1 migration mode: its EA exports dashboard-compatible JSON and placeholder CSVs, but it does not execute or evaluate the five research strategies yet.
 
 ## Validation Rules
 
 - Re-run any affected export path after changing research-stat logic.
+- Re-run the MT5 JSON export and placeholder CSV export after changing the phase 1 MT5 skeleton.
 - Check at least `QuantGod_Dashboard.json`, `QuantGod_TradeOutcomeLabels.csv`, `QuantGod_TradeJournal.csv`, and `QuantGod_BalanceHistory.csv` when a fix touches profit scaling or trade labeling.
 - Check `QuantGod_RegimeEvaluationReport.csv` whenever you change event linkage, regime attribution, or outcome labeling.
 - Check the heatmap panel in `Dashboard/QuantGod_Dashboard.html` whenever you change regime-report columns, aggregation meaning, or symbol filtering behavior.
@@ -61,6 +67,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Check the reverse jumps from suggestion cards and heatmap cells whenever you change monitor-card markup or research aggregation, because operators now use those clicks to return to the right monitor card and strategy chip.
 - Check the monitor breadcrumb whenever you change reverse-jump state handling, because operators now rely on that label to understand why a symbol card or strategy chip is highlighted.
 - Check the `昨晚 vs 今天` summary card whenever you change trade timestamp parsing, server-time handling, the closed-trade aggregation path, or the open-trade/floating summary path.
+- Check that MT5 phase 1 still exports `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv` into `C:\Program Files\MetaTrader 5\MQL5\Files\` whenever you touch the migration skeleton or its launcher.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

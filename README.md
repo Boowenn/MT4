@@ -1,24 +1,26 @@
-# QuantGod Multi-Strategy Trading Engine v2.6
+# QuantGod Multi-Strategy Trading Engine
 
 MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard, and a virtual small-account research mode.
 
+The repository now also includes a phase 1 MT5 migration skeleton that exports dashboard-compatible runtime JSON/CSV while the actual MT5 execution engine is still being ported.
+
 ## Default Mode
 
-This repository is now **local-first by default**.
+This repository is local-first by default.
 
 - MT4 runs locally on Windows
 - the dashboard reads the local `QuantGod_Dashboard.json`
-- Cloudflare is **optional** and should stay off unless you explicitly need remote viewing
+- Cloudflare is optional and should stay off unless you explicitly need remote viewing
 
-If you only want local research, you do **not** need any Cloudflare setup.
+If you only want local research, you do not need any Cloudflare setup.
 
 ## What Changed In v2.6
 
-- Added **virtual research account** mode with a default starting balance of `10 USD`
-- Real demo execution now uses **fixed micro-lots (`0.01`)** for safer sampling
-- Dashboard now shows **research account** metrics first, with **real broker-account** values as reference
-- Added a **Node-based local dashboard server** to avoid Windows file-lock issues from `python -m http.server`
-- Added a **one-click launcher** for MT4 + dashboard
+- Added virtual research account mode with a default starting balance of `10 USD`
+- Real demo execution now uses fixed micro-lots (`0.01`) for safer sampling
+- Dashboard now shows research-account metrics first, with real broker-account values as reference
+- Added a Node-based local dashboard server to avoid Windows file-lock issues from `python -m http.server`
+- Added a one-click launcher for MT4 + dashboard
 
 ## Current Design Status
 
@@ -36,6 +38,22 @@ see:
 
 The repo-local skill is the durable operator guide for Codex-style maintenance work.
 
+## MT5 Migration Status
+
+The MT5 work is intentionally split into phases:
+
+- Phase 1: available now
+- `MQL5/Experts/QuantGod_MultiStrategy.mq5`
+- exports `QuantGod_Dashboard.json`
+- exports placeholder CSV files so the existing dashboard can load in MT5
+- supports a local-first launcher through `Start_QuantGod_MT5.bat`
+- Phase 2: not done yet
+- port the actual strategy execution engine
+- port adaptive controls and research statistics
+- port trade labeling, linkage, and regime reports
+
+Important: the current MT5 skeleton is a runtime/export bridge, not a full MT5 trading engine yet.
+
 ## Strategies
 
 | # | Strategy | Description | Research Timeframe |
@@ -48,12 +66,12 @@ The repo-local skill is the durable operator guide for Codex-style maintenance w
 
 ## Research Mode
 
-- **VirtualStartingBalance**: `10`
-- **VirtualRiskPercent**: `1%`
-- **ResearchExecutionLot**: `0.01`
-- **MaxDrawdownPercent**: `6%`
-- **MaxTotalTrades**: `4`
-- **IgnoreLegacyTradesInVirtualStats**: `true`
+- `VirtualStartingBalance`: `10`
+- `VirtualRiskPercent`: `1%`
+- `ResearchExecutionLot`: `0.01`
+- `MaxDrawdownPercent`: `6%`
+- `MaxTotalTrades`: `4`
+- `IgnoreLegacyTradesInVirtualStats`: `true`
 
 This means:
 
@@ -70,14 +88,18 @@ QuantGod_MT4/
 │  │  └─ QuantGod_MultiStrategy.mq4
 │  └─ Include/
 │     └─ QuantEngine.mqh
+├─ MQL5/
+│  └─ Experts/
+│     └─ QuantGod_MultiStrategy.mq5
 ├─ Dashboard/
 │  ├─ QuantGod_Dashboard.html
 │  ├─ dashboard_server.js
 │  └─ start_dashboard.bat
-└─ Start_QuantGod.bat
+├─ Start_QuantGod.bat
+└─ Start_QuantGod_MT5.bat
 ```
 
-## Installation
+## MT4 Installation
 
 Copy these files into your MT4 installation:
 
@@ -91,9 +113,23 @@ Dashboard/start_dashboard.bat            -> [MT4]/MQL4/Files/
 
 Compile `QuantGod_MultiStrategy.mq4` in MetaEditor after copying.
 
+## MT5 Phase 1 Installation
+
+Copy these files into your MT5 installation:
+
+```text
+MQL5/Experts/QuantGod_MultiStrategy.mq5  -> [MT5]/MQL5/Experts/
+Dashboard/QuantGod_Dashboard.html        -> [MT5]/MQL5/Files/
+Dashboard/dashboard_server.js            -> [MT5]/MQL5/Files/
+```
+
+Then compile `QuantGod_MultiStrategy.mq5` in MetaEditor64 and attach it to an MT5 chart.
+
+Phase 1 only exports runtime snapshots and placeholder CSVs for the dashboard. It does not execute the MT4 strategies yet.
+
 ## One-Click Startup
 
-Recommended:
+Recommended for MT4:
 
 ```bat
 Start_QuantGod.bat
@@ -103,8 +139,24 @@ This will:
 
 - start MT4
 - start the local dashboard server
-- keep Cloudflare sync **off** unless you explicitly create an enable file
+- keep Cloudflare sync off unless you explicitly create an enable file
 - open `http://localhost:8080/QuantGod_Dashboard.html` with a cache-busting timestamp
+
+For MT5 phase 1:
+
+```bat
+Start_QuantGod_MT5.bat
+```
+
+This will:
+
+- sync the dashboard assets into `[MT5]/MQL5/Files/`
+- sync the MT5 EA source into `[MT5]/MQL5/Experts/`
+- sync the compiled `QuantGod_MultiStrategy.ex5` too, if it already exists in the repo
+- start MT5
+- use the official MT5 startup config mechanism to open `EURUSD M1` and auto-load `QuantGod_MultiStrategy`
+- start the same local dashboard server against the MT5 files folder
+- open the dashboard with a cache-busting timestamp
 
 If you only want the dashboard server:
 
@@ -114,9 +166,9 @@ Dashboard\start_dashboard.bat
 
 ## Optional Cloudflare Deployment
 
-Cloudflare is **not part of the default local workflow**.
+Cloudflare is not part of the default local workflow.
 
-Only use this if you explicitly want a remote dashboard and understand that it adds external requests / quota usage.
+Only use this if you explicitly want a remote dashboard and understand that it adds external requests and quota usage.
 
 The MT4 execution engine still runs on Windows / MT4. Cloudflare is used for:
 
@@ -163,6 +215,8 @@ The dashboard shows:
 - research equity curve
 - strategy profit distribution
 - daily research P&L
+
+In MT5 phase 1, the same dashboard renders from MT5 runtime files, but strategy evaluation and regime panels remain placeholder-only until the MT5 execution/statistics layers are ported.
 
 ## Key Parameters
 

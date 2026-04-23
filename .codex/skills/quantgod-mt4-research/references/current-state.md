@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use this reference when working on the QuantGod MT4 repository so you do not need to rediscover where execution, statistics, and presentation live.
+Use this reference when working on the QuantGod repository so you do not need to rediscover where execution, statistics, presentation, and migration scaffolding live.
 
 Keep this file stable. Put durable architecture and workflow facts here. Do not turn it into a hand-maintained snapshot of changing row counts.
 
@@ -11,11 +11,13 @@ Keep this file stable. Put durable architecture and workflow facts here. Do not 
 When project knowledge conflicts:
 
 1. Runtime exports under `C:\Program Files (x86)\MetaTrader 4\MQL4\Files\`
-2. Current EA behavior in `MQL4/Experts/QuantGod_MultiStrategy.mq4`
+2. Current MT4 EA behavior in `MQL4/Experts/QuantGod_MultiStrategy.mq4`
 3. Dashboard rendering in `Dashboard/QuantGod_Dashboard.html`
-4. Human-facing notes such as `README.md`
+4. MT5 migration skeleton behavior in `MQL5/Experts/QuantGod_MultiStrategy.mq5`
+5. Human-facing notes such as `README.md`
 
 Use runtime files for live counts, recent trades, and latest adaptive states.
+Use MT5 runtime files only for migration validation until the MT5 execution/statistics layers are ported.
 
 ## Core Runtime Layers
 
@@ -32,6 +34,25 @@ Responsibilities:
 - Maintain virtual research-account statistics
 - Apply protective adaptive control
 
+### MT5 Migration Skeleton
+
+- `MQL5/Experts/QuantGod_MultiStrategy.mq5`
+- `MQL5/Config/QuantGod_MT5_Start.ini`
+- `Start_QuantGod_MT5.bat`
+
+Responsibilities:
+
+- Export an MT5 `QuantGod_Dashboard.json` with a dashboard-compatible shape
+- Export placeholder `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
+- Reuse the existing dashboard assets against `C:\Program Files\MetaTrader 5\MQL5\Files\`
+- Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
+
+Non-responsibilities in phase 1:
+
+- It does not execute the five MT4 research strategies
+- It does not port adaptive controls
+- It does not port research-account statistics, trade linkage, or regime evaluation
+
 ### Presentation Layer
 
 - `Dashboard/QuantGod_Dashboard.html`
@@ -44,7 +65,7 @@ Responsibilities:
 - Render per-symbol and per-strategy status
 - Render the regime research heatmap from `QuantGod_RegimeEvaluationReport.csv`
 - Render advisory research recommendations derived from `strategy x symbol x regime` slices
-- Render a server-time `昨晚 vs 今天` research summary card in the overview section, using `昨天 20:00 -> 今天 08:00` versus `今天 08:00 -> 现在`
+- Render a server-time `昨晚 vs 今天` research summary card in the overview section, using `昨晚 20:00 -> 今天 08:00` versus `今天 08:00 -> 现在`
 - Surface both closed-trade outcomes and window-scoped new opens on that summary card, so operators can see when the current day has started trading but has not produced exits yet
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
@@ -56,7 +77,7 @@ Responsibilities:
 
 ### Data Layer
 
-Primary runtime files:
+Primary MT4 runtime files:
 
 - `QuantGod_Dashboard.json`
 - `QuantGod_TradeJournal.csv`
@@ -71,6 +92,13 @@ Primary runtime files:
 - `QuantGod_StrategyEvaluationReport.csv`
 - `QuantGod_RegimeEvaluationReport.csv`
 
+MT5 phase 1 exports only:
+
+- `QuantGod_Dashboard.json`
+- `QuantGod_StrategyEvaluationReport.csv` (header placeholder)
+- `QuantGod_RegimeEvaluationReport.csv` (header placeholder)
+- `QuantGod_OpportunityLabels.csv` (header placeholder)
+
 ## Stable Design Facts
 
 ### Research Mode
@@ -78,6 +106,7 @@ Primary runtime files:
 - Research mode uses a virtual starting balance and risk model while executing real demo fills with a fixed micro lot.
 - Demo account PnL is not the primary research metric.
 - Research conclusions must follow the virtual-account pipeline, not raw broker profit alone.
+- MT5 phase 1 does not implement virtual research mode yet; its dashboard export is broker-account runtime only.
 
 ### Adaptive Control
 
@@ -90,6 +119,7 @@ Primary runtime files:
 - `EURUSD / BB_Triple` now also has a research-only execution guard: it skips buy setups during `TREND_EXP_DOWN`.
 - Dashboard root `strategies` is scoped to the current dashboard focus symbol.
 - Cross-symbol comparison should come from `QuantGod_StrategyEvaluationReport.csv` or `symbols[].strategies` in `QuantGod_Dashboard.json`.
+- MT5 phase 1 exports placeholder strategy and diagnostic objects only; they are there to keep the dashboard rendering stable during migration.
 
 ### Labeling and Attribution
 
@@ -130,3 +160,4 @@ Primary runtime files:
 - Keep reusable operator guidance here in the skill.
 - Keep lightweight human-facing notes in `README.md` when needed.
 - Put volatile numbers in runtime exports, not canonical docs.
+- Keep MT5 migration notes explicit about phase boundaries so the skeleton is not mistaken for a fully ported execution engine.
