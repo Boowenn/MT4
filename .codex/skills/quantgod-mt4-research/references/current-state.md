@@ -56,7 +56,7 @@ Responsibilities:
 - Reuse the existing dashboard assets against the active MT5 terminal files directory
 - Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
-- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, `M15` trigger + `H1` trend filter, a 3-bar crossover lookback window, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter driven by the MT5 economic calendar
+- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, `M15` trigger + `H1` trend filter, a 3-bar fresh-crossover lookback window plus pullback-continuation entry after recent crosses, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter driven by the MT5 economic calendar
 
 Non-responsibilities in phase 1:
 
@@ -129,7 +129,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 - Demo account PnL is not the primary research metric.
 - Research conclusions must follow the virtual-account pipeline, not raw broker profit alone.
 - MT5 phase 1 does not implement virtual research mode yet; its dashboard export is broker-account runtime only.
-- The HFM live pilot currently automates `MA_Cross` only at `0.01` lot with `M15` trigger + `H1` trend filter + 3-bar crossover lookback; the other four strategies remain dashboard placeholders on MT5.
+- The HFM live pilot currently automates `MA_Cross` only at `0.01` lot with `M15` trigger + `H1` trend filter + 3-bar fresh-crossover lookback plus pullback-continuation entry; the other four strategies remain dashboard placeholders on MT5.
 - The HFM live pilot now also exports a `news` state object and matching `news*` status lines so automation can react to USD event pre-blocks, post-release cooldowns, and short-lived directional bias windows.
 
 ### Adaptive Control

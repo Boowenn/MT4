@@ -1,4 +1,4 @@
-DashboardBuild=QuantGod-v3.6-mt5-live-pilot-telemetry
+DashboardBuild=QuantGod-v3.7-mt5-live-pilot-pullback
 Watchlist=EURUSD,USDJPY
 PreferredSymbolSuffix=AUTO
 ShadowMode=false
@@ -11,6 +11,7 @@ EnablePilotMA=true
 PilotSignalTimeframe=15
 PilotTrendTimeframe=16385
 PilotCrossLookbackBars=3
+PilotContinuationLookbackBars=8
 PilotFastMAPeriod=9
 PilotSlowMAPeriod=21
 PilotTrendMAPeriod=200

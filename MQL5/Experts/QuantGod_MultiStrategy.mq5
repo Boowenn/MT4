@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.60"
+#property version   "3.70"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.6-mt5-live-pilot-telemetry";
+input string DashboardBuild      = "QuantGod-v3.7-mt5-live-pilot-pullback";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -22,6 +22,7 @@ input bool   EnablePilotMA            = true;
 input ENUM_TIMEFRAMES PilotSignalTimeframe = PERIOD_M15;
 input ENUM_TIMEFRAMES PilotTrendTimeframe  = PERIOD_H1;
 input int    PilotCrossLookbackBars   = 3;
+input int    PilotContinuationLookbackBars = 8;
 input int    PilotFastMAPeriod        = 9;
 input int    PilotSlowMAPeriod        = 21;
 input int    PilotTrendMAPeriod       = 200;
@@ -1019,7 +1020,7 @@ void ResetPilotRuntimeStates()
       g_maRuntimeStates[i].status = g_maRuntimeStates[i].enabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_maRuntimeStates[i].adaptiveState = g_maRuntimeStates[i].enabled ? "CAUTION" : "WARMUP";
       g_maRuntimeStates[i].adaptiveReason = g_maRuntimeStates[i].enabled
-         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 3-bar cross window"
+         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 3-bar cross plus pullback continuation"
          : "MT5 phase 1 skeleton: execution engine not ported yet";
       g_maRuntimeStates[i].riskMultiplier = g_maRuntimeStates[i].enabled ? 1.0 : 0.0;
       g_maRuntimeStates[i].score = 0.0;
@@ -1340,7 +1341,7 @@ string PilotAggregateJson(string scopeSymbol)
    json += "\"avgNet\": 0.00, ";
    json += "\"netProfit\": 0.00, ";
    json += "\"disabledUntil\": \"\", ";
-   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross window, USD news filter") + "\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross plus pullback continuation, USD news filter") + "\", ";
    json += "\"positions\": " + IntegerToString(positions) + ", ";
    json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
    json += "}";
@@ -1386,12 +1387,24 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
    double trend1 = MAValue(symbol, PilotTrendTimeframe, PilotTrendMAPeriod, 1, MODE_SMA);
    double trendClose1 = iClose(symbol, PilotTrendTimeframe, 1);
    double atr1 = ATRValue(symbol, PilotSignalTimeframe, PilotATRPeriod, 1);
+   double fast1 = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, 1, MODE_EMA);
+   double fast2 = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, 2, MODE_EMA);
+   double slow1 = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, 1, MODE_EMA);
+   double slow2 = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, 2, MODE_EMA);
+   double close1 = iClose(symbol, PilotSignalTimeframe, 1);
+   double low1 = iLow(symbol, PilotSignalTimeframe, 1);
+   double high1 = iHigh(symbol, PilotSignalTimeframe, 1);
    bool buyCross = false;
    bool sellCross = false;
+   bool recentBullCross = false;
+   bool recentBearCross = false;
    int buyCrossShift = -1;
    int sellCrossShift = -1;
+   int recentBullCrossShift = -1;
+   int recentBearCrossShift = -1;
    int maxShift = MathMax(1, PilotCrossLookbackBars);
-   for(int shift = 1; shift <= maxShift; shift++)
+   int continuationMaxShift = MathMax(maxShift, MathMax(4, PilotContinuationLookbackBars));
+   for(int shift = 1; shift <= continuationMaxShift; shift++)
    {
       double fastCurr = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, shift, MODE_EMA);
       double fastPrev = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, shift + 1, MODE_EMA);
@@ -1404,19 +1417,36 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
          evalCode = PILOT_EVAL_INDICATOR_NOT_READY;
          return false;
       }
-      if(!buyCross && fastPrev <= slowPrev && fastCurr > slowCurr)
+      bool bullishCross = (fastPrev <= slowPrev && fastCurr > slowCurr);
+      bool bearishCross = (fastPrev >= slowPrev && fastCurr < slowCurr);
+      if(!recentBullCross && bullishCross)
+      {
+         recentBullCross = true;
+         recentBullCrossShift = shift;
+      }
+      if(!recentBearCross && bearishCross)
+      {
+         recentBearCross = true;
+         recentBearCrossShift = shift;
+      }
+      if(shift > maxShift)
+         continue;
+      if(!buyCross && bullishCross)
       {
          buyCross = true;
          buyCrossShift = shift;
       }
-      if(!sellCross && fastPrev >= slowPrev && fastCurr < slowCurr)
+      if(!sellCross && bearishCross)
       {
          sellCross = true;
          sellCrossShift = shift;
       }
    }
 
-   if(trend1 == EMPTY_VALUE || trendClose1 == 0.0)
+   if(trend1 == EMPTY_VALUE || trendClose1 == 0.0 ||
+      fast1 == EMPTY_VALUE || fast2 == EMPTY_VALUE ||
+      slow1 == EMPTY_VALUE || slow2 == EMPTY_VALUE ||
+      close1 == 0.0 || low1 == 0.0 || high1 == 0.0)
    {
       reason = "Trend filter not ready";
       evalCode = PILOT_EVAL_TREND_NOT_READY;
@@ -1431,6 +1461,14 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
 
    bool buyTrend = (trendClose1 > trend1);
    bool sellTrend = (trendClose1 < trend1);
+   bool bullishStructure = (fast1 > slow1 && fast2 > slow2);
+   bool bearishStructure = (fast1 < slow1 && fast2 < slow2);
+   double touchTolerance = atr1 * 0.20;
+   double slowGuardTolerance = atr1 * 0.10;
+   bool buyPullbackTouch = (low1 <= fast1 + touchTolerance);
+   bool buyPullbackHeld = (low1 >= slow1 - slowGuardTolerance && close1 >= fast1);
+   bool sellPullbackTouch = (high1 >= fast1 - touchTolerance);
+   bool sellPullbackHeld = (high1 <= slow1 + slowGuardTolerance && close1 <= fast1);
    if(buyCross && buyTrend)
    {
       direction = 1;
@@ -1453,8 +1491,32 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       evalCode = PILOT_EVAL_SIGNAL_SELL;
       return true;
    }
+   if(recentBullCross && recentBullCrossShift > maxShift &&
+      buyTrend && bullishStructure && buyPullbackTouch && buyPullbackHeld)
+   {
+      direction = 1;
+      score = MathMax(62.0, 84.0 - (double)(recentBullCrossShift - maxShift) * 4.0);
+      double stopDistance = atr1 * PilotATRMulitplierSL;
+      slPrice = NormalizeDouble(tick.ask - stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      tpPrice = NormalizeDouble(tick.ask + stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      reason = "M15 bullish continuation after pullback, H1 trend confirmed";
+      evalCode = PILOT_EVAL_SIGNAL_BUY;
+      return true;
+   }
+   if(recentBearCross && recentBearCrossShift > maxShift &&
+      sellTrend && bearishStructure && sellPullbackTouch && sellPullbackHeld)
+   {
+      direction = -1;
+      score = MathMax(62.0, 84.0 - (double)(recentBearCrossShift - maxShift) * 4.0);
+      double stopDistance = atr1 * PilotATRMulitplierSL;
+      slPrice = NormalizeDouble(tick.bid + stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      tpPrice = NormalizeDouble(tick.bid - stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      reason = "M15 bearish continuation after pullback, H1 trend confirmed";
+      evalCode = PILOT_EVAL_SIGNAL_SELL;
+      return true;
+   }
    score = ((buyTrend || sellTrend) ? 55.0 : 25.0);
-   reason = "H1 trend exists but no M15 crossover in lookback window";
+   reason = "H1 trend exists but no fresh crossover or healthy pullback continuation";
    evalCode = PILOT_EVAL_NO_CROSS;
    return false;
 }
@@ -1989,13 +2051,16 @@ int FindRegimeAggregateIndex(RegimeAggregateRecord &values[], string symbol, str
 void WriteTextFile(string fileName, string content)
 {
    ResetLastError();
-   int handle = FileOpen(fileName, FILE_WRITE | FILE_TXT | FILE_ANSI, 0, CP_UTF8);
+   int handle = FileOpen(fileName,
+                         FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         0, CP_UTF8);
    if(handle == INVALID_HANDLE)
    {
       Print("QuantGod MT5 skeleton failed to open file for write: ", fileName, " err=", GetLastError());
       return;
    }
    FileWriteString(handle, content);
+   FileFlush(handle);
    FileClose(handle);
 }
 
