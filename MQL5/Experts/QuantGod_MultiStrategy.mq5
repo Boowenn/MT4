@@ -7,14 +7,20 @@
 #property version   "3.00"
 #property strict
 
-input string DashboardBuild      = "QuantGod-v3.0-mt5-skeleton";
+input string DashboardBuild      = "QuantGod-v3.1-mt5-shadow";
 input string Watchlist           = "EURUSD,USDJPY";
+input string PreferredSymbolSuffix = "AUTO";
+input bool   ShadowMode          = true;
+input bool   ReadOnlyMode        = true;
 input int    RefreshIntervalSec  = 5;
 input int    ClosedTradeLimit    = 50;
 input int    HistoryLookbackDays = 30;
 
 string g_symbols[];
 string g_focusSymbol = "";
+string g_requestedSymbols[];
+string g_resolvedWatchlist = "";
+string g_detectedSuffix = "";
 string g_strategyKeys[5] =
 {
    "MA_Cross",
@@ -103,6 +109,30 @@ void PushClosedTrade(ClosedTradeRecord &values[], ClosedTradeRecord &record)
    values[size] = record;
 }
 
+string ToUpperString(string value)
+{
+   string result = value;
+   StringToUpper(result);
+   return result;
+}
+
+bool EndsWith(string value, string suffix)
+{
+   int valueLength = StringLen(value);
+   int suffixLength = StringLen(suffix);
+   if(suffixLength <= 0 || suffixLength > valueLength)
+      return false;
+
+   return (StringSubstr(value, valueLength - suffixLength) == suffix);
+}
+
+string RemoveTrailingSuffix(string value, string suffix)
+{
+   if(!EndsWith(value, suffix))
+      return value;
+   return StringSubstr(value, 0, StringLen(value) - StringLen(suffix));
+}
+
 int FindSymbolIndex(string symbol)
 {
    for(int i = 0; i < ArraySize(g_symbols); i++)
@@ -113,18 +143,131 @@ int FindSymbolIndex(string symbol)
    return -1;
 }
 
+bool SymbolExistsInTerminal(string symbol)
+{
+   bool isCustom = false;
+   return (StringLen(symbol) > 0 && SymbolExist(symbol, isCustom));
+}
+
+string DetectAccountSymbolSuffix()
+{
+   string requested = TrimString(PreferredSymbolSuffix);
+   if(StringLen(requested) > 0 && ToUpperString(requested) != "AUTO")
+      return requested;
+
+   string chartSymbol = _Symbol;
+   if(StringLen(chartSymbol) > 6)
+   {
+      string chartPrefix = StringSubstr(chartSymbol, 0, 6);
+      if(chartPrefix == "EURUSD" || chartPrefix == "USDJPY" || chartPrefix == "GBPUSD")
+         return StringSubstr(chartSymbol, 6);
+   }
+
+   string accountCurrency = ToUpperString(AccountInfoString(ACCOUNT_CURRENCY));
+   if(accountCurrency == "USC")
+      return "c";
+
+   string server = ToUpperString(AccountInfoString(ACCOUNT_SERVER));
+   if(StringFind(server, "HFMARKETS") >= 0)
+   {
+      if(SymbolExistsInTerminal("EURUSDc") || SymbolExistsInTerminal("USDJPYc"))
+         return "c";
+   }
+
+   return "";
+}
+
+string ResolveWatchSymbol(string token, string suffix)
+{
+   string requested = TrimString(token);
+   if(StringLen(requested) == 0)
+      return "";
+
+   if(SymbolExistsInTerminal(requested))
+      return requested;
+
+   string cleanSuffix = TrimString(suffix);
+   string normalized = requested;
+
+   if(StringLen(cleanSuffix) > 0)
+   {
+      normalized = RemoveTrailingSuffix(requested, cleanSuffix);
+      string candidate = normalized + cleanSuffix;
+      if(SymbolExistsInTerminal(candidate))
+         return candidate;
+   }
+
+   if(SymbolExistsInTerminal(normalized))
+      return normalized;
+
+   if(StringLen(cleanSuffix) == 0 && SymbolExistsInTerminal(normalized + "c"))
+      return normalized + "c";
+
+   int symbolsTotal = SymbolsTotal(false);
+   string prefixUpper = ToUpperString(normalized);
+   string fallback = "";
+
+   for(int i = 0; i < symbolsTotal; i++)
+   {
+      string symbolName = SymbolName(i, false);
+      if(StringLen(symbolName) < StringLen(normalized))
+         continue;
+      string head = ToUpperString(StringSubstr(symbolName, 0, StringLen(normalized)));
+      if(head != prefixUpper)
+         continue;
+
+      if(StringLen(cleanSuffix) > 0 && EndsWith(symbolName, cleanSuffix))
+         return symbolName;
+
+      if(fallback == "")
+         fallback = symbolName;
+   }
+
+   return fallback;
+}
+
+string JoinResolvedWatchlist()
+{
+   string value = "";
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+   {
+      if(i > 0)
+         value += ",";
+      value += g_symbols[i];
+   }
+   return value;
+}
+
+string AccountMarginModeToString(long marginMode)
+{
+   if(marginMode == ACCOUNT_MARGIN_MODE_RETAIL_NETTING)
+      return "NETTING";
+   if(marginMode == ACCOUNT_MARGIN_MODE_EXCHANGE)
+      return "EXCHANGE";
+   if(marginMode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      return "HEDGING";
+   return "UNKNOWN";
+}
+
 bool InitializeWatchlist()
 {
    ArrayResize(g_symbols, 0);
+   ArrayResize(g_requestedSymbols, 0);
    string remaining = Watchlist;
+   g_detectedSuffix = DetectAccountSymbolSuffix();
 
    while(StringLen(remaining) > 0)
    {
       int commaPos = StringFind(remaining, ",");
       string token = (commaPos >= 0) ? StringSubstr(remaining, 0, commaPos) : remaining;
       token = TrimString(token);
-      if(StringLen(token) > 0 && FindSymbolIndex(token) < 0)
-         PushString(g_symbols, token);
+      if(StringLen(token) > 0)
+      {
+         PushString(g_requestedSymbols, token);
+         string resolved = ResolveWatchSymbol(token, g_detectedSuffix);
+         if(StringLen(resolved) > 0 && FindSymbolIndex(resolved) < 0)
+            PushString(g_symbols, resolved);
+      }
       if(commaPos < 0)
          break;
       remaining = StringSubstr(remaining, commaPos + 1);
@@ -139,6 +282,7 @@ bool InitializeWatchlist()
    }
 
    g_focusSymbol = g_symbols[0];
+   g_resolvedWatchlist = JoinResolvedWatchlist();
 
    for(int i = 0; i < ArraySize(g_symbols); i++)
       SymbolSelect(g_symbols[i], true);
@@ -306,6 +450,7 @@ bool FindPositionEntryDeal(ulong positionId, ulong &entryTicket)
 
 void WriteTextFile(string fileName, string content)
 {
+   ResetLastError();
    int handle = FileOpen(fileName, FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE)
    {
@@ -314,6 +459,18 @@ void WriteTextFile(string fileName, string content)
    }
    FileWriteString(handle, content);
    FileClose(handle);
+}
+
+void UpdateShadowChartComment(string tradeStatus, bool connected, long accountLogin)
+{
+   string message = "QuantGod MT5 Shadow\r\n";
+   message += "Status: " + tradeStatus + "\r\n";
+   message += "ReadOnly: " + (ReadOnlyMode ? "true" : "false") + "\r\n";
+   message += "Focus: " + g_focusSymbol + "\r\n";
+   message += "Watchlist: " + g_resolvedWatchlist + "\r\n";
+   message += "Account: " + IntegerToString((int)accountLogin) + "\r\n";
+   message += "Connected: " + (connected ? "true" : "false");
+   Comment(message);
 }
 
 void ExportPlaceholderCsvs()
@@ -431,8 +588,14 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
 {
    ArrayResize(closedTrades, 0);
 
-   datetime fromTime = TimeCurrent() - (HistoryLookbackDays * 86400);
-   if(!HistorySelect(fromTime, TimeCurrent()))
+   datetime historyNow = TimeTradeServer();
+   if(historyNow <= 0)
+      historyNow = TimeCurrent();
+   if(historyNow <= 0)
+      historyNow = TimeLocal();
+
+   datetime fromTime = historyNow - (HistoryLookbackDays * 86400);
+   if(!HistorySelect(fromTime, historyNow))
    {
       Print("QuantGod MT5 skeleton failed HistorySelect err=", GetLastError());
       return;
@@ -657,14 +820,21 @@ void ExportDashboard()
    if(drawdown < 0.0)
       drawdown = 0.0;
 
-   bool connected = (bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+   bool terminalConnected = (bool)TerminalInfoInteger(TERMINAL_CONNECTED);
    bool terminalTradeAllowed = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
    bool programTradeAllowed = (bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    bool dllAllowed = (bool)MQLInfoInteger(MQL_DLLS_ALLOWED);
-   bool tradeAllowed = (connected && terminalTradeAllowed && programTradeAllowed);
+   long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+   string accountServer = AccountInfoString(ACCOUNT_SERVER);
+   bool accountAuthorized = (accountLogin > 0 && StringLen(accountServer) > 0);
+   bool connected = (terminalConnected || accountAuthorized);
+   bool tradeAllowed = (!ReadOnlyMode && connected && terminalTradeAllowed && programTradeAllowed);
+   string tradeStatus = connected ? (ReadOnlyMode ? "SHADOW" : "READY") : "NO_DATA";
 
    datetime serverClock = TimeTradeServer();
-   if(serverClock <= 0 || !connected)
+   if(serverClock <= 0)
+      serverClock = TimeCurrent();
+   if(serverClock <= 0)
       serverClock = TimeLocal();
 
    MqlTick focusTick;
@@ -682,8 +852,13 @@ void ExportDashboard()
    json += "  \"build\": \"" + JsonEscape(DashboardBuild) + "\",\r\n";
 
    json += "  \"runtime\": {\r\n";
-   json += "    \"tradeStatus\": \"" + (tradeAllowed ? "READY" : "NO_DATA") + "\",\r\n";
+   json += "    \"tradeStatus\": \"" + tradeStatus + "\",\r\n";
+    json += "    \"shadowMode\": " + JsonBool(ShadowMode) + ",\r\n";
+    json += "    \"readOnlyMode\": " + JsonBool(ReadOnlyMode) + ",\r\n";
+   json += "    \"executionEnabled\": " + JsonBool(!ReadOnlyMode) + ",\r\n";
    json += "    \"connected\": " + JsonBool(connected) + ",\r\n";
+   json += "    \"terminalConnected\": " + JsonBool(terminalConnected) + ",\r\n";
+   json += "    \"accountAuthorized\": " + JsonBool(accountAuthorized) + ",\r\n";
    json += "    \"terminalTradeAllowed\": " + JsonBool(terminalTradeAllowed) + ",\r\n";
    json += "    \"programTradeAllowed\": " + JsonBool(programTradeAllowed) + ",\r\n";
    json += "    \"dllAllowed\": " + JsonBool(dllAllowed) + ",\r\n";
@@ -708,14 +883,16 @@ void ExportDashboard()
    json += "  },\r\n";
 
    json += "  \"account\": {\r\n";
-   json += "    \"number\": " + IntegerToString((int)AccountInfoInteger(ACCOUNT_LOGIN)) + ",\r\n";
+   json += "    \"number\": " + IntegerToString((int)accountLogin) + ",\r\n";
    json += "    \"name\": \"" + JsonEscape(AccountInfoString(ACCOUNT_NAME)) + "\",\r\n";
-   json += "    \"server\": \"" + JsonEscape(AccountInfoString(ACCOUNT_SERVER)) + "\",\r\n";
+   json += "    \"server\": \"" + JsonEscape(accountServer) + "\",\r\n";
    json += "    \"currency\": \"" + JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)) + "\",\r\n";
-   json += "    \"mode\": \"mt5_skeleton\",\r\n";
+   json += "    \"mode\": \"" + JsonEscape(ShadowMode ? "mt5_shadow" : "mt5_runtime") + "\",\r\n";
+   json += "    \"accountMode\": \"" + AccountMarginModeToString(AccountInfoInteger(ACCOUNT_MARGIN_MODE)) + "\",\r\n";
+   json += "    \"symbolSuffix\": \"" + JsonEscape(g_detectedSuffix) + "\",\r\n";
    json += "    \"startingBalance\": " + FormatNumber(balance, 2) + ",\r\n";
    json += "    \"riskPercent\": 0.00,\r\n";
-   json += "    \"executionLot\": 0.01,\r\n";
+   json += "    \"executionLot\": " + FormatNumber(SymbolInfoDouble(g_focusSymbol, SYMBOL_VOLUME_MIN), 2) + ",\r\n";
    json += "    \"balance\": " + FormatNumber(balance, 2) + ",\r\n";
    json += "    \"equity\": " + FormatNumber(equity, 2) + ",\r\n";
    json += "    \"profit\": " + FormatNumber(profit, 2) + ",\r\n";
@@ -734,11 +911,11 @@ void ExportDashboard()
    json += "    \"margin\": " + FormatNumber(margin, 2) + ",\r\n";
    json += "    \"freeMargin\": " + FormatNumber(freeMargin, 2) + ",\r\n";
    json += "    \"drawdown\": " + FormatNumber(drawdown, 2) + ",\r\n";
-   json += "    \"server\": \"" + JsonEscape(AccountInfoString(ACCOUNT_SERVER)) + "\",\r\n";
+   json += "    \"server\": \"" + JsonEscape(accountServer) + "\",\r\n";
    json += "    \"leverage\": " + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) + "\r\n";
    json += "  },\r\n";
 
-   json += "  \"watchlist\": \"" + JsonEscape(Watchlist) + "\",\r\n";
+   json += "  \"watchlist\": \"" + JsonEscape(g_resolvedWatchlist) + "\",\r\n";
    json += "  \"symbols\": " + symbolsJson + ",\r\n";
    json += "  \"openTrades\": " + openTradesJson + ",\r\n";
    json += "  \"closedTrades\": " + closedTradesJson + ",\r\n";
@@ -752,8 +929,18 @@ void ExportDashboard()
    json += "  }\r\n";
    json += "}\r\n";
 
+   string statusFile = "build=" + DashboardBuild + "\r\n";
+   statusFile += "tradeStatus=" + tradeStatus + "\r\n";
+   statusFile += "connected=" + (connected ? "true" : "false") + "\r\n";
+   statusFile += "focusSymbol=" + g_focusSymbol + "\r\n";
+   statusFile += "watchlist=" + g_resolvedWatchlist + "\r\n";
+   statusFile += "account=" + IntegerToString((int)accountLogin) + "\r\n";
+   statusFile += "server=" + accountServer + "\r\n";
+   statusFile += "localTime=" + FormatDateTime(TimeLocal(), true) + "\r\n";
+   WriteTextFile("QuantGod_MT5_ShadowStatus.txt", statusFile);
    WriteTextFile("QuantGod_Dashboard.json", json);
    ExportPlaceholderCsvs();
+   UpdateShadowChartComment(tradeStatus, connected, accountLogin);
 }
 
 int OnInit()
@@ -761,7 +948,9 @@ int OnInit()
    InitializeWatchlist();
    EventSetTimer(MathMax(1, RefreshIntervalSec));
    ExportDashboard();
-   Print("QuantGod MT5 skeleton initialized. Focus symbol=", g_focusSymbol);
+   Print("QuantGod MT5 shadow runtime initialized. Focus symbol=", g_focusSymbol,
+         " watchlist=", g_resolvedWatchlist, " suffix=", g_detectedSuffix,
+         " readOnly=", (ReadOnlyMode ? "true" : "false"));
    return(INIT_SUCCEEDED);
 }
 

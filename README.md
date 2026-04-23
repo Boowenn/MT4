@@ -4,6 +4,8 @@ MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard
 
 The repository now also includes a phase 1 MT5 migration skeleton that exports dashboard-compatible runtime JSON/CSV while the actual MT5 execution engine is still being ported.
 
+For HFM Cent live-account shadow mode, use the official HFM MT5 client at `C:\Program Files\HFM Metatrader 5`. The generic `C:\Program Files\MetaTrader 5` install may contain stale migration smoke data and should not be treated as the live-account source of truth.
+
 ## Default Mode
 
 This repository is local-first by default.
@@ -47,6 +49,7 @@ The MT5 work is intentionally split into phases:
 - exports `QuantGod_Dashboard.json`
 - exports placeholder CSV files so the existing dashboard can load in MT5
 - supports a local-first launcher through `Start_QuantGod_MT5.bat`
+- supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - Phase 2: not done yet
 - port the actual strategy execution engine
 - port adaptive controls and research statistics
@@ -127,6 +130,14 @@ Then compile `QuantGod_MultiStrategy.mq5` in MetaEditor64 and attach it to an MT
 
 Phase 1 only exports runtime snapshots and placeholder CSVs for the dashboard. It does not execute the MT4 strategies yet.
 
+For HFM Cent live shadow mode, the runtime export target is:
+
+```text
+C:\Program Files\HFM Metatrader 5\MQL5\Files\
+```
+
+That HFM directory is the correct live-account data source for the local dashboard.
+
 ## One-Click Startup
 
 Recommended for MT4:
@@ -156,6 +167,21 @@ This will:
 - start MT5
 - use the official MT5 startup config mechanism to open `EURUSD M1` and auto-load `QuantGod_MultiStrategy`
 - start the same local dashboard server against the MT5 files folder
+- open the dashboard with a cache-busting timestamp
+
+For HFM Cent read-only shadow mode:
+
+```bat
+Start_QuantGod_MT5_HFM_Shadow.bat
+```
+
+This will:
+
+- sync the dashboard assets into `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
+- sync the MT5 skeleton EA and preset into the HFM client
+- restart the official HFM MT5 client in read-only shadow mode
+- keep strategy execution disabled while still exporting your real account, symbol, and open-position runtime
+- start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
 
 If you only want the dashboard server:

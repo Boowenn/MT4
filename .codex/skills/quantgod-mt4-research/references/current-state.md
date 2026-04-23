@@ -18,6 +18,8 @@ When project knowledge conflicts:
 
 Use runtime files for live counts, recent trades, and latest adaptive states.
 Use MT5 runtime files only for migration validation until the MT5 execution/statistics layers are ported.
+For the HFM Cent live-account shadow path, use `C:\Program Files\HFM Metatrader 5\MQL5\Files\` as the MT5 runtime source of truth.
+Do not assume the generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory is current for HFM live-account validation.
 
 ## Core Runtime Layers
 
@@ -39,12 +41,15 @@ Responsibilities:
 - `MQL5/Experts/QuantGod_MultiStrategy.mq5`
 - `MQL5/Config/QuantGod_MT5_Start.ini`
 - `Start_QuantGod_MT5.bat`
+- `MQL5/Config/QuantGod_MT5_HFM_Shadow.ini`
+- `Start_QuantGod_MT5_HFM_Shadow.bat`
 
 Responsibilities:
 
 - Export an MT5 `QuantGod_Dashboard.json` with a dashboard-compatible shape
 - Export placeholder `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
-- Reuse the existing dashboard assets against `C:\Program Files\MetaTrader 5\MQL5\Files\`
+- Reuse the existing dashboard assets against the active MT5 terminal files directory
+- Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account shadow path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
 
 Non-responsibilities in phase 1:
@@ -98,6 +103,10 @@ MT5 phase 1 exports only:
 - `QuantGod_StrategyEvaluationReport.csv` (header placeholder)
 - `QuantGod_RegimeEvaluationReport.csv` (header placeholder)
 - `QuantGod_OpportunityLabels.csv` (header placeholder)
+
+HFM Cent shadow mode uses the same phase 1 export set, but writes it under:
+
+- `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
 
 ## Stable Design Facts
 

@@ -1,0 +1,8 @@
+DashboardBuild=QuantGod-v3.1-mt5-shadow
+Watchlist=EURUSD,USDJPY
+PreferredSymbolSuffix=AUTO
+ShadowMode=true
+ReadOnlyMode=true
+RefreshIntervalSec=5
+ClosedTradeLimit=50
+HistoryLookbackDays=30
