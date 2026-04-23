@@ -19,9 +19,27 @@ const contentTypes = {
   '.ico': 'image/x-icon'
 };
 
+const runtimeTextExtensions = new Set(['.json', '.csv', '.txt']);
+const shiftJisDecoder = new TextDecoder('shift_jis');
+
 function send(res, statusCode, headers, body) {
   res.writeHead(statusCode, headers);
   res.end(body);
+}
+
+function maybeTranscodeRuntimeText(target, ext, data) {
+  const base = path.basename(target);
+  if (!runtimeTextExtensions.has(ext) || !base.startsWith('QuantGod_')) {
+    return data;
+  }
+
+  try {
+    const utf8Text = shiftJisDecoder.decode(data);
+    return Buffer.from(utf8Text, 'utf8');
+  } catch (err) {
+    console.warn(`QuantGod dashboard server transcode fallback for ${base}: ${err.message}`);
+    return data;
+  }
 }
 
 function safeResolve(urlPath) {
@@ -56,13 +74,15 @@ const server = http.createServer((req, res) => {
         return;
       }
 
+      const body = maybeTranscodeRuntimeText(target, ext, data);
+
       send(res, 200, {
         'Content-Type': contentType,
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         Pragma: 'no-cache',
         Expires: '0',
         'Access-Control-Allow-Origin': '*'
-      }, data);
+      }, body);
     });
   });
 });

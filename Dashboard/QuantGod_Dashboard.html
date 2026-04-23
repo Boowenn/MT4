@@ -5234,6 +5234,62 @@ function renderSymbolStrategyBreakdown(symbolItem, data, researchRecommendationI
     }).join('');
 }
 
+function pilotDirectionLabel(direction) {
+    if (Number(direction) > 0) return 'BUY';
+    if (Number(direction) < 0) return 'SELL';
+    return '--';
+}
+
+function renderPilotTelemetryBlock(symbolItem) {
+    const telemetry = symbolItem?.pilotTelemetry;
+    if (!telemetry) return '';
+
+    const evaluations = Number(telemetry.evaluationPasses || 0);
+    const hits = Number(telemetry.signalHits || 0);
+    const waitBar = Number(telemetry.waitBarSkips || 0);
+    const noCross = Number(telemetry.noCrossMisses || 0);
+    const spreadBlocks = Number(telemetry.spreadBlocks || 0);
+    const sessionBlocks = Number(telemetry.sessionBlocks || 0);
+    const newsBlocks = Number(telemetry.newsBlocks || 0) + Number(telemetry.newsFiltered || 0);
+    const orderSent = Number(telemetry.orderSent || 0);
+    const orderFailed = Number(telemetry.orderFailed || 0);
+    const lastMeta = getStatusMeta(telemetry.lastStatus || 'NO_DATA');
+    const lastReason = translateDiagnosticReason(telemetry.lastReason || '') || '等待第一次有效评估';
+    const hitRate = evaluations > 0 ? `${(hits / evaluations * 100).toFixed(0)}%` : '--';
+
+    return `
+        <div class="symbol-strategy-block">
+            <div class="symbol-strategy-title">Pilot 命中率</div>
+            <div class="symbol-metrics">
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">评估 / 命中</div>
+                    <div class="symbol-metric-value">${evaluations} / ${hits}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">命中率 / 方向</div>
+                    <div class="symbol-metric-value">${hitRate} / ${pilotDirectionLabel(telemetry.lastDirection)}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">轮询等待 / 无交叉</div>
+                    <div class="symbol-metric-value">${waitBar} / ${noCross}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">新闻挡 / 点差挡</div>
+                    <div class="symbol-metric-value">${newsBlocks} / ${spreadBlocks + sessionBlocks}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">已发单 / 失败</div>
+                    <div class="symbol-metric-value">${orderSent} / ${orderFailed}</div>
+                </div>
+                <div class="symbol-metric">
+                    <div class="symbol-metric-label">最近状态</div>
+                    <div class="symbol-metric-value">${lastMeta.label}</div>
+                </div>
+            </div>
+            <div class="symbol-note">最近评估 ${escapeHtml(telemetry.lastEvalTime || '--')} | 最近信号 ${escapeHtml(telemetry.lastSignalTime || '--')} | ${escapeHtml(lastReason)}</div>
+        </div>`;
+}
+
 function getRuntimeSummary(d) {
     if (d?.isDemo) {
         return { text: '演示模式', tone: 'status-muted' };
@@ -5525,13 +5581,77 @@ async function loadData() {
 
     console.warn('Dashboard data load failed.', lastError);
     document.getElementById('connectionStatus').textContent = '等待EA数据...';
-    dashboardData = await attachSupplementalData(generateDemoData(), dashboardData);
+    const fallbackData = isLocalRuntime() ? generateEmptyStateData() : generateDemoData();
+    dashboardData = await attachSupplementalData(fallbackData, dashboardData);
     dashboardData._dataSource = isLocalRuntime() ? 'local' : 'cloud';
     syncRuntimeClock(dashboardData);
     updateDashboard();
     updateRuntimeBadge(dashboardData);
     updateEvaluationCountdown(dashboardData);
     updateExecutionRadar(dashboardData);
+}
+
+function generateEmptyStateData() {
+    const now = new Date();
+    return {
+        isDemo: false,
+        timestamp: now.toISOString(),
+        build: 'QuantGod-等待真实数据',
+        runtime: {
+            tradeStatus: 'DISCONNECTED',
+            connected: false,
+            terminalConnected: false,
+            accountAuthorized: false,
+            terminalTradeAllowed: false,
+            programTradeAllowed: false,
+            dllAllowed: false,
+            tradeAllowed: false,
+            tickAgeSeconds: 0,
+            shadowMode: false,
+            readOnlyMode: false,
+            executionEnabled: false,
+            livePilotMode: false,
+            researchMode: false,
+            serverTime: formatRuntimeClock(now),
+            gmtTime: formatRuntimeClock(now, true),
+            localTime: formatRuntimeClock(now)
+        },
+        account: {
+            number: 0,
+            name: '等待真实账户数据',
+            server: '未连接',
+            currency: 'USC',
+            balance: 0,
+            equity: 0,
+            profit: 0,
+            margin: 0,
+            freeMargin: 0,
+            drawdown: 0,
+            leverage: 0
+        },
+        brokerAccount: {
+            balance: 0,
+            equity: 0,
+            profit: 0,
+            margin: 0,
+            freeMargin: 0,
+            drawdown: 0,
+            server: '未连接',
+            leverage: 0
+        },
+        watchlist: '',
+        symbols: [],
+        openTrades: [],
+        closedTrades: [],
+        strategies: {},
+        diagnostics: {},
+        market: {
+            symbol: '--',
+            bid: 0,
+            ask: 0,
+            spread: 0
+        }
+    };
 }
 
 // ====== 示例数据 (当EA未运行时显示) ======
@@ -6551,6 +6671,7 @@ function updateSymbolOverview(d) {
             item.lastCloseTime ? `最近平仓 ${item.lastCloseTime}` : '近期暂无平仓'
         ].filter(Boolean);
         const strategyBreakdown = renderSymbolStrategyBreakdown(item, d, researchRecommendationIndex);
+        const pilotTelemetryHtml = renderPilotTelemetryBlock(item);
         const regimeRows = getSymbolRegimeSummary(d, item.symbol);
         const regimeHtml = regimeRows.length
             ? regimeRows.map((row) => renderRegimeChip(row.regime, row.timeframe)).join('')
@@ -6601,6 +6722,7 @@ function updateSymbolOverview(d) {
                     ${strategyBreakdown}
                 </div>
             </div>
+            ${pilotTelemetryHtml}
             <div class="symbol-note">${noteParts.join(' | ')}</div>
         </div>`;
     }).join('');

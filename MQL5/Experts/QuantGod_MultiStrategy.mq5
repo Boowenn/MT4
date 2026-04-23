@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.40"
+#property version   "3.60"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.4-mt5-live-pilot-m15";
+input string DashboardBuild      = "QuantGod-v3.6-mt5-live-pilot-telemetry";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -36,6 +36,13 @@ input bool   PilotBlockManualPerSymbol  = true;
 input bool   PilotRestrictSession       = true;
 input int    PilotSessionStartHour      = 7;
 input int    PilotSessionEndHour        = 21;
+input bool   EnablePilotNewsFilter      = true;
+input int    PilotNewsPreBlockMinutes   = 10;
+input int    PilotNewsPostBlockMinutes  = 5;
+input int    PilotNewsBiasMinutes       = 45;
+input int    PilotNewsRefreshSeconds    = 15;
+input double PilotUsdJpyNoChaseLevel    = 160.0;
+input double PilotUsdJpyNoChaseBufferPips = 10.0;
 input double PilotMaxFloatingLossUSC    = 30.0;
 input double PilotMaxRealizedLossDayUSC = 60.0;
 input int    PilotMaxConsecutiveLosses  = 2;
@@ -89,6 +96,30 @@ struct StrategyStatusSnapshot
    double   riskMultiplier;
    double   score;
    string   reason;
+};
+
+struct PilotTelemetrySnapshot
+{
+   int      dayKey;
+   int      evaluationPasses;
+   int      signalHits;
+   int      waitBarSkips;
+   int      noCrossMisses;
+   int      spreadBlocks;
+   int      sessionBlocks;
+   int      newsBlocks;
+   int      newsFiltered;
+   int      manualBlocks;
+   int      portfolioBlocks;
+   int      inPositionBlocks;
+   int      orderSent;
+   int      orderFailed;
+   datetime lastEvalTime;
+   datetime lastSignalTime;
+   datetime lastOrderTime;
+   string   lastStatus;
+   string   lastReason;
+   int      lastDirection;
 };
 
 struct ClosedTradeRecord
@@ -182,12 +213,59 @@ struct RegimeAggregateRecord
    datetime lastCloseTime;
 };
 
+struct NewsFilterState
+{
+   bool     enabled;
+   bool     calendarAvailable;
+   bool     blocked;
+   bool     biasActive;
+   int      usdBiasDirection;
+   string   status;
+   string   phase;
+   string   eventName;
+   datetime eventTime;
+   double   actual;
+   double   forecast;
+   double   previous;
+   int      minutesToEvent;
+   int      minutesSinceEvent;
+   string   reason;
+};
+
 datetime g_lastPilotBarTime[];
 StrategyStatusSnapshot g_maRuntimeStates[];
+PilotTelemetrySnapshot g_pilotTelemetry[];
 bool g_pilotKillSwitch = false;
 string g_pilotKillReason = "";
 double g_pilotRealizedLossToday = 0.0;
 int g_pilotConsecutiveLosses = 0;
+ulong g_usdTrackedEventIds[];
+string g_usdTrackedEventNames[];
+int g_usdTrackedEventKinds[];
+NewsFilterState g_newsState;
+datetime g_lastNewsRefresh = 0;
+
+enum ENUM_USD_NEWS_KIND
+{
+   USD_NEWS_UNKNOWN = 0,
+   USD_NEWS_JOBLESS = 1,
+   USD_NEWS_PMI     = 2
+};
+
+enum ENUM_PILOT_EVAL_CODE
+{
+   PILOT_EVAL_NONE = 0,
+   PILOT_EVAL_NOT_ENOUGH_BARS = 1,
+   PILOT_EVAL_TICK_UNAVAILABLE = 2,
+   PILOT_EVAL_SPREAD_BLOCK = 3,
+   PILOT_EVAL_SESSION_BLOCK = 4,
+   PILOT_EVAL_INDICATOR_NOT_READY = 5,
+   PILOT_EVAL_TREND_NOT_READY = 6,
+   PILOT_EVAL_ATR_UNAVAILABLE = 7,
+   PILOT_EVAL_SIGNAL_BUY = 8,
+   PILOT_EVAL_SIGNAL_SELL = 9,
+   PILOT_EVAL_NO_CROSS = 10
+};
 
 string TrimString(string value)
 {
@@ -223,6 +301,20 @@ void PushString(string &values[], string value)
    values[size] = value;
 }
 
+void PushULong(ulong &values[], ulong value)
+{
+   int size = ArraySize(values);
+   ArrayResize(values, size + 1);
+   values[size] = value;
+}
+
+void PushInt(int &values[], int value)
+{
+   int size = ArraySize(values);
+   ArrayResize(values, size + 1);
+   values[size] = value;
+}
+
 void PushClosedTrade(ClosedTradeRecord &values[], ClosedTradeRecord &record)
 {
    int size = ArraySize(values);
@@ -242,6 +334,13 @@ string ToUpperString(string value)
    string result = value;
    StringToUpper(result);
    return result;
+}
+
+bool ContainsInsensitive(string value, string token)
+{
+   string haystack = ToUpperString(value);
+   string needle = ToUpperString(token);
+   return (StringFind(haystack, needle) >= 0);
 }
 
 bool EndsWith(string value, string suffix)
@@ -444,6 +543,431 @@ datetime CurrentServerTime()
    return value;
 }
 
+void ResetNewsFilterState()
+{
+   g_newsState.enabled = EnablePilotNewsFilter;
+   g_newsState.calendarAvailable = false;
+   g_newsState.blocked = false;
+   g_newsState.biasActive = false;
+   g_newsState.usdBiasDirection = 0;
+   g_newsState.status = EnablePilotNewsFilter ? "IDLE" : "DISABLED";
+   g_newsState.phase = "none";
+   g_newsState.eventName = "";
+   g_newsState.eventTime = 0;
+   g_newsState.actual = 0.0;
+   g_newsState.forecast = 0.0;
+   g_newsState.previous = 0.0;
+   g_newsState.minutesToEvent = 0;
+   g_newsState.minutesSinceEvent = 0;
+   g_newsState.reason = EnablePilotNewsFilter
+      ? "USD high-impact news filter is armed"
+      : "USD high-impact news filter is disabled";
+}
+
+int DetermineUsdNewsKind(string sourceText)
+{
+   string upper = ToUpperString(sourceText);
+   bool looksLikeInitialClaims =
+      ((StringFind(upper, "JOBLESS") >= 0 || StringFind(upper, "UNEMPLOYMENT CLAIM") >= 0) &&
+       StringFind(upper, "CONTINUING") < 0);
+   if(looksLikeInitialClaims)
+      return USD_NEWS_JOBLESS;
+
+   if(StringFind(upper, "PMI") >= 0 || StringFind(upper, "PURCHASING MANAGERS") >= 0)
+      return USD_NEWS_PMI;
+
+   return USD_NEWS_UNKNOWN;
+}
+
+string UsdNewsKindLabel(int kind)
+{
+   if(kind == USD_NEWS_JOBLESS)
+      return "JOBLESS";
+   if(kind == USD_NEWS_PMI)
+      return "PMI";
+   return "UNKNOWN";
+}
+
+bool CalendarFieldToDouble(long rawValue, double &value)
+{
+   value = 0.0;
+   if(rawValue == LONG_MIN)
+      return false;
+   value = (double)rawValue / 1000000.0;
+   return true;
+}
+
+void LoadTrackedUsdCalendarEvents()
+{
+   ArrayResize(g_usdTrackedEventIds, 0);
+   ArrayResize(g_usdTrackedEventNames, 0);
+   ArrayResize(g_usdTrackedEventKinds, 0);
+
+   if(!EnablePilotNewsFilter)
+      return;
+
+   MqlCalendarEvent events[];
+   ResetLastError();
+   int count = CalendarEventByCurrency("USD", events);
+   if(count <= 0)
+   {
+      Print("QuantGod MT5 news filter failed to load USD calendar events. err=", GetLastError());
+      return;
+   }
+
+   for(int i = 0; i < count; i++)
+   {
+      if(events[i].type != CALENDAR_TYPE_INDICATOR)
+         continue;
+      if(events[i].importance < CALENDAR_IMPORTANCE_MODERATE)
+         continue;
+
+      string descriptor = events[i].event_code + " " + events[i].name;
+      int kind = DetermineUsdNewsKind(descriptor);
+
+      PushULong(g_usdTrackedEventIds, events[i].id);
+      PushString(g_usdTrackedEventNames, events[i].name);
+      PushInt(g_usdTrackedEventKinds, kind);
+   }
+
+   if(ArraySize(g_usdTrackedEventIds) > 0)
+   {
+      Print("QuantGod MT5 news filter armed with ", ArraySize(g_usdTrackedEventIds),
+            " USD calendar events");
+   }
+   else
+   {
+      Print("QuantGod MT5 news filter found no matching USD events in terminal calendar");
+   }
+}
+
+int UsdBiasFromEventKind(int kind, double actual, double forecast)
+{
+   double diff = actual - forecast;
+   if(MathAbs(diff) < 0.000001)
+      return 0;
+
+   if(kind == USD_NEWS_JOBLESS)
+      return (diff < 0.0) ? 1 : -1;
+
+   if(kind == USD_NEWS_PMI)
+      return (diff > 0.0) ? 1 : -1;
+
+   return 0;
+}
+
+string UsdBiasLabel(int direction)
+{
+   if(direction > 0)
+      return "USD_BULLISH";
+   if(direction < 0)
+      return "USD_BEARISH";
+   return "NEUTRAL";
+}
+
+int PilotDirectionBiasForSymbol(string symbol, int usdBiasDirection)
+{
+   if(usdBiasDirection == 0)
+      return 0;
+
+   string upper = ToUpperString(symbol);
+   if(StringFind(upper, "EURUSD") >= 0)
+      return -usdBiasDirection;
+   if(StringFind(upper, "USDJPY") >= 0)
+      return usdBiasDirection;
+   return 0;
+}
+
+string PilotActionLabelForSymbol(string symbol)
+{
+   if(g_newsState.blocked)
+      return "BLOCKED";
+
+   int direction = PilotDirectionBiasForSymbol(symbol, g_newsState.usdBiasDirection);
+   if(direction > 0)
+      return "BUY_ONLY";
+   if(direction < 0)
+      return "SELL_ONLY";
+   return "BOTH";
+}
+
+void RefreshNewsFilterState(bool force=false)
+{
+   if(!EnablePilotNewsFilter)
+   {
+      ResetNewsFilterState();
+      return;
+   }
+
+   datetime now = CurrentServerTime();
+   if(!force && g_lastNewsRefresh > 0 && (now - g_lastNewsRefresh) < MathMax(5, PilotNewsRefreshSeconds))
+      return;
+   g_lastNewsRefresh = now;
+
+   ResetNewsFilterState();
+
+   if(ArraySize(g_usdTrackedEventIds) == 0)
+      LoadTrackedUsdCalendarEvents();
+
+   if(ArraySize(g_usdTrackedEventIds) == 0)
+   {
+      g_newsState.status = "NO_CALENDAR";
+      g_newsState.reason = "USD calendar events unavailable in this terminal";
+      return;
+   }
+
+   g_newsState.calendarAvailable = true;
+
+   datetime fromTime = now - (MathMax(PilotNewsBiasMinutes, PilotNewsPostBlockMinutes) + 60) * 60;
+   datetime toTime = now + 360 * 60;
+
+   bool hasPreBlock = false;
+   datetime preBlockTime = 0;
+   string preBlockName = "";
+   int preBlockMinutes = 0;
+
+   bool hasPostBlock = false;
+   datetime postBlockTime = 0;
+   string postBlockName = "";
+   int postBlockMinutes = 0;
+
+   bool hasUpcoming = false;
+   datetime upcomingTime = 0;
+   string upcomingName = "";
+   int upcomingMinutes = 0;
+
+   int biasScore = 0;
+   int biasSamples = 0;
+   datetime biasEventTime = 0;
+   string biasEventName = "";
+   double biasActual = 0.0;
+   double biasForecast = 0.0;
+   double biasPrevious = 0.0;
+   int biasMinutesSince = 0;
+
+   for(int i = 0; i < ArraySize(g_usdTrackedEventIds); i++)
+   {
+      MqlCalendarValue values[];
+      ResetLastError();
+      int count = CalendarValueHistoryByEvent(g_usdTrackedEventIds[i], values, fromTime, toTime);
+      if(count < 0)
+         continue;
+
+      for(int j = 0; j < count; j++)
+      {
+         datetime eventTime = values[j].time;
+         if(eventTime <= 0)
+            continue;
+
+         string eventName = g_usdTrackedEventNames[i];
+         if(eventTime > now)
+         {
+            int minutesToEvent = (int)MathMax(0, (long)(eventTime - now) / 60);
+            if(!hasUpcoming || eventTime < upcomingTime)
+            {
+               hasUpcoming = true;
+               upcomingTime = eventTime;
+               upcomingName = eventName;
+               upcomingMinutes = minutesToEvent;
+            }
+            if(minutesToEvent <= PilotNewsPreBlockMinutes && (!hasPreBlock || eventTime < preBlockTime))
+            {
+               hasPreBlock = true;
+               preBlockTime = eventTime;
+               preBlockName = eventName;
+               preBlockMinutes = minutesToEvent;
+            }
+            continue;
+         }
+
+         int minutesSinceEvent = (int)MathMax(0, (long)(now - eventTime) / 60);
+         if(minutesSinceEvent <= PilotNewsPostBlockMinutes)
+         {
+            if(!hasPostBlock || eventTime > postBlockTime)
+            {
+               hasPostBlock = true;
+               postBlockTime = eventTime;
+               postBlockName = eventName;
+               postBlockMinutes = minutesSinceEvent;
+            }
+         }
+
+         double actual = 0.0;
+         double forecast = 0.0;
+         double previous = 0.0;
+         bool hasActual = CalendarFieldToDouble(values[j].actual_value, actual);
+         bool hasForecast = CalendarFieldToDouble(values[j].forecast_value, forecast);
+         bool hasPrevious = CalendarFieldToDouble(values[j].prev_value, previous);
+         if(!hasPrevious)
+            CalendarFieldToDouble(values[j].revised_prev_value, previous);
+
+         if(!hasActual || !hasForecast || minutesSinceEvent > PilotNewsBiasMinutes)
+            continue;
+
+         int eventBias = UsdBiasFromEventKind(g_usdTrackedEventKinds[i], actual, forecast);
+         if(eventBias == 0)
+            continue;
+
+         biasScore += eventBias;
+         biasSamples++;
+         if(eventTime >= biasEventTime)
+         {
+            biasEventTime = eventTime;
+            biasEventName = eventName;
+            biasActual = actual;
+            biasForecast = forecast;
+            biasPrevious = previous;
+            biasMinutesSince = minutesSinceEvent;
+         }
+      }
+   }
+
+   if(hasPreBlock)
+   {
+      g_newsState.blocked = true;
+      g_newsState.status = "PRE_BLOCK";
+      g_newsState.phase = "pre";
+      g_newsState.eventName = preBlockName;
+      g_newsState.eventTime = preBlockTime;
+      g_newsState.minutesToEvent = preBlockMinutes;
+      g_newsState.reason = "USD news pre-block: " + preBlockName +
+         " in " + IntegerToString(preBlockMinutes) + "m";
+      return;
+   }
+
+   if(hasPostBlock)
+   {
+      g_newsState.blocked = true;
+      g_newsState.status = "POST_BLOCK";
+      g_newsState.phase = "post";
+      g_newsState.eventName = postBlockName;
+      g_newsState.eventTime = postBlockTime;
+      g_newsState.minutesSinceEvent = postBlockMinutes;
+      g_newsState.reason = "USD news post-release cooldown: " + postBlockName +
+         " +" + IntegerToString(postBlockMinutes) + "m";
+      return;
+   }
+
+   if(biasSamples > 0 && biasScore != 0)
+   {
+      g_newsState.biasActive = true;
+      g_newsState.usdBiasDirection = (biasScore > 0) ? 1 : -1;
+      g_newsState.status = "BIAS_ACTIVE";
+      g_newsState.phase = "bias";
+      g_newsState.eventName = biasEventName;
+      g_newsState.eventTime = biasEventTime;
+      g_newsState.actual = biasActual;
+      g_newsState.forecast = biasForecast;
+      g_newsState.previous = biasPrevious;
+      g_newsState.minutesSinceEvent = biasMinutesSince;
+      g_newsState.reason = "USD news bias " + UsdBiasLabel(g_newsState.usdBiasDirection) +
+         " from " + biasEventName +
+         " | actual=" + DoubleToString(biasActual, 2) +
+         " forecast=" + DoubleToString(biasForecast, 2);
+      return;
+   }
+
+   if(hasUpcoming)
+   {
+      g_newsState.status = "TRACKING";
+      g_newsState.phase = "tracking";
+      g_newsState.eventName = upcomingName;
+      g_newsState.eventTime = upcomingTime;
+      g_newsState.minutesToEvent = upcomingMinutes;
+      g_newsState.reason = "Tracking next USD event: " + upcomingName +
+         " in " + IntegerToString(upcomingMinutes) + "m";
+      return;
+   }
+
+   g_newsState.status = "IDLE";
+   g_newsState.reason = "No tracked USD event near the current pilot window";
+}
+
+bool PilotNewsBlocksSymbol(string symbol, string &reason)
+{
+   reason = "";
+   if(!EnablePilotNewsFilter || !g_newsState.blocked)
+      return false;
+
+   int directionBias = PilotDirectionBiasForSymbol(symbol, 1);
+   if(directionBias == 0)
+      return false;
+
+   reason = g_newsState.reason;
+   return true;
+}
+
+bool PilotDirectionAllowedByNews(string symbol, int direction, MqlTick &tick, string &reason)
+{
+   reason = "";
+   if(!EnablePilotNewsFilter)
+      return true;
+
+   if(g_newsState.blocked)
+   {
+      reason = g_newsState.reason;
+      return false;
+   }
+
+   int preferredDirection = PilotDirectionBiasForSymbol(symbol, g_newsState.usdBiasDirection);
+   if(g_newsState.biasActive && preferredDirection != 0 && direction != preferredDirection)
+   {
+      reason = "News bias allows only " + PilotActionLabelForSymbol(symbol) +
+         " after " + g_newsState.eventName;
+      return false;
+   }
+
+   string upper = ToUpperString(symbol);
+   if(g_newsState.biasActive &&
+      g_newsState.usdBiasDirection > 0 &&
+      direction > 0 &&
+      StringFind(upper, "USDJPY") >= 0)
+   {
+      double noChasePrice = PilotUsdJpyNoChaseLevel - (PilotUsdJpyNoChaseBufferPips * PipSize(symbol));
+      if(tick.ask >= noChasePrice)
+      {
+         reason = "USDJPY anti-chase guard near 160 blocks breakout BUY after USD-positive news";
+         return false;
+      }
+   }
+
+   return true;
+}
+
+string BuildNewsJson()
+{
+   bool calendarAvailable = g_newsState.calendarAvailable || ArraySize(g_usdTrackedEventIds) > 0;
+   string newsReason = g_newsState.reason;
+   if(EnablePilotNewsFilter &&
+      calendarAvailable &&
+      g_newsState.status == "IDLE" &&
+      g_newsState.reason == "USD high-impact news filter is armed")
+   {
+      newsReason = "No tracked USD event near the current pilot window";
+   }
+
+   string json = "{";
+   json += "\"enabled\": " + JsonBool(EnablePilotNewsFilter) + ", ";
+   json += "\"calendarAvailable\": " + JsonBool(calendarAvailable) + ", ";
+   json += "\"trackedEvents\": " + IntegerToString(ArraySize(g_usdTrackedEventIds)) + ", ";
+   json += "\"status\": \"" + JsonEscape(g_newsState.status) + "\", ";
+   json += "\"phase\": \"" + JsonEscape(g_newsState.phase) + "\", ";
+   json += "\"blocked\": " + JsonBool(g_newsState.blocked) + ", ";
+   json += "\"biasActive\": " + JsonBool(g_newsState.biasActive) + ", ";
+   json += "\"usdBias\": \"" + JsonEscape(UsdBiasLabel(g_newsState.usdBiasDirection)) + "\", ";
+   json += "\"eventName\": \"" + JsonEscape(g_newsState.eventName) + "\", ";
+   json += "\"eventTimeServer\": \"" + JsonEscape(FormatDateTime(g_newsState.eventTime, true)) + "\", ";
+   json += "\"minutesToEvent\": " + IntegerToString(g_newsState.minutesToEvent) + ", ";
+   json += "\"minutesSinceEvent\": " + IntegerToString(g_newsState.minutesSinceEvent) + ", ";
+   json += "\"actual\": " + FormatNumber(g_newsState.actual, 2) + ", ";
+   json += "\"forecast\": " + FormatNumber(g_newsState.forecast, 2) + ", ";
+   json += "\"previous\": " + FormatNumber(g_newsState.previous, 2) + ", ";
+   json += "\"focusAction\": \"" + JsonEscape(PilotActionLabelForSymbol(g_focusSymbol)) + "\", ";
+   json += "\"reason\": \"" + JsonEscape(newsReason) + "\"";
+   json += "}";
+   return json;
+}
+
 bool IsPilotLiveMode()
 {
    return (EnablePilotAutoTrading && !ReadOnlyMode);
@@ -503,6 +1027,98 @@ void ResetPilotRuntimeStates()
          ? "Waiting for first pilot evaluation"
          : "MT5 phase 1 skeleton: execution engine not ported yet";
    }
+}
+
+int CurrentServerDayKey()
+{
+   datetime serverNow = TimeTradeServer();
+   if(serverNow <= 0)
+      serverNow = TimeCurrent();
+   MqlDateTime dt;
+   TimeToStruct(serverNow, dt);
+   return dt.year * 10000 + dt.mon * 100 + dt.day;
+}
+
+void ResetPilotTelemetryForIndex(int index, int dayKey)
+{
+   if(index < 0 || index >= ArraySize(g_pilotTelemetry))
+      return;
+
+   g_pilotTelemetry[index].dayKey = dayKey;
+   g_pilotTelemetry[index].evaluationPasses = 0;
+   g_pilotTelemetry[index].signalHits = 0;
+   g_pilotTelemetry[index].waitBarSkips = 0;
+   g_pilotTelemetry[index].noCrossMisses = 0;
+   g_pilotTelemetry[index].spreadBlocks = 0;
+   g_pilotTelemetry[index].sessionBlocks = 0;
+   g_pilotTelemetry[index].newsBlocks = 0;
+   g_pilotTelemetry[index].newsFiltered = 0;
+   g_pilotTelemetry[index].manualBlocks = 0;
+   g_pilotTelemetry[index].portfolioBlocks = 0;
+   g_pilotTelemetry[index].inPositionBlocks = 0;
+   g_pilotTelemetry[index].orderSent = 0;
+   g_pilotTelemetry[index].orderFailed = 0;
+   g_pilotTelemetry[index].lastEvalTime = 0;
+   g_pilotTelemetry[index].lastSignalTime = 0;
+   g_pilotTelemetry[index].lastOrderTime = 0;
+   g_pilotTelemetry[index].lastStatus = "NO_DATA";
+   g_pilotTelemetry[index].lastReason = "Waiting for first pilot evaluation";
+   g_pilotTelemetry[index].lastDirection = 0;
+}
+
+void EnsurePilotTelemetryState()
+{
+   int symbolCount = ArraySize(g_symbols);
+   if(ArraySize(g_pilotTelemetry) != symbolCount)
+      ArrayResize(g_pilotTelemetry, symbolCount);
+
+   int dayKey = CurrentServerDayKey();
+   for(int i = 0; i < symbolCount; i++)
+   {
+      if(g_pilotTelemetry[i].dayKey != dayKey)
+         ResetPilotTelemetryForIndex(i, dayKey);
+   }
+}
+
+void UpdatePilotTelemetrySnapshot(int index, string status, string reason, int direction = 0)
+{
+   if(index < 0 || index >= ArraySize(g_pilotTelemetry))
+      return;
+
+   g_pilotTelemetry[index].lastStatus = status;
+   g_pilotTelemetry[index].lastReason = reason;
+   g_pilotTelemetry[index].lastDirection = direction;
+}
+
+string BuildPilotTelemetryJson(int index)
+{
+   if(index < 0 || index >= ArraySize(g_pilotTelemetry))
+      return "{}";
+
+   PilotTelemetrySnapshot telemetry = g_pilotTelemetry[index];
+   string json = "{";
+   json += "\"dayKey\": " + IntegerToString(telemetry.dayKey) + ", ";
+   json += "\"evaluationPasses\": " + IntegerToString(telemetry.evaluationPasses) + ", ";
+   json += "\"signalHits\": " + IntegerToString(telemetry.signalHits) + ", ";
+   json += "\"waitBarSkips\": " + IntegerToString(telemetry.waitBarSkips) + ", ";
+   json += "\"noCrossMisses\": " + IntegerToString(telemetry.noCrossMisses) + ", ";
+   json += "\"spreadBlocks\": " + IntegerToString(telemetry.spreadBlocks) + ", ";
+   json += "\"sessionBlocks\": " + IntegerToString(telemetry.sessionBlocks) + ", ";
+   json += "\"newsBlocks\": " + IntegerToString(telemetry.newsBlocks) + ", ";
+   json += "\"newsFiltered\": " + IntegerToString(telemetry.newsFiltered) + ", ";
+   json += "\"manualBlocks\": " + IntegerToString(telemetry.manualBlocks) + ", ";
+   json += "\"portfolioBlocks\": " + IntegerToString(telemetry.portfolioBlocks) + ", ";
+   json += "\"inPositionBlocks\": " + IntegerToString(telemetry.inPositionBlocks) + ", ";
+   json += "\"orderSent\": " + IntegerToString(telemetry.orderSent) + ", ";
+   json += "\"orderFailed\": " + IntegerToString(telemetry.orderFailed) + ", ";
+   json += "\"lastEvalTime\": \"" + JsonEscape(FormatDateTime(telemetry.lastEvalTime, true)) + "\", ";
+   json += "\"lastSignalTime\": \"" + JsonEscape(FormatDateTime(telemetry.lastSignalTime, true)) + "\", ";
+   json += "\"lastOrderTime\": \"" + JsonEscape(FormatDateTime(telemetry.lastOrderTime, true)) + "\", ";
+   json += "\"lastStatus\": \"" + JsonEscape(telemetry.lastStatus) + "\", ";
+   json += "\"lastReason\": \"" + JsonEscape(telemetry.lastReason) + "\", ";
+   json += "\"lastDirection\": " + IntegerToString(telemetry.lastDirection);
+   json += "}";
+   return json;
 }
 
 string JsonEscape(string value)
@@ -724,42 +1340,47 @@ string PilotAggregateJson(string scopeSymbol)
    json += "\"avgNet\": 0.00, ";
    json += "\"netProfit\": 0.00, ";
    json += "\"disabledUntil\": \"\", ";
-   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross window") + "\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross window, USD news filter") + "\", ";
    json += "\"positions\": " + IntegerToString(positions) + ", ";
    json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
    json += "}";
    return json;
 }
-bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, double &score, string &reason, double &slPrice, double &tpPrice)
+bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode)
 {
    direction = 0;
    score = 0.0;
    reason = "Waiting for next evaluation";
    slPrice = 0.0;
    tpPrice = 0.0;
+   evalCode = PILOT_EVAL_NONE;
    int signalBars = Bars(symbol, PilotSignalTimeframe);
    int trendBars = Bars(symbol, PilotTrendTimeframe);
    if(signalBars < MathMax(PilotSlowMAPeriod + PilotCrossLookbackBars + 5, PilotATRPeriod + 5) ||
       trendBars < PilotTrendMAPeriod + 5)
    {
       reason = "Not enough bars for M15/H1 pilot";
+      evalCode = PILOT_EVAL_NOT_ENOUGH_BARS;
       return false;
    }
    MqlTick tick;
    if(!SymbolInfoTick(symbol, tick))
    {
       reason = "Tick data unavailable";
+      evalCode = PILOT_EVAL_TICK_UNAVAILABLE;
       return false;
    }
    double spread = CalcSpreadPips(symbol, tick.bid, tick.ask);
    if(spread > PilotMaxSpreadPips)
    {
       reason = "Spread above pilot limit";
+      evalCode = PILOT_EVAL_SPREAD_BLOCK;
       return false;
    }
    if(!IsPilotSessionOpen())
    {
       reason = "Outside pilot trading session";
+      evalCode = PILOT_EVAL_SESSION_BLOCK;
       return false;
    }
    double trend1 = MAValue(symbol, PilotTrendTimeframe, PilotTrendMAPeriod, 1, MODE_SMA);
@@ -780,6 +1401,7 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
          slowCurr == EMPTY_VALUE || slowPrev == EMPTY_VALUE)
       {
          reason = "Indicator buffers not ready";
+         evalCode = PILOT_EVAL_INDICATOR_NOT_READY;
          return false;
       }
       if(!buyCross && fastPrev <= slowPrev && fastCurr > slowCurr)
@@ -797,11 +1419,13 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
    if(trend1 == EMPTY_VALUE || trendClose1 == 0.0)
    {
       reason = "Trend filter not ready";
+      evalCode = PILOT_EVAL_TREND_NOT_READY;
       return false;
    }
    if(atr1 <= 0.0)
    {
       reason = "ATR unavailable";
+      evalCode = PILOT_EVAL_ATR_UNAVAILABLE;
       return false;
    }
 
@@ -815,6 +1439,7 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       slPrice = NormalizeDouble(tick.ask - stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       tpPrice = NormalizeDouble(tick.ask + stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       reason = "M15 bullish crossover within lookback, H1 trend confirmed";
+      evalCode = PILOT_EVAL_SIGNAL_BUY;
       return true;
    }
    if(sellCross && sellTrend)
@@ -825,10 +1450,12 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       slPrice = NormalizeDouble(tick.bid + stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       tpPrice = NormalizeDouble(tick.bid - stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       reason = "M15 bearish crossover within lookback, H1 trend confirmed";
+      evalCode = PILOT_EVAL_SIGNAL_SELL;
       return true;
    }
    score = ((buyTrend || sellTrend) ? 55.0 : 25.0);
    reason = "H1 trend exists but no M15 crossover in lookback window";
+   evalCode = PILOT_EVAL_NO_CROSS;
    return false;
 }
 bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice)
@@ -888,9 +1515,11 @@ void ClosePilotPositions(const string reason)
 void RunPilotExecutionLoop()
 {
    ResetPilotRuntimeStates();
+   EnsurePilotTelemetryState();
    if(!IsPilotLiveMode() || !EnablePilotMA)
       return;
    UpdatePilotClosedStats();
+   RefreshNewsFilterState();
    if(g_pilotRealizedLossToday >= PilotMaxRealizedLossDayUSC)
    {
       g_pilotKillSwitch = true;
@@ -916,7 +1545,7 @@ void RunPilotExecutionLoop()
       g_maRuntimeStates[i].adaptiveState = g_pilotKillSwitch ? "COOLDOWN" : "CAUTION";
       g_maRuntimeStates[i].adaptiveReason = g_pilotKillSwitch
          ? g_pilotKillReason
-         : "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, hard SL/TP, and kill switch";
+         : "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, USD news filter, hard SL/TP, and kill switch";
       if(g_pilotKillSwitch)
       {
          g_maRuntimeStates[i].active = false;
@@ -924,6 +1553,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].status = "AUTO_PAUSED";
          g_maRuntimeStates[i].score = 0.0;
          g_maRuntimeStates[i].reason = g_pilotKillReason;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
       }
       if(CountPilotPositions() >= PilotMaxTotalPositions)
@@ -933,6 +1563,8 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].status = "PORTFOLIO_LIMIT";
          g_maRuntimeStates[i].score = 0.0;
          g_maRuntimeStates[i].reason = "Portfolio position limit reached";
+         g_pilotTelemetry[i].portfolioBlocks++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
       }
       if(CountPilotPositions(symbol) >= PilotMaxPositionsPerSymbol)
@@ -942,6 +1574,8 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].status = "IN_POSITION";
          g_maRuntimeStates[i].score = 100.0;
          g_maRuntimeStates[i].reason = "Pilot position already open on this symbol";
+         g_pilotTelemetry[i].inPositionBlocks++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
       }
       if(PilotBlockManualPerSymbol && HasManualPositionOnSymbol(symbol))
@@ -951,6 +1585,20 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].status = "POSITION_LIMIT";
          g_maRuntimeStates[i].score = 0.0;
          g_maRuntimeStates[i].reason = "Manual position on symbol blocks pilot entries";
+         g_pilotTelemetry[i].manualBlocks++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         continue;
+      }
+      string newsReason = "";
+      if(PilotNewsBlocksSymbol(symbol, newsReason))
+      {
+         g_maRuntimeStates[i].active = false;
+         g_maRuntimeStates[i].runtimeLabel = "NEWS";
+         g_maRuntimeStates[i].status = "NEWS_BLOCK";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = newsReason;
+         g_pilotTelemetry[i].newsBlocks++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
       }
       if(!IsNewPilotBar(symbol, PilotSignalTimeframe, i))
@@ -960,6 +1608,11 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].status = "WAIT_BAR";
          g_maRuntimeStates[i].score = 0.0;
          g_maRuntimeStates[i].reason = "Waiting for next M15 bar";
+         if(g_newsState.biasActive)
+            g_maRuntimeStates[i].reason += " | news " + PilotActionLabelForSymbol(symbol) +
+               " after " + g_newsState.eventName;
+         g_pilotTelemetry[i].waitBarSkips++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
       }
       int direction = 0;
@@ -967,7 +1620,10 @@ void RunPilotExecutionLoop()
       string reason = "";
       double slPrice = 0.0;
       double tpPrice = 0.0;
-      bool hasSignal = EvaluatePilotMASignal(symbol, i, direction, score, reason, slPrice, tpPrice);
+      int evalCode = PILOT_EVAL_NONE;
+      g_pilotTelemetry[i].evaluationPasses++;
+      g_pilotTelemetry[i].lastEvalTime = TimeCurrent();
+      bool hasSignal = EvaluatePilotMASignal(symbol, i, direction, score, reason, slPrice, tpPrice, evalCode);
       g_maRuntimeStates[i].active = true;
       g_maRuntimeStates[i].runtimeLabel = "ON";
       g_maRuntimeStates[i].score = score;
@@ -975,17 +1631,45 @@ void RunPilotExecutionLoop()
       if(!hasSignal || direction == 0)
       {
          g_maRuntimeStates[i].status = "WAIT_SIGNAL";
+         if(evalCode == PILOT_EVAL_SPREAD_BLOCK)
+            g_pilotTelemetry[i].spreadBlocks++;
+         else if(evalCode == PILOT_EVAL_SESSION_BLOCK)
+            g_pilotTelemetry[i].sessionBlocks++;
+         else if(evalCode == PILOT_EVAL_NO_CROSS)
+            g_pilotTelemetry[i].noCrossMisses++;
+         if(g_newsState.biasActive)
+            g_maRuntimeStates[i].reason = reason + " | news " + PilotActionLabelForSymbol(symbol) +
+               " after " + g_newsState.eventName;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         continue;
+      }
+      g_pilotTelemetry[i].signalHits++;
+      g_pilotTelemetry[i].lastSignalTime = TimeCurrent();
+      MqlTick tick;
+      ZeroMemory(tick);
+      SymbolInfoTick(symbol, tick);
+      if(!PilotDirectionAllowedByNews(symbol, direction, tick, newsReason))
+      {
+         g_maRuntimeStates[i].status = "NEWS_FILTERED";
+         g_maRuntimeStates[i].reason = newsReason;
+         g_pilotTelemetry[i].newsFiltered++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
          continue;
       }
       if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice))
       {
          g_maRuntimeStates[i].status = (direction > 0) ? "BUY_ORDER_SENT" : "SELL_ORDER_SENT";
          g_maRuntimeStates[i].reason = reason + " | Pilot order sent with 0.01 lot";
+         g_pilotTelemetry[i].orderSent++;
+         g_pilotTelemetry[i].lastOrderTime = TimeCurrent();
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
       }
       else
       {
          g_maRuntimeStates[i].status = "ORDER_SEND_FAILED";
          g_maRuntimeStates[i].reason = reason + " | Order send failed, check MT5 Journal";
+         g_pilotTelemetry[i].orderFailed++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
       }
    }
 }
@@ -1305,7 +1989,7 @@ int FindRegimeAggregateIndex(RegimeAggregateRecord &values[], string symbol, str
 void WriteTextFile(string fileName, string content)
 {
    ResetLastError();
-   int handle = FileOpen(fileName, FILE_WRITE | FILE_TXT | FILE_ANSI);
+   int handle = FileOpen(fileName, FILE_WRITE | FILE_TXT | FILE_ANSI, 0, CP_UTF8);
    if(handle == INVALID_HANDLE)
    {
       Print("QuantGod MT5 skeleton failed to open file for write: ", fileName, " err=", GetLastError());
@@ -2104,6 +2788,7 @@ string BuildSymbolsJson(SymbolSnapshot &snapshots[])
       json += "\"closedProfit\": " + FormatNumber(snapshot.closedProfit, 2) + ", ";
       json += "\"actualClosedProfit\": " + FormatNumber(snapshot.actualClosedProfit, 2) + ", ";
       json += "\"lastCloseTime\": \"" + FormatDateTime(snapshot.lastCloseTime) + "\", ";
+      json += "\"pilotTelemetry\": " + BuildPilotTelemetryJson(i) + ", ";
       json += "\"strategies\": {";
 
       for(int s = 0; s < ArraySize(g_strategyKeys); s++)
@@ -2199,6 +2884,8 @@ void ExportDashboard()
          tradeStatus = "SHADOW";
       else if(g_pilotKillSwitch)
          tradeStatus = "AUTO_PAUSED";
+      else if(g_newsState.blocked)
+         tradeStatus = "NEWS_BLOCK";
       else if(tradeAllowed)
          tradeStatus = "READY";
       else
@@ -2243,8 +2930,10 @@ void ExportDashboard()
    json += "    \"researchMode\": false,\r\n";
    json += "    \"serverTime\": \"" + FormatDateTime(serverClock, true) + "\",\r\n";
    json += "    \"gmtTime\": \"" + FormatDateTime(TimeGMT(), true) + "\",\r\n";
-   json += "    \"localTime\": \"" + FormatDateTime(TimeLocal(), true) + "\"\r\n";
+    json += "    \"localTime\": \"" + FormatDateTime(TimeLocal(), true) + "\"\r\n";
    json += "  },\r\n";
+
+   json += "  \"news\": " + BuildNewsJson() + ",\r\n";
 
    json += "  \"cloudSync\": {\r\n";
    json += "    \"enabled\": false,\r\n";
@@ -2314,11 +3003,34 @@ void ExportDashboard()
    statusFile += "pilotRealizedLossToday=" + FormatNumber(g_pilotRealizedLossToday, 2) + "\r\n";
    statusFile += "pilotConsecutiveLosses=" + IntegerToString(g_pilotConsecutiveLosses) + "\r\n";
    statusFile += "pilotFloatingProfit=" + FormatNumber(SumPilotFloatingProfit(), 2) + "\r\n";
+   string exportNewsReason = g_newsState.reason;
+   if(EnablePilotNewsFilter &&
+      (g_newsState.calendarAvailable || ArraySize(g_usdTrackedEventIds) > 0) &&
+      g_newsState.status == "IDLE" &&
+      g_newsState.reason == "USD high-impact news filter is armed")
+   {
+      exportNewsReason = "No tracked USD event near the current pilot window";
+   }
+   statusFile += "newsStatus=" + g_newsState.status + "\r\n";
+   statusFile += "newsBias=" + UsdBiasLabel(g_newsState.usdBiasDirection) + "\r\n";
+   statusFile += "newsEvent=" + g_newsState.eventName + "\r\n";
+   statusFile += "newsReason=" + exportNewsReason + "\r\n";
    statusFile += "connected=" + (connected ? "true" : "false") + "\r\n";
    statusFile += "focusSymbol=" + g_focusSymbol + "\r\n";
    statusFile += "watchlist=" + g_resolvedWatchlist + "\r\n";
    statusFile += "account=" + IntegerToString((int)accountLogin) + "\r\n";
    statusFile += "server=" + accountServer + "\r\n";
+   int focusIndex = FindSymbolIndex(g_focusSymbol);
+   if(focusIndex >= 0 && focusIndex < ArraySize(g_pilotTelemetry))
+   {
+      PilotTelemetrySnapshot telemetry = g_pilotTelemetry[focusIndex];
+      statusFile += "focusEvalPasses=" + IntegerToString(telemetry.evaluationPasses) + "\r\n";
+      statusFile += "focusSignalHits=" + IntegerToString(telemetry.signalHits) + "\r\n";
+      statusFile += "focusWaitBarSkips=" + IntegerToString(telemetry.waitBarSkips) + "\r\n";
+      statusFile += "focusNoCrossMisses=" + IntegerToString(telemetry.noCrossMisses) + "\r\n";
+      statusFile += "focusNewsBlocks=" + IntegerToString(telemetry.newsBlocks + telemetry.newsFiltered) + "\r\n";
+      statusFile += "focusLastStatus=" + telemetry.lastStatus + "\r\n";
+   }
    statusFile += "journalDeals=" + IntegerToString(ArraySize(journal)) + "\r\n";
    statusFile += "closedTrades=" + IntegerToString(ArraySize(closedTrades)) + "\r\n";
    statusFile += "localTime=" + FormatDateTime(TimeLocal(), true) + "\r\n";
@@ -2331,6 +3043,8 @@ void ExportDashboard()
 int OnInit()
 {
    InitializeWatchlist();
+   LoadTrackedUsdCalendarEvents();
+   RefreshNewsFilterState(true);
    EventSetTimer(MathMax(1, RefreshIntervalSec));
    ExportDashboard();
    Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,

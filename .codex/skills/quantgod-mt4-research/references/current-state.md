@@ -56,7 +56,7 @@ Responsibilities:
 - Reuse the existing dashboard assets against the active MT5 terminal files directory
 - Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
-- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, `M15` trigger + `H1` trend filter, a 3-bar crossover lookback window, one-position caps, hard `SL/TP`, and kill switches
+- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, `M15` trigger + `H1` trend filter, a 3-bar crossover lookback window, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter driven by the MT5 economic calendar
 
 Non-responsibilities in phase 1:
 
@@ -81,6 +81,7 @@ Responsibilities:
 - Surface both closed-trade outcomes and window-scoped new opens on that summary card, so operators can see when the current day has started trading but has not produced exits yet
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 - In the trades section, render the HFM MT5 journal surface from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`, including explicit empty states when the live account has not closed a trade yet
+- In the monitor section, each HFM symbol card now also renders a `Pilot 命中率` block from `symbols[].pilotTelemetry`, so operators can inspect daily evaluations, signal hits, WAIT_BAR frequency, no-crossover misses, news blocks, and order-send outcomes without opening raw JSON
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
 - Reuse the same recommendation layer inside the symbol overview strategy chips so operators can see each live `strategy x symbol` slice's current action without leaving the monitoring section
 - Let operators expand each symbol overview strategy chip to inspect the matched `strategy x symbol x regime` slice, sample metrics, and whether the displayed action came from an exact match or a fallback rule
@@ -129,6 +130,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 - Research conclusions must follow the virtual-account pipeline, not raw broker profit alone.
 - MT5 phase 1 does not implement virtual research mode yet; its dashboard export is broker-account runtime only.
 - The HFM live pilot currently automates `MA_Cross` only at `0.01` lot with `M15` trigger + `H1` trend filter + 3-bar crossover lookback; the other four strategies remain dashboard placeholders on MT5.
+- The HFM live pilot now also exports a `news` state object and matching `news*` status lines so automation can react to USD event pre-blocks, post-release cooldowns, and short-lived directional bias windows.
 
 ### Adaptive Control
 

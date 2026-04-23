@@ -59,9 +59,11 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that the overview section now also contains a server-time `昨晚 vs 今天` research summary card, with windows split as `昨晚 20:00 -> 今天 08:00` and `今天 08:00 -> 现在`, using MT4 server timestamps instead of local desktop time.
 - Remember that this summary card is no longer closed-trades-only; it now also surfaces window-scoped new opens and their current floating PnL, so "today has activity but no exits yet" does not look blank.
 - Remember that MT5 is no longer shadow-only: the HFM client now has a constrained live pilot for `MA_Cross` at `0.01` lot using `M15` signal timing, `H1` trend filtering, and a 3-bar crossover lookback window, while the other four strategies remain unported placeholders.
+- Remember that the HFM live pilot now also applies a USD high-impact news filter through the MT5 economic calendar: it pre-blocks and post-blocks around tracked USD events, derives a short-lived USD directional bias from actual-versus-forecast results, and blocks `USDJPY` breakout buys near `160`.
 - Remember that HFM MT5 exports broker-history journaling and regime labels for both manual/other activity and live-pilot trades; those files do not yet represent the full five-strategy QuantGod MT4 research engine.
 - Remember that the dashboard trades section now also renders an HFM MT5 journal panel sourced from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`; if those tables look blank or stale, debug the local CSV loading path before blaming the JSON export.
 - Remember that the HFM Cent live runtime now runs against `C:\Program Files\HFM Metatrader 5\`; if dashboard data does not match the live account, check whether the operator accidentally opened the generic MT5 files folder instead of the HFM one.
+- Remember that the HFM MT5 live pilot now also exports per-symbol `pilotTelemetry` counters into `QuantGod_Dashboard.json`, and the symbol overview cards surface those counters so operators can see whether the pilot is waiting for bars, missing crossovers, being blocked by news, or failing on spread/order-send.
 
 ## Validation Rules
 
@@ -82,6 +84,8 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - For the HFM Cent live pilot launcher, verify those files under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
 - For HFM journaling changes, also verify `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv` under the same directory.
 - For HFM dashboard changes, also verify that the trades section renders the journal summary, event-link table, journal table, and close/outcome empty states or rows from those CSVs.
+- For HFM news-filter changes, also verify the `news` object in `QuantGod_Dashboard.json` and the `news*` lines in `QuantGod_MT5_ShadowStatus.txt`, because the monitoring automation depends on those exports.
+- For HFM live-pilot frequency debugging, also verify each symbol's `pilotTelemetry` object in `QuantGod_Dashboard.json` and the `Pilot 命中率` block in the symbol overview cards.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References
