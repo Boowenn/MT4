@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.70"
+#property version   "3.90"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.8-mt5-live-pilot-pullback-extend";
+input string DashboardBuild      = "QuantGod-v3.9-mt5-live-pilot-range-cooldown";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -23,6 +23,8 @@ input ENUM_TIMEFRAMES PilotSignalTimeframe = PERIOD_M15;
 input ENUM_TIMEFRAMES PilotTrendTimeframe  = PERIOD_H1;
 input int    PilotCrossLookbackBars   = 3;
 input int    PilotContinuationLookbackBars = 16;
+input bool   PilotBlockRangeEntries   = true;
+input int    PilotLossCooldownMinutes = 60;
 input int    PilotFastMAPeriod        = 9;
 input int    PilotSlowMAPeriod        = 21;
 input int    PilotTrendMAPeriod       = 200;
@@ -113,6 +115,8 @@ struct PilotTelemetrySnapshot
    int      manualBlocks;
    int      portfolioBlocks;
    int      inPositionBlocks;
+   int      regimeBlocks;
+   int      cooldownBlocks;
    int      orderSent;
    int      orderFailed;
    datetime lastEvalTime;
@@ -263,9 +267,10 @@ enum ENUM_PILOT_EVAL_CODE
    PILOT_EVAL_INDICATOR_NOT_READY = 5,
    PILOT_EVAL_TREND_NOT_READY = 6,
    PILOT_EVAL_ATR_UNAVAILABLE = 7,
-   PILOT_EVAL_SIGNAL_BUY = 8,
-   PILOT_EVAL_SIGNAL_SELL = 9,
-   PILOT_EVAL_NO_CROSS = 10
+   PILOT_EVAL_RANGE_BLOCK = 8,
+   PILOT_EVAL_SIGNAL_BUY = 9,
+   PILOT_EVAL_SIGNAL_SELL = 10,
+   PILOT_EVAL_NO_CROSS = 11
 };
 
 string TrimString(string value)
@@ -1020,7 +1025,7 @@ void ResetPilotRuntimeStates()
       g_maRuntimeStates[i].status = g_maRuntimeStates[i].enabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_maRuntimeStates[i].adaptiveState = g_maRuntimeStates[i].enabled ? "CAUTION" : "WARMUP";
       g_maRuntimeStates[i].adaptiveReason = g_maRuntimeStates[i].enabled
-         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 3-bar cross plus pullback continuation"
+         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 3-bar cross plus pullback continuation, range guard, and post-loss cooldown"
          : "MT5 phase 1 skeleton: execution engine not ported yet";
       g_maRuntimeStates[i].riskMultiplier = g_maRuntimeStates[i].enabled ? 1.0 : 0.0;
       g_maRuntimeStates[i].score = 0.0;
@@ -1057,6 +1062,8 @@ void ResetPilotTelemetryForIndex(int index, int dayKey)
    g_pilotTelemetry[index].manualBlocks = 0;
    g_pilotTelemetry[index].portfolioBlocks = 0;
    g_pilotTelemetry[index].inPositionBlocks = 0;
+   g_pilotTelemetry[index].regimeBlocks = 0;
+   g_pilotTelemetry[index].cooldownBlocks = 0;
    g_pilotTelemetry[index].orderSent = 0;
    g_pilotTelemetry[index].orderFailed = 0;
    g_pilotTelemetry[index].lastEvalTime = 0;
@@ -1110,6 +1117,8 @@ string BuildPilotTelemetryJson(int index)
    json += "\"manualBlocks\": " + IntegerToString(telemetry.manualBlocks) + ", ";
    json += "\"portfolioBlocks\": " + IntegerToString(telemetry.portfolioBlocks) + ", ";
    json += "\"inPositionBlocks\": " + IntegerToString(telemetry.inPositionBlocks) + ", ";
+   json += "\"regimeBlocks\": " + IntegerToString(telemetry.regimeBlocks) + ", ";
+   json += "\"cooldownBlocks\": " + IntegerToString(telemetry.cooldownBlocks) + ", ";
    json += "\"orderSent\": " + IntegerToString(telemetry.orderSent) + ", ";
    json += "\"orderFailed\": " + IntegerToString(telemetry.orderFailed) + ", ";
    json += "\"lastEvalTime\": \"" + JsonEscape(FormatDateTime(telemetry.lastEvalTime, true)) + "\", ";
@@ -1279,6 +1288,68 @@ void UpdatePilotClosedStats()
    }
 }
 
+bool GetLatestPilotClosedTradeForSymbol(string symbol, datetime &closeTime, double &netProfit)
+{
+   closeTime = 0;
+   netProfit = 0.0;
+
+   datetime nowServer = CurrentServerTime();
+   if(!HistorySelect(nowServer - 86400 * 7, nowServer))
+      return false;
+
+   int total = HistoryDealsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0)
+         continue;
+      long dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
+         continue;
+      long entryType = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if(!IsExitDeal(entryType))
+         continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) != symbol)
+         continue;
+
+      string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
+      long magic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+
+      closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+      netProfit = HistoryDealGetDouble(ticket, DEAL_PROFIT) +
+                  HistoryDealGetDouble(ticket, DEAL_SWAP) +
+                  HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      return true;
+   }
+
+   return false;
+}
+
+bool PilotLossCooldownActive(string symbol, string &reason)
+{
+   reason = "";
+   if(PilotLossCooldownMinutes <= 0)
+      return false;
+
+   datetime closeTime = 0;
+   double netProfit = 0.0;
+   if(!GetLatestPilotClosedTradeForSymbol(symbol, closeTime, netProfit))
+      return false;
+   if(netProfit >= 0.0 || closeTime <= 0)
+      return false;
+
+   int elapsedMinutes = (int)((CurrentServerTime() - closeTime) / 60);
+   if(elapsedMinutes >= PilotLossCooldownMinutes)
+      return false;
+
+   int minutesLeft = PilotLossCooldownMinutes - elapsedMinutes;
+   reason = "Loss cooldown active for " + IntegerToString(minutesLeft) +
+            "m after " + FormatNumber(MathAbs(netProfit), 2) + " USC stopout";
+   return true;
+}
+
 bool IsPilotSessionOpen()
 {
    if(!PilotRestrictSession)
@@ -1341,7 +1412,7 @@ string PilotAggregateJson(string scopeSymbol)
    json += "\"avgNet\": 0.00, ";
    json += "\"netProfit\": 0.00, ";
    json += "\"disabledUntil\": \"\", ";
-   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross plus pullback continuation, USD news filter") + "\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross plus pullback continuation, range guard, post-loss cooldown, USD news filter") + "\", ";
    json += "\"positions\": " + IntegerToString(positions) + ", ";
    json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
    json += "}";
@@ -1458,6 +1529,15 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       evalCode = PILOT_EVAL_ATR_UNAVAILABLE;
       return false;
    }
+
+    RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, 0);
+    if(PilotBlockRangeEntries &&
+       (regime.label == "RANGE" || regime.label == "RANGE_TIGHT"))
+    {
+       reason = "MA_Cross blocked in " + regime.label + " regime";
+       evalCode = PILOT_EVAL_RANGE_BLOCK;
+       return false;
+    }
 
    bool buyTrend = (trendClose1 > trend1);
    bool sellTrend = (trendClose1 < trend1);
@@ -1607,7 +1687,7 @@ void RunPilotExecutionLoop()
       g_maRuntimeStates[i].adaptiveState = g_pilotKillSwitch ? "COOLDOWN" : "CAUTION";
       g_maRuntimeStates[i].adaptiveReason = g_pilotKillSwitch
          ? g_pilotKillReason
-         : "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, USD news filter, hard SL/TP, and kill switch";
+         : "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, range guard, post-loss cooldown, USD news filter, hard SL/TP, and kill switch";
       if(g_pilotKillSwitch)
       {
          g_maRuntimeStates[i].active = false;
@@ -1648,6 +1728,18 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].score = 0.0;
          g_maRuntimeStates[i].reason = "Manual position on symbol blocks pilot entries";
          g_pilotTelemetry[i].manualBlocks++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         continue;
+      }
+      string cooldownReason = "";
+      if(PilotLossCooldownActive(symbol, cooldownReason))
+      {
+         g_maRuntimeStates[i].active = false;
+         g_maRuntimeStates[i].runtimeLabel = "COOL";
+         g_maRuntimeStates[i].status = "LOSS_COOLDOWN";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = cooldownReason;
+         g_pilotTelemetry[i].cooldownBlocks++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
       }
@@ -1697,6 +1789,8 @@ void RunPilotExecutionLoop()
             g_pilotTelemetry[i].spreadBlocks++;
          else if(evalCode == PILOT_EVAL_SESSION_BLOCK)
             g_pilotTelemetry[i].sessionBlocks++;
+         else if(evalCode == PILOT_EVAL_RANGE_BLOCK)
+            g_pilotTelemetry[i].regimeBlocks++;
          else if(evalCode == PILOT_EVAL_NO_CROSS)
             g_pilotTelemetry[i].noCrossMisses++;
          if(g_newsState.biasActive)

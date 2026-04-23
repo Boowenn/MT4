@@ -1,4 +1,4 @@
-DashboardBuild=QuantGod-v3.8-mt5-live-pilot-pullback-extend
+DashboardBuild=QuantGod-v3.9-mt5-live-pilot-range-cooldown
 Watchlist=EURUSD,USDJPY
 PreferredSymbolSuffix=AUTO
 ShadowMode=false
@@ -12,6 +12,8 @@ PilotSignalTimeframe=15
 PilotTrendTimeframe=16385
 PilotCrossLookbackBars=3
 PilotContinuationLookbackBars=16
+PilotBlockRangeEntries=true
+PilotLossCooldownMinutes=60
 PilotFastMAPeriod=9
 PilotSlowMAPeriod=21
 PilotTrendMAPeriod=200
