@@ -1,32 +1,27 @@
 ---
-name: quantgod-mt4-research
-description: Operate, review, and modify the QuantGod MT4 research system in this repository, and maintain the MT5 migration track including the constrained HFM Cent live pilot. Use when working on the MT4 EA, MT5 skeleton/live-pilot EA, dashboard, runtime data exports, virtual research-account statistics, adaptive controls, or QuantGod design documentation. Trigger this skill for requests about strategy evaluation, data-pipeline debugging, dashboard mismatches, MT4-to-MT5 migration scaffolding, HFM live-pilot monitoring, performance reviews, or turning project knowledge into stable repo-local guidance.
+name: quantgod-mt5-live-pilot
+description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system in this repository. Use when working on the MT5 live-pilot EA, HFM runtime exports, dashboard, local server, launchers, pilot telemetry, news filtering, or the repo-local operating guidance for the current MT5 production path. Trigger this skill for requests about HFM live-pilot monitoring, strategy evaluation, data-pipeline debugging, dashboard mismatches, MT5 execution tuning, or turning project knowledge into stable repo-local guidance.
 ---
 
-# QuantGod MT4 Research
+# QuantGod MT5 Live Pilot
 
 ## Quick Start
 
 - Read [references/current-state.md](references/current-state.md) before changing behavior or documenting system status.
-- Treat local MT4 runtime exports under `C:\Program Files (x86)\MetaTrader 4\MQL4\Files\` as the source of truth for live counts and recent outcomes.
-- Treat local MT5 runtime exports under the active MT5 terminal data directory as the source of truth for MT5 migration and live-pilot validation.
-- For the HFM Cent live-account runtime, the source of truth is `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
+- Treat the HFM Cent live-account runtime under `C:\Program Files\HFM Metatrader 5\MQL5\Files\` as the source of truth for current live counts, pilot telemetry, and recent outcomes.
+- Treat the matching MT5 code and launcher files under `C:\Users\OWNER\QuantGod_MT4\` as the only writable source for current behavior changes.
 - The generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory may still contain stale skeleton exports and should not be assumed to represent the live HFM account.
-- If the operator wants to retire the MT4 install, archive the MT4 runtime dataset first with `tools/archive_mt4_runtime.ps1`; the local preservation target is `archive/mt4-runtime-snapshots/`.
+- MT4 is historical archive only. If you need old research evidence, use `tools/archive_mt4_runtime.ps1` and `archive/mt4-runtime-snapshots/`; do not treat MT4 as the live runtime.
 - When docs and runtime disagree, trust code plus runtime exports first, then update the docs.
 
 ## Working Loop
 
 1. Inspect the live runtime artifacts.
-- For MT4 research, start with `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
-- For MT5 migration, start with `QuantGod_Dashboard.json` and the CSV exports under the active MT5 terminal data directory.
 - For the HFM Cent live pilot, start under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
 - For HFM live-pilot journaling, also inspect `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
 - Decide whether the issue is in execution, aggregation, export, or frontend rendering.
 
 2. Trace the matching code path.
-- MT4 EA and export logic live in `MQL4/Experts/QuantGod_MultiStrategy.mq4`.
-- Shared MT4 trading helpers live in `MQL4/Include/QuantEngine.mqh`.
 - MT5 migration skeleton export logic lives in `MQL5/Experts/QuantGod_MultiStrategy.mq5`.
 - MT5 startup automation for phase 1 lives in `MQL5/Config/QuantGod_MT5_Start.ini` and `Start_QuantGod_MT5.bat`.
 - HFM shadow startup automation lives in `MQL5/Config/QuantGod_MT5_HFM_Shadow.ini` and `Start_QuantGod_MT5_HFM_Shadow.bat`.
@@ -43,6 +38,8 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Store durable architecture and workflow guidance here in the skill.
 - Keep this skill as the canonical repo-local knowledge base for Codex-style maintenance work.
 - Point volatile numbers back to runtime exports instead of hardcoding them into canonical docs.
+- Treat HFM MT5 as the primary runtime and GitHub-facing operating path.
+- Treat MT4 only as archived research context unless the user explicitly asks to reopen old MT4 work.
 - Remember that dashboard root `strategies` now reflects the current dashboard focus symbol, while full cross-symbol adaptive truth lives in `QuantGod_StrategyEvaluationReport.csv` and `symbols[].strategies`.
 - Remember that the dashboard now also renders a `strategy x regime` heatmap from `QuantGod_RegimeEvaluationReport.csv`; dashboard bugs may be in CSV parsing or in the frontend aggregation layer, not only in EA exports.
 - Remember that the dashboard is now sectioned with a left-side navigation rail; when moving panels around, preserve the section anchors and sidebar navigation flow instead of reverting to an undifferentiated long page.

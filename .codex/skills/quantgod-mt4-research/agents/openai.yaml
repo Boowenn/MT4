@@ -1,4 +1,0 @@
-interface:
-  display_name: "QuantGod MT4 Research"
-  short_description: "Operate and review the QuantGod MT4 research system"
-  default_prompt: "Use $quantgod-mt4-research to review, modify, or validate the QuantGod MT4 research system."

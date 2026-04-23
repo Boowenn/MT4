@@ -36,7 +36,7 @@ For the current implementation status, data-layer coverage, and the distinction 
 
 see:
 
-- `.codex/skills/quantgod-mt4-research/`
+- `.codex/skills/quantgod-mt5-live-pilot/`
 
 The repo-local skill is the durable operator guide for Codex-style maintenance work.
 

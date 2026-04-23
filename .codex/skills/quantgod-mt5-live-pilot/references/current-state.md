@@ -1,4 +1,4 @@
-# QuantGod MT4 Research: Current Stable Map
+# QuantGod MT5 Live Pilot: Current Stable Map
 
 ## Purpose
 
@@ -10,34 +10,19 @@ Keep this file stable. Put durable architecture and workflow facts here. Do not 
 
 When project knowledge conflicts:
 
-1. Runtime exports under `C:\Program Files (x86)\MetaTrader 4\MQL4\Files\`
-2. Current MT4 EA behavior in `MQL4/Experts/QuantGod_MultiStrategy.mq4`
-3. Dashboard rendering in `Dashboard/QuantGod_Dashboard.html`
-4. MT5 migration skeleton behavior in `MQL5/Experts/QuantGod_MultiStrategy.mq5`
+1. Runtime exports under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
+2. Current MT5 live-pilot behavior in `MQL5/Experts/QuantGod_MultiStrategy.mq5`
+3. Dashboard and local server rendering in `Dashboard/QuantGod_Dashboard.html` and `Dashboard/dashboard_server.js`
+4. MT5 launch/config files such as `MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini` and `MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set`
 5. Human-facing notes such as `README.md`
 
-Use runtime files for live counts, recent trades, and latest adaptive states.
-Use MT5 runtime files for migration validation and HFM live-pilot validation until the full MT5 execution/statistics layers are ported.
-For the HFM Cent live-account runtime path, use `C:\Program Files\HFM Metatrader 5\MQL5\Files\` as the MT5 runtime source of truth.
+Use HFM MT5 runtime files for live counts, recent trades, pilot telemetry, and latest execution states.
 Do not assume the generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory is current for HFM live-account validation.
-If you need to retire the MT4 install later, preserve the MT4 runtime dataset locally with `tools/archive_mt4_runtime.ps1` into `archive/mt4-runtime-snapshots/` first.
+Treat MT4 as archive-only. If you need old MT4 evidence later, preserve or inspect it through `tools/archive_mt4_runtime.ps1` and `archive/mt4-runtime-snapshots/`, not as the current live source.
 
 ## Core Runtime Layers
 
-### Execution Layer
-
-- `MQL4/Experts/QuantGod_MultiStrategy.mq4`
-- `MQL4/Include/QuantEngine.mqh`
-
-Responsibilities:
-
-- Manage the configured symbol watchlist
-- Run the five built-in strategies
-- Export dashboard JSON and CSV research artifacts
-- Maintain virtual research-account statistics
-- Apply protective adaptive control
-
-### MT5 Migration and HFM Live Pilot
+### MT5 Live Pilot and HFM Runtime
 
 - `MQL5/Experts/QuantGod_MultiStrategy.mq5`
 - `MQL5/Config/QuantGod_MT5_Start.ini`
@@ -128,7 +113,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 - Research mode uses a virtual starting balance and risk model while executing real demo fills with a fixed micro lot.
 - Demo account PnL is not the primary research metric.
 - Research conclusions must follow the virtual-account pipeline, not raw broker profit alone.
-- MT5 phase 1 does not implement virtual research mode yet; its dashboard export is broker-account runtime only.
+- MT5 live pilot does not implement the old MT4 virtual research-account model; its dashboard export is broker-account runtime only.
 - The HFM live pilot currently automates `MA_Cross` only at `0.01` lot with `M15` trigger + `H1` trend filter + 3-bar fresh-crossover lookback plus an extended pullback-continuation entry, and it now also blocks new entries in `RANGE` / `RANGE_TIGHT` while enforcing a same-symbol cooldown after a losing exit; the other four strategies remain dashboard placeholders on MT5.
 - The HFM live pilot now also exports a `news` state object and matching `news*` status lines so automation can react to USD event pre-blocks, post-release cooldowns, and short-lived directional bias windows.
 
