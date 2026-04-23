@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.30"
+#property version   "3.40"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.3-mt5-live-pilot";
+input string DashboardBuild      = "QuantGod-v3.4-mt5-live-pilot-m15";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -19,7 +19,9 @@ input int    ClosedTradeLimit    = 50;
 input int    HistoryLookbackDays = 30;
 input bool   EnablePilotAutoTrading   = false;
 input bool   EnablePilotMA            = true;
-input ENUM_TIMEFRAMES PilotTimeframe  = PERIOD_H1;
+input ENUM_TIMEFRAMES PilotSignalTimeframe = PERIOD_M15;
+input ENUM_TIMEFRAMES PilotTrendTimeframe  = PERIOD_H1;
+input int    PilotCrossLookbackBars   = 3;
 input int    PilotFastMAPeriod        = 9;
 input int    PilotSlowMAPeriod        = 21;
 input int    PilotTrendMAPeriod       = 200;
@@ -493,7 +495,7 @@ void ResetPilotRuntimeStates()
       g_maRuntimeStates[i].status = g_maRuntimeStates[i].enabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_maRuntimeStates[i].adaptiveState = g_maRuntimeStates[i].enabled ? "CAUTION" : "WARMUP";
       g_maRuntimeStates[i].adaptiveReason = g_maRuntimeStates[i].enabled
-         ? "MT5 0.01 live pilot armed: MA_Cross is the only executable strategy"
+         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 3-bar cross window"
          : "MT5 phase 1 skeleton: execution engine not ported yet";
       g_maRuntimeStates[i].riskMultiplier = g_maRuntimeStates[i].enabled ? 1.0 : 0.0;
       g_maRuntimeStates[i].score = 0.0;
@@ -722,7 +724,7 @@ string PilotAggregateJson(string scopeSymbol)
    json += "\"avgNet\": 0.00, ";
    json += "\"netProfit\": 0.00, ";
    json += "\"disabledUntil\": \"\", ";
-   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: MA_Cross only with hard risk guards") + "\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross window") + "\", ";
    json += "\"positions\": " + IntegerToString(positions) + ", ";
    json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
    json += "}";
@@ -735,10 +737,12 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
    reason = "Waiting for next evaluation";
    slPrice = 0.0;
    tpPrice = 0.0;
-   int bars = Bars(symbol, PilotTimeframe);
-   if(bars < PilotTrendMAPeriod + 5)
+   int signalBars = Bars(symbol, PilotSignalTimeframe);
+   int trendBars = Bars(symbol, PilotTrendTimeframe);
+   if(signalBars < MathMax(PilotSlowMAPeriod + PilotCrossLookbackBars + 5, PilotATRPeriod + 5) ||
+      trendBars < PilotTrendMAPeriod + 5)
    {
-      reason = "Not enough bars for MA pilot";
+      reason = "Not enough bars for M15/H1 pilot";
       return false;
    }
    MqlTick tick;
@@ -758,18 +762,41 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       reason = "Outside pilot trading session";
       return false;
    }
-   double fast1 = MAValue(symbol, PilotTimeframe, PilotFastMAPeriod, 1, MODE_EMA);
-   double fast2 = MAValue(symbol, PilotTimeframe, PilotFastMAPeriod, 2, MODE_EMA);
-   double slow1 = MAValue(symbol, PilotTimeframe, PilotSlowMAPeriod, 1, MODE_EMA);
-   double slow2 = MAValue(symbol, PilotTimeframe, PilotSlowMAPeriod, 2, MODE_EMA);
-   double trend1 = MAValue(symbol, PilotTimeframe, PilotTrendMAPeriod, 1, MODE_SMA);
-   double close1 = iClose(symbol, PilotTimeframe, 1);
-   double atr1 = ATRValue(symbol, PilotTimeframe, PilotATRPeriod, 1);
-   if(fast1 == EMPTY_VALUE || fast2 == EMPTY_VALUE ||
-      slow1 == EMPTY_VALUE || slow2 == EMPTY_VALUE ||
-      trend1 == EMPTY_VALUE)
+   double trend1 = MAValue(symbol, PilotTrendTimeframe, PilotTrendMAPeriod, 1, MODE_SMA);
+   double trendClose1 = iClose(symbol, PilotTrendTimeframe, 1);
+   double atr1 = ATRValue(symbol, PilotSignalTimeframe, PilotATRPeriod, 1);
+   bool buyCross = false;
+   bool sellCross = false;
+   int buyCrossShift = -1;
+   int sellCrossShift = -1;
+   int maxShift = MathMax(1, PilotCrossLookbackBars);
+   for(int shift = 1; shift <= maxShift; shift++)
    {
-      reason = "Indicator buffers not ready";
+      double fastCurr = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, shift, MODE_EMA);
+      double fastPrev = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, shift + 1, MODE_EMA);
+      double slowCurr = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, shift, MODE_EMA);
+      double slowPrev = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, shift + 1, MODE_EMA);
+      if(fastCurr == EMPTY_VALUE || fastPrev == EMPTY_VALUE ||
+         slowCurr == EMPTY_VALUE || slowPrev == EMPTY_VALUE)
+      {
+         reason = "Indicator buffers not ready";
+         return false;
+      }
+      if(!buyCross && fastPrev <= slowPrev && fastCurr > slowCurr)
+      {
+         buyCross = true;
+         buyCrossShift = shift;
+      }
+      if(!sellCross && fastPrev >= slowPrev && fastCurr < slowCurr)
+      {
+         sellCross = true;
+         sellCrossShift = shift;
+      }
+   }
+
+   if(trend1 == EMPTY_VALUE || trendClose1 == 0.0)
+   {
+      reason = "Trend filter not ready";
       return false;
    }
    if(atr1 <= 0.0)
@@ -777,32 +804,31 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       reason = "ATR unavailable";
       return false;
    }
-   bool buyCross = (fast2 <= slow2 && fast1 > slow1);
-   bool sellCross = (fast2 >= slow2 && fast1 < slow1);
-   bool buyTrend = (close1 > trend1);
-   bool sellTrend = (close1 < trend1);
+
+   bool buyTrend = (trendClose1 > trend1);
+   bool sellTrend = (trendClose1 < trend1);
    if(buyCross && buyTrend)
    {
       direction = 1;
-      score = 100.0;
+      score = 100.0 - (double)(buyCrossShift - 1) * 10.0;
       double stopDistance = atr1 * PilotATRMulitplierSL;
       slPrice = NormalizeDouble(tick.ask - stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       tpPrice = NormalizeDouble(tick.ask + stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
-      reason = "H1 EMA bullish crossover with trend filter";
+      reason = "M15 bullish crossover within lookback, H1 trend confirmed";
       return true;
    }
    if(sellCross && sellTrend)
    {
       direction = -1;
-      score = 100.0;
+      score = 100.0 - (double)(sellCrossShift - 1) * 10.0;
       double stopDistance = atr1 * PilotATRMulitplierSL;
       slPrice = NormalizeDouble(tick.bid + stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
       tpPrice = NormalizeDouble(tick.bid - stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
-      reason = "H1 EMA bearish crossover with trend filter";
+      reason = "M15 bearish crossover within lookback, H1 trend confirmed";
       return true;
    }
-   score = ((buyTrend || sellTrend) ? 45.0 : 20.0);
-   reason = "Trend detected but no fresh crossover yet";
+   score = ((buyTrend || sellTrend) ? 55.0 : 25.0);
+   reason = "H1 trend exists but no M15 crossover in lookback window";
    return false;
 }
 bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice)
@@ -890,7 +916,7 @@ void RunPilotExecutionLoop()
       g_maRuntimeStates[i].adaptiveState = g_pilotKillSwitch ? "COOLDOWN" : "CAUTION";
       g_maRuntimeStates[i].adaptiveReason = g_pilotKillSwitch
          ? g_pilotKillReason
-         : "HFM MT5 0.01 live pilot with fixed lot, hard SL/TP, and kill switch";
+         : "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, hard SL/TP, and kill switch";
       if(g_pilotKillSwitch)
       {
          g_maRuntimeStates[i].active = false;
@@ -927,13 +953,13 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = "Manual position on symbol blocks pilot entries";
          continue;
       }
-      if(!IsNewPilotBar(symbol, PilotTimeframe, i))
+      if(!IsNewPilotBar(symbol, PilotSignalTimeframe, i))
       {
          g_maRuntimeStates[i].active = true;
          g_maRuntimeStates[i].runtimeLabel = "ON";
          g_maRuntimeStates[i].status = "WAIT_BAR";
          g_maRuntimeStates[i].score = 0.0;
-         g_maRuntimeStates[i].reason = "Waiting for next H1 bar";
+         g_maRuntimeStates[i].reason = "Waiting for next M15 bar";
          continue;
       }
       int direction = 0;

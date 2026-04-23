@@ -51,7 +51,7 @@ The MT5 work is intentionally split into phases:
 - supports a local-first launcher through `Start_QuantGod_MT5.bat`
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
-- executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, one-position caps, hard `SL/TP`, and kill switches
+- executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, and kill switches
 - Phase 2: not done yet
 - port the remaining strategy execution engines
 - port adaptive controls and research statistics
@@ -206,7 +206,7 @@ This will:
 - sync the dashboard assets into `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
 - sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
 - restart the official HFM MT5 client in live pilot mode
-- arm `MA_Cross` only with `0.01` lot, one-position caps, hard `SL/TP`, and kill switches
+- arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, and kill switches
 - keep `USDJPYc` blocked if you already have a manual position on that symbol
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
