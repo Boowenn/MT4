@@ -9,7 +9,7 @@
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.7-mt5-live-pilot-pullback";
+input string DashboardBuild      = "QuantGod-v3.8-mt5-live-pilot-pullback-extend";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -22,7 +22,7 @@ input bool   EnablePilotMA            = true;
 input ENUM_TIMEFRAMES PilotSignalTimeframe = PERIOD_M15;
 input ENUM_TIMEFRAMES PilotTrendTimeframe  = PERIOD_H1;
 input int    PilotCrossLookbackBars   = 3;
-input int    PilotContinuationLookbackBars = 8;
+input int    PilotContinuationLookbackBars = 16;
 input int    PilotFastMAPeriod        = 9;
 input int    PilotSlowMAPeriod        = 21;
 input int    PilotTrendMAPeriod       = 200;
