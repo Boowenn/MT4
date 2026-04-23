@@ -1462,6 +1462,115 @@
             margin-bottom: 1.5rem;
         }
 
+        .mt5-shadow-panel {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .mt5-shadow-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .mt5-shadow-metrics {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 0.9rem;
+        }
+
+        .mt5-shadow-metric {
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(42, 58, 78, 0.75);
+            border-radius: 12px;
+            padding: 0.95rem 1rem;
+            min-width: 0;
+        }
+
+        .mt5-shadow-metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .mt5-shadow-metric-value {
+            margin-top: 0.38rem;
+            color: var(--text-primary);
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.15;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .mt5-shadow-metric-meta {
+            margin-top: 0.32rem;
+            color: var(--text-secondary);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        .mt5-shadow-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-bottom: 0;
+        }
+
+        .mt5-shadow-subpanel {
+            border: 1px solid rgba(42, 58, 78, 0.75);
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(15, 23, 42, 0.42);
+        }
+
+        .mt5-shadow-subpanel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid rgba(42, 58, 78, 0.75);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .mt5-shadow-subpanel-title {
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .mt5-shadow-subpanel-meta {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .mt5-shadow-subpanel-body {
+            padding: 0;
+        }
+
+        .mt5-shadow-note {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            align-items: center;
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .mt5-shadow-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(42, 58, 78, 0.85);
+            background: rgba(15, 23, 42, 0.55);
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
         .table-wrapper {
             overflow-x: auto;
         }
@@ -2300,6 +2409,8 @@
         .strat-bb { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
         .strat-macd { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
         .strat-sr { background: rgba(236, 72, 153, 0.15); color: var(--accent-pink); }
+        .strat-manual { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
+        .strat-quantgod { background: rgba(34, 197, 94, 0.15); color: #86efac; }
 
         /* 底部信息栏 */
         .footer {
@@ -2352,6 +2463,8 @@
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .dashboard-grid { grid-template-columns: 1fr; }
             .trades-grid { grid-template-columns: 1fr; }
+            .mt5-shadow-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .mt5-shadow-grid { grid-template-columns: 1fr; }
             .strategy-cards { grid-template-columns: 1fr; }
             .eval-card-times { flex-basis: 180px; }
             .research-suggestion-grid { grid-template-columns: 1fr; }
@@ -2393,6 +2506,7 @@
             .sidebar-summary-grid { grid-template-columns: 1fr 1fr; }
             .research-suggestion-metrics { grid-template-columns: 1fr 1fr; }
             .research-suggestion-footer { flex-direction: column; align-items: flex-start; }
+            .mt5-shadow-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
         /* 滚动条 */
@@ -2837,6 +2951,139 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">J</div>
+                            HFM MT5 实盘影子日志
+                        </div>
+                        <span class="eval-summary" id="mt5ShadowSummary">等待影子日志</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="mt5-shadow-panel">
+                            <div class="mt5-shadow-meta" id="mt5ShadowMeta">
+                                这里会接入 HFM MT5 的 journal、close history、outcome 和 event link 数据，帮你把真实账户的只读采集链路看清楚。
+                            </div>
+                            <div class="mt5-shadow-note" id="mt5ShadowPills">
+                                <span class="mt5-shadow-pill">等待本地 CSV</span>
+                            </div>
+                            <div class="mt5-shadow-metrics" id="mt5ShadowMetrics">
+                                <div class="mt5-shadow-metric">
+                                    <div class="mt5-shadow-metric-label">事件流水</div>
+                                    <div class="mt5-shadow-metric-value">--</div>
+                                    <div class="mt5-shadow-metric-meta">等待 journal</div>
+                                </div>
+                            </div>
+                            <div class="dashboard-grid mt5-shadow-grid">
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">当前追踪链</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5EventLinksMeta">等待 event links</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="table-wrapper">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Position</th>
+                                                        <th>品种</th>
+                                                        <th>策略</th>
+                                                        <th>来源</th>
+                                                        <th>入口 Regime</th>
+                                                        <th>状态</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="mt5EventLinksBody">
+                                                    <tr><td colspan="6" class="empty-state">等待 event links</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">最新事件流水</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5JournalMeta">等待 journal</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="table-wrapper">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>事件时间</th>
+                                                        <th>动作</th>
+                                                        <th>品种</th>
+                                                        <th>手数</th>
+                                                        <th>净值</th>
+                                                        <th>来源</th>
+                                                        <th>Regime</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="mt5JournalBody">
+                                                    <tr><td colspan="7" class="empty-state">等待 journal</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dashboard-grid mt5-shadow-grid">
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">平仓归档</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5CloseHistoryMeta">等待第一笔平仓</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="table-wrapper">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>平仓时间</th>
+                                                        <th>品种</th>
+                                                        <th>方向</th>
+                                                        <th>时长</th>
+                                                        <th>净值</th>
+                                                        <th>来源</th>
+                                                        <th>Entry → Exit</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="mt5CloseHistoryBody">
+                                                    <tr><td colspan="7" class="empty-state">等待第一笔平仓</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">Outcome 标签</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5OutcomeMeta">等待 outcome 标签</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="table-wrapper">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>标签时间</th>
+                                                        <th>品种</th>
+                                                        <th>策略</th>
+                                                        <th>标签</th>
+                                                        <th>净值</th>
+                                                        <th>Regime</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="mt5OutcomeBody">
+                                                    <tr><td colspan="6" class="empty-state">等待 outcome 标签</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-research" data-nav-section="research">
@@ -2971,6 +3218,10 @@ const LOCAL_DASHBOARD_PATH = 'QuantGod_Dashboard.json';
 const LOCAL_STRATEGY_REPORT_PATH = 'QuantGod_StrategyEvaluationReport.csv';
 const LOCAL_REGIME_REPORT_PATH = 'QuantGod_RegimeEvaluationReport.csv';
 const LOCAL_OPPORTUNITY_LABELS_PATH = 'QuantGod_OpportunityLabels.csv';
+const LOCAL_TRADE_JOURNAL_PATH = 'QuantGod_TradeJournal.csv';
+const LOCAL_CLOSE_HISTORY_PATH = 'QuantGod_CloseHistory.csv';
+const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
+const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -3011,7 +3262,9 @@ const STRATEGY_CONFIG = {
     'RSI_Reversal':    { label: 'RSI 反转',     shortLabel: 'RSI',  color: '#8b5cf6', dotColor: '#8b5cf6', cssClass: 'strat-rsi' },
     'BB_Triple':       { label: '布林三重确认', shortLabel: '布林', color: '#f59e0b', dotColor: '#f59e0b', cssClass: 'strat-bb' },
     'MACD_Divergence': { label: 'MACD 背离',    shortLabel: 'MACD', color: '#06b6d4', dotColor: '#06b6d4', cssClass: 'strat-macd' },
-    'SR_Breakout':     { label: '支撑阻力突破', shortLabel: '突破', color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' }
+    'SR_Breakout':     { label: '支撑阻力突破', shortLabel: '突破', color: '#ec4899', dotColor: '#ec4899', cssClass: 'strat-sr' },
+    'Manual/Other':    { label: '人工/其他',    shortLabel: '人工', color: '#94a3b8', dotColor: '#94a3b8', cssClass: 'strat-manual' },
+    'QuantGod/Other':  { label: 'QuantGod 其他', shortLabel: 'QG', color: '#22c55e', dotColor: '#22c55e', cssClass: 'strat-quantgod' }
 };
 
 const STATUS_META = {
@@ -3040,6 +3293,7 @@ const STATUS_META = {
     BUY_ORDER_SENT:           { label: '已发买单',         tone: 'status-info',   cardTone: 'card-positive' },
     SELL_ORDER_SENT:          { label: '已发卖单',         tone: 'status-info',   cardTone: 'card-positive' },
     ORDER_SEND_FAILED:        { label: '下单失败',         tone: 'status-danger', cardTone: 'card-danger' },
+    SHADOW:                   { label: '影子采集',         tone: 'status-info',   cardTone: 'card-watch' },
     DEMO:                     { label: '演示模式',         tone: 'status-muted',  cardTone: 'card-watch' },
     NO_DATA:                  { label: '暂无数据',         tone: 'status-muted',  cardTone: '' }
 };
@@ -3054,6 +3308,44 @@ function strategyShortLabel(key) {
 
 function tradeTypeLabel(type) {
     return type === 'BUY' ? '买入' : type === 'SELL' ? '卖出' : type;
+}
+
+function sourceLabel(source) {
+    const normalized = String(source || '').toUpperCase();
+    if (normalized === 'MANUAL') return '人工';
+    if (normalized === 'EA') return 'EA';
+    if (normalized === 'SHADOW') return '影子';
+    return source || '--';
+}
+
+function eventTypeLabel(eventType, side = '') {
+    const normalized = String(eventType || '').toUpperCase();
+    const sideLabel = tradeTypeLabel(side || '');
+    if (normalized === 'ENTRY') return `开仓 · ${sideLabel}`;
+    if (normalized === 'EXIT') return `平仓 · ${sideLabel}`;
+    return normalized || '--';
+}
+
+function outcomeLabelText(label) {
+    const normalized = String(label || '').toUpperCase();
+    if (normalized === 'WIN' || normalized === 'TP') return '盈利';
+    if (normalized === 'LOSS' || normalized === 'SL') return '亏损';
+    if (normalized === 'FLAT' || normalized === 'BE') return '持平';
+    return label || '--';
+}
+
+function sourceToneClass(source) {
+    const normalized = String(source || '').toUpperCase();
+    if (normalized === 'EA') return 'status-info';
+    if (normalized === 'MANUAL') return 'status-warn';
+    return 'status-muted';
+}
+
+function outcomeToneClass(label, netProfit = 0) {
+    const normalized = String(label || '').toUpperCase();
+    if (normalized === 'WIN' || normalized === 'TP' || Number(netProfit) > 0) return 'status-live';
+    if (normalized === 'LOSS' || normalized === 'SL' || Number(netProfit) < 0) return 'status-danger';
+    return 'status-muted';
 }
 
 function roleLabel(role) {
@@ -3308,6 +3600,101 @@ function parseOpportunityLabelsCsv(text) {
     })).filter((row) => row.eventId && row.strategy);
 }
 
+function parseTradeJournalCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        dealTicket: row.DealTicket || '',
+        positionId: row.PositionId || '',
+        eventType: row.EventType || '',
+        side: row.Side || '',
+        symbol: row.Symbol || '',
+        lots: toNumber(row.Lots, 0),
+        price: toNumber(row.Price, 0),
+        grossProfit: toNumber(row.GrossProfit, 0),
+        commission: toNumber(row.Commission, 0),
+        swap: toNumber(row.Swap, 0),
+        netProfit: toNumber(row.NetProfit, 0),
+        eventTime: row.EventTime || '',
+        strategy: row.Strategy || '',
+        source: row.Source || '',
+        regime: row.Regime || '',
+        regimeTimeframe: row.RegimeTimeframe || '',
+        comment: row.Comment || ''
+    })).filter((row) => row.dealTicket || row.positionId);
+}
+
+function parseCloseHistoryCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        exitTicket: row.ExitTicket || '',
+        positionId: row.PositionId || '',
+        type: row.Type || '',
+        symbol: row.Symbol || '',
+        lots: toNumber(row.Lots, 0),
+        openTime: row.OpenTime || '',
+        closeTime: row.CloseTime || '',
+        durationMinutes: toNumber(row.DurationMinutes, 0),
+        openPrice: toNumber(row.OpenPrice, 0),
+        closePrice: toNumber(row.ClosePrice, 0),
+        grossProfit: toNumber(row.GrossProfit, 0),
+        commission: toNumber(row.Commission, 0),
+        swap: toNumber(row.Swap, 0),
+        netProfit: toNumber(row.NetProfit, 0),
+        strategy: row.Strategy || '',
+        source: row.Source || '',
+        entryRegime: row.EntryRegime || '',
+        exitRegime: row.ExitRegime || '',
+        regimeTimeframe: row.RegimeTimeframe || '',
+        comment: row.Comment || ''
+    })).filter((row) => row.exitTicket || row.positionId);
+}
+
+function parseTradeOutcomeLabelsCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        labelTimeLocal: row.LabelTimeLocal || '',
+        labelTimeServer: row.LabelTimeServer || '',
+        positionId: row.PositionId || '',
+        exitTicket: row.ExitTicket || '',
+        symbol: row.Symbol || '',
+        type: row.Type || '',
+        strategy: row.Strategy || '',
+        source: row.Source || '',
+        openTime: row.OpenTime || '',
+        closeTime: row.CloseTime || '',
+        durationMinutes: toNumber(row.DurationMinutes, 0),
+        netProfit: toNumber(row.NetProfit, 0),
+        entryRegime: row.EntryRegime || '',
+        exitRegime: row.ExitRegime || '',
+        regimeTimeframe: row.RegimeTimeframe || '',
+        outcomeLabel: row.OutcomeLabel || '',
+        comment: row.Comment || ''
+    })).filter((row) => row.positionId || row.exitTicket);
+}
+
+function parseTradeEventLinksCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        positionId: row.PositionId || '',
+        symbol: row.Symbol || '',
+        strategy: row.Strategy || '',
+        source: row.Source || '',
+        entryDeal: row.EntryDeal || '',
+        exitDeal: row.ExitDeal || '',
+        openTime: row.OpenTime || '',
+        closeTime: row.CloseTime || '',
+        durationMinutes: toNumber(row.DurationMinutes, 0),
+        entryRegime: row.EntryRegime || '',
+        exitRegime: row.ExitRegime || '',
+        regimeTimeframe: row.RegimeTimeframe || '',
+        status: row.Status || '',
+        comment: row.Comment || ''
+    })).filter((row) => row.positionId || row.entryDeal || row.exitDeal);
+}
+
+async function loadLocalCsvSupplement(path, parser) {
+    const response = await fetch(appendCacheBust(path), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const text = await response.text();
+    return parser(text);
+}
+
 async function attachSupplementalData(baseData, previousData = null) {
     const data = {
         ...baseData,
@@ -3319,7 +3706,19 @@ async function attachSupplementalData(baseData, previousData = null) {
             : (previousData?.regimeEvaluationRows || []),
         opportunityLabelRows: Array.isArray(baseData?.opportunityLabelRows)
             ? baseData.opportunityLabelRows
-            : (previousData?.opportunityLabelRows || [])
+            : (previousData?.opportunityLabelRows || []),
+        tradeJournalRows: Array.isArray(baseData?.tradeJournalRows)
+            ? baseData.tradeJournalRows
+            : (previousData?.tradeJournalRows || []),
+        closeHistoryRows: Array.isArray(baseData?.closeHistoryRows)
+            ? baseData.closeHistoryRows
+            : (previousData?.closeHistoryRows || []),
+        tradeOutcomeRows: Array.isArray(baseData?.tradeOutcomeRows)
+            ? baseData.tradeOutcomeRows
+            : (previousData?.tradeOutcomeRows || []),
+        tradeEventLinkRows: Array.isArray(baseData?.tradeEventLinkRows)
+            ? baseData.tradeEventLinkRows
+            : (previousData?.tradeEventLinkRows || [])
     };
 
     if (!isLocalRuntime()) {
@@ -3327,10 +3726,7 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
-        const response = await fetch(appendCacheBust(LOCAL_STRATEGY_REPORT_PATH), { cache: 'no-store' });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const text = await response.text();
-        data.strategyEvaluationRows = parseStrategyEvaluationCsv(text);
+        data.strategyEvaluationRows = await loadLocalCsvSupplement(LOCAL_STRATEGY_REPORT_PATH, parseStrategyEvaluationCsv);
         data._strategyReportError = false;
     } catch (error) {
         data._strategyReportError = true;
@@ -3338,10 +3734,7 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
-        const response = await fetch(appendCacheBust(LOCAL_REGIME_REPORT_PATH), { cache: 'no-store' });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const text = await response.text();
-        data.regimeEvaluationRows = parseRegimeEvaluationCsv(text);
+        data.regimeEvaluationRows = await loadLocalCsvSupplement(LOCAL_REGIME_REPORT_PATH, parseRegimeEvaluationCsv);
         data._regimeReportError = false;
     } catch (error) {
         data._regimeReportError = true;
@@ -3349,14 +3742,43 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
-        const response = await fetch(appendCacheBust(LOCAL_OPPORTUNITY_LABELS_PATH), { cache: 'no-store' });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const text = await response.text();
-        data.opportunityLabelRows = parseOpportunityLabelsCsv(text);
+        data.opportunityLabelRows = await loadLocalCsvSupplement(LOCAL_OPPORTUNITY_LABELS_PATH, parseOpportunityLabelsCsv);
         data._opportunityLabelsError = false;
     } catch (error) {
         data._opportunityLabelsError = true;
         console.warn('Opportunity labels load failed.', error);
+    }
+
+    try {
+        data.tradeJournalRows = await loadLocalCsvSupplement(LOCAL_TRADE_JOURNAL_PATH, parseTradeJournalCsv);
+        data._tradeJournalError = false;
+    } catch (error) {
+        data._tradeJournalError = true;
+        console.warn('Trade journal load failed.', error);
+    }
+
+    try {
+        data.closeHistoryRows = await loadLocalCsvSupplement(LOCAL_CLOSE_HISTORY_PATH, parseCloseHistoryCsv);
+        data._closeHistoryError = false;
+    } catch (error) {
+        data._closeHistoryError = true;
+        console.warn('Close history load failed.', error);
+    }
+
+    try {
+        data.tradeOutcomeRows = await loadLocalCsvSupplement(LOCAL_TRADE_OUTCOME_LABELS_PATH, parseTradeOutcomeLabelsCsv);
+        data._tradeOutcomeError = false;
+    } catch (error) {
+        data._tradeOutcomeError = true;
+        console.warn('Trade outcome labels load failed.', error);
+    }
+
+    try {
+        data.tradeEventLinkRows = await loadLocalCsvSupplement(LOCAL_TRADE_EVENT_LINKS_PATH, parseTradeEventLinksCsv);
+        data._tradeEventLinksError = false;
+    } catch (error) {
+        data._tradeEventLinksError = true;
+        console.warn('Trade event links load failed.', error);
     }
 
     return data;
@@ -3372,6 +3794,22 @@ function getRegimeEvaluationRows(d) {
 
 function getOpportunityLabelRows(d) {
     return Array.isArray(d?.opportunityLabelRows) ? d.opportunityLabelRows : [];
+}
+
+function getTradeJournalRows(d) {
+    return Array.isArray(d?.tradeJournalRows) ? d.tradeJournalRows : [];
+}
+
+function getCloseHistoryRows(d) {
+    return Array.isArray(d?.closeHistoryRows) ? d.closeHistoryRows : [];
+}
+
+function getTradeOutcomeRows(d) {
+    return Array.isArray(d?.tradeOutcomeRows) ? d.tradeOutcomeRows : [];
+}
+
+function getTradeEventLinkRows(d) {
+    return Array.isArray(d?.tradeEventLinkRows) ? d.tradeEventLinkRows : [];
 }
 
 function getFocusSymbol(d) {
@@ -4212,6 +4650,10 @@ function isResearchMode(d) {
     return Boolean(d?.runtime?.researchMode || d?.account?.mode === 'virtual_research');
 }
 
+function isShadowRuntime(d) {
+    return Boolean(d?.runtime?.shadowMode || d?.runtime?.readOnlyMode || String(d?.runtime?.tradeStatus || '').toUpperCase() === 'SHADOW');
+}
+
 function getDisplayAccount(d) {
     return d?.account || {};
 }
@@ -4224,6 +4666,13 @@ function formatMoney(value, digits = 2) {
     const num = Number(value || 0);
     const sign = num >= 0 ? '+' : '-';
     return `${sign}$${Math.abs(num).toFixed(digits)}`;
+}
+
+function formatMoneyWithCurrency(value, currency = '', digits = 2) {
+    const num = Number(value || 0);
+    const sign = num >= 0 ? '+' : '-';
+    const suffix = currency ? ` ${currency}` : '';
+    return `${sign}${Math.abs(num).toFixed(digits)}${suffix}`;
 }
 
 function formatLots(value) {
@@ -4797,7 +5246,8 @@ function getRuntimeSummary(d) {
     const runtime = d?.runtime || {};
     const meta = getStatusMeta(runtime.tradeStatus || (runtime.tradeAllowed ? 'READY' : 'NO_DATA'));
     const sourceLabel = getDataSourceLabel(d?._dataSource);
-    const prefix = runtime.connected === false ? `${sourceLabel} | 未连接` : `${sourceLabel} | 实时`;
+    const modeText = isShadowRuntime(d) ? '影子' : '实时';
+    const prefix = runtime.connected === false ? `${sourceLabel} | 未连接` : `${sourceLabel} | ${modeText}`;
     return { text: `${prefix} | ${meta.label}`, tone: meta.tone };
 }
 
@@ -5260,17 +5710,21 @@ function updateDashboard() {
     updateResearchSuggestions(d);
     updateRegimeHeatmap(d);
     updateSidebarSummary(d);
+    updateMt5ShadowJournalPanel(d);
 
     const footer = document.querySelector('.footer');
     if (footer) {
         const buildText = d.build || 'QuantGod 交易面板';
         const modeText = researchMode
             ? `虚拟研究账户 | 起始 $${Number(account.startingBalance || 0).toFixed(2)} | 执行 ${formatLots(account.executionLot || 0)} 手`
-            : '真实执行账户 | 界面每 5 秒刷新';
+            : (isShadowRuntime(d)
+                ? `HFM 实盘影子模式 | 只读采集 | 执行开关 ${d?.runtime?.executionEnabled ? '开启' : '关闭'}`
+                : '真实执行账户 | 界面每 5 秒刷新');
         const watchText = d.watchlist ? `监控: ${d.watchlist}` : `焦点: ${d.market.symbol}`;
         const sourceText = `数据源: ${getDataSourceLabel(d._dataSource)}`;
         const cloudText = `云端: ${formatCloudSyncStatus(d.cloudSync)}`;
-        footer.textContent = `${buildText} | ${modeText} | ${watchText} | ${sourceText} | ${cloudText} | 仅供模拟测试使用`;
+        const footerSuffix = isShadowRuntime(d) ? '不自动下单，仅采集真实账户运行数据' : '仅供模拟测试使用';
+        footer.textContent = `${buildText} | ${modeText} | ${watchText} | ${sourceText} | ${cloudText} | ${footerSuffix}`;
     }
 
     updateOpenTrades(d.openTrades);
@@ -5432,6 +5886,206 @@ function updateStrategyCards(d) {
             }
         });
     });
+}
+
+function updateMt5ShadowJournalPanel(d) {
+    const summaryEl = document.getElementById('mt5ShadowSummary');
+    const metaEl = document.getElementById('mt5ShadowMeta');
+    const pillsEl = document.getElementById('mt5ShadowPills');
+    const metricsEl = document.getElementById('mt5ShadowMetrics');
+    const journalMetaEl = document.getElementById('mt5JournalMeta');
+    const closeMetaEl = document.getElementById('mt5CloseHistoryMeta');
+    const outcomeMetaEl = document.getElementById('mt5OutcomeMeta');
+    const linksMetaEl = document.getElementById('mt5EventLinksMeta');
+    const journalBody = document.getElementById('mt5JournalBody');
+    const closeBody = document.getElementById('mt5CloseHistoryBody');
+    const outcomeBody = document.getElementById('mt5OutcomeBody');
+    const linksBody = document.getElementById('mt5EventLinksBody');
+
+    if (!summaryEl || !metaEl || !metricsEl || !journalBody || !closeBody || !outcomeBody || !linksBody) {
+        return;
+    }
+
+    const displayAccount = getDisplayAccount(d);
+    const brokerAccount = getBrokerAccount(d);
+    const currency = displayAccount.currency || brokerAccount.currency || '';
+    const journalRows = getTradeJournalRows(d).slice().sort((a, b) => (b.eventTime || '').localeCompare(a.eventTime || ''));
+    const closeRows = getCloseHistoryRows(d).slice().sort((a, b) => (b.closeTime || '').localeCompare(a.closeTime || ''));
+    const outcomeRows = getTradeOutcomeRows(d).slice().sort((a, b) => (b.labelTimeServer || b.labelTimeLocal || '').localeCompare(a.labelTimeServer || a.labelTimeLocal || ''));
+    const linkRows = getTradeEventLinkRows(d).slice().sort((a, b) => (b.openTime || '').localeCompare(a.openTime || ''));
+    const openLinks = linkRows.filter((row) => String(row.status || '').toUpperCase() === 'OPEN');
+    const closedLinks = linkRows.filter((row) => String(row.status || '').toUpperCase() === 'CLOSED' || (row.exitDeal && row.exitDeal !== '0'));
+    const manualEvents = journalRows.filter((row) => String(row.source || '').toUpperCase() === 'MANUAL').length;
+    const eaEvents = journalRows.filter((row) => String(row.source || '').toUpperCase() === 'EA').length;
+    const latestEventCandidates = [journalRows[0]?.eventTime, closeRows[0]?.closeTime, outcomeRows[0]?.labelTimeServer || outcomeRows[0]?.labelTimeLocal, linkRows[0]?.openTime]
+        .filter(Boolean)
+        .sort();
+    const latestEventTime = latestEventCandidates.length ? latestEventCandidates[latestEventCandidates.length - 1] : '';
+    const shadowRuntime = isShadowRuntime(d);
+    const hasShadowRows = journalRows.length || closeRows.length || outcomeRows.length || linkRows.length;
+
+    if (!shadowRuntime && !hasShadowRows) {
+        summaryEl.textContent = '当前不是 HFM 影子模式';
+        metaEl.textContent = '当前运行还没有接入 HFM MT5 实盘影子链路，或者本地 journal / close history / outcome / event links 文件还未生成。';
+        pillsEl.innerHTML = '<span class="mt5-shadow-pill">未检测到影子日志</span>';
+        metricsEl.innerHTML = `
+            <div class="mt5-shadow-metric">
+                <div class="mt5-shadow-metric-label">影子状态</div>
+                <div class="mt5-shadow-metric-value">--</div>
+                <div class="mt5-shadow-metric-meta">等待 HFM MT5 本地采集链路</div>
+            </div>`;
+        linksMetaEl.textContent = '等待 event links';
+        journalMetaEl.textContent = '等待 journal';
+        closeMetaEl.textContent = '等待第一笔平仓';
+        outcomeMetaEl.textContent = '等待 outcome 标签';
+        linksBody.innerHTML = '<tr><td colspan="6" class="empty-state">等待 event links</td></tr>';
+        journalBody.innerHTML = '<tr><td colspan="7" class="empty-state">等待 journal</td></tr>';
+        closeBody.innerHTML = '<tr><td colspan="7" class="empty-state">等待第一笔平仓</td></tr>';
+        outcomeBody.innerHTML = '<tr><td colspan="6" class="empty-state">等待 outcome 标签</td></tr>';
+        return;
+    }
+
+    summaryEl.textContent = `事件 ${journalRows.length} 条 | 平仓 ${closeRows.length} 笔 | 追踪链 ${openLinks.length} 开 / ${closedLinks.length} 闭`;
+
+    const runtime = d?.runtime || {};
+    const runtimeText = shadowRuntime
+        ? `影子模式已接通，tradeStatus=${runtime.tradeStatus || 'SHADOW'}，execution=${runtime.executionEnabled ? 'ON' : 'OFF'}。`
+        : '已读到本地影子日志文件，但 runtime 还没有明确标记成 SHADOW。';
+    const closeText = closeRows.length
+        ? `最近一笔平仓在 ${closeRows[0].closeTime}。`
+        : '目前还没有平仓样本，所以 close history / outcome 会继续保持等待状态。';
+    metaEl.textContent = `${runtimeText} ${closeText}`;
+
+    pillsEl.innerHTML = [
+        `<span class="mt5-shadow-pill">账户 ${escapeHtml(String(displayAccount.number || '--'))}</span>`,
+        `<span class="mt5-shadow-pill">服务器 ${escapeHtml(String(displayAccount.server || '--'))}</span>`,
+        `<span class="mt5-shadow-pill">模式 ${shadowRuntime ? 'HFM Shadow' : 'Local CSV'}</span>`,
+        `<span class="mt5-shadow-pill">来源 人工 ${manualEvents} / EA ${eaEvents}</span>`,
+        `<span class="mt5-shadow-pill">最新事件 ${escapeHtml(latestEventTime || '--')}</span>`
+    ].join('');
+
+    const metrics = [
+        {
+            label: '事件流水',
+            value: String(journalRows.length),
+            meta: journalRows.length ? `最近事件 ${journalRows[0].eventTime || '--'}` : '等待第一条 journal 事件'
+        },
+        {
+            label: '开放追踪链',
+            value: String(openLinks.length),
+            meta: openLinks.length ? `最近开仓 ${openLinks[0].openTime || '--'}` : '当前没有开放中的 position link'
+        },
+        {
+            label: '已平仓归档',
+            value: String(closeRows.length),
+            meta: closeRows.length ? `最近平仓 ${closeRows[0].closeTime || '--'}` : '等待第一笔平仓写入'
+        },
+        {
+            label: 'Outcome 标签',
+            value: String(outcomeRows.length),
+            meta: outcomeRows.length ? `最近标签 ${outcomeRows[0].labelTimeServer || outcomeRows[0].labelTimeLocal || '--'}` : '等待第一笔 outcome 标签'
+        },
+        {
+            label: '人工 / EA',
+            value: `${manualEvents}/${eaEvents}`,
+            meta: '统计 journal 里的来源分布'
+        },
+        {
+            label: '浮动盈亏',
+            value: formatMoneyWithCurrency(brokerAccount.profit || 0, currency),
+            meta: shadowRuntime ? '来自当前 HFM 实盘账户，只读展示' : '来自当前本地快照'
+        }
+    ];
+
+    metricsEl.innerHTML = metrics.map((item) => `
+        <div class="mt5-shadow-metric">
+            <div class="mt5-shadow-metric-label">${escapeHtml(item.label)}</div>
+            <div class="mt5-shadow-metric-value">${escapeHtml(item.value)}</div>
+            <div class="mt5-shadow-metric-meta">${escapeHtml(item.meta)}</div>
+        </div>
+    `).join('');
+
+    linksMetaEl.textContent = openLinks.length || closedLinks.length
+        ? `开放 ${openLinks.length} / 已闭环 ${closedLinks.length}`
+        : '等待第一条 event link';
+    journalMetaEl.textContent = journalRows.length
+        ? `最近 ${Math.min(journalRows.length, 8)} 条 journal 事件`
+        : '等待第一条 journal';
+    closeMetaEl.textContent = closeRows.length
+        ? `最近 ${Math.min(closeRows.length, 8)} 笔平仓`
+        : '等待第一笔平仓';
+    outcomeMetaEl.textContent = outcomeRows.length
+        ? `最近 ${Math.min(outcomeRows.length, 8)} 条标签`
+        : '等待第一笔 outcome 标签';
+
+    if (!linkRows.length) {
+        linksBody.innerHTML = '<tr><td colspan="6" class="empty-state">当前还没有 position 追踪链</td></tr>';
+    } else {
+        linksBody.innerHTML = linkRows.slice(0, 8).map((row) => {
+            const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy || '未归类' };
+            const durationText = row.durationMinutes > 0 ? `${row.durationMinutes} 分钟` : '--';
+            const statusTone = String(row.status || '').toUpperCase() === 'OPEN' ? 'status-info' : 'status-live';
+            return `<tr>
+                <td>${escapeHtml(row.positionId || '--')}</td>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td><span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy || '--')}</span></td>
+                <td><span class="table-badge ${sourceToneClass(row.source)}">${escapeHtml(sourceLabel(row.source))}</span></td>
+                <td>${escapeHtml(row.entryRegime || '--')} <span style="color: var(--text-muted); font-family: Inter, sans-serif;">${escapeHtml(row.regimeTimeframe || '')}</span></td>
+                <td>
+                    <span class="table-badge ${statusTone}">${escapeHtml(row.status || '--')}</span>
+                    <div style="margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: Inter, sans-serif;">${escapeHtml(durationText)}</div>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+
+    if (!journalRows.length) {
+        journalBody.innerHTML = '<tr><td colspan="7" class="empty-state">已连接 HFM 影子模式，等待第一条 journal 事件</td></tr>';
+    } else {
+        journalBody.innerHTML = journalRows.slice(0, 8).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.eventTime || '--')}</td>
+                <td><span class="table-badge ${row.eventType === 'ENTRY' ? 'status-info' : 'status-live'}">${escapeHtml(eventTypeLabel(row.eventType, row.side))}</span></td>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${escapeHtml(formatLots(row.lots))}</td>
+                <td class="profit-cell ${row.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit, currency))}</td>
+                <td><span class="table-badge ${sourceToneClass(row.source)}">${escapeHtml(sourceLabel(row.source))}</span></td>
+                <td>${escapeHtml(row.regime || '--')} <span style="color: var(--text-muted); font-family: Inter, sans-serif;">${escapeHtml(row.regimeTimeframe || '')}</span></td>
+            </tr>
+        `).join('');
+    }
+
+    if (!closeRows.length) {
+        closeBody.innerHTML = '<tr><td colspan="7" class="empty-state">已开始采集，等待第一笔平仓写入 close history</td></tr>';
+    } else {
+        closeBody.innerHTML = closeRows.slice(0, 8).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.closeTime || '--')}</td>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td class="${row.type === 'BUY' ? 'type-buy' : 'type-sell'}">${escapeHtml(tradeTypeLabel(row.type))}</td>
+                <td>${escapeHtml(row.durationMinutes > 0 ? `${row.durationMinutes} 分钟` : '--')}</td>
+                <td class="profit-cell ${row.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit, currency))}</td>
+                <td><span class="table-badge ${sourceToneClass(row.source)}">${escapeHtml(sourceLabel(row.source))}</span></td>
+                <td>${escapeHtml(row.entryRegime || '--')} → ${escapeHtml(row.exitRegime || '--')}</td>
+            </tr>
+        `).join('');
+    }
+
+    if (!outcomeRows.length) {
+        outcomeBody.innerHTML = '<tr><td colspan="6" class="empty-state">Outcome 标签会在第一笔平仓后自动出现</td></tr>';
+    } else {
+        outcomeBody.innerHTML = outcomeRows.slice(0, 8).map((row) => {
+            const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy || '未归类' };
+            return `<tr>
+                <td>${escapeHtml(row.labelTimeServer || row.labelTimeLocal || '--')}</td>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td><span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy || '--')}</span></td>
+                <td><span class="table-badge ${outcomeToneClass(row.outcomeLabel, row.netProfit)}">${escapeHtml(outcomeLabelText(row.outcomeLabel))}</span></td>
+                <td class="profit-cell ${row.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit, currency))}</td>
+                <td>${escapeHtml(row.entryRegime || '--')} → ${escapeHtml(row.exitRegime || '--')}</td>
+            </tr>`;
+        }).join('');
+    }
 }
 
 function updateStrategyEvaluationTable(d) {

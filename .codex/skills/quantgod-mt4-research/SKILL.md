@@ -59,6 +59,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that this summary card is no longer closed-trades-only; it now also surfaces window-scoped new opens and their current floating PnL, so "today has activity but no exits yet" does not look blank.
 - Remember that MT5 is currently only in phase 1 migration mode: its EA exports dashboard-compatible JSON and placeholder CSVs, but it does not execute or evaluate the five research strategies yet.
 - Remember that HFM MT5 shadow mode now exports broker-history journaling and regime labels even before the MT5 strategy engine is ported; these files describe manual/other real-account activity and broker-specific behavior, not QuantGod strategy execution.
+- Remember that the dashboard trades section now also renders an HFM MT5 shadow-journal panel sourced from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`; if those tables look blank or stale, debug the local CSV loading path before blaming the JSON export.
 - Remember that the HFM Cent shadow path now runs against `C:\Program Files\HFM Metatrader 5\`; if dashboard data does not match the live account, check whether the operator accidentally opened the generic MT5 files folder instead of the HFM one.
 
 ## Validation Rules
@@ -79,6 +80,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Check that MT5 phase 1 still exports `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv` into the active MT5 terminal data directory whenever you touch the migration skeleton or its launcher.
 - For the HFM Cent shadow launcher, verify those files under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
 - For HFM shadow journaling changes, also verify `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv` under the same directory.
+- For HFM shadow dashboard changes, also verify that the trades section renders the shadow-journal summary, event-link table, journal table, and close/outcome empty states or rows from those CSVs.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References
