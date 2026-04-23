@@ -86,6 +86,8 @@ Primary runtime files:
 - It does not automatically mutate strategy parameters.
 - The current implementation evaluates adaptive state independently for each `strategy x symbol` pair.
 - `EURUSD / RSI_Reversal` also has an additional research-only execution guard: it requires an exact RSI threshold crossback, uses a tighter Bollinger touch, and skips new entries during `TREND_EXP*` regimes.
+- `EURUSD / MACD_Divergence` now also has a research-only execution guard: it skips bullish divergence buys during `TREND_DOWN` and `TREND_EXP_DOWN`.
+- `EURUSD / BB_Triple` now also has a research-only execution guard: it skips buy setups during `TREND_EXP_DOWN`.
 - Dashboard root `strategies` is scoped to the current dashboard focus symbol.
 - Cross-symbol comparison should come from `QuantGod_StrategyEvaluationReport.csv` or `symbols[].strategies` in `QuantGod_Dashboard.json`.
 

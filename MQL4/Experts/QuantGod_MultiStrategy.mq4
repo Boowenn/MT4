@@ -220,6 +220,7 @@ input int      BB_RSI_Period      = 14;      // RSI 周期
 input int      BB_RSI_OB          = 65;      // RSI 超买
 input int      BB_RSI_OS          = 35;      // RSI 超卖
 input ENUM_TIMEFRAMES BB_Timeframe = PERIOD_H1; // 更活跃：H1
+input bool     BB_EURUSD_BlockTrendExpDownResearch = true; // EURUSD 趋势扩张下跌期不做 BB 抄底研究
 input int      BB_Magic           = 10003;   // Magic Number
 
 //=== 策略4: MACD 背离 ===
@@ -230,6 +231,7 @@ input int      MACD_Slow          = 26;      // 慢线
 input int      MACD_Signal        = 9;       // 信号线
 input int      MACD_LookBack      = 24;      // 背离回溯周期
 input ENUM_TIMEFRAMES MACD_Timeframe = PERIOD_H1; // 更活跃：H1
+input bool     MACD_EURUSD_BlockDowntrendResearch = true; // EURUSD 下跌 regime 不做 MACD 多头研究
 input int      MACD_Magic         = 10004;   // Magic Number
 
 //=== 策略5: 支撑阻力突破 ===
@@ -2410,12 +2412,30 @@ void Strategy_MACD_Divergence_V2()
    int bullDiv = DetectBullishDivergenceV2();
    int bearDiv = DetectBearishDivergenceV2();
    double atrSL = GetATRStopLoss(gSymbol, MACD_Timeframe, 14, 2.0);
+   double atrPips = 0.0;
+   double adxValue = 0.0;
+   double bbWidthPips = 0.0;
+   double spreadPips = 0.0;
+   string regime = DetectMarketRegime(gSymbol, MACD_Timeframe, atrPips, adxValue, bbWidthPips, spreadPips);
    double ask = MarketInfo(gSymbol, MODE_ASK);
    double bid = MarketInfo(gSymbol, MODE_BID);
    if(ask <= 0 || bid <= 0)
       return;
 
-   if(bullDiv > 0)
+   bool eurusdMacdGuard = UseEurUsdMacdResearchGuard(gSymbol);
+   bool bullishGuardBlocked = eurusdMacdGuard && bullDiv > 0 && IsDowntrendRegime(regime);
+   string guardDetail = "regime=" + regime + " bullDiv=" + BoolLabel(bullDiv > 0) + " bearDiv=" + BoolLabel(bearDiv > 0);
+
+   if(bullishGuardBlocked && bearDiv <= 0)
+   {
+      string guardReason = "EURUSD MACD research guard skipped bullish divergence in downtrend regime | regime=" + regime;
+      SetStrategyDiagnostic(3, "QUALITY_FILTER", guardReason, 100);
+      LogStrategySignal(3, gSymbol, MACD_Timeframe, "QUALITY_FILTER", guardReason, "BUY", 100,
+                        bullDiv > 0 ? 100 : 0, bearDiv > 0 ? 100 : 0, guardDetail);
+      return;
+   }
+
+   if(bullDiv > 0 && !bullishGuardBlocked)
    {
       double sl = atrSL;
       double tp = AdjustTakeProfitPipsForResearch(sl * 2.0, sl, gSymbol);
@@ -2423,7 +2443,7 @@ void Strategy_MACD_Divergence_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
-      string detail = "bullDiv=Y bearDiv=N";
+      string detail = "regime=" + regime + " bullDiv=Y bearDiv=N";
       string buyReason = "Bullish MACD divergence triggered a buy";
       string eventId = BuildSignalEventId();
       string orderComment = BuildManagedOrderCommentWithEvent("QG_MACD_Div_BUY", virtualLots, eventId);
@@ -2458,7 +2478,7 @@ void Strategy_MACD_Divergence_V2()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
-      string detail = "bullDiv=N bearDiv=Y";
+      string detail = "regime=" + regime + " bullDiv=N bearDiv=Y";
       string sellReason = "Bearish MACD divergence triggered a sell";
       string eventId = BuildSignalEventId();
       string orderComment = BuildManagedOrderCommentWithEvent("QG_MACD_Div_SELL", virtualLots, eventId);
@@ -2485,8 +2505,8 @@ void Strategy_MACD_Divergence_V2()
       return;
    }
 
-   string noSetupReason = "No MACD divergence found in the last " + IntegerToString(MACD_LookBack) + " bars";
-   string noSetupDetail = "bullDiv=" + BoolLabel(bullDiv > 0) + " bearDiv=" + BoolLabel(bearDiv > 0);
+   string noSetupReason = "No MACD divergence found in the last " + IntegerToString(MACD_LookBack) + " bars | regime=" + regime;
+   string noSetupDetail = guardDetail + " guardBlocked=" + BoolLabel(bullishGuardBlocked);
    SetStrategyDiagnostic(3, "NO_SETUP", noSetupReason, 0);
    LogStrategySignal(3, gSymbol, MACD_Timeframe, "NO_SETUP", noSetupReason, "NONE", 0, 0, 0, noSetupDetail);
 }
@@ -3324,9 +3344,28 @@ bool IsTrendExpansionRegime(string regime)
    return regime == "TREND_EXP" || regime == "TREND_EXP_UP" || regime == "TREND_EXP_DOWN";
 }
 
+bool IsDowntrendRegime(string regime)
+{
+   return regime == "TREND_DOWN" || regime == "TREND_EXP_DOWN";
+}
+
 bool UseEurUsdRsiResearchGuard(string symbol_name)
 {
    if(!UseVirtualResearchAccount || !RSI_EURUSD_TightResearchGuard)
+      return false;
+   return StringFind(symbol_name, "EURUSD") == 0;
+}
+
+bool UseEurUsdBbResearchGuard(string symbol_name)
+{
+   if(!UseVirtualResearchAccount || !BB_EURUSD_BlockTrendExpDownResearch)
+      return false;
+   return StringFind(symbol_name, "EURUSD") == 0;
+}
+
+bool UseEurUsdMacdResearchGuard(string symbol_name)
+{
+   if(!UseVirtualResearchAccount || !MACD_EURUSD_BlockDowntrendResearch)
       return false;
    return StringFind(symbol_name, "EURUSD") == 0;
 }
@@ -4057,10 +4096,17 @@ void Strategy_BB_Triple()
    double macdSig_2 = iMACD(gSymbol, BB_Timeframe, 12, 26, 9, PRICE_CLOSE, MODE_SIGNAL, 2);
 
    double atrSL = GetATRStopLoss(gSymbol, BB_Timeframe, 14, 2.0);
+   double atrPips = 0.0;
+   double adxValue = 0.0;
+   double bbWidthPips = 0.0;
+   double spreadPips = 0.0;
+   string regime = DetectMarketRegime(gSymbol, BB_Timeframe, atrPips, adxValue, bbWidthPips, spreadPips);
    double ask = MarketInfo(gSymbol, MODE_ASK);
    double bid = MarketInfo(gSymbol, MODE_BID);
    if(ask <= 0 || bid <= 0)
       return;
+
+   bool eurusdBbGuard = UseEurUsdBbResearchGuard(gSymbol);
 
    // 荳蛾㍾遑ｮ隶､荵ｰ蜈･:
    // 1) 莉ｷ譬ｼ隗ｦ蜿・霍檎ｴ荳玖ｽｨ
@@ -4068,6 +4114,19 @@ void Strategy_BB_Triple()
    bool bbBuySignal = (close1 <= bbLower * 1.005);
    bool rsiBuySignal = (rsi < BB_RSI_OS || (rsi_prev < BB_RSI_OS && rsi > BB_RSI_OS));
    bool macdBuyConfirm = (macdMain_1 > macdSig_1 || (macdMain_2 < macdSig_2 && macdMain_1 > macdSig_1));
+   bool buyGuardBlocked = eurusdBbGuard && bbBuySignal && rsiBuySignal && regime == "TREND_EXP_DOWN";
+
+   if(buyGuardBlocked)
+   {
+      string guardReason = "EURUSD BB research guard skipped buy setup in trend-expansion down regime | regime=" + regime;
+      string guardDetail = "regime=" + regime + " band=" + BoolLabel(bbBuySignal) +
+                           " rsi=" + BoolLabel(rsiBuySignal) + " macd=" + BoolLabel(macdBuyConfirm);
+      double guardScore = (double)((bbBuySignal ? 1 : 0) + (rsiBuySignal ? 1 : 0) + (macdBuyConfirm ? 1 : 0)) / 3.0 * 100.0;
+      SetStrategyDiagnostic(2, "QUALITY_FILTER", guardReason, guardScore);
+      LogStrategySignal(2, gSymbol, BB_Timeframe, "QUALITY_FILTER", guardReason, "BUY", guardScore,
+                        guardScore, 0, guardDetail);
+      return;
+   }
 
    if(bbBuySignal && rsiBuySignal)
    {
@@ -4078,7 +4137,7 @@ void Strategy_BB_Triple()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(ask - PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(ask + PipsToPrice(tp, gSymbol), gDigits);
-      string detail = "band=Y rsi=Y macd=" + BoolLabel(macdBuyConfirm);
+      string detail = "regime=" + regime + " band=Y rsi=Y macd=" + BoolLabel(macdBuyConfirm);
       string buyReason = "BB_Triple buy order sent on " + TimeframeLabel(BB_Timeframe);
       string eventId = BuildSignalEventId();
       string orderComment = BuildManagedOrderCommentWithEvent("QG_BB_Triple_BUY", virtualLots, eventId);
@@ -4119,7 +4178,7 @@ void Strategy_BB_Triple()
       double lots = CalculateManagedLots(sl, gSymbol, virtualLots);
       double slPrice = NormalizeDouble(bid + PipsToPrice(sl, gSymbol), gDigits);
       double tpPrice = NormalizeDouble(bid - PipsToPrice(tp, gSymbol), gDigits);
-      string detail = "band=Y rsi=Y macd=" + BoolLabel(macdSellConfirm);
+      string detail = "regime=" + regime + " band=Y rsi=Y macd=" + BoolLabel(macdSellConfirm);
       string sellReason = "BB_Triple sell order sent on " + TimeframeLabel(BB_Timeframe);
       string eventId = BuildSignalEventId();
       string orderComment = BuildManagedOrderCommentWithEvent("QG_BB_Triple_SELL", virtualLots, eventId);
@@ -4151,18 +4210,20 @@ void Strategy_BB_Triple()
    if(buyScore >= sellScore)
    {
       string noSetupReason = "BUY bias " + DoubleToStr(buyScore, 0) + "/100 | band=" + BoolLabel(bbBuySignal) +
-                             " rsi=" + BoolLabel(rsiBuySignal) + " macd=" + BoolLabel(macdBuyConfirm);
+                             " rsi=" + BoolLabel(rsiBuySignal) + " macd=" + BoolLabel(macdBuyConfirm) +
+                             " regime=" + regime;
       string noSetupDetail = "band=" + BoolLabel(bbBuySignal) + " rsi=" + BoolLabel(rsiBuySignal) +
-                             " macd=" + BoolLabel(macdBuyConfirm);
+                             " macd=" + BoolLabel(macdBuyConfirm) + " regime=" + regime;
       SetStrategyDiagnostic(2, "NO_SETUP", noSetupReason, buyScore);
       LogStrategySignal(2, gSymbol, BB_Timeframe, "NO_SETUP", noSetupReason, "BUY", buyScore, buyScore, sellScore, noSetupDetail);
    }
    else
    {
       string noSetupReason = "SELL bias " + DoubleToStr(sellScore, 0) + "/100 | band=" + BoolLabel(bbSellSignal) +
-                             " rsi=" + BoolLabel(rsiSellSignal) + " macd=" + BoolLabel(macdSellConfirm);
+                             " rsi=" + BoolLabel(rsiSellSignal) + " macd=" + BoolLabel(macdSellConfirm) +
+                             " regime=" + regime;
       string noSetupDetail = "band=" + BoolLabel(bbSellSignal) + " rsi=" + BoolLabel(rsiSellSignal) +
-                             " macd=" + BoolLabel(macdSellConfirm);
+                             " macd=" + BoolLabel(macdSellConfirm) + " regime=" + regime;
       SetStrategyDiagnostic(2, "NO_SETUP", noSetupReason, sellScore);
       LogStrategySignal(2, gSymbol, BB_Timeframe, "NO_SETUP", noSetupReason, "SELL", sellScore, buyScore, sellScore, noSetupDetail);
    }
@@ -4910,7 +4971,7 @@ void ExportDashboardData()
 
    FileWriteString(handle, "{\n");
    FileWriteString(handle, "  \"timestamp\": \"" + TimeToStr(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + "\",\n");
-   FileWriteString(handle, "  \"build\": \"QuantGod-v2.8-eurusd-rsi-guard\",\n");
+   FileWriteString(handle, "  \"build\": \"QuantGod-v2.9-eurusd-downtrend-guards\",\n");
    FileWriteString(handle, "  \"runtime\": {\n");
    FileWriteString(handle, "    \"tradeStatus\": \"" + GetTradingStatus() + "\",\n");
    FileWriteString(handle, "    \"connected\": " + (IsConnected() ? "true" : "false") + ",\n");

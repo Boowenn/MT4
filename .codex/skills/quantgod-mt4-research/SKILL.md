@@ -42,6 +42,8 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that research suggestion cards and heatmap cells now also support reverse jumps back into the monitor section; those jumps are expected to highlight the relevant symbol card and strategy chip, even when a heatmap cell represents multiple symbols.
 - Remember that monitor focus now carries a breadcrumb explaining whether the current highlight came from a research suggestion card or a heatmap cell; stale monitor focus should be cleared when the operator jumps back into the research section.
 - Remember that `EURUSD / RSI_Reversal` now has an additional research-only guard: when virtual research mode is on, that slice requires an exact RSI crossback, a tighter Bollinger touch, and it skips mean-reversion entries during `TREND_EXP*` regimes.
+- Remember that `EURUSD / MACD_Divergence` now also has a research-only downtrend guard: in virtual research mode it skips bullish divergence buys during `TREND_DOWN` and `TREND_EXP_DOWN`.
+- Remember that `EURUSD / BB_Triple` now also has a research-only downtrend guard: in virtual research mode it skips buy setups during `TREND_EXP_DOWN`.
 - Remember that the overview section now also contains a server-time `昨晚 vs 今天` research summary card, with windows split as `昨天 20:00 -> 今天 08:00` and `今天 08:00 -> 现在`, using MT4 server timestamps instead of local desktop time.
 - Remember that this summary card is no longer closed-trades-only; it now also surfaces window-scoped new opens and their current floating PnL, so "today has activity but no exits yet" does not look blank.
 
