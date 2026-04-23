@@ -47,7 +47,7 @@ The MT5 work is intentionally split into phases:
 - Phase 1: available now
 - `MQL5/Experts/QuantGod_MultiStrategy.mq5`
 - exports `QuantGod_Dashboard.json`
-- exports placeholder CSV files so the existing dashboard can load in MT5
+- exports MT5 shadow journaling CSVs for live-account observation
 - supports a local-first launcher through `Start_QuantGod_MT5.bat`
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - Phase 2: not done yet
@@ -128,7 +128,16 @@ Dashboard/dashboard_server.js            -> [MT5]/MQL5/Files/
 
 Then compile `QuantGod_MultiStrategy.mq5` in MetaEditor64 and attach it to an MT5 chart.
 
-Phase 1 only exports runtime snapshots and placeholder CSVs for the dashboard. It does not execute the MT4 strategies yet.
+Phase 1 now exports runtime snapshots plus broker-history journaling files for the dashboard/research layer:
+
+- `QuantGod_TradeJournal.csv`
+- `QuantGod_CloseHistory.csv`
+- `QuantGod_TradeOutcomeLabels.csv`
+- `QuantGod_TradeEventLinks.csv`
+- `QuantGod_StrategyEvaluationReport.csv`
+- `QuantGod_RegimeEvaluationReport.csv`
+
+It still does not execute the MT4 strategies yet.
 
 For HFM Cent live shadow mode, the runtime export target is:
 
@@ -183,6 +192,22 @@ This will:
 - keep strategy execution disabled while still exporting your real account, symbol, and open-position runtime
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
+
+## MT4 Data Retention
+
+Before deleting the MT4 install, archive the research assets into the repo-local archive area:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\archive_mt4_runtime.ps1
+```
+
+This creates a local snapshot under:
+
+```text
+archive/mt4-runtime-snapshots/
+```
+
+The snapshot folder is intentionally ignored by Git so the large private runtime datasets stay local by default.
 
 If you only want the dashboard server:
 

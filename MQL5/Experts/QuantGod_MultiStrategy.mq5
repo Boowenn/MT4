@@ -4,10 +4,10 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.00"
+#property version   "3.20"
 #property strict
 
-input string DashboardBuild      = "QuantGod-v3.1-mt5-shadow";
+input string DashboardBuild      = "QuantGod-v3.2-mt5-live-journal";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -52,6 +52,7 @@ struct SymbolSnapshot
 struct ClosedTradeRecord
 {
    ulong    ticket;
+   ulong    positionId;
    string   type;
    string   symbol;
    double   lots;
@@ -65,7 +66,78 @@ struct ClosedTradeRecord
    datetime openTime;
    datetime closeTime;
    string   strategy;
+   string   source;
    string   comment;
+   string   entryRegime;
+   string   exitRegime;
+   string   regimeTimeframe;
+   int      durationMinutes;
+   double   commission;
+   double   grossProfit;
+};
+
+struct RegimeSnapshot
+{
+   string   label;
+   string   timeframe;
+   double   directionalMovePips;
+   double   averageRangePips;
+   double   recentRangePips;
+};
+
+struct TradeJournalRecord
+{
+   ulong    dealTicket;
+   ulong    positionId;
+   string   eventType;
+   string   side;
+   string   symbol;
+   double   lots;
+   double   price;
+   double   grossProfit;
+   double   commission;
+   double   swap;
+   double   netProfit;
+   datetime eventTime;
+   string   strategy;
+   string   source;
+   string   comment;
+   string   regime;
+   string   regimeTimeframe;
+};
+
+struct StrategyAggregateRecord
+{
+   string   symbol;
+   string   strategy;
+   string   timeframe;
+   int      closedTrades;
+   int      wins;
+   double   grossProfit;
+   double   grossLoss;
+   double   netProfit;
+   datetime lastCloseTime;
+   int      openPositions;
+   int      strategyPositions;
+};
+
+struct RegimeAggregateRecord
+{
+   string   symbol;
+   string   strategy;
+   string   timeframe;
+   string   entryRegime;
+   int      closedTrades;
+   int      linkedTrades;
+   int      positiveTrades;
+   int      negativeTrades;
+   int      flatTrades;
+   double   grossProfit;
+   double   grossLoss;
+   double   netProfit;
+   double   totalDurationMinutes;
+   datetime lastEventTime;
+   datetime lastCloseTime;
 };
 
 string TrimString(string value)
@@ -103,6 +175,13 @@ void PushString(string &values[], string value)
 }
 
 void PushClosedTrade(ClosedTradeRecord &values[], ClosedTradeRecord &record)
+{
+   int size = ArraySize(values);
+   ArrayResize(values, size + 1);
+   values[size] = record;
+}
+
+void PushTradeJournal(TradeJournalRecord &values[], TradeJournalRecord &record)
 {
    int size = ArraySize(values);
    ArrayResize(values, size + 1);
@@ -399,6 +478,14 @@ string PositionTypeToString(long positionType)
    return "UNKNOWN";
 }
 
+string InferTradeSource(string comment)
+{
+   string upper = ToUpperString(comment);
+   if(StringFind(upper, "QG_") >= 0 || StringFind(upper, "QUANTGOD") >= 0)
+      return "EA";
+   return "MANUAL";
+}
+
 string InferStrategyFromComment(string comment)
 {
    if(StringFind(comment, "QG_MA_Cross") >= 0)
@@ -411,9 +498,116 @@ string InferStrategyFromComment(string comment)
       return "MACD_Divergence";
    if(StringFind(comment, "QG_SR_Break") >= 0)
       return "SR_Breakout";
-   if(StringLen(TrimString(comment)) == 0)
-      return "MT5_Skeleton";
+   if(InferTradeSource(comment) == "EA")
+      return "QuantGod/Other";
    return "Manual/Other";
+}
+
+double PipSize(string symbol)
+{
+   double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(point <= 0.0)
+      return 0.0;
+   if(digits == 3 || digits == 5)
+      return point * 10.0;
+   return point;
+}
+
+string TimeframeLabel(ENUM_TIMEFRAMES timeframe)
+{
+   if(timeframe == PERIOD_M1) return "M1";
+   if(timeframe == PERIOD_M5) return "M5";
+   if(timeframe == PERIOD_M15) return "M15";
+   if(timeframe == PERIOD_M30) return "M30";
+   if(timeframe == PERIOD_H1) return "H1";
+   if(timeframe == PERIOD_H4) return "H4";
+   if(timeframe == PERIOD_D1) return "D1";
+   return "UNKNOWN";
+}
+
+RegimeSnapshot EvaluateRegimeAt(string symbol, ENUM_TIMEFRAMES timeframe, datetime eventTime)
+{
+   RegimeSnapshot snapshot;
+   snapshot.label = "UNKNOWN";
+   snapshot.timeframe = TimeframeLabel(timeframe);
+   snapshot.directionalMovePips = 0.0;
+   snapshot.averageRangePips = 0.0;
+   snapshot.recentRangePips = 0.0;
+
+   if(StringLen(symbol) == 0)
+      return snapshot;
+
+   datetime referenceTime = eventTime;
+   if(referenceTime <= 0)
+      referenceTime = TimeTradeServer();
+   if(referenceTime <= 0)
+      referenceTime = TimeCurrent();
+
+   int shift = iBarShift(symbol, timeframe, referenceTime, false);
+   if(shift < 0)
+      return snapshot;
+
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   int copied = CopyRates(symbol, timeframe, shift, 20, rates);
+   if(copied < 8)
+      return snapshot;
+
+   double pipSize = PipSize(symbol);
+   if(pipSize <= 0.0)
+      return snapshot;
+
+   int moveIndex = MathMin(5, copied - 1);
+   double movePips = (rates[0].close - rates[moveIndex].close) / pipSize;
+
+   int avgCount = MathMin(14, copied);
+   double avgRangePips = 0.0;
+   for(int i = 0; i < avgCount; i++)
+      avgRangePips += (rates[i].high - rates[i].low) / pipSize;
+   avgRangePips /= avgCount;
+
+   int recentCount = MathMin(3, copied);
+   double recentRangePips = 0.0;
+   for(int i = 0; i < recentCount; i++)
+      recentRangePips += (rates[i].high - rates[i].low) / pipSize;
+   recentRangePips /= recentCount;
+
+   snapshot.directionalMovePips = movePips;
+   snapshot.averageRangePips = avgRangePips;
+   snapshot.recentRangePips = recentRangePips;
+
+   if(avgRangePips <= 0.0)
+      return snapshot;
+
+   double absMovePips = MathAbs(movePips);
+   bool expanding = (recentRangePips >= avgRangePips * 1.20);
+   bool tightening = (recentRangePips <= avgRangePips * 0.70);
+
+   if(absMovePips >= avgRangePips * 1.10)
+   {
+      if(movePips > 0.0)
+         snapshot.label = expanding ? "TREND_EXP_UP" : "TREND_UP";
+      else
+         snapshot.label = expanding ? "TREND_EXP_DOWN" : "TREND_DOWN";
+   }
+   else if(tightening)
+   {
+      snapshot.label = "RANGE_TIGHT";
+   }
+   else
+   {
+      snapshot.label = "RANGE";
+   }
+
+   return snapshot;
+}
+
+string CsvEscape(string value)
+{
+   string escaped = value;
+   StringReplace(escaped, "\"", "\"\"");
+   return "\"" + escaped + "\"";
 }
 
 bool IsExitDeal(long entryType)
@@ -448,6 +642,29 @@ bool FindPositionEntryDeal(ulong positionId, ulong &entryTicket)
    return false;
 }
 
+int FindStrategyAggregateIndex(StrategyAggregateRecord &values[], string symbol, string strategy, string timeframe)
+{
+   for(int i = 0; i < ArraySize(values); i++)
+   {
+      if(values[i].symbol == symbol && values[i].strategy == strategy && values[i].timeframe == timeframe)
+         return i;
+   }
+   return -1;
+}
+
+int FindRegimeAggregateIndex(RegimeAggregateRecord &values[], string symbol, string strategy, string timeframe, string entryRegime)
+{
+   for(int i = 0; i < ArraySize(values); i++)
+   {
+      if(values[i].symbol == symbol &&
+         values[i].strategy == strategy &&
+         values[i].timeframe == timeframe &&
+         values[i].entryRegime == entryRegime)
+         return i;
+   }
+   return -1;
+}
+
 void WriteTextFile(string fileName, string content)
 {
    ResetLastError();
@@ -473,15 +690,430 @@ void UpdateShadowChartComment(string tradeStatus, bool connected, long accountLo
    Comment(message);
 }
 
-void ExportPlaceholderCsvs()
+string BuildTradeJournalCsv(TradeJournalRecord &journal[])
 {
-   string strategyHeader = "ReportTimeLocal,ReportTimeServer,Symbol,Strategy,Timeframe,Regime,Enabled,Active,RuntimeLabel,AdaptiveState,AdaptiveReason,RiskMultiplier,TradingStatus,SignalStatus,SignalReason,SignalScore,ClosedTrades,WinRate,ProfitFactor,AvgNet,NetProfit,GrossProfit,GrossLoss,OpenPositions,StrategyPositions,TickAgeSeconds,SpreadPips,ATRPips,ADX,BBWidthPips,LastEvalTime,LastClosedTime\r\n";
-   string regimeHeader = "ReportTimeLocal,ReportTimeServer,Symbol,Strategy,Timeframe,EntryRegime,ClosedTrades,LinkedTrades,LinkCoverage,WinRate,ProfitFactor,AvgNet,NetProfit,GrossProfit,GrossLoss,AvgDurationMinutes,AvgSignalScore,PositiveTrades,NegativeTrades,FlatTrades,LastEventTime,LastCloseTime\r\n";
-   string opportunityHeader = "EventId,LabelTimeLocal,LabelTimeServer,EventTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,SignalScore,Regime,AdaptiveState,RiskMultiplier,HorizonBars,ReferencePrice,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,NeutralThresholdPips,DirectionalOutcome,BestOpportunity,LabelReason\r\n";
+   string csv = "DealTicket,PositionId,EventType,Side,Symbol,Lots,Price,GrossProfit,Commission,Swap,NetProfit,EventTime,Strategy,Source,Regime,RegimeTimeframe,Comment\r\n";
 
-   WriteTextFile("QuantGod_StrategyEvaluationReport.csv", strategyHeader);
-   WriteTextFile("QuantGod_RegimeEvaluationReport.csv", regimeHeader);
-   WriteTextFile("QuantGod_OpportunityLabels.csv", opportunityHeader);
+   for(int i = 0; i < ArraySize(journal); i++)
+   {
+      TradeJournalRecord record = journal[i];
+      csv += IntegerToString((int)record.dealTicket) + ",";
+      csv += IntegerToString((int)record.positionId) + ",";
+      csv += CsvEscape(record.eventType) + ",";
+      csv += CsvEscape(record.side) + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += FormatNumber(record.lots, 2) + ",";
+      csv += FormatNumber(record.price, (int)SymbolInfoInteger(record.symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(record.grossProfit, 2) + ",";
+      csv += FormatNumber(record.commission, 2) + ",";
+      csv += FormatNumber(record.swap, 2) + ",";
+      csv += FormatNumber(record.netProfit, 2) + ",";
+      csv += CsvEscape(FormatDateTime(record.eventTime)) + ",";
+      csv += CsvEscape(record.strategy) + ",";
+      csv += CsvEscape(record.source) + ",";
+      csv += CsvEscape(record.regime) + ",";
+      csv += CsvEscape(record.regimeTimeframe) + ",";
+      csv += CsvEscape(record.comment) + "\r\n";
+   }
+
+   return csv;
+}
+
+string BuildCloseHistoryCsv(ClosedTradeRecord &closedTrades[])
+{
+   string csv = "ExitTicket,PositionId,Type,Symbol,Lots,OpenTime,CloseTime,DurationMinutes,OpenPrice,ClosePrice,GrossProfit,Commission,Swap,NetProfit,Strategy,Source,EntryRegime,ExitRegime,RegimeTimeframe,Comment\r\n";
+
+   for(int i = 0; i < ArraySize(closedTrades); i++)
+   {
+      ClosedTradeRecord record = closedTrades[i];
+      csv += IntegerToString((int)record.ticket) + ",";
+      csv += IntegerToString((int)record.positionId) + ",";
+      csv += CsvEscape(record.type) + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += FormatNumber(record.lots, 2) + ",";
+      csv += CsvEscape(FormatDateTime(record.openTime)) + ",";
+      csv += CsvEscape(FormatDateTime(record.closeTime)) + ",";
+      csv += IntegerToString(record.durationMinutes) + ",";
+      csv += FormatNumber(record.openPrice, (int)SymbolInfoInteger(record.symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(record.closePrice, (int)SymbolInfoInteger(record.symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(record.grossProfit, 2) + ",";
+      csv += FormatNumber(record.commission, 2) + ",";
+      csv += FormatNumber(record.swap, 2) + ",";
+      csv += FormatNumber(record.actualProfit, 2) + ",";
+      csv += CsvEscape(record.strategy) + ",";
+      csv += CsvEscape(record.source) + ",";
+      csv += CsvEscape(record.entryRegime) + ",";
+      csv += CsvEscape(record.exitRegime) + ",";
+      csv += CsvEscape(record.regimeTimeframe) + ",";
+      csv += CsvEscape(record.comment) + "\r\n";
+   }
+
+   return csv;
+}
+
+string BuildTradeOutcomeLabelsCsv(ClosedTradeRecord &closedTrades[])
+{
+   string csv = "LabelTimeLocal,LabelTimeServer,PositionId,ExitTicket,Symbol,Type,Strategy,Source,OpenTime,CloseTime,DurationMinutes,NetProfit,EntryRegime,ExitRegime,RegimeTimeframe,OutcomeLabel,Comment\r\n";
+   datetime serverClock = TimeTradeServer();
+   if(serverClock <= 0)
+      serverClock = TimeCurrent();
+
+   for(int i = 0; i < ArraySize(closedTrades); i++)
+   {
+      ClosedTradeRecord record = closedTrades[i];
+      string outcome = "FLAT";
+      if(record.actualProfit > 0.0)
+         outcome = "WIN";
+      else if(record.actualProfit < 0.0)
+         outcome = "LOSS";
+
+      csv += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+      csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+      csv += IntegerToString((int)record.positionId) + ",";
+      csv += IntegerToString((int)record.ticket) + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += CsvEscape(record.type) + ",";
+      csv += CsvEscape(record.strategy) + ",";
+      csv += CsvEscape(record.source) + ",";
+      csv += CsvEscape(FormatDateTime(record.openTime)) + ",";
+      csv += CsvEscape(FormatDateTime(record.closeTime)) + ",";
+      csv += IntegerToString(record.durationMinutes) + ",";
+      csv += FormatNumber(record.actualProfit, 2) + ",";
+      csv += CsvEscape(record.entryRegime) + ",";
+      csv += CsvEscape(record.exitRegime) + ",";
+      csv += CsvEscape(record.regimeTimeframe) + ",";
+      csv += CsvEscape(outcome) + ",";
+      csv += CsvEscape(record.comment) + "\r\n";
+   }
+
+   return csv;
+}
+
+string BuildTradeEventLinksCsv(ClosedTradeRecord &closedTrades[], TradeJournalRecord &journal[])
+{
+   string csv = "PositionId,Symbol,Strategy,Source,EntryDeal,ExitDeal,OpenTime,CloseTime,DurationMinutes,EntryRegime,ExitRegime,RegimeTimeframe,Status,Comment\r\n";
+   string emittedKeys[];
+   ArrayResize(emittedKeys, 0);
+
+   for(int i = 0; i < ArraySize(closedTrades); i++)
+   {
+      ClosedTradeRecord record = closedTrades[i];
+      ulong entryTicket = 0;
+      FindPositionEntryDeal(record.positionId, entryTicket);
+      csv += IntegerToString((int)record.positionId) + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += CsvEscape(record.strategy) + ",";
+      csv += CsvEscape(record.source) + ",";
+      csv += IntegerToString((int)entryTicket) + ",";
+      csv += IntegerToString((int)record.ticket) + ",";
+      csv += CsvEscape(FormatDateTime(record.openTime)) + ",";
+      csv += CsvEscape(FormatDateTime(record.closeTime)) + ",";
+      csv += IntegerToString(record.durationMinutes) + ",";
+      csv += CsvEscape(record.entryRegime) + ",";
+      csv += CsvEscape(record.exitRegime) + ",";
+      csv += CsvEscape(record.regimeTimeframe) + ",";
+      csv += CsvEscape("CLOSED") + ",";
+      csv += CsvEscape(record.comment) + "\r\n";
+      PushString(emittedKeys, IntegerToString((int)record.positionId));
+   }
+
+   int totalPositions = PositionsTotal();
+   for(int i = 0; i < totalPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      ulong positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      string key = IntegerToString((int)positionId);
+      bool alreadyEmitted = false;
+      for(int e = 0; e < ArraySize(emittedKeys); e++)
+      {
+         if(emittedKeys[e] == key)
+         {
+            alreadyEmitted = true;
+            break;
+         }
+      }
+      if(alreadyEmitted)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      string strategy = InferStrategyFromComment(comment);
+      string source = InferTradeSource(comment);
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      int durationMinutes = (int)MathMax(0, (long)((TimeTradeServer() > 0 ? TimeTradeServer() : TimeCurrent()) - openTime) / 60);
+      RegimeSnapshot entryRegime = EvaluateRegimeAt(symbol, PERIOD_H1, openTime);
+      RegimeSnapshot currentRegime = EvaluateRegimeAt(symbol, PERIOD_H1, 0);
+      ulong entryTicket = 0;
+      FindPositionEntryDeal(positionId, entryTicket);
+
+      csv += IntegerToString((int)positionId) + ",";
+      csv += CsvEscape(symbol) + ",";
+      csv += CsvEscape(strategy) + ",";
+      csv += CsvEscape(source) + ",";
+      csv += IntegerToString((int)entryTicket) + ",";
+      csv += "0,";
+      csv += CsvEscape(FormatDateTime(openTime)) + ",";
+      csv += CsvEscape("") + ",";
+      csv += IntegerToString(durationMinutes) + ",";
+      csv += CsvEscape(entryRegime.label) + ",";
+      csv += CsvEscape(currentRegime.label) + ",";
+      csv += CsvEscape(currentRegime.timeframe) + ",";
+      csv += CsvEscape("OPEN") + ",";
+      csv += CsvEscape(comment) + "\r\n";
+   }
+
+   return csv;
+}
+
+void BuildAggregates(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedTrades[], StrategyAggregateRecord &strategyAggregates[], RegimeAggregateRecord &regimeAggregates[])
+{
+   ArrayResize(strategyAggregates, 0);
+   ArrayResize(regimeAggregates, 0);
+
+   for(int i = 0; i < ArraySize(closedTrades); i++)
+   {
+      ClosedTradeRecord record = closedTrades[i];
+      string timeframe = (StringLen(record.regimeTimeframe) > 0) ? record.regimeTimeframe : "H1";
+
+      int strategyIndex = FindStrategyAggregateIndex(strategyAggregates, record.symbol, record.strategy, timeframe);
+      if(strategyIndex < 0)
+      {
+         StrategyAggregateRecord newStrategy;
+         newStrategy.symbol = record.symbol;
+         newStrategy.strategy = record.strategy;
+         newStrategy.timeframe = timeframe;
+         newStrategy.closedTrades = 0;
+         newStrategy.wins = 0;
+         newStrategy.grossProfit = 0.0;
+         newStrategy.grossLoss = 0.0;
+         newStrategy.netProfit = 0.0;
+         newStrategy.lastCloseTime = 0;
+         newStrategy.openPositions = 0;
+         newStrategy.strategyPositions = 0;
+         int newSize = ArraySize(strategyAggregates);
+         ArrayResize(strategyAggregates, newSize + 1);
+         strategyAggregates[newSize] = newStrategy;
+         strategyIndex = newSize;
+      }
+
+      strategyAggregates[strategyIndex].closedTrades++;
+      if(record.actualProfit > 0.0)
+         strategyAggregates[strategyIndex].wins++;
+      if(record.actualProfit >= 0.0)
+         strategyAggregates[strategyIndex].grossProfit += record.actualProfit;
+      else
+         strategyAggregates[strategyIndex].grossLoss += MathAbs(record.actualProfit);
+      strategyAggregates[strategyIndex].netProfit += record.actualProfit;
+      if(record.closeTime > strategyAggregates[strategyIndex].lastCloseTime)
+         strategyAggregates[strategyIndex].lastCloseTime = record.closeTime;
+
+      int regimeIndex = FindRegimeAggregateIndex(regimeAggregates, record.symbol, record.strategy, timeframe, record.entryRegime);
+      if(regimeIndex < 0)
+      {
+         RegimeAggregateRecord newRegime;
+         newRegime.symbol = record.symbol;
+         newRegime.strategy = record.strategy;
+         newRegime.timeframe = timeframe;
+         newRegime.entryRegime = record.entryRegime;
+         newRegime.closedTrades = 0;
+         newRegime.linkedTrades = 0;
+         newRegime.positiveTrades = 0;
+         newRegime.negativeTrades = 0;
+         newRegime.flatTrades = 0;
+         newRegime.grossProfit = 0.0;
+         newRegime.grossLoss = 0.0;
+         newRegime.netProfit = 0.0;
+         newRegime.totalDurationMinutes = 0.0;
+         newRegime.lastEventTime = 0;
+         newRegime.lastCloseTime = 0;
+         int newSize = ArraySize(regimeAggregates);
+         ArrayResize(regimeAggregates, newSize + 1);
+         regimeAggregates[newSize] = newRegime;
+         regimeIndex = newSize;
+      }
+
+      regimeAggregates[regimeIndex].closedTrades++;
+      regimeAggregates[regimeIndex].linkedTrades++;
+      if(record.actualProfit > 0.0)
+         regimeAggregates[regimeIndex].positiveTrades++;
+      else if(record.actualProfit < 0.0)
+         regimeAggregates[regimeIndex].negativeTrades++;
+      else
+         regimeAggregates[regimeIndex].flatTrades++;
+      if(record.actualProfit >= 0.0)
+         regimeAggregates[regimeIndex].grossProfit += record.actualProfit;
+      else
+         regimeAggregates[regimeIndex].grossLoss += MathAbs(record.actualProfit);
+      regimeAggregates[regimeIndex].netProfit += record.actualProfit;
+      regimeAggregates[regimeIndex].totalDurationMinutes += record.durationMinutes;
+      if(record.openTime > regimeAggregates[regimeIndex].lastEventTime)
+         regimeAggregates[regimeIndex].lastEventTime = record.openTime;
+      if(record.closeTime > regimeAggregates[regimeIndex].lastCloseTime)
+         regimeAggregates[regimeIndex].lastCloseTime = record.closeTime;
+   }
+
+   int totalPositions = PositionsTotal();
+   for(int i = 0; i < totalPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      string strategy = InferStrategyFromComment(comment);
+      string timeframe = "H1";
+      int strategyIndex = FindStrategyAggregateIndex(strategyAggregates, symbol, strategy, timeframe);
+      if(strategyIndex < 0)
+      {
+         StrategyAggregateRecord newStrategy;
+         newStrategy.symbol = symbol;
+         newStrategy.strategy = strategy;
+         newStrategy.timeframe = timeframe;
+         newStrategy.closedTrades = 0;
+         newStrategy.wins = 0;
+         newStrategy.grossProfit = 0.0;
+         newStrategy.grossLoss = 0.0;
+         newStrategy.netProfit = 0.0;
+         newStrategy.lastCloseTime = 0;
+         newStrategy.openPositions = 0;
+         newStrategy.strategyPositions = 0;
+         int newSize = ArraySize(strategyAggregates);
+         ArrayResize(strategyAggregates, newSize + 1);
+         strategyAggregates[newSize] = newStrategy;
+         strategyIndex = newSize;
+      }
+
+      strategyAggregates[strategyIndex].openPositions++;
+      strategyAggregates[strategyIndex].strategyPositions++;
+   }
+}
+
+string BuildStrategyEvaluationCsv(SymbolSnapshot &snapshots[], StrategyAggregateRecord &strategyAggregates[])
+{
+   string csv = "ReportTimeLocal,ReportTimeServer,Symbol,Strategy,Timeframe,Regime,Enabled,Active,RuntimeLabel,AdaptiveState,AdaptiveReason,RiskMultiplier,TradingStatus,SignalStatus,SignalReason,SignalScore,ClosedTrades,WinRate,ProfitFactor,AvgNet,NetProfit,GrossProfit,GrossLoss,OpenPositions,StrategyPositions,TickAgeSeconds,SpreadPips,ATRPips,ADX,BBWidthPips,LastEvalTime,LastClosedTime\r\n";
+   datetime serverClock = TimeTradeServer();
+   if(serverClock <= 0)
+      serverClock = TimeCurrent();
+
+   for(int i = 0; i < ArraySize(strategyAggregates); i++)
+   {
+      StrategyAggregateRecord record = strategyAggregates[i];
+      double winRate = 0.0;
+      double profitFactor = 0.0;
+      double avgNet = 0.0;
+      if(record.closedTrades > 0)
+      {
+         winRate = (double)record.wins * 100.0 / (double)record.closedTrades;
+         avgNet = record.netProfit / (double)record.closedTrades;
+         profitFactor = (record.grossLoss > 0.0) ? (record.grossProfit / record.grossLoss) : (record.grossProfit > 0.0 ? 999.0 : 0.0);
+      }
+
+      int symbolIndex = FindSymbolIndex(record.symbol);
+      int tickAge = (symbolIndex >= 0) ? snapshots[symbolIndex].tickAgeSeconds : 0;
+      double spread = (symbolIndex >= 0) ? snapshots[symbolIndex].spread : 0.0;
+
+      csv += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+      csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += CsvEscape(record.strategy) + ",";
+      csv += CsvEscape(record.timeframe) + ",";
+      csv += CsvEscape("ALL") + ",";
+      csv += "false,false,";
+      csv += CsvEscape("SHADOW") + ",";
+      csv += CsvEscape("WARMUP") + ",";
+      csv += CsvEscape("MT5 shadow journaling only") + ",";
+      csv += "0.00,";
+      csv += CsvEscape("SHADOW") + ",";
+      csv += CsvEscape("NO_DATA") + ",";
+      csv += CsvEscape("HFM MT5 shadow journaling active") + ",";
+      csv += "0.0,";
+      csv += IntegerToString(record.closedTrades) + ",";
+      csv += FormatNumber(winRate, 1) + ",";
+      csv += FormatNumber(profitFactor, 2) + ",";
+      csv += FormatNumber(avgNet, 2) + ",";
+      csv += FormatNumber(record.netProfit, 2) + ",";
+      csv += FormatNumber(record.grossProfit, 2) + ",";
+      csv += FormatNumber(record.grossLoss, 2) + ",";
+      csv += IntegerToString(record.openPositions) + ",";
+      csv += IntegerToString(record.strategyPositions) + ",";
+      csv += IntegerToString(tickAge) + ",";
+      csv += FormatNumber(spread, 1) + ",";
+      csv += "0.0,0.0,0.0,";
+      csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+      csv += CsvEscape(FormatDateTime(record.lastCloseTime)) + "\r\n";
+   }
+
+   return csv;
+}
+
+string BuildRegimeEvaluationCsv(ClosedTradeRecord &closedTrades[], RegimeAggregateRecord &regimeAggregates[])
+{
+   string csv = "ReportTimeLocal,ReportTimeServer,Symbol,Strategy,Timeframe,EntryRegime,ClosedTrades,LinkedTrades,LinkCoverage,WinRate,ProfitFactor,AvgNet,NetProfit,GrossProfit,GrossLoss,AvgDurationMinutes,AvgSignalScore,PositiveTrades,NegativeTrades,FlatTrades,LastEventTime,LastCloseTime\r\n";
+   datetime serverClock = TimeTradeServer();
+   if(serverClock <= 0)
+      serverClock = TimeCurrent();
+
+   for(int i = 0; i < ArraySize(regimeAggregates); i++)
+   {
+      RegimeAggregateRecord record = regimeAggregates[i];
+      double winRate = 0.0;
+      double profitFactor = 0.0;
+      double avgNet = 0.0;
+      double avgDuration = 0.0;
+      double linkCoverage = 0.0;
+      if(record.closedTrades > 0)
+      {
+         winRate = (double)record.positiveTrades * 100.0 / (double)record.closedTrades;
+         avgNet = record.netProfit / (double)record.closedTrades;
+         avgDuration = record.totalDurationMinutes / (double)record.closedTrades;
+         linkCoverage = (double)record.linkedTrades / (double)record.closedTrades;
+         profitFactor = (record.grossLoss > 0.0) ? (record.grossProfit / record.grossLoss) : (record.grossProfit > 0.0 ? 999.0 : 0.0);
+      }
+
+      csv += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+      csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += CsvEscape(record.strategy) + ",";
+      csv += CsvEscape(record.timeframe) + ",";
+      csv += CsvEscape(record.entryRegime) + ",";
+      csv += IntegerToString(record.closedTrades) + ",";
+      csv += IntegerToString(record.linkedTrades) + ",";
+      csv += FormatNumber(linkCoverage, 2) + ",";
+      csv += FormatNumber(winRate, 1) + ",";
+      csv += FormatNumber(profitFactor, 2) + ",";
+      csv += FormatNumber(avgNet, 2) + ",";
+      csv += FormatNumber(record.netProfit, 2) + ",";
+      csv += FormatNumber(record.grossProfit, 2) + ",";
+      csv += FormatNumber(record.grossLoss, 2) + ",";
+      csv += FormatNumber(avgDuration, 1) + ",";
+      csv += "0.0,";
+      csv += IntegerToString(record.positiveTrades) + ",";
+      csv += IntegerToString(record.negativeTrades) + ",";
+      csv += IntegerToString(record.flatTrades) + ",";
+      csv += CsvEscape(FormatDateTime(record.lastEventTime)) + ",";
+      csv += CsvEscape(FormatDateTime(record.lastCloseTime)) + "\r\n";
+   }
+
+   return csv;
+}
+
+void ExportShadowCsvs(SymbolSnapshot &snapshots[], TradeJournalRecord &journal[], ClosedTradeRecord &closedTrades[])
+{
+   StrategyAggregateRecord strategyAggregates[];
+   RegimeAggregateRecord regimeAggregates[];
+   BuildAggregates(snapshots, closedTrades, strategyAggregates, regimeAggregates);
+
+   WriteTextFile("QuantGod_TradeJournal.csv", BuildTradeJournalCsv(journal));
+   WriteTextFile("QuantGod_CloseHistory.csv", BuildCloseHistoryCsv(closedTrades));
+   WriteTextFile("QuantGod_TradeOutcomeLabels.csv", BuildTradeOutcomeLabelsCsv(closedTrades));
+   WriteTextFile("QuantGod_TradeEventLinks.csv", BuildTradeEventLinksCsv(closedTrades, journal));
+   WriteTextFile("QuantGod_StrategyEvaluationReport.csv", BuildStrategyEvaluationCsv(snapshots, strategyAggregates));
+   WriteTextFile("QuantGod_RegimeEvaluationReport.csv", BuildRegimeEvaluationCsv(closedTrades, regimeAggregates));
+   WriteTextFile("QuantGod_OpportunityLabels.csv", "EventId,LabelTimeLocal,LabelTimeServer,EventTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,SignalScore,Regime,AdaptiveState,RiskMultiplier,HorizonBars,ReferencePrice,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,NeutralThresholdPips,DirectionalOutcome,BestOpportunity,LabelReason\r\n");
 }
 
 void InitializeSnapshots(SymbolSnapshot &snapshots[])
@@ -531,9 +1163,8 @@ string BuildOpenTradesJson(SymbolSnapshot &snapshots[])
 
       string symbol = PositionGetString(POSITION_SYMBOL);
       int symbolIndex = FindSymbolIndex(symbol);
-      if(symbolIndex < 0)
-         continue;
 
+      ulong positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
       double volume = PositionGetDouble(POSITION_VOLUME);
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double sl = PositionGetDouble(POSITION_SL);
@@ -543,15 +1174,23 @@ string BuildOpenTradesJson(SymbolSnapshot &snapshots[])
       datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
       string comment = PositionGetString(POSITION_COMMENT);
       string strategy = InferStrategyFromComment(comment);
+      string source = InferTradeSource(comment);
       string typeText = PositionTypeToString(PositionGetInteger(POSITION_TYPE));
+      int durationMinutes = (int)MathMax(0, (long)((TimeTradeServer() > 0 ? TimeTradeServer() : TimeCurrent()) - openTime) / 60);
+      RegimeSnapshot entryRegime = EvaluateRegimeAt(symbol, PERIOD_H1, openTime);
+      RegimeSnapshot currentRegime = EvaluateRegimeAt(symbol, PERIOD_H1, 0);
 
-      snapshots[symbolIndex].openPositions++;
-      snapshots[symbolIndex].floatingProfit += profit;
-      snapshots[symbolIndex].actualFloatingProfit += profit;
-      snapshots[symbolIndex].status = "IN_POSITION";
+      if(symbolIndex >= 0)
+      {
+         snapshots[symbolIndex].openPositions++;
+         snapshots[symbolIndex].floatingProfit += profit;
+         snapshots[symbolIndex].actualFloatingProfit += profit;
+         snapshots[symbolIndex].status = "IN_POSITION";
+      }
 
       string json = "    {";
       json += "\"ticket\": " + IntegerToString((int)ticket) + ", ";
+      json += "\"positionId\": " + IntegerToString((int)positionId) + ", ";
       json += "\"type\": \"" + typeText + "\", ";
       json += "\"symbol\": \"" + JsonEscape(symbol) + "\", ";
       json += "\"lots\": " + FormatNumber(volume, 2) + ", ";
@@ -564,7 +1203,12 @@ string BuildOpenTradesJson(SymbolSnapshot &snapshots[])
       json += "\"actualProfit\": " + FormatNumber(profit, 2) + ", ";
       json += "\"swap\": " + FormatNumber(swap, 2) + ", ";
       json += "\"openTime\": \"" + FormatDateTime(openTime) + "\", ";
+      json += "\"durationMinutes\": " + IntegerToString(durationMinutes) + ", ";
       json += "\"strategy\": \"" + JsonEscape(strategy) + "\", ";
+      json += "\"source\": \"" + source + "\", ";
+      json += "\"entryRegime\": \"" + entryRegime.label + "\", ";
+      json += "\"regime\": \"" + currentRegime.label + "\", ";
+      json += "\"regimeTimeframe\": \"" + currentRegime.timeframe + "\", ";
       json += "\"comment\": \"" + JsonEscape(comment) + "\"";
       json += "}";
 
@@ -582,6 +1226,62 @@ string BuildOpenTradesJson(SymbolSnapshot &snapshots[])
       json += "\r\n";
    json += "  ]";
    return json;
+}
+
+void CollectTradeJournal(TradeJournalRecord &journal[])
+{
+   ArrayResize(journal, 0);
+
+   datetime historyNow = TimeTradeServer();
+   if(historyNow <= 0)
+      historyNow = TimeCurrent();
+   if(historyNow <= 0)
+      historyNow = TimeLocal();
+
+   datetime fromTime = historyNow - (HistoryLookbackDays * 86400);
+   if(!HistorySelect(fromTime, historyNow))
+      return;
+
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket == 0)
+         continue;
+
+      string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+      if(StringLen(symbol) == 0)
+         continue;
+
+      long dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
+         continue;
+
+      long entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+      RegimeSnapshot regime = EvaluateRegimeAt(symbol, PERIOD_H1, (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME));
+
+      TradeJournalRecord record;
+      record.dealTicket = dealTicket;
+      record.positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+      record.eventType = IsExitDeal(entryType) ? "EXIT" : "ENTRY";
+      record.side = DealEntryToPositionTypeString(dealType);
+      record.symbol = symbol;
+      record.lots = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+      record.price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+      record.grossProfit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+      record.commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+      record.swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+      record.netProfit = record.grossProfit + record.commission + record.swap;
+      record.eventTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+      record.strategy = InferStrategyFromComment(comment);
+      record.source = InferTradeSource(comment);
+      record.comment = comment;
+      record.regime = regime.label;
+      record.regimeTimeframe = regime.timeframe;
+
+      PushTradeJournal(journal, record);
+   }
 }
 
 void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedTrades[])
@@ -617,8 +1317,6 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
 
       string symbol = HistoryDealGetString(exitTicket, DEAL_SYMBOL);
       int symbolIndex = FindSymbolIndex(symbol);
-      if(symbolIndex < 0)
-         continue;
 
       ulong positionId = (ulong)HistoryDealGetInteger(exitTicket, DEAL_POSITION_ID);
       ulong entryTicket = 0;
@@ -626,10 +1324,10 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
 
       datetime closeTime = (datetime)HistoryDealGetInteger(exitTicket, DEAL_TIME);
       double closePrice = HistoryDealGetDouble(exitTicket, DEAL_PRICE);
-      double exitProfit = HistoryDealGetDouble(exitTicket, DEAL_PROFIT)
-                        + HistoryDealGetDouble(exitTicket, DEAL_SWAP)
-                        + HistoryDealGetDouble(exitTicket, DEAL_COMMISSION);
+      double grossProfit = HistoryDealGetDouble(exitTicket, DEAL_PROFIT);
+      double commission = HistoryDealGetDouble(exitTicket, DEAL_COMMISSION);
       double swap = HistoryDealGetDouble(exitTicket, DEAL_SWAP);
+      double exitProfit = grossProfit + swap + commission;
       double volume = HistoryDealGetDouble(exitTicket, DEAL_VOLUME);
       string exitComment = HistoryDealGetString(exitTicket, DEAL_COMMENT);
 
@@ -637,6 +1335,7 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
       double openPrice = closePrice;
       string comment = exitComment;
       string typeText = DealEntryToPositionTypeString(HistoryDealGetInteger(exitTicket, DEAL_TYPE));
+      string source = InferTradeSource(comment);
 
       if(entryTicket != 0)
       {
@@ -646,10 +1345,15 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
          if(StringLen(TrimString(entryComment)) > 0)
             comment = entryComment;
          typeText = DealEntryToPositionTypeString(HistoryDealGetInteger(entryTicket, DEAL_TYPE));
+         source = InferTradeSource(comment);
       }
+
+      RegimeSnapshot entryRegime = EvaluateRegimeAt(symbol, PERIOD_H1, openTime);
+      RegimeSnapshot exitRegime = EvaluateRegimeAt(symbol, PERIOD_H1, closeTime);
 
       ClosedTradeRecord record;
       record.ticket = exitTicket;
+      record.positionId = positionId;
       record.type = typeText;
       record.symbol = symbol;
       record.lots = volume;
@@ -663,17 +1367,27 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
       record.openTime = openTime;
       record.closeTime = closeTime;
       record.strategy = InferStrategyFromComment(comment);
+      record.source = source;
       record.comment = comment;
+      record.entryRegime = entryRegime.label;
+      record.exitRegime = exitRegime.label;
+      record.regimeTimeframe = entryRegime.timeframe;
+      record.durationMinutes = (int)MathMax(0, (long)(closeTime - openTime) / 60);
+      record.commission = commission;
+      record.grossProfit = grossProfit;
 
       PushClosedTrade(closedTrades, record);
 
-      snapshots[symbolIndex].closedTrades++;
-      if(exitProfit > 0.0)
-         snapshots[symbolIndex].wins++;
-      snapshots[symbolIndex].closedProfit += exitProfit;
-      snapshots[symbolIndex].actualClosedProfit += exitProfit;
-      if(closeTime > snapshots[symbolIndex].lastCloseTime)
-         snapshots[symbolIndex].lastCloseTime = closeTime;
+      if(symbolIndex >= 0)
+      {
+         snapshots[symbolIndex].closedTrades++;
+         if(exitProfit > 0.0)
+            snapshots[symbolIndex].wins++;
+         snapshots[symbolIndex].closedProfit += exitProfit;
+         snapshots[symbolIndex].actualClosedProfit += exitProfit;
+         if(closeTime > snapshots[symbolIndex].lastCloseTime)
+            snapshots[symbolIndex].lastCloseTime = closeTime;
+      }
    }
 }
 
@@ -688,6 +1402,7 @@ string BuildClosedTradesJson(ClosedTradeRecord &closedTrades[])
          json += ",";
       json += "\r\n    {";
       json += "\"ticket\": " + IntegerToString((int)record.ticket) + ", ";
+      json += "\"positionId\": " + IntegerToString((int)record.positionId) + ", ";
       json += "\"type\": \"" + record.type + "\", ";
       json += "\"symbol\": \"" + JsonEscape(record.symbol) + "\", ";
       json += "\"lots\": " + FormatNumber(record.lots, 2) + ", ";
@@ -700,7 +1415,12 @@ string BuildClosedTradesJson(ClosedTradeRecord &closedTrades[])
       json += "\"swap\": " + FormatNumber(record.swap, 2) + ", ";
       json += "\"openTime\": \"" + FormatDateTime(record.openTime) + "\", ";
       json += "\"closeTime\": \"" + FormatDateTime(record.closeTime) + "\", ";
+      json += "\"durationMinutes\": " + IntegerToString(record.durationMinutes) + ", ";
       json += "\"strategy\": \"" + JsonEscape(record.strategy) + "\", ";
+      json += "\"source\": \"" + record.source + "\", ";
+      json += "\"entryRegime\": \"" + record.entryRegime + "\", ";
+      json += "\"exitRegime\": \"" + record.exitRegime + "\", ";
+      json += "\"regimeTimeframe\": \"" + record.regimeTimeframe + "\", ";
       json += "\"comment\": \"" + JsonEscape(record.comment) + "\"";
       json += "}";
    }
@@ -804,10 +1524,11 @@ void ExportDashboard()
    SymbolSnapshot snapshots[];
    InitializeSnapshots(snapshots);
 
-   string openTradesJson = BuildOpenTradesJson(snapshots);
-
+   TradeJournalRecord journal[];
+   CollectTradeJournal(journal);
    ClosedTradeRecord closedTrades[];
    CollectClosedTrades(snapshots, closedTrades);
+   string openTradesJson = BuildOpenTradesJson(snapshots);
    string closedTradesJson = BuildClosedTradesJson(closedTrades);
    string symbolsJson = BuildSymbolsJson(snapshots);
 
@@ -936,10 +1657,12 @@ void ExportDashboard()
    statusFile += "watchlist=" + g_resolvedWatchlist + "\r\n";
    statusFile += "account=" + IntegerToString((int)accountLogin) + "\r\n";
    statusFile += "server=" + accountServer + "\r\n";
+   statusFile += "journalDeals=" + IntegerToString(ArraySize(journal)) + "\r\n";
+   statusFile += "closedTrades=" + IntegerToString(ArraySize(closedTrades)) + "\r\n";
    statusFile += "localTime=" + FormatDateTime(TimeLocal(), true) + "\r\n";
    WriteTextFile("QuantGod_MT5_ShadowStatus.txt", statusFile);
    WriteTextFile("QuantGod_Dashboard.json", json);
-   ExportPlaceholderCsvs();
+   ExportShadowCsvs(snapshots, journal, closedTrades);
    UpdateShadowChartComment(tradeStatus, connected, accountLogin);
 }
 

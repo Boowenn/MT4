@@ -20,6 +20,7 @@ Use runtime files for live counts, recent trades, and latest adaptive states.
 Use MT5 runtime files only for migration validation until the MT5 execution/statistics layers are ported.
 For the HFM Cent live-account shadow path, use `C:\Program Files\HFM Metatrader 5\MQL5\Files\` as the MT5 runtime source of truth.
 Do not assume the generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory is current for HFM live-account validation.
+If you need to retire the MT4 install later, preserve the MT4 runtime dataset locally with `tools/archive_mt4_runtime.ps1` into `archive/mt4-runtime-snapshots/` first.
 
 ## Core Runtime Layers
 
@@ -47,7 +48,8 @@ Responsibilities:
 Responsibilities:
 
 - Export an MT5 `QuantGod_Dashboard.json` with a dashboard-compatible shape
-- Export placeholder `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
+- Export MT5 broker-history journaling files such as `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`
+- Export MT5 shadow evaluation files such as `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
 - Reuse the existing dashboard assets against the active MT5 terminal files directory
 - Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account shadow path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
@@ -57,6 +59,7 @@ Non-responsibilities in phase 1:
 - It does not execute the five MT4 research strategies
 - It does not port adaptive controls
 - It does not port research-account statistics, trade linkage, or regime evaluation
+- Its MT5 evaluation/regime exports currently describe broker-history journaling and inferred labels, not live QuantGod strategy execution quality
 
 ### Presentation Layer
 
@@ -100,8 +103,12 @@ Primary MT4 runtime files:
 MT5 phase 1 exports only:
 
 - `QuantGod_Dashboard.json`
-- `QuantGod_StrategyEvaluationReport.csv` (header placeholder)
-- `QuantGod_RegimeEvaluationReport.csv` (header placeholder)
+- `QuantGod_TradeJournal.csv`
+- `QuantGod_CloseHistory.csv`
+- `QuantGod_TradeOutcomeLabels.csv`
+- `QuantGod_TradeEventLinks.csv`
+- `QuantGod_StrategyEvaluationReport.csv`
+- `QuantGod_RegimeEvaluationReport.csv`
 - `QuantGod_OpportunityLabels.csv` (header placeholder)
 
 HFM Cent shadow mode uses the same phase 1 export set, but writes it under:

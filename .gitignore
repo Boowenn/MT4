@@ -5,3 +5,4 @@ __pycache__/
 cloudflare/.quantgod_ingest_token.local
 cloudflare/.wrangler/
 Dashboard/quantgod_cloud_sync.json
+archive/mt4-runtime-snapshots/
