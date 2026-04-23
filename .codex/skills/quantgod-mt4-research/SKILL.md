@@ -1,6 +1,6 @@
 ---
 name: quantgod-mt4-research
-description: Operate, review, and modify the QuantGod MT4 research system in this repository, and maintain the phase 1 MT5 migration skeleton. Use when working on the MT4 EA, MT5 skeleton EA, dashboard, runtime data exports, virtual research-account statistics, adaptive controls, or QuantGod design documentation. Trigger this skill for requests about strategy evaluation, data-pipeline debugging, dashboard mismatches, MT4-to-MT5 migration scaffolding, performance reviews, or turning project knowledge into stable repo-local guidance.
+description: Operate, review, and modify the QuantGod MT4 research system in this repository, and maintain the MT5 migration track including the constrained HFM Cent live pilot. Use when working on the MT4 EA, MT5 skeleton/live-pilot EA, dashboard, runtime data exports, virtual research-account statistics, adaptive controls, or QuantGod design documentation. Trigger this skill for requests about strategy evaluation, data-pipeline debugging, dashboard mismatches, MT4-to-MT5 migration scaffolding, HFM live-pilot monitoring, performance reviews, or turning project knowledge into stable repo-local guidance.
 ---
 
 # QuantGod MT4 Research
@@ -9,8 +9,8 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 
 - Read [references/current-state.md](references/current-state.md) before changing behavior or documenting system status.
 - Treat local MT4 runtime exports under `C:\Program Files (x86)\MetaTrader 4\MQL4\Files\` as the source of truth for live counts and recent outcomes.
-- Treat local MT5 runtime exports under the active MT5 terminal data directory as the source of truth for MT5 migration-smoke validation.
-- For the HFM Cent live-account shadow path, the source of truth is `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
+- Treat local MT5 runtime exports under the active MT5 terminal data directory as the source of truth for MT5 migration and live-pilot validation.
+- For the HFM Cent live-account runtime, the source of truth is `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
 - The generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory may still contain stale skeleton exports and should not be assumed to represent the live HFM account.
 - If the operator wants to retire the MT4 install, archive the MT4 runtime dataset first with `tools/archive_mt4_runtime.ps1`; the local preservation target is `archive/mt4-runtime-snapshots/`.
 - When docs and runtime disagree, trust code plus runtime exports first, then update the docs.
@@ -19,9 +19,9 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 
 1. Inspect the live runtime artifacts.
 - For MT4 research, start with `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
-- For MT5 migration phase 1, start with `QuantGod_Dashboard.json` and the placeholder CSVs under the active MT5 terminal data directory.
-- For the HFM Cent live-account shadow setup, start under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
-- For HFM shadow journaling, also inspect `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
+- For MT5 migration, start with `QuantGod_Dashboard.json` and the CSV exports under the active MT5 terminal data directory.
+- For the HFM Cent live pilot, start under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
+- For HFM live-pilot journaling, also inspect `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`.
 - Decide whether the issue is in execution, aggregation, export, or frontend rendering.
 
 2. Trace the matching code path.
@@ -30,6 +30,7 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - MT5 migration skeleton export logic lives in `MQL5/Experts/QuantGod_MultiStrategy.mq5`.
 - MT5 startup automation for phase 1 lives in `MQL5/Config/QuantGod_MT5_Start.ini` and `Start_QuantGod_MT5.bat`.
 - HFM shadow startup automation lives in `MQL5/Config/QuantGod_MT5_HFM_Shadow.ini` and `Start_QuantGod_MT5_HFM_Shadow.bat`.
+- HFM live-pilot startup automation lives in `MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini`, `MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set`, and `Start_QuantGod_MT5_HFM_LivePilot.bat`.
 - MT4 runtime archive automation lives in `tools/archive_mt4_runtime.ps1`.
 - Dashboard rendering lives in `Dashboard/QuantGod_Dashboard.html`.
 
@@ -57,10 +58,10 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Remember that `EURUSD / BB_Triple` now also has a research-only downtrend guard: in virtual research mode it skips buy setups during `TREND_EXP_DOWN`.
 - Remember that the overview section now also contains a server-time `昨晚 vs 今天` research summary card, with windows split as `昨晚 20:00 -> 今天 08:00` and `今天 08:00 -> 现在`, using MT4 server timestamps instead of local desktop time.
 - Remember that this summary card is no longer closed-trades-only; it now also surfaces window-scoped new opens and their current floating PnL, so "today has activity but no exits yet" does not look blank.
-- Remember that MT5 is currently only in phase 1 migration mode: its EA exports dashboard-compatible JSON and placeholder CSVs, but it does not execute or evaluate the five research strategies yet.
-- Remember that HFM MT5 shadow mode now exports broker-history journaling and regime labels even before the MT5 strategy engine is ported; these files describe manual/other real-account activity and broker-specific behavior, not QuantGod strategy execution.
-- Remember that the dashboard trades section now also renders an HFM MT5 shadow-journal panel sourced from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`; if those tables look blank or stale, debug the local CSV loading path before blaming the JSON export.
-- Remember that the HFM Cent shadow path now runs against `C:\Program Files\HFM Metatrader 5\`; if dashboard data does not match the live account, check whether the operator accidentally opened the generic MT5 files folder instead of the HFM one.
+- Remember that MT5 is no longer shadow-only: the HFM client now has a constrained live pilot for `MA_Cross` at `0.01` lot, while the other four strategies remain unported placeholders.
+- Remember that HFM MT5 exports broker-history journaling and regime labels for both manual/other activity and live-pilot trades; those files do not yet represent the full five-strategy QuantGod MT4 research engine.
+- Remember that the dashboard trades section now also renders an HFM MT5 journal panel sourced from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`; if those tables look blank or stale, debug the local CSV loading path before blaming the JSON export.
+- Remember that the HFM Cent live runtime now runs against `C:\Program Files\HFM Metatrader 5\`; if dashboard data does not match the live account, check whether the operator accidentally opened the generic MT5 files folder instead of the HFM one.
 
 ## Validation Rules
 
@@ -78,9 +79,9 @@ description: Operate, review, and modify the QuantGod MT4 research system in thi
 - Check the monitor breadcrumb whenever you change reverse-jump state handling, because operators now rely on that label to understand why a symbol card or strategy chip is highlighted.
 - Check the `昨晚 vs 今天` summary card whenever you change trade timestamp parsing, server-time handling, the closed-trade aggregation path, or the open-trade/floating summary path.
 - Check that MT5 phase 1 still exports `QuantGod_Dashboard.json`, `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv` into the active MT5 terminal data directory whenever you touch the migration skeleton or its launcher.
-- For the HFM Cent shadow launcher, verify those files under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
-- For HFM shadow journaling changes, also verify `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv` under the same directory.
-- For HFM shadow dashboard changes, also verify that the trades section renders the shadow-journal summary, event-link table, journal table, and close/outcome empty states or rows from those CSVs.
+- For the HFM Cent live pilot launcher, verify those files under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`.
+- For HFM journaling changes, also verify `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv` under the same directory.
+- For HFM dashboard changes, also verify that the trades section renders the journal summary, event-link table, journal table, and close/outcome empty states or rows from those CSVs.
 - If a change modifies design assumptions, update this skill in the same change.
 
 ## References

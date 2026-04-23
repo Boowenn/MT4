@@ -1,13 +1,15 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                                         QuantGod_MultiStrategy.mq5 |
 //|                              QuantGod MT5 Migration Skeleton      |
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.20"
+#property version   "3.30"
 #property strict
 
-input string DashboardBuild      = "QuantGod-v3.2-mt5-live-journal";
+#include <Trade/Trade.mqh>
+
+input string DashboardBuild      = "QuantGod-v3.3-mt5-live-pilot";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -15,6 +17,29 @@ input bool   ReadOnlyMode        = true;
 input int    RefreshIntervalSec  = 5;
 input int    ClosedTradeLimit    = 50;
 input int    HistoryLookbackDays = 30;
+input bool   EnablePilotAutoTrading   = false;
+input bool   EnablePilotMA            = true;
+input ENUM_TIMEFRAMES PilotTimeframe  = PERIOD_H1;
+input int    PilotFastMAPeriod        = 9;
+input int    PilotSlowMAPeriod        = 21;
+input int    PilotTrendMAPeriod       = 200;
+input int    PilotATRPeriod           = 14;
+input double PilotATRMulitplierSL     = 2.0;
+input double PilotRewardRatio         = 1.5;
+input double PilotLotSize             = 0.01;
+input double PilotMaxSpreadPips       = 3.0;
+input int    PilotMaxTotalPositions   = 1;
+input int    PilotMaxPositionsPerSymbol = 1;
+input bool   PilotBlockManualPerSymbol  = true;
+input bool   PilotRestrictSession       = true;
+input int    PilotSessionStartHour      = 7;
+input int    PilotSessionEndHour        = 21;
+input double PilotMaxFloatingLossUSC    = 30.0;
+input double PilotMaxRealizedLossDayUSC = 60.0;
+input int    PilotMaxConsecutiveLosses  = 2;
+input bool   PilotCloseOnKillSwitch     = true;
+input long   PilotMagic                 = 520001;
+input int    PilotDeviationPoints       = 30;
 
 string g_symbols[];
 string g_focusSymbol = "";
@@ -29,6 +54,8 @@ string g_strategyKeys[5] =
    "MACD_Divergence",
    "SR_Breakout"
 };
+
+CTrade g_trade;
 
 struct SymbolSnapshot
 {
@@ -47,6 +74,19 @@ struct SymbolSnapshot
    double   closedProfit;
    double   actualClosedProfit;
    datetime lastCloseTime;
+};
+
+struct StrategyStatusSnapshot
+{
+   bool     enabled;
+   bool     active;
+   string   runtimeLabel;
+   string   status;
+   string   adaptiveState;
+   string   adaptiveReason;
+   double   riskMultiplier;
+   double   score;
+   string   reason;
 };
 
 struct ClosedTradeRecord
@@ -139,6 +179,13 @@ struct RegimeAggregateRecord
    datetime lastEventTime;
    datetime lastCloseTime;
 };
+
+datetime g_lastPilotBarTime[];
+StrategyStatusSnapshot g_maRuntimeStates[];
+bool g_pilotKillSwitch = false;
+string g_pilotKillReason = "";
+double g_pilotRealizedLossToday = 0.0;
+int g_pilotConsecutiveLosses = 0;
 
 string TrimString(string value)
 {
@@ -366,7 +413,94 @@ bool InitializeWatchlist()
    for(int i = 0; i < ArraySize(g_symbols); i++)
       SymbolSelect(g_symbols[i], true);
 
+   ArrayResize(g_lastPilotBarTime, ArraySize(g_symbols));
+   ArrayResize(g_maRuntimeStates, ArraySize(g_symbols));
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+   {
+      g_lastPilotBarTime[i] = 0;
+      g_maRuntimeStates[i].enabled = false;
+      g_maRuntimeStates[i].active = false;
+      g_maRuntimeStates[i].runtimeLabel = "PORT";
+      g_maRuntimeStates[i].status = "NO_DATA";
+      g_maRuntimeStates[i].adaptiveState = "WARMUP";
+      g_maRuntimeStates[i].adaptiveReason = "MT5 pilot runtime has not evaluated yet";
+      g_maRuntimeStates[i].riskMultiplier = 0.0;
+      g_maRuntimeStates[i].score = 0.0;
+      g_maRuntimeStates[i].reason = "MT5 pilot runtime has not evaluated yet";
+   }
+
    return true;
+}
+
+datetime CurrentServerTime()
+{
+   datetime value = TimeTradeServer();
+   if(value <= 0)
+      value = TimeCurrent();
+   if(value <= 0)
+      value = TimeLocal();
+   return value;
+}
+
+bool IsPilotLiveMode()
+{
+   return (EnablePilotAutoTrading && !ReadOnlyMode);
+}
+
+bool IsPilotStrategyComment(string comment)
+{
+   string upper = ToUpperString(comment);
+   return (StringFind(upper, "QG_MA_CROSS_MT5") >= 0 || StringFind(upper, "QG_MA_CROSS") >= 0);
+}
+
+string PilotTradeComment(int direction)
+{
+   return (direction > 0) ? "QG_MA_Cross_MT5_BUY" : "QG_MA_Cross_MT5_SELL";
+}
+
+double NormalizeVolumeForSymbol(string symbol, double requested)
+{
+   double minVolume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maxVolume = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   if(minVolume <= 0.0)
+      minVolume = 0.01;
+   if(maxVolume <= 0.0)
+      maxVolume = requested;
+   if(step <= 0.0)
+      step = minVolume;
+
+   double volume = requested;
+   volume = MathMax(minVolume, MathMin(maxVolume, volume));
+   volume = MathFloor(volume / step + 1e-8) * step;
+   if(volume < minVolume)
+      volume = minVolume;
+   return volume;
+}
+
+void ResetPilotRuntimeStates()
+{
+   g_pilotKillSwitch = false;
+   g_pilotKillReason = "";
+   g_pilotRealizedLossToday = 0.0;
+   g_pilotConsecutiveLosses = 0;
+
+   for(int i = 0; i < ArraySize(g_maRuntimeStates); i++)
+   {
+      g_maRuntimeStates[i].enabled = IsPilotLiveMode() && EnablePilotMA;
+      g_maRuntimeStates[i].active = false;
+      g_maRuntimeStates[i].runtimeLabel = g_maRuntimeStates[i].enabled ? "OFF" : "PORT";
+      g_maRuntimeStates[i].status = g_maRuntimeStates[i].enabled ? "WAIT_SIGNAL" : "NO_DATA";
+      g_maRuntimeStates[i].adaptiveState = g_maRuntimeStates[i].enabled ? "CAUTION" : "WARMUP";
+      g_maRuntimeStates[i].adaptiveReason = g_maRuntimeStates[i].enabled
+         ? "MT5 0.01 live pilot armed: MA_Cross is the only executable strategy"
+         : "MT5 phase 1 skeleton: execution engine not ported yet";
+      g_maRuntimeStates[i].riskMultiplier = g_maRuntimeStates[i].enabled ? 1.0 : 0.0;
+      g_maRuntimeStates[i].score = 0.0;
+      g_maRuntimeStates[i].reason = g_maRuntimeStates[i].enabled
+         ? "Waiting for first pilot evaluation"
+         : "MT5 phase 1 skeleton: execution engine not ported yet";
+   }
 }
 
 string JsonEscape(string value)
@@ -413,6 +547,422 @@ double CalcSpreadPips(string symbol, double bid, double ask)
    return spreadPoints;
 }
 
+bool IsPilotManagedPosition(string comment, long magic)
+{
+   return (magic == PilotMagic || IsPilotStrategyComment(comment));
+}
+
+int CountPilotPositions(string symbol = "")
+{
+   int count = 0;
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      string posSymbol = PositionGetString(POSITION_SYMBOL);
+      if(StringLen(symbol) > 0 && posSymbol != symbol)
+         continue;
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(IsPilotManagedPosition(comment, magic))
+         count++;
+   }
+   return count;
+}
+
+bool HasManualPositionOnSymbol(string symbol)
+{
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      string posSymbol = PositionGetString(POSITION_SYMBOL);
+      if(posSymbol != symbol)
+         continue;
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         return true;
+   }
+   return false;
+}
+
+double SumPilotFloatingProfit()
+{
+   double totalProfit = 0.0;
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+      totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+   }
+   return totalProfit;
+}
+
+void UpdatePilotClosedStats()
+{
+   g_pilotRealizedLossToday = 0.0;
+   g_pilotConsecutiveLosses = 0;
+
+   datetime nowServer = CurrentServerTime();
+   MqlDateTime parts;
+   TimeToStruct(nowServer, parts);
+   parts.hour = 0;
+   parts.min = 0;
+   parts.sec = 0;
+   datetime dayStart = StructToTime(parts);
+
+   if(!HistorySelect(dayStart - 86400 * 7, nowServer))
+      return;
+
+   int total = HistoryDealsTotal();
+   bool streakLocked = false;
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0)
+         continue;
+      long dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
+         continue;
+      long entryType = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if(!IsExitDeal(entryType))
+         continue;
+      string comment = HistoryDealGetString(ticket, DEAL_COMMENT);
+      long magic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+
+      double net = HistoryDealGetDouble(ticket, DEAL_PROFIT) +
+                   HistoryDealGetDouble(ticket, DEAL_SWAP) +
+                   HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      datetime dealTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+      if(dealTime >= dayStart && net < 0.0)
+         g_pilotRealizedLossToday += MathAbs(net);
+
+      if(!streakLocked)
+      {
+         if(net < 0.0)
+            g_pilotConsecutiveLosses++;
+         else
+            streakLocked = true;
+      }
+   }
+}
+
+bool IsPilotSessionOpen()
+{
+   if(!PilotRestrictSession)
+      return true;
+   MqlDateTime parts;
+   TimeToStruct(CurrentServerTime(), parts);
+   int hour = parts.hour;
+   if(PilotSessionStartHour <= PilotSessionEndHour)
+      return (hour >= PilotSessionStartHour && hour <= PilotSessionEndHour);
+   return (hour >= PilotSessionStartHour || hour <= PilotSessionEndHour);
+}
+
+bool IsNewPilotBar(string symbol, ENUM_TIMEFRAMES timeframe, int symbolIndex)
+{
+   datetime barTime = iTime(symbol, timeframe, 0);
+   if(barTime <= 0)
+      return false;
+   if(g_lastPilotBarTime[symbolIndex] == 0)
+   {
+      g_lastPilotBarTime[symbolIndex] = barTime;
+      return false;
+   }
+   if(barTime != g_lastPilotBarTime[symbolIndex])
+   {
+      g_lastPilotBarTime[symbolIndex] = barTime;
+      return true;
+   }
+   return false;
+}
+
+string PilotStatusJson(const StrategyStatusSnapshot &state)
+{
+   string json = "{";
+   json += "\"enabled\": " + JsonBool(state.enabled) + ", ";
+   json += "\"active\": " + JsonBool(state.active) + ", ";
+   json += "\"runtimeLabel\": \"" + JsonEscape(state.runtimeLabel) + "\", ";
+   json += "\"status\": \"" + JsonEscape(state.status) + "\", ";
+   json += "\"score\": " + FormatNumber(state.score, 1) + ", ";
+   json += "\"reason\": \"" + JsonEscape(state.reason) + "\", ";
+   json += "\"adaptiveState\": \"" + JsonEscape(state.adaptiveState) + "\", ";
+   json += "\"adaptiveReason\": \"" + JsonEscape(state.adaptiveReason) + "\", ";
+   json += "\"riskMultiplier\": " + FormatNumber(state.riskMultiplier, 2);
+   json += "}";
+   return json;
+}
+
+string PilotAggregateJson(string scopeSymbol)
+{
+   int positions = CountPilotPositions(scopeSymbol);
+   string json = "{";
+   json += "\"enabled\": " + JsonBool(IsPilotLiveMode() && EnablePilotMA) + ", ";
+   json += "\"active\": " + JsonBool((IsPilotLiveMode() && EnablePilotMA) && !g_pilotKillSwitch) + ", ";
+   json += "\"scopeSymbol\": \"" + JsonEscape(scopeSymbol) + "\", ";
+   json += "\"state\": \"" + JsonEscape(g_pilotKillSwitch ? "COOLDOWN" : "CAUTION") + "\", ";
+   json += "\"riskMultiplier\": " + FormatNumber((IsPilotLiveMode() && EnablePilotMA) ? 1.0 : 0.0, 2) + ", ";
+   json += "\"sampleTrades\": 0, ";
+   json += "\"sampleWindowTrades\": 0, ";
+   json += "\"winRate\": 0.0, ";
+   json += "\"profitFactor\": 0.00, ";
+   json += "\"avgNet\": 0.00, ";
+   json += "\"netProfit\": 0.00, ";
+   json += "\"disabledUntil\": \"\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: MA_Cross only with hard risk guards") + "\", ";
+   json += "\"positions\": " + IntegerToString(positions) + ", ";
+   json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
+   json += "}";
+   return json;
+}
+bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, double &score, string &reason, double &slPrice, double &tpPrice)
+{
+   direction = 0;
+   score = 0.0;
+   reason = "Waiting for next evaluation";
+   slPrice = 0.0;
+   tpPrice = 0.0;
+   int bars = Bars(symbol, PilotTimeframe);
+   if(bars < PilotTrendMAPeriod + 5)
+   {
+      reason = "Not enough bars for MA pilot";
+      return false;
+   }
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick))
+   {
+      reason = "Tick data unavailable";
+      return false;
+   }
+   double spread = CalcSpreadPips(symbol, tick.bid, tick.ask);
+   if(spread > PilotMaxSpreadPips)
+   {
+      reason = "Spread above pilot limit";
+      return false;
+   }
+   if(!IsPilotSessionOpen())
+   {
+      reason = "Outside pilot trading session";
+      return false;
+   }
+   double fast1 = MAValue(symbol, PilotTimeframe, PilotFastMAPeriod, 1, MODE_EMA);
+   double fast2 = MAValue(symbol, PilotTimeframe, PilotFastMAPeriod, 2, MODE_EMA);
+   double slow1 = MAValue(symbol, PilotTimeframe, PilotSlowMAPeriod, 1, MODE_EMA);
+   double slow2 = MAValue(symbol, PilotTimeframe, PilotSlowMAPeriod, 2, MODE_EMA);
+   double trend1 = MAValue(symbol, PilotTimeframe, PilotTrendMAPeriod, 1, MODE_SMA);
+   double close1 = iClose(symbol, PilotTimeframe, 1);
+   double atr1 = ATRValue(symbol, PilotTimeframe, PilotATRPeriod, 1);
+   if(fast1 == EMPTY_VALUE || fast2 == EMPTY_VALUE ||
+      slow1 == EMPTY_VALUE || slow2 == EMPTY_VALUE ||
+      trend1 == EMPTY_VALUE)
+   {
+      reason = "Indicator buffers not ready";
+      return false;
+   }
+   if(atr1 <= 0.0)
+   {
+      reason = "ATR unavailable";
+      return false;
+   }
+   bool buyCross = (fast2 <= slow2 && fast1 > slow1);
+   bool sellCross = (fast2 >= slow2 && fast1 < slow1);
+   bool buyTrend = (close1 > trend1);
+   bool sellTrend = (close1 < trend1);
+   if(buyCross && buyTrend)
+   {
+      direction = 1;
+      score = 100.0;
+      double stopDistance = atr1 * PilotATRMulitplierSL;
+      slPrice = NormalizeDouble(tick.ask - stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      tpPrice = NormalizeDouble(tick.ask + stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      reason = "H1 EMA bullish crossover with trend filter";
+      return true;
+   }
+   if(sellCross && sellTrend)
+   {
+      direction = -1;
+      score = 100.0;
+      double stopDistance = atr1 * PilotATRMulitplierSL;
+      slPrice = NormalizeDouble(tick.bid + stopDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      tpPrice = NormalizeDouble(tick.bid - stopDistance * PilotRewardRatio, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      reason = "H1 EMA bearish crossover with trend filter";
+      return true;
+   }
+   score = ((buyTrend || sellTrend) ? 45.0 : 20.0);
+   reason = "Trend detected but no fresh crossover yet";
+   return false;
+}
+bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice)
+{
+   double volume = NormalizeVolumeForSymbol(symbol, PilotLotSize);
+   g_trade.SetExpertMagicNumber(PilotMagic);
+   g_trade.SetDeviationInPoints(PilotDeviationPoints);
+   g_trade.SetTypeFillingBySymbol(symbol);
+
+   bool ok = false;
+   string comment = PilotTradeComment(direction);
+   if(direction > 0)
+      ok = g_trade.Buy(volume, symbol, 0.0, slPrice, tpPrice, comment);
+   else if(direction < 0)
+      ok = g_trade.Sell(volume, symbol, 0.0, slPrice, tpPrice, comment);
+
+   if(!ok || (g_trade.ResultRetcode() != TRADE_RETCODE_DONE && g_trade.ResultRetcode() != TRADE_RETCODE_PLACED))
+   {
+      Print("QuantGod MT5 pilot order failed: symbol=", symbol,
+            " dir=", direction, " retcode=", g_trade.ResultRetcode(),
+            " comment=", g_trade.ResultComment());
+      return false;
+   }
+
+   Print("QuantGod MT5 pilot order sent: symbol=", symbol,
+         " dir=", direction > 0 ? "BUY" : "SELL",
+         " volume=", DoubleToString(volume, 2),
+         " sl=", DoubleToString(slPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
+         " tp=", DoubleToString(tpPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)));
+   return true;
+}
+
+void ClosePilotPositions(const string reason)
+{
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+
+      g_trade.SetExpertMagicNumber(PilotMagic);
+      g_trade.SetDeviationInPoints(PilotDeviationPoints);
+      g_trade.SetTypeFillingBySymbol(PositionGetString(POSITION_SYMBOL));
+      bool closed = g_trade.PositionClose(ticket);
+      Print("QuantGod MT5 pilot emergency close ticket=", ticket,
+            " ok=", (closed ? "true" : "false"),
+            " retcode=", g_trade.ResultRetcode(),
+            " reason=", reason);
+   }
+}
+
+void RunPilotExecutionLoop()
+{
+   ResetPilotRuntimeStates();
+   if(!IsPilotLiveMode() || !EnablePilotMA)
+      return;
+   UpdatePilotClosedStats();
+   if(g_pilotRealizedLossToday >= PilotMaxRealizedLossDayUSC)
+   {
+      g_pilotKillSwitch = true;
+      g_pilotKillReason = "Daily realized loss limit reached";
+   }
+   if(g_pilotConsecutiveLosses >= PilotMaxConsecutiveLosses)
+   {
+      g_pilotKillSwitch = true;
+      g_pilotKillReason = "Consecutive loss limit reached";
+   }
+   if(SumPilotFloatingProfit() <= -MathAbs(PilotMaxFloatingLossUSC))
+   {
+      g_pilotKillSwitch = true;
+      g_pilotKillReason = "Floating loss limit reached";
+   }
+   if(g_pilotKillSwitch && PilotCloseOnKillSwitch)
+      ClosePilotPositions(g_pilotKillReason);
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+   {
+      string symbol = g_symbols[i];
+      g_maRuntimeStates[i].enabled = true;
+      g_maRuntimeStates[i].riskMultiplier = 1.0;
+      g_maRuntimeStates[i].adaptiveState = g_pilotKillSwitch ? "COOLDOWN" : "CAUTION";
+      g_maRuntimeStates[i].adaptiveReason = g_pilotKillSwitch
+         ? g_pilotKillReason
+         : "HFM MT5 0.01 live pilot with fixed lot, hard SL/TP, and kill switch";
+      if(g_pilotKillSwitch)
+      {
+         g_maRuntimeStates[i].active = false;
+         g_maRuntimeStates[i].runtimeLabel = "PAUSED";
+         g_maRuntimeStates[i].status = "AUTO_PAUSED";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = g_pilotKillReason;
+         continue;
+      }
+      if(CountPilotPositions() >= PilotMaxTotalPositions)
+      {
+         g_maRuntimeStates[i].active = false;
+         g_maRuntimeStates[i].runtimeLabel = "LIMIT";
+         g_maRuntimeStates[i].status = "PORTFOLIO_LIMIT";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = "Portfolio position limit reached";
+         continue;
+      }
+      if(CountPilotPositions(symbol) >= PilotMaxPositionsPerSymbol)
+      {
+         g_maRuntimeStates[i].active = true;
+         g_maRuntimeStates[i].runtimeLabel = "ON";
+         g_maRuntimeStates[i].status = "IN_POSITION";
+         g_maRuntimeStates[i].score = 100.0;
+         g_maRuntimeStates[i].reason = "Pilot position already open on this symbol";
+         continue;
+      }
+      if(PilotBlockManualPerSymbol && HasManualPositionOnSymbol(symbol))
+      {
+         g_maRuntimeStates[i].active = false;
+         g_maRuntimeStates[i].runtimeLabel = "BLOCK";
+         g_maRuntimeStates[i].status = "POSITION_LIMIT";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = "Manual position on symbol blocks pilot entries";
+         continue;
+      }
+      if(!IsNewPilotBar(symbol, PilotTimeframe, i))
+      {
+         g_maRuntimeStates[i].active = true;
+         g_maRuntimeStates[i].runtimeLabel = "ON";
+         g_maRuntimeStates[i].status = "WAIT_BAR";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = "Waiting for next H1 bar";
+         continue;
+      }
+      int direction = 0;
+      double score = 0.0;
+      string reason = "";
+      double slPrice = 0.0;
+      double tpPrice = 0.0;
+      bool hasSignal = EvaluatePilotMASignal(symbol, i, direction, score, reason, slPrice, tpPrice);
+      g_maRuntimeStates[i].active = true;
+      g_maRuntimeStates[i].runtimeLabel = "ON";
+      g_maRuntimeStates[i].score = score;
+      g_maRuntimeStates[i].reason = reason;
+      if(!hasSignal || direction == 0)
+      {
+         g_maRuntimeStates[i].status = "WAIT_SIGNAL";
+         continue;
+      }
+      if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice))
+      {
+         g_maRuntimeStates[i].status = (direction > 0) ? "BUY_ORDER_SENT" : "SELL_ORDER_SENT";
+         g_maRuntimeStates[i].reason = reason + " | Pilot order sent with 0.01 lot";
+      }
+      else
+      {
+         g_maRuntimeStates[i].status = "ORDER_SEND_FAILED";
+         g_maRuntimeStates[i].reason = reason + " | Order send failed, check MT5 Journal";
+      }
+   }
+}
 string StrategyPlaceholderJson(string scopeSymbol, string statusReason)
 {
    string json = "{";
@@ -458,6 +1008,41 @@ string DiagnosticPlaceholderJson(string statusReason)
    json += "\"reason\": \"" + JsonEscape(statusReason) + "\"";
    json += "}";
    return json;
+}
+
+string BuildSymbolStrategyJson(string symbol, int symbolIndex, string strategyKey)
+{
+   if(strategyKey == "MA_Cross" && symbolIndex >= 0 && symbolIndex < ArraySize(g_maRuntimeStates) && (EnablePilotMA || IsPilotLiveMode()))
+      return PilotStatusJson(g_maRuntimeStates[symbolIndex]);
+
+   string placeholderReason = "MT5 phase 1 skeleton: JSON export is live, strategy execution port is not implemented yet";
+   return SymbolStrategyPlaceholderJson(placeholderReason);
+}
+
+string BuildRootStrategyJson(string strategyKey)
+{
+   if(strategyKey == "MA_Cross" && (EnablePilotMA || IsPilotLiveMode()))
+      return PilotAggregateJson(g_focusSymbol);
+
+   string reason = "MT5 phase 1 skeleton: adaptive control and strategy execution have not been ported yet";
+   return StrategyPlaceholderJson(g_focusSymbol, reason);
+}
+
+string BuildRootDiagnosticJson(string strategyKey)
+{
+   if(strategyKey == "MA_Cross" && ArraySize(g_maRuntimeStates) > 0 && (EnablePilotMA || IsPilotLiveMode()))
+   {
+      StrategyStatusSnapshot state = g_maRuntimeStates[0];
+      string json = "{";
+      json += "\"status\": \"" + JsonEscape(state.status) + "\", ";
+      json += "\"score\": " + FormatNumber(state.score, 1) + ", ";
+      json += "\"reason\": \"" + JsonEscape(state.reason) + "\"";
+      json += "}";
+      return json;
+   }
+
+   string reason = "MT5 phase 1 skeleton: diagnostics become live after the MT5 strategy engine is ported";
+   return DiagnosticPlaceholderJson(reason);
 }
 
 string DealEntryToPositionTypeString(long dealType)
@@ -524,6 +1109,32 @@ string TimeframeLabel(ENUM_TIMEFRAMES timeframe)
    if(timeframe == PERIOD_H4) return "H4";
    if(timeframe == PERIOD_D1) return "D1";
    return "UNKNOWN";
+}
+
+double ReadSingleBufferValue(int handle, int bufferIndex, int shift)
+{
+   if(handle == INVALID_HANDLE)
+      return 0.0;
+
+   double values[];
+   ArraySetAsSeries(values, true);
+   int copied = CopyBuffer(handle, bufferIndex, shift, 1, values);
+   IndicatorRelease(handle);
+   if(copied <= 0)
+      return 0.0;
+   return values[0];
+}
+
+double MAValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift, ENUM_MA_METHOD method)
+{
+   int handle = iMA(symbol, timeframe, period, 0, method, PRICE_CLOSE);
+   return ReadSingleBufferValue(handle, 0, shift);
+}
+
+double ATRValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift)
+{
+   int handle = iATR(symbol, timeframe, period);
+   return ReadSingleBufferValue(handle, 0, shift);
 }
 
 RegimeSnapshot EvaluateRegimeAt(string symbol, ENUM_TIMEFRAMES timeframe, datetime eventTime)
@@ -680,9 +1291,10 @@ void WriteTextFile(string fileName, string content)
 
 void UpdateShadowChartComment(string tradeStatus, bool connected, long accountLogin)
 {
-   string message = "QuantGod MT5 Shadow\r\n";
+   string message = IsPilotLiveMode() ? "QuantGod MT5 Live Pilot\r\n" : "QuantGod MT5 Shadow\r\n";
    message += "Status: " + tradeStatus + "\r\n";
    message += "ReadOnly: " + (ReadOnlyMode ? "true" : "false") + "\r\n";
+   message += "PilotAuto: " + (IsPilotLiveMode() ? "true" : "false") + "\r\n";
    message += "Focus: " + g_focusSymbol + "\r\n";
    message += "Watchlist: " + g_resolvedWatchlist + "\r\n";
    message += "Account: " + IntegerToString((int)accountLogin) + "\r\n";
@@ -1015,6 +1627,10 @@ string BuildStrategyEvaluationCsv(SymbolSnapshot &snapshots[], StrategyAggregate
       int symbolIndex = FindSymbolIndex(record.symbol);
       int tickAge = (symbolIndex >= 0) ? snapshots[symbolIndex].tickAgeSeconds : 0;
       double spread = (symbolIndex >= 0) ? snapshots[symbolIndex].spread : 0.0;
+      bool isPilotMaRow = (record.strategy == "MA_Cross" && symbolIndex >= 0 && symbolIndex < ArraySize(g_maRuntimeStates));
+      StrategyStatusSnapshot pilotState;
+      if(isPilotMaRow)
+         pilotState = g_maRuntimeStates[symbolIndex];
 
       csv += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
       csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
@@ -1022,15 +1638,16 @@ string BuildStrategyEvaluationCsv(SymbolSnapshot &snapshots[], StrategyAggregate
       csv += CsvEscape(record.strategy) + ",";
       csv += CsvEscape(record.timeframe) + ",";
       csv += CsvEscape("ALL") + ",";
-      csv += "false,false,";
-      csv += CsvEscape("SHADOW") + ",";
-      csv += CsvEscape("WARMUP") + ",";
-      csv += CsvEscape("MT5 shadow journaling only") + ",";
-      csv += "0.00,";
-      csv += CsvEscape("SHADOW") + ",";
-      csv += CsvEscape("NO_DATA") + ",";
-      csv += CsvEscape("HFM MT5 shadow journaling active") + ",";
-      csv += "0.0,";
+      csv += (isPilotMaRow && IsPilotLiveMode() ? "true," : "false,");
+      csv += (isPilotMaRow ? (pilotState.active ? "true," : "false,") : "false,");
+      csv += CsvEscape(isPilotMaRow ? pilotState.runtimeLabel : "SHADOW") + ",";
+      csv += CsvEscape(isPilotMaRow ? pilotState.adaptiveState : "WARMUP") + ",";
+      csv += CsvEscape(isPilotMaRow ? pilotState.adaptiveReason : "MT5 shadow journaling only") + ",";
+      csv += FormatNumber(isPilotMaRow ? pilotState.riskMultiplier : 0.00, 2) + ",";
+      csv += CsvEscape(isPilotMaRow ? (g_pilotKillSwitch ? "AUTO_PAUSED" : "READY") : "SHADOW") + ",";
+      csv += CsvEscape(isPilotMaRow ? pilotState.status : "NO_DATA") + ",";
+      csv += CsvEscape(isPilotMaRow ? pilotState.reason : "HFM MT5 shadow journaling active") + ",";
+      csv += FormatNumber(isPilotMaRow ? pilotState.score : 0.0, 1) + ",";
       csv += IntegerToString(record.closedTrades) + ",";
       csv += FormatNumber(winRate, 1) + ",";
       csv += FormatNumber(profitFactor, 2) + ",";
@@ -1433,7 +2050,6 @@ string BuildClosedTradesJson(ClosedTradeRecord &closedTrades[])
 
 string BuildSymbolsJson(SymbolSnapshot &snapshots[])
 {
-   string placeholderReason = "MT5 phase 1 skeleton: JSON export is live, strategy execution port is not implemented yet";
    string json = "[";
 
    for(int i = 0; i < ArraySize(snapshots); i++)
@@ -1469,7 +2085,7 @@ string BuildSymbolsJson(SymbolSnapshot &snapshots[])
          if(s > 0)
             json += ", ";
          json += "\"" + g_strategyKeys[s] + "\": ";
-         json += SymbolStrategyPlaceholderJson(placeholderReason);
+         json += BuildSymbolStrategyJson(snapshot.symbol, i, g_strategyKeys[s]);
       }
 
       json += "}";
@@ -1485,14 +2101,13 @@ string BuildSymbolsJson(SymbolSnapshot &snapshots[])
 string BuildRootStrategiesJson()
 {
    string json = "{";
-   string reason = "MT5 phase 1 skeleton: adaptive control and strategy execution have not been ported yet";
 
    for(int i = 0; i < ArraySize(g_strategyKeys); i++)
    {
       if(i > 0)
          json += ", ";
       json += "\"" + g_strategyKeys[i] + "\": ";
-      json += StrategyPlaceholderJson(g_focusSymbol, reason);
+      json += BuildRootStrategyJson(g_strategyKeys[i]);
    }
 
    json += "}";
@@ -1502,14 +2117,13 @@ string BuildRootStrategiesJson()
 string BuildDiagnosticsJson()
 {
    string json = "{";
-   string reason = "MT5 phase 1 skeleton: diagnostics become live after the MT5 strategy engine is ported";
 
    for(int i = 0; i < ArraySize(g_strategyKeys); i++)
    {
       if(i > 0)
          json += ", ";
       json += "\"" + g_strategyKeys[i] + "\": ";
-      json += DiagnosticPlaceholderJson(reason);
+      json += BuildRootDiagnosticJson(g_strategyKeys[i]);
    }
 
    json += "}";
@@ -1520,6 +2134,8 @@ void ExportDashboard()
 {
    if(ArraySize(g_symbols) == 0)
       InitializeWatchlist();
+
+   RunPilotExecutionLoop();
 
    SymbolSnapshot snapshots[];
    InitializeSnapshots(snapshots);
@@ -1550,13 +2166,20 @@ void ExportDashboard()
    bool accountAuthorized = (accountLogin > 0 && StringLen(accountServer) > 0);
    bool connected = (terminalConnected || accountAuthorized);
    bool tradeAllowed = (!ReadOnlyMode && connected && terminalTradeAllowed && programTradeAllowed);
-   string tradeStatus = connected ? (ReadOnlyMode ? "SHADOW" : "READY") : "NO_DATA";
+   string tradeStatus = "NO_DATA";
+   if(connected)
+   {
+      if(ReadOnlyMode)
+         tradeStatus = "SHADOW";
+      else if(g_pilotKillSwitch)
+         tradeStatus = "AUTO_PAUSED";
+      else if(tradeAllowed)
+         tradeStatus = "READY";
+      else
+         tradeStatus = "AUTOTRADING_OFF";
+   }
 
-   datetime serverClock = TimeTradeServer();
-   if(serverClock <= 0)
-      serverClock = TimeCurrent();
-   if(serverClock <= 0)
-      serverClock = TimeLocal();
+   datetime serverClock = CurrentServerTime();
 
    MqlTick focusTick;
    ZeroMemory(focusTick);
@@ -1574,9 +2197,15 @@ void ExportDashboard()
 
    json += "  \"runtime\": {\r\n";
    json += "    \"tradeStatus\": \"" + tradeStatus + "\",\r\n";
-    json += "    \"shadowMode\": " + JsonBool(ShadowMode) + ",\r\n";
-    json += "    \"readOnlyMode\": " + JsonBool(ReadOnlyMode) + ",\r\n";
+   json += "    \"shadowMode\": " + JsonBool(ShadowMode) + ",\r\n";
+   json += "    \"readOnlyMode\": " + JsonBool(ReadOnlyMode) + ",\r\n";
    json += "    \"executionEnabled\": " + JsonBool(!ReadOnlyMode) + ",\r\n";
+   json += "    \"livePilotMode\": " + JsonBool(IsPilotLiveMode()) + ",\r\n";
+   json += "    \"pilotKillSwitch\": " + JsonBool(g_pilotKillSwitch) + ",\r\n";
+   json += "    \"pilotKillReason\": \"" + JsonEscape(g_pilotKillReason) + "\",\r\n";
+   json += "    \"pilotRealizedLossToday\": " + FormatNumber(g_pilotRealizedLossToday, 2) + ",\r\n";
+   json += "    \"pilotConsecutiveLosses\": " + IntegerToString(g_pilotConsecutiveLosses) + ",\r\n";
+   json += "    \"pilotFloatingProfit\": " + FormatNumber(SumPilotFloatingProfit(), 2) + ",\r\n";
    json += "    \"connected\": " + JsonBool(connected) + ",\r\n";
    json += "    \"terminalConnected\": " + JsonBool(terminalConnected) + ",\r\n";
    json += "    \"accountAuthorized\": " + JsonBool(accountAuthorized) + ",\r\n";
@@ -1608,20 +2237,21 @@ void ExportDashboard()
    json += "    \"name\": \"" + JsonEscape(AccountInfoString(ACCOUNT_NAME)) + "\",\r\n";
    json += "    \"server\": \"" + JsonEscape(accountServer) + "\",\r\n";
    json += "    \"currency\": \"" + JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)) + "\",\r\n";
-   json += "    \"mode\": \"" + JsonEscape(ShadowMode ? "mt5_shadow" : "mt5_runtime") + "\",\r\n";
+   string accountModeLabel = ShadowMode ? "mt5_shadow" : (IsPilotLiveMode() ? "mt5_live_pilot" : "mt5_runtime");
+   json += "    \"mode\": \"" + JsonEscape(accountModeLabel) + "\",\r\n";
    json += "    \"accountMode\": \"" + AccountMarginModeToString(AccountInfoInteger(ACCOUNT_MARGIN_MODE)) + "\",\r\n";
    json += "    \"symbolSuffix\": \"" + JsonEscape(g_detectedSuffix) + "\",\r\n";
    json += "    \"startingBalance\": " + FormatNumber(balance, 2) + ",\r\n";
    json += "    \"riskPercent\": 0.00,\r\n";
-   json += "    \"executionLot\": " + FormatNumber(SymbolInfoDouble(g_focusSymbol, SYMBOL_VOLUME_MIN), 2) + ",\r\n";
+   json += "    \"executionLot\": " + FormatNumber(IsPilotLiveMode() ? PilotLotSize : SymbolInfoDouble(g_focusSymbol, SYMBOL_VOLUME_MIN), 2) + ",\r\n";
    json += "    \"balance\": " + FormatNumber(balance, 2) + ",\r\n";
    json += "    \"equity\": " + FormatNumber(equity, 2) + ",\r\n";
    json += "    \"profit\": " + FormatNumber(profit, 2) + ",\r\n";
    json += "    \"margin\": " + FormatNumber(margin, 2) + ",\r\n";
    json += "    \"freeMargin\": " + FormatNumber(freeMargin, 2) + ",\r\n";
    json += "    \"drawdown\": " + FormatNumber(drawdown, 2) + ",\r\n";
-   json += "    \"maxDrawdownPercent\": 0.00,\r\n";
-   json += "    \"maxTotalTrades\": 0,\r\n";
+   json += "    \"maxDrawdownPercent\": " + FormatNumber(IsPilotLiveMode() ? 0.60 : 0.00, 2) + ",\r\n";
+   json += "    \"maxTotalTrades\": " + IntegerToString(IsPilotLiveMode() ? PilotMaxTotalPositions : 0) + ",\r\n";
    json += "    \"leverage\": " + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) + "\r\n";
    json += "  },\r\n";
 
@@ -1652,6 +2282,12 @@ void ExportDashboard()
 
    string statusFile = "build=" + DashboardBuild + "\r\n";
    statusFile += "tradeStatus=" + tradeStatus + "\r\n";
+   statusFile += "livePilotMode=" + (IsPilotLiveMode() ? "true" : "false") + "\r\n";
+   statusFile += "pilotKillSwitch=" + (g_pilotKillSwitch ? "true" : "false") + "\r\n";
+   statusFile += "pilotKillReason=" + g_pilotKillReason + "\r\n";
+   statusFile += "pilotRealizedLossToday=" + FormatNumber(g_pilotRealizedLossToday, 2) + "\r\n";
+   statusFile += "pilotConsecutiveLosses=" + IntegerToString(g_pilotConsecutiveLosses) + "\r\n";
+   statusFile += "pilotFloatingProfit=" + FormatNumber(SumPilotFloatingProfit(), 2) + "\r\n";
    statusFile += "connected=" + (connected ? "true" : "false") + "\r\n";
    statusFile += "focusSymbol=" + g_focusSymbol + "\r\n";
    statusFile += "watchlist=" + g_resolvedWatchlist + "\r\n";
@@ -1671,9 +2307,10 @@ int OnInit()
    InitializeWatchlist();
    EventSetTimer(MathMax(1, RefreshIntervalSec));
    ExportDashboard();
-   Print("QuantGod MT5 shadow runtime initialized. Focus symbol=", g_focusSymbol,
+   Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,
          " watchlist=", g_resolvedWatchlist, " suffix=", g_detectedSuffix,
-         " readOnly=", (ReadOnlyMode ? "true" : "false"));
+         " readOnly=", (ReadOnlyMode ? "true" : "false"),
+         " livePilot=", (IsPilotLiveMode() ? "true" : "false"));
    return(INIT_SUCCEEDED);
 }
 
@@ -1691,3 +2328,4 @@ void OnTimer()
 {
    ExportDashboard();
 }
+

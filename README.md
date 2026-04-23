@@ -2,9 +2,9 @@
 
 MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard, and a virtual small-account research mode.
 
-The repository now also includes a phase 1 MT5 migration skeleton that exports dashboard-compatible runtime JSON/CSV while the actual MT5 execution engine is still being ported.
+The repository now also includes an MT5 migration track that exports dashboard-compatible runtime JSON/CSV, plus a tightly constrained HFM Cent live pilot for `MA_Cross` at `0.01` lot while the rest of the MT5 execution engine is still being ported.
 
-For HFM Cent live-account shadow mode, use the official HFM MT5 client at `C:\Program Files\HFM Metatrader 5`. The generic `C:\Program Files\MetaTrader 5` install may contain stale migration smoke data and should not be treated as the live-account source of truth.
+For HFM Cent live-account work, use the official HFM MT5 client at `C:\Program Files\HFM Metatrader 5`. The generic `C:\Program Files\MetaTrader 5` install may contain stale migration smoke data and should not be treated as the live-account source of truth.
 
 ## Default Mode
 
@@ -47,15 +47,17 @@ The MT5 work is intentionally split into phases:
 - Phase 1: available now
 - `MQL5/Experts/QuantGod_MultiStrategy.mq5`
 - exports `QuantGod_Dashboard.json`
-- exports MT5 shadow journaling CSVs for live-account observation
+- exports MT5 journaling CSVs for real-account observation
 - supports a local-first launcher through `Start_QuantGod_MT5.bat`
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
+- supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
+- executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, one-position caps, hard `SL/TP`, and kill switches
 - Phase 2: not done yet
-- port the actual strategy execution engine
+- port the remaining strategy execution engines
 - port adaptive controls and research statistics
 - port trade labeling, linkage, and regime reports
 
-Important: the current MT5 skeleton is a runtime/export bridge, not a full MT5 trading engine yet.
+Important: the current MT5 implementation is still a partial port. The only real-money automation currently enabled is the constrained HFM `MA_Cross` live pilot.
 
 ## Strategies
 
@@ -137,9 +139,9 @@ Phase 1 now exports runtime snapshots plus broker-history journaling files for t
 - `QuantGod_StrategyEvaluationReport.csv`
 - `QuantGod_RegimeEvaluationReport.csv`
 
-It still does not execute the MT4 strategies yet.
+It still does not execute the full MT4 strategy set yet.
 
-For HFM Cent live shadow mode, the runtime export target is:
+For HFM Cent live-account mode, the runtime export target is:
 
 ```text
 C:\Program Files\HFM Metatrader 5\MQL5\Files\
@@ -190,6 +192,22 @@ This will:
 - sync the MT5 skeleton EA and preset into the HFM client
 - restart the official HFM MT5 client in read-only shadow mode
 - keep strategy execution disabled while still exporting your real account, symbol, and open-position runtime
+- start the local dashboard server against the HFM files folder
+- open the dashboard with a cache-busting timestamp
+
+For HFM Cent controlled live pilot mode:
+
+```bat
+Start_QuantGod_MT5_HFM_LivePilot.bat
+```
+
+This will:
+
+- sync the dashboard assets into `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
+- sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
+- restart the official HFM MT5 client in live pilot mode
+- arm `MA_Cross` only with `0.01` lot, one-position caps, hard `SL/TP`, and kill switches
+- keep `USDJPYc` blocked if you already have a manual position on that symbol
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
 

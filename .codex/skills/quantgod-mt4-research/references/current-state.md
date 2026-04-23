@@ -17,8 +17,8 @@ When project knowledge conflicts:
 5. Human-facing notes such as `README.md`
 
 Use runtime files for live counts, recent trades, and latest adaptive states.
-Use MT5 runtime files only for migration validation until the MT5 execution/statistics layers are ported.
-For the HFM Cent live-account shadow path, use `C:\Program Files\HFM Metatrader 5\MQL5\Files\` as the MT5 runtime source of truth.
+Use MT5 runtime files for migration validation and HFM live-pilot validation until the full MT5 execution/statistics layers are ported.
+For the HFM Cent live-account runtime path, use `C:\Program Files\HFM Metatrader 5\MQL5\Files\` as the MT5 runtime source of truth.
 Do not assume the generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory is current for HFM live-account validation.
 If you need to retire the MT4 install later, preserve the MT4 runtime dataset locally with `tools/archive_mt4_runtime.ps1` into `archive/mt4-runtime-snapshots/` first.
 
@@ -37,29 +37,33 @@ Responsibilities:
 - Maintain virtual research-account statistics
 - Apply protective adaptive control
 
-### MT5 Migration Skeleton
+### MT5 Migration and HFM Live Pilot
 
 - `MQL5/Experts/QuantGod_MultiStrategy.mq5`
 - `MQL5/Config/QuantGod_MT5_Start.ini`
 - `Start_QuantGod_MT5.bat`
 - `MQL5/Config/QuantGod_MT5_HFM_Shadow.ini`
 - `Start_QuantGod_MT5_HFM_Shadow.bat`
+- `MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini`
+- `MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set`
+- `Start_QuantGod_MT5_HFM_LivePilot.bat`
 
 Responsibilities:
 
 - Export an MT5 `QuantGod_Dashboard.json` with a dashboard-compatible shape
 - Export MT5 broker-history journaling files such as `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`
-- Export MT5 shadow evaluation files such as `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
+- Export MT5 evaluation files such as `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
 - Reuse the existing dashboard assets against the active MT5 terminal files directory
-- Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account shadow path
+- Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
+- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, one-position caps, hard `SL/TP`, and kill switches
 
 Non-responsibilities in phase 1:
 
-- It does not execute the five MT4 research strategies
+- It does not execute the full five-strategy MT4 research engine
 - It does not port adaptive controls
 - It does not port research-account statistics, trade linkage, or regime evaluation
-- Its MT5 evaluation/regime exports currently describe broker-history journaling and inferred labels, not live QuantGod strategy execution quality
+- Its MT5 evaluation/regime exports currently describe broker-history journaling and inferred labels, not a fully ported QuantGod execution-quality model
 
 ### Presentation Layer
 
@@ -76,7 +80,7 @@ Responsibilities:
 - Render a server-time `昨晚 vs 今天` research summary card in the overview section, using `昨晚 20:00 -> 今天 08:00` versus `今天 08:00 -> 现在`
 - Surface both closed-trade outcomes and window-scoped new opens on that summary card, so operators can see when the current day has started trading but has not produced exits yet
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
-- In the trades section, render the HFM MT5 shadow journaling surface from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`, including explicit empty states when the live account has not closed a trade yet
+- In the trades section, render the HFM MT5 journal surface from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`, including explicit empty states when the live account has not closed a trade yet
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
 - Reuse the same recommendation layer inside the symbol overview strategy chips so operators can see each live `strategy x symbol` slice's current action without leaving the monitoring section
 - Let operators expand each symbol overview strategy chip to inspect the matched `strategy x symbol x regime` slice, sample metrics, and whether the displayed action came from an exact match or a fallback rule
@@ -112,7 +116,7 @@ MT5 phase 1 exports only:
 - `QuantGod_RegimeEvaluationReport.csv`
 - `QuantGod_OpportunityLabels.csv` (header placeholder)
 
-HFM Cent shadow mode uses the same phase 1 export set, but writes it under:
+HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 
 - `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
 
@@ -124,6 +128,7 @@ HFM Cent shadow mode uses the same phase 1 export set, but writes it under:
 - Demo account PnL is not the primary research metric.
 - Research conclusions must follow the virtual-account pipeline, not raw broker profit alone.
 - MT5 phase 1 does not implement virtual research mode yet; its dashboard export is broker-account runtime only.
+- The HFM live pilot currently automates `MA_Cross` only at `0.01` lot; the other four strategies remain dashboard placeholders on MT5.
 
 ### Adaptive Control
 
@@ -137,6 +142,7 @@ HFM Cent shadow mode uses the same phase 1 export set, but writes it under:
 - Dashboard root `strategies` is scoped to the current dashboard focus symbol.
 - Cross-symbol comparison should come from `QuantGod_StrategyEvaluationReport.csv` or `symbols[].strategies` in `QuantGod_Dashboard.json`.
 - MT5 phase 1 exports placeholder strategy and diagnostic objects only; they are there to keep the dashboard rendering stable during migration.
+- In HFM live-pilot mode, `MA_Cross` becomes a real executable slice on MT5; the remaining MT5 strategies are still placeholders.
 
 ### Labeling and Attribution
 
