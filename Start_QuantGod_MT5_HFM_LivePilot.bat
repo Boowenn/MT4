@@ -44,7 +44,7 @@ for /f %%i in ('powershell -NoProfile -Command "[DateTimeOffset]::Now.ToUnixTime
 timeout /t 2 /nobreak >nul
 
 echo 6. Opening dashboard...
-start "" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
+call "%REPO_ROOT%\tools\open_dashboard_chrome.bat" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
 
 echo.
 echo Live pilot mode is ON with 0.01 lot cap and kill switches.

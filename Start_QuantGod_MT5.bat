@@ -33,7 +33,7 @@ for /f %%i in ('powershell -NoProfile -Command "[DateTimeOffset]::Now.ToUnixTime
 timeout /t 2 /nobreak >nul
 
 echo 5. Opening dashboard...
-start "" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
+call "%REPO_ROOT%\tools\open_dashboard_chrome.bat" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
 
 echo.
 echo Note: compile QuantGod_MultiStrategy.mq5 in MetaEditor64 once so the launcher can sync the ex5.

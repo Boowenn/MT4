@@ -1,5 +1,7 @@
 @echo off
 title QuantGod One-Click Launcher
+set "REPO_ROOT=%~dp0"
+if "%REPO_ROOT:~-1%"=="\" set "REPO_ROOT=%REPO_ROOT:~0,-1%"
 set "QG_ROOT=C:\Program Files (x86)\MetaTrader 4"
 set "QG_FILES=%QG_ROOT%\MQL4\Files"
 
@@ -24,7 +26,7 @@ for /f %%i in ('powershell -NoProfile -Command "[DateTimeOffset]::Now.ToUnixTime
 timeout /t 2 /nobreak >nul
 
 echo 4. Opening dashboard...
-start "" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
+call "%REPO_ROOT%\tools\open_dashboard_chrome.bat" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
 
 echo.
 echo QuantGod is launching. You can close this window.
