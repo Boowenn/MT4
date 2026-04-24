@@ -41,7 +41,7 @@ Responsibilities:
 - Reuse the existing dashboard assets against the active MT5 terminal files directory
 - Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
-- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, `M15` trigger + `H1` trend filter, a 3-bar fresh-crossover lookback window plus an extended pullback-continuation entry after recent crosses, one-position caps, hard `SL/TP`, kill switches, a same-symbol post-loss cooldown, a range-regime entry block, breakeven/small-profit SL protection for eligible profitable EA positions, and a USD high-impact news filter driven by the MT5 economic calendar
+- Run a constrained HFM Cent live pilot for `MA_Cross` only, with `0.01` lot, `M15` trigger + `H1` trend filter, a 3-bar fresh-crossover lookback window plus an extended pullback-continuation entry after recent crosses, one-position caps, hard `SL/TP`, kill switches, a same-symbol post-loss cooldown, a range-regime entry block, breakeven/small-profit SL protection for eligible profitable EA positions, conservative SL/max-loss safety protection for manual positions, and a USD high-impact news filter driven by the MT5 economic calendar
 
 Non-responsibilities in phase 1:
 
@@ -114,7 +114,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 - Demo account PnL is not the primary research metric.
 - Research conclusions must follow the virtual-account pipeline, not raw broker profit alone.
 - MT5 live pilot does not implement the old MT4 virtual research-account model; its dashboard export is broker-account runtime only.
-- The HFM live pilot currently automates `MA_Cross` only at `0.01` lot with `M15` trigger + `H1` trend filter + 3-bar fresh-crossover lookback plus an extended pullback-continuation entry, and it now also blocks new entries in `RANGE` / `RANGE_TIGHT`, enforces a same-symbol cooldown after a losing exit, and moves eligible profitable EA positions to breakeven/small-profit SL protection; the other four strategies remain dashboard placeholders on MT5.
+- The HFM live pilot currently automates `MA_Cross` only at `0.01` lot with `M15` trigger + `H1` trend filter + 3-bar fresh-crossover lookback plus an extended pullback-continuation entry, and it now also blocks new entries in `RANGE` / `RANGE_TIGHT`, enforces a same-symbol cooldown after a losing exit, moves eligible profitable EA positions to breakeven/small-profit SL protection, and applies a conservative safety guard to manual positions without counting them in strategy/regime research reports; the other four strategies remain dashboard placeholders on MT5.
 - The HFM live pilot now also exports a `news` state object and matching `news*` status lines so automation can react to USD event pre-blocks, post-release cooldowns, and short-lived directional bias windows.
 
 ### Adaptive Control

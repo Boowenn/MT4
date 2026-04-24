@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.10"
+#property version   "3.11"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.10-mt5-live-pilot-breakeven";
+input string DashboardBuild      = "QuantGod-v3.11-mt5-live-pilot-manual-safety";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -29,6 +29,13 @@ input bool   EnablePilotBreakevenProtect = true;
 input int    PilotBreakevenMinAgeMinutes = 60;
 input double PilotBreakevenTriggerPips = 6.0;
 input double PilotBreakevenLockPips    = 1.0;
+input bool   EnableManualSafetyGuard    = true;
+input bool   ManualSafetyWatchlistOnly  = true;
+input double ManualSafetyInitialSLPips  = 25.0;
+input double ManualSafetyBreakevenTriggerPips = 8.0;
+input double ManualSafetyBreakevenLockPips    = 1.0;
+input double ManualSafetyMaxLossUSC     = 20.0;
+input bool   ManualSafetyCloseOnMaxLoss = true;
 input int    PilotFastMAPeriod        = 9;
 input int    PilotSlowMAPeriod        = 21;
 input int    PilotTrendMAPeriod       = 200;
@@ -1778,6 +1785,124 @@ void ManagePilotBreakevenStops()
    }
 }
 
+bool ManualSafetySymbolAllowed(string symbol)
+{
+   if(!ManualSafetyWatchlistOnly)
+      return true;
+   return (FindSymbolIndex(symbol) >= 0);
+}
+
+void ManageManualSafetyGuard()
+{
+   if(!EnableManualSafetyGuard)
+      return;
+
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      if(!ManualSafetySymbolAllowed(symbol))
+         continue;
+
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(IsPilotManagedPosition(comment, magic))
+         continue;
+
+      double netProfit = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      if(ManualSafetyCloseOnMaxLoss &&
+         ManualSafetyMaxLossUSC > 0.0 &&
+         netProfit <= -MathAbs(ManualSafetyMaxLossUSC))
+      {
+         g_trade.SetDeviationInPoints(PilotDeviationPoints);
+         g_trade.SetTypeFillingBySymbol(symbol);
+         bool closed = g_trade.PositionClose(ticket);
+         Print("QuantGod MT5 manual safety close ticket=", ticket,
+               " symbol=", symbol,
+               " net=", DoubleToString(netProfit, 2),
+               " ok=", (closed ? "true" : "false"),
+               " retcode=", g_trade.ResultRetcode());
+         continue;
+      }
+
+      if(ManualSafetyInitialSLPips <= 0.0)
+         continue;
+
+      double pip = PipSize(symbol);
+      double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      if(pip <= 0.0 || point <= 0.0)
+         continue;
+
+      MqlTick tick;
+      ZeroMemory(tick);
+      if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+         continue;
+
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      long positionType = PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentSL = PositionGetDouble(POSITION_SL);
+      double currentTP = PositionGetDouble(POSITION_TP);
+      double lockPips = MathMax(0.0, ManualSafetyBreakevenLockPips);
+      double favorablePips = 0.0;
+      double targetSL = 0.0;
+      bool shouldModify = false;
+
+      int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      int freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+      double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point + point;
+
+      if(positionType == POSITION_TYPE_BUY)
+      {
+         favorablePips = (tick.bid - openPrice) / pip;
+         double fallbackSL = NormalizeDouble(openPrice - ManualSafetyInitialSLPips * pip, digits);
+         if(ManualSafetyBreakevenTriggerPips > 0.0 &&
+            favorablePips >= ManualSafetyBreakevenTriggerPips)
+            targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
+         else if(currentSL <= 0.0 || currentSL < fallbackSL - point)
+            targetSL = fallbackSL;
+         else
+            continue;
+
+         if(currentSL > 0.0 && currentSL >= targetSL - point)
+            continue;
+         if(targetSL > tick.bid - minDistance)
+            continue;
+         shouldModify = true;
+      }
+      else if(positionType == POSITION_TYPE_SELL)
+      {
+         favorablePips = (openPrice - tick.ask) / pip;
+         double fallbackSL = NormalizeDouble(openPrice + ManualSafetyInitialSLPips * pip, digits);
+         if(ManualSafetyBreakevenTriggerPips > 0.0 &&
+            favorablePips >= ManualSafetyBreakevenTriggerPips)
+            targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
+         else if(currentSL <= 0.0 || currentSL > fallbackSL + point)
+            targetSL = fallbackSL;
+         else
+            continue;
+
+         if(currentSL > 0.0 && currentSL <= targetSL + point)
+            continue;
+         if(targetSL < tick.ask + minDistance)
+            continue;
+         shouldModify = true;
+      }
+
+      if(shouldModify && ModifyPilotPositionStops(ticket, symbol, targetSL, currentTP))
+      {
+         Print("QuantGod MT5 manual safety protected ticket=", ticket,
+               " symbol=", symbol,
+               " favorablePips=", DoubleToString(favorablePips, 1),
+               " newSL=", DoubleToString(targetSL, digits));
+      }
+   }
+}
+
 void RunPilotExecutionLoop()
 {
    ResetPilotRuntimeStates();
@@ -1803,6 +1928,7 @@ void RunPilotExecutionLoop()
    }
    if(g_pilotKillSwitch && PilotCloseOnKillSwitch)
       ClosePilotPositions(g_pilotKillReason);
+   ManageManualSafetyGuard();
    if(!g_pilotKillSwitch)
       ManagePilotBreakevenStops();
    for(int i = 0; i < ArraySize(g_symbols); i++)
@@ -2483,6 +2609,8 @@ void BuildAggregates(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedTrade
    for(int i = 0; i < ArraySize(closedTrades); i++)
    {
       ClosedTradeRecord record = closedTrades[i];
+      if(record.source != "EA")
+         continue;
       string timeframe = (StringLen(record.regimeTimeframe) > 0) ? record.regimeTimeframe : "H1";
 
       int strategyIndex = FindStrategyAggregateIndex(strategyAggregates, record.symbol, record.strategy, timeframe);
@@ -2571,6 +2699,9 @@ void BuildAggregates(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedTrade
 
       string symbol = PositionGetString(POSITION_SYMBOL);
       string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
       string strategy = InferStrategyFromComment(comment);
       string timeframe = "H1";
       int strategyIndex = FindStrategyAggregateIndex(strategyAggregates, symbol, strategy, timeframe);
@@ -2990,7 +3121,7 @@ void CollectClosedTrades(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedT
 
       PushClosedTrade(closedTrades, record);
 
-      if(symbolIndex >= 0)
+      if(symbolIndex >= 0 && source == "EA")
       {
          snapshots[symbolIndex].closedTrades++;
          if(exitProfit > 0.0)
