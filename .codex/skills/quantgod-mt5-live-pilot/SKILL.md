@@ -39,6 +39,7 @@ description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system 
 - Keep this skill as the canonical repo-local knowledge base for Codex-style maintenance work.
 - Point volatile numbers back to runtime exports instead of hardcoding them into canonical docs.
 - Treat HFM MT5 as the primary runtime and GitHub-facing operating path.
+- After any Codex-made code, configuration, dashboard, documentation, or automation change, keep local and GitHub `main` consistent: run the appropriate self-tests/compile/syntax checks for the change, then commit and push automatically when those checks pass. Do not auto-push unverified changes.
 - Treat MT4 only as archived research context unless the user explicitly asks to reopen old MT4 work.
 - Remember that dashboard root `strategies` now reflects the current dashboard focus symbol, while full cross-symbol adaptive truth lives in `QuantGod_StrategyEvaluationReport.csv` and `symbols[].strategies`.
 - Remember that the dashboard now also renders a `strategy x regime` heatmap from `QuantGod_RegimeEvaluationReport.csv`; dashboard bugs may be in CSV parsing or in the frontend aggregation layer, not only in EA exports.
@@ -93,6 +94,7 @@ description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system 
 - For HFM live-pilot frequency debugging, also verify each symbol's `pilotTelemetry` object in `QuantGod_Dashboard.json` and the `Pilot 命中率` block in the symbol overview cards.
 - If a change modifies design assumptions, update this skill in the same change.
 - After every repair or behavior change, check whether the `QuantGod MT5监盘进化` automation instructions need to be updated too; if the operational rule changed, update the automation in the same pass so monitoring does not drift from the code.
+- After every verified local change, commit and push to GitHub `main` so the local runtime, repo state, and remote default branch do not drift.
 
 ## References
 

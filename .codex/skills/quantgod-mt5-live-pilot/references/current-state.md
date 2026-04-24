@@ -6,6 +6,11 @@ Use this reference when working on the QuantGod repository so you do not need to
 
 Keep this file stable. Put durable architecture and workflow facts here. Do not turn it into a hand-maintained snapshot of changing row counts.
 
+Repository workflow:
+
+- Codex-made changes should not remain local-only after verification. For code, configuration, dashboard, documentation, or automation edits, run the relevant self-tests/compile/syntax checks, then commit and push to GitHub `main` when those checks pass.
+- Do not auto-push unverified changes or changes that intentionally remain experimental.
+
 ## Source of Truth Order
 
 When project knowledge conflicts:
