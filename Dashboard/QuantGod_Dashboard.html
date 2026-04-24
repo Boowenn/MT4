@@ -5729,8 +5729,21 @@ function getSymbolOverviewData(d) {
     }];
 }
 
+function sanitizeMojibakeReason(reason) {
+    const text = String(reason ?? '');
+    if (!/[繝縺譁蜊螟荳豸鬆蝣邨絖隱逕�]/.test(text)) return text;
+
+    return text
+        .replace(/^USD news pre-block: .+ in (\d+m)$/u, 'USD news pre-block: USD tracked event in $1')
+        .replace(/^Tracking next USD event: .+ in (\d+m)$/u, 'Tracking next USD event: USD tracked event in $1')
+        .replace(/^USD news post-release cooldown: .+ \+(\d+m)$/u, 'USD news post-release cooldown: USD tracked event +$1')
+        .replace(/^USD news bias ([^ ]+) from .+ \| actual=(.+) forecast=(.+)$/u, 'USD news bias $1 from USD tracked event | actual=$2 forecast=$3')
+        .replace(/ after .+$/u, ' after USD tracked event');
+}
+
 function translateDiagnosticReason(reason) {
     if (!reason) return '暂无诊断信息';
+    reason = sanitizeMojibakeReason(reason);
 
     const exactReplacements = {
         'No diagnostic message yet.': '暂无诊断信息',
