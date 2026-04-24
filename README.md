@@ -260,6 +260,7 @@ Shadow Signal Ledger:
 - `QuantGod_ShadowOutcomeLedger.csv` labels completed 15/30/60 minute horizons from those shadow events, including close move, MFE/MAE, directional outcome, and best long/short opportunity.
 - `QuantGod_ShadowCandidateLedger.csv` and `QuantGod_ShadowCandidateOutcomeLedger.csv` track shadow-only route candidates before any backtest or live pilot expansion.
 - V1 candidate routes include `TREND_CONT_NO_CROSS`, `USDJPY_PULLBACK_BOUNCE`, `RANGE_SOFT`, `RSI_REVERSAL_SHADOW`, `BB_TRIPLE_SHADOW`, `MACD_MOMENTUM_TURN`, and `SR_BREAKOUT_SHADOW`.
+- Candidate Router V1.1 adds soft shadow triggers for trend continuation, RSI reversal, MACD histogram turns, and near support/resistance breakouts to increase sample speed without changing live `OrderSend` gating.
 - It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
 
 Manual Alpha Ledger:

@@ -1724,6 +1724,12 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
    if(pip <= 0.0)
       return;
    double fastDistanceAtr = MathAbs(close1 - fast1) / atr1;
+   bool bullishClose = (close1 > open1);
+   bool bearishClose = (close1 < open1);
+   bool fastSlopeUp = (fast1 >= fast2);
+   bool fastSlopeDown = (fast1 <= fast2);
+   bool slowSlopeUp = (slow1 >= slow2);
+   bool slowSlopeDown = (slow1 <= slow2);
    RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, eventBarTime);
 
    if(!freshCross && buyTrend && bullishStructure && close1 >= fast1 && fastDistanceAtr <= 1.20)
@@ -1734,6 +1740,14 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", -1, 66.0,
                                      "H1 downtrend, EMA structure aligned, no fresh cross",
                                      "Shadow-only trend continuation without fresh crossover");
+   else if(!freshCross && buyTrend && fast1 > slow1 && fastSlopeUp && slowSlopeUp && close1 >= slow1 && fastDistanceAtr <= 1.80)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", 1, 59.0,
+                                     "Soft H1 uptrend continuation pressure without fresh cross",
+                                     "Shadow-only soft trend continuation sample; live MA_Cross gate unchanged");
+   else if(!freshCross && sellTrend && fast1 < slow1 && fastSlopeDown && slowSlopeDown && close1 <= slow1 && fastDistanceAtr <= 1.80)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", -1, 59.0,
+                                     "Soft H1 downtrend continuation pressure without fresh cross",
+                                     "Shadow-only soft trend continuation sample; live MA_Cross gate unchanged");
 
    bool isUsdJpy = (StringFind(symbol, "USDJPY") >= 0);
    double touchTolerance = atr1 * 0.25;
@@ -1759,6 +1773,7 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
    }
 
    double rsi1 = RSIValue(symbol, PilotSignalTimeframe, 14, 1);
+   double rsi2 = RSIValue(symbol, PilotSignalTimeframe, 14, 2);
    if(rsi1 > 0.0)
    {
       if(rsi1 <= 30.0 && close1 >= open1)
@@ -1769,6 +1784,16 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
          AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 57.0,
                                         "RSI overbought with bearish close",
                                         "Shadow-only RSI reversal candidate");
+      else if((rsi1 <= 42.0 && bullishClose) ||
+              (rsi2 > 0.0 && rsi2 <= 35.0 && rsi1 > rsi2 + 2.0 && close1 >= fast1 - atr1 * 0.35))
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", 1, 52.0,
+                                        "Soft RSI bullish reversal pressure",
+                                        "Shadow-only soft RSI reversal sample; live entries unchanged");
+      else if((rsi1 >= 58.0 && bearishClose) ||
+              (rsi2 > 0.0 && rsi2 >= 65.0 && rsi1 < rsi2 - 2.0 && close1 <= fast1 + atr1 * 0.35))
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 52.0,
+                                        "Soft RSI bearish reversal pressure",
+                                        "Shadow-only soft RSI reversal sample; live entries unchanged");
    }
 
    double upperBand = BandsValue(symbol, PilotSignalTimeframe, 20, 2.0, 1, 1);
@@ -1789,9 +1814,14 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
    double macdSignal1 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 1, 1);
    double macdMain2 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 0, 2);
    double macdSignal2 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 1, 2);
+   double macdMain3 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 0, 3);
+   double macdSignal3 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 1, 3);
    if(macdMain1 != EMPTY_VALUE && macdSignal1 != EMPTY_VALUE &&
       macdMain2 != EMPTY_VALUE && macdSignal2 != EMPTY_VALUE)
    {
+      double macdHist1 = macdMain1 - macdSignal1;
+      double macdHist2 = macdMain2 - macdSignal2;
+      double macdHist3 = (macdMain3 != EMPTY_VALUE && macdSignal3 != EMPTY_VALUE) ? macdMain3 - macdSignal3 : macdHist2;
       if(macdMain2 <= macdSignal2 && macdMain1 > macdSignal1)
          AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 58.0,
                                         "MACD crossed upward on M15",
@@ -1800,6 +1830,14 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
          AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 58.0,
                                         "MACD crossed downward on M15",
                                         "Shadow-only MACD momentum candidate");
+      else if(macdHist1 > macdHist2 && macdHist2 > macdHist3 && (close1 >= fast1 || buyTrend))
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 53.0,
+                                        "MACD histogram rising for two bars",
+                                        "Shadow-only soft MACD momentum sample; live entries unchanged");
+      else if(macdHist1 < macdHist2 && macdHist2 < macdHist3 && (close1 <= fast1 || sellTrend))
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 53.0,
+                                        "MACD histogram falling for two bars",
+                                        "Shadow-only soft MACD momentum sample; live entries unchanged");
    }
 
    int breakoutLookback = 12;
@@ -1816,6 +1854,8 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
       if(priorLow <= 0.0 || low < priorLow)
          priorLow = low;
    }
+   double breakoutBuffer = MathMax(2.0 * pip, atr1 * 0.10);
+   double candleMid = (high1 + low1) * 0.5;
    if(priorHigh > 0.0 && close1 > priorHigh)
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", 1, 62.0,
                                      "M15 close broke above recent resistance",
@@ -1824,6 +1864,14 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", -1, 62.0,
                                      "M15 close broke below recent support",
                                      "Shadow-only support/resistance breakout candidate");
+   else if(priorHigh > 0.0 && close1 >= priorHigh - breakoutBuffer && bullishClose && close1 >= candleMid)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", 1, 55.0,
+                                     "Soft resistance breakout pressure near prior high",
+                                     "Shadow-only soft support/resistance breakout sample; live entries unchanged");
+   else if(priorLow > 0.0 && close1 <= priorLow + breakoutBuffer && bearishClose && close1 <= candleMid)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", -1, 55.0,
+                                     "Soft support breakdown pressure near prior low",
+                                     "Shadow-only soft support/resistance breakout sample; live entries unchanged");
 }
 
 bool LoadShadowSignalLedgerRecords(ShadowSignalLedgerRecord &records[])
