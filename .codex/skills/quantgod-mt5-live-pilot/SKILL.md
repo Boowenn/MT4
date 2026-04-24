@@ -64,6 +64,8 @@ description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system 
 - Remember that the HFM Cent live runtime now runs against `C:\Program Files\HFM Metatrader 5\`; if dashboard data does not match the live account, check whether the operator accidentally opened the generic MT5 files folder instead of the HFM one.
 - Remember that the HFM MT5 live pilot now also exports per-symbol `pilotTelemetry` counters into `QuantGod_Dashboard.json`, and the symbol overview cards surface those counters so operators can see whether the pilot is waiting for bars, missing crossovers, being blocked by news, or failing on spread/order-send.
 
+- Remember that Shadow Signal Ledger now exists for the HFM MT5 path: it appends `QuantGod_ShadowSignalLedger.csv` rows for each new M15 `MA_Cross` pilot evaluation, including signals, no-cross observations, range/spread/session/news/cooldown blocks, and order-send outcomes. It is a learning surface only and must not trigger orders or loosen risk by itself.
+
 ## Validation Rules
 
 - Re-run any affected export path after changing research-stat logic.
@@ -84,6 +86,7 @@ description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system 
 - For HFM journaling changes, also verify `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv` under the same directory.
 - For HFM dashboard changes, also verify that the trades section renders the journal summary, event-link table, journal table, and close/outcome empty states or rows from those CSVs.
 - For Backtest Lab changes, verify `tools/run_mt5_backtest_lab.ps1`, the `MQL5/Config/BacktestLab/` tester configs, the `MQL5/Presets/QuantGod_MT5_HFM_Backtest_*.set` files, `archive/backtests/latest/QuantGod_BacktestSummary.json`, and the dashboard `回测 vs 实盘` card.
+- For Shadow Signal Ledger changes, verify `QuantGod_ShadowSignalLedger.csv` under the HFM Files directory and the dashboard `Shadow Signal Ledger` card; the ledger must append observations without changing `OrderSend` gating.
 - For HFM news-filter changes, also verify the `news` object in `QuantGod_Dashboard.json` and the `news*` lines in `QuantGod_MT5_ShadowStatus.txt`, because the monitoring automation depends on those exports.
 - For HFM live-pilot frequency debugging, also verify each symbol's `pilotTelemetry` object in `QuantGod_Dashboard.json` and the `Pilot 命中率` block in the symbol overview cards.
 - If a change modifies design assumptions, update this skill in the same change.

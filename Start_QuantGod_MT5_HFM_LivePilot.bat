@@ -52,4 +52,5 @@ call "%REPO_ROOT%\tools\open_dashboard_chrome.bat" "http://localhost:8080/QuantG
 echo.
 echo Live pilot mode is ON with 0.01 lot cap and kill switches.
 echo This launcher targets the HFM MT5 client at "%QG_ROOT%".
-echo If same-symbol manual positions exist, the pilot EA will stay blocked on that symbol.
+echo Manual positions stay protected, but they do not block same-symbol EA pilot evaluation.
+echo Shadow Signal Ledger will append no-trade learning samples on each new M15 evaluation.

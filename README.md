@@ -53,6 +53,7 @@ The MT5 work is intentionally split into phases:
 - supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
 - executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
+- includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - Phase 2: not done yet
 - port the remaining strategy execution engines
 - port adaptive controls and research statistics
@@ -209,6 +210,7 @@ This will:
 - restart the official HFM MT5 client in live pilot mode
 - arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
 - keep manual positions protected by the safety guard, but separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
+- append Shadow Signal Ledger rows for each new M15 pilot evaluation, including signal, no-signal, range/spread/session/news/cooldown blocks, and order-send outcomes
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
 
@@ -243,6 +245,13 @@ Strategy changes should now pass both checks before loosening risk:
 
 - backtest evidence supports the idea
 - live `0.01` forward samples do not contradict it
+
+Shadow Signal Ledger:
+
+- `QuantGod_ShadowSignalLedger.csv` is a no-trade, append-only learning surface.
+- It records M15 MA_Cross evaluations even when no real order is placed.
+- It lets the dashboard compare real closed trades with blocked opportunities, so range/news/spread/session guards can be reviewed with more evidence before any future strategy change.
+- It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
 
 ## MT4 Data Retention
 

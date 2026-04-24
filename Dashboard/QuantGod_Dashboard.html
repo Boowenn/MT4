@@ -2958,6 +2958,22 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(34,197,94,0.15); color: var(--accent-green);">L</div>
+                            Shadow Signal Ledger
+                        </div>
+                        <span class="eval-summary" id="shadowLedgerSummary">等待影子样本</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="shadowLedgerMeta">旁路记录每个 M15 评估、信号和被拦截机会，只用于学习，不会下单或放宽风控。</div>
+                        <div class="backtest-compare-grid" id="shadowLedgerBody">
+                            <div class="empty-state">等待 `QuantGod_ShadowSignalLedger.csv`</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
@@ -3345,6 +3361,7 @@ const LOCAL_CLOSE_HISTORY_PATH = 'QuantGod_CloseHistory.csv';
 const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
 const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
 const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
+const LOCAL_SHADOW_SIGNAL_LEDGER_PATH = 'QuantGod_ShadowSignalLedger.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -3723,6 +3740,28 @@ function parseOpportunityLabelsCsv(text) {
     })).filter((row) => row.eventId && row.strategy);
 }
 
+function parseShadowSignalLedgerCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        eventId: row.EventId || '',
+        labelTimeLocal: row.LabelTimeLocal || '',
+        labelTimeServer: row.LabelTimeServer || '',
+        eventBarTime: row.EventBarTime || '',
+        symbol: row.Symbol || '',
+        strategy: row.Strategy || '',
+        timeframe: row.Timeframe || '',
+        signalStatus: row.SignalStatus || '',
+        signalDirection: row.SignalDirection || '',
+        signalScore: toNumber(row.SignalScore, 0),
+        regime: row.Regime || '',
+        blocker: row.Blocker || '',
+        executionAction: row.ExecutionAction || '',
+        referencePrice: toNumber(row.ReferencePrice, 0),
+        spreadPips: toNumber(row.SpreadPips, 0),
+        newsStatus: row.NewsStatus || '',
+        reason: row.Reason || ''
+    })).filter((row) => row.eventId && row.symbol);
+}
+
 function parseTradeJournalCsv(text) {
     return parseCsvTable(text).map((row) => ({
         dealTicket: row.DealTicket || '',
@@ -3848,6 +3887,9 @@ async function attachSupplementalData(baseData, previousData = null) {
         tradeEventLinkRows: Array.isArray(baseData?.tradeEventLinkRows)
             ? baseData.tradeEventLinkRows
             : (previousData?.tradeEventLinkRows || []),
+        shadowSignalLedgerRows: Array.isArray(baseData?.shadowSignalLedgerRows)
+            ? baseData.shadowSignalLedgerRows
+            : (previousData?.shadowSignalLedgerRows || []),
         backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null
     };
 
@@ -3919,6 +3961,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Backtest summary load failed.', error);
     }
 
+    try {
+        data.shadowSignalLedgerRows = await loadLocalCsvSupplement(LOCAL_SHADOW_SIGNAL_LEDGER_PATH, parseShadowSignalLedgerCsv);
+        data._shadowSignalLedgerError = false;
+    } catch (error) {
+        data._shadowSignalLedgerError = true;
+        console.warn('Shadow signal ledger load failed.', error);
+    }
+
     return data;
 }
 
@@ -3952,6 +4002,10 @@ function getTradeEventLinkRows(d) {
 
 function getBacktestSummary(d) {
     return d?.backtestSummary || null;
+}
+
+function getShadowSignalLedgerRows(d) {
+    return Array.isArray(d?.shadowSignalLedgerRows) ? d.shadowSignalLedgerRows : [];
 }
 
 function getFocusSymbol(d) {
@@ -5192,6 +5246,87 @@ function updateBacktestLiveComparison(d) {
     bodyEl.innerHTML = runs.map((run, index) => renderBacktestCompareCard(run, liveSummaries[index])).join('');
 }
 
+function buildShadowLedgerSummary(rows) {
+    const summary = {
+        total: rows.length,
+        observed: 0,
+        blocked: 0,
+        orderSent: 0,
+        signals: 0,
+        noSignal: 0,
+        symbols: new Set(),
+        blockers: new Map(),
+        latestTime: ''
+    };
+
+    rows.forEach((row) => {
+        if (row.symbol) summary.symbols.add(row.symbol);
+        if (row.eventBarTime && row.eventBarTime > summary.latestTime) summary.latestTime = row.eventBarTime;
+        const action = String(row.executionAction || '').toUpperCase();
+        const status = String(row.signalStatus || '').toUpperCase();
+        if (action === 'BLOCKED') summary.blocked += 1;
+        else if (action === 'ORDER_SENT') summary.orderSent += 1;
+        else summary.observed += 1;
+        if (status.includes('SIGNAL_BUY') || status.includes('SIGNAL_SELL')) summary.signals += 1;
+        if (status === 'NO_CROSS' || action === 'OBSERVED') summary.noSignal += 1;
+        const blocker = row.blocker || (action === 'ORDER_SENT' ? 'ORDER_SENT' : 'NO_BLOCKER');
+        summary.blockers.set(blocker, (summary.blockers.get(blocker) || 0) + 1);
+    });
+
+    return summary;
+}
+
+function renderShadowLedgerCard(title, value, subText, tone = 'waiting') {
+    return `
+        <div class="backtest-compare-card ${tone}">
+            <div class="backtest-compare-topline">
+                <div>
+                    <div class="research-window-kicker">Shadow Ledger</div>
+                    <div class="backtest-symbol">${escapeHtml(title)}</div>
+                </div>
+                <span class="backtest-status-pill ${tone}">${escapeHtml(value)}</span>
+            </div>
+            <div class="backtest-note">${escapeHtml(subText)}</div>
+        </div>
+    `;
+}
+
+function updateShadowSignalLedger(d) {
+    const summaryEl = document.getElementById('shadowLedgerSummary');
+    const metaEl = document.getElementById('shadowLedgerMeta');
+    const bodyEl = document.getElementById('shadowLedgerBody');
+    if (!summaryEl || !metaEl || !bodyEl) return;
+
+    const rows = getShadowSignalLedgerRows(d);
+    if (!rows.length) {
+        summaryEl.textContent = '等待影子样本';
+        metaEl.textContent = d?._shadowSignalLedgerError
+            ? '本地还没有 `QuantGod_ShadowSignalLedger.csv`；EA 下一次 M15 评估后会自动追加。'
+            : 'Shadow Signal Ledger 暂无行，等待下一根 M15 评估。';
+        bodyEl.innerHTML = '<div class="empty-state">等待 Shadow Signal Ledger 样本</div>';
+        return;
+    }
+
+    const summary = buildShadowLedgerSummary(rows);
+    const blockerList = Array.from(summary.blockers.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([key, count]) => `${key}: ${count}`)
+        .join(' / ');
+    const recentRows = rows.slice(-20);
+    const recentSummary = buildShadowLedgerSummary(recentRows);
+    const signalRate = recentSummary.total ? recentSummary.signals / recentSummary.total * 100 : 0;
+    const blockRate = recentSummary.total ? recentSummary.blocked / recentSummary.total * 100 : 0;
+
+    summaryEl.textContent = `${summary.total} 条影子样本 | ${summary.signals} 个信号 | ${summary.blocked} 次拦截`;
+    metaEl.textContent = `最近 ${recentRows.length} 条：信号率 ${formatPercentValue(signalRate, 0)}，拦截率 ${formatPercentValue(blockRate, 0)}；最新 M15 bar：${summary.latestTime || '--'}`;
+    bodyEl.innerHTML = [
+        renderShadowLedgerCard('样本速度', `${summary.total} 条`, `${Array.from(summary.symbols).join(' / ') || '--'} 每个 M15 评估都会旁路记录。`, 'supported'),
+        renderShadowLedgerCard('信号/观察', `${summary.signals}/${summary.observed}`, `真实成交之外，也记录 NO_CROSS、RANGE_BLOCK、NEWS_BLOCK 等学习样本。`, 'waiting'),
+        renderShadowLedgerCard('主要拦截', blockerList || '暂无', '这些是策略放宽前必须回看后验结果的候选阻塞原因。', summary.blocked ? 'conflict' : 'supported')
+    ].join('');
+}
+
 function updateResearchWindowSummary(d) {
     const body = document.getElementById('researchWindowBody');
     const summaryEl = document.getElementById('researchWindowSummary');
@@ -6138,6 +6273,7 @@ function updateDashboard() {
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
     updateResearchWindowSummary(d);
     updateBacktestLiveComparison(d);
+    updateShadowSignalLedger(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
     updateResearchSuggestions(d);

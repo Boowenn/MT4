@@ -257,6 +257,7 @@ struct NewsFilterState
 };
 
 datetime g_lastPilotBarTime[];
+datetime g_lastShadowLedgerBarTime[];
 StrategyStatusSnapshot g_maRuntimeStates[];
 PilotTelemetrySnapshot g_pilotTelemetry[];
 bool g_pilotKillSwitch = false;
@@ -540,10 +541,12 @@ bool InitializeWatchlist()
       SymbolSelect(g_symbols[i], true);
 
    ArrayResize(g_lastPilotBarTime, ArraySize(g_symbols));
+   ArrayResize(g_lastShadowLedgerBarTime, ArraySize(g_symbols));
    ArrayResize(g_maRuntimeStates, ArraySize(g_symbols));
    for(int i = 0; i < ArraySize(g_symbols); i++)
    {
       g_lastPilotBarTime[i] = 0;
+      g_lastShadowLedgerBarTime[i] = 0;
       g_maRuntimeStates[i].enabled = false;
       g_maRuntimeStates[i].active = false;
       g_maRuntimeStates[i].runtimeLabel = "PORT";
@@ -1399,6 +1402,101 @@ bool IsNewPilotBar(string symbol, ENUM_TIMEFRAMES timeframe, int symbolIndex)
    return false;
 }
 
+string PilotEvalCodeLabel(int evalCode)
+{
+   if(evalCode == PILOT_EVAL_NOT_ENOUGH_BARS) return "NOT_ENOUGH_BARS";
+   if(evalCode == PILOT_EVAL_TICK_UNAVAILABLE) return "TICK_UNAVAILABLE";
+   if(evalCode == PILOT_EVAL_SPREAD_BLOCK) return "SPREAD_BLOCK";
+   if(evalCode == PILOT_EVAL_SESSION_BLOCK) return "SESSION_BLOCK";
+   if(evalCode == PILOT_EVAL_INDICATOR_NOT_READY) return "INDICATOR_NOT_READY";
+   if(evalCode == PILOT_EVAL_TREND_NOT_READY) return "TREND_NOT_READY";
+   if(evalCode == PILOT_EVAL_ATR_UNAVAILABLE) return "ATR_UNAVAILABLE";
+   if(evalCode == PILOT_EVAL_RANGE_BLOCK) return "RANGE_BLOCK";
+   if(evalCode == PILOT_EVAL_SIGNAL_BUY) return "SIGNAL_BUY";
+   if(evalCode == PILOT_EVAL_SIGNAL_SELL) return "SIGNAL_SELL";
+   if(evalCode == PILOT_EVAL_NO_CROSS) return "NO_CROSS";
+   return "NONE";
+}
+
+string PilotDirectionLabel(int direction)
+{
+   if(direction > 0) return "BUY";
+   if(direction < 0) return "SELL";
+   return "NONE";
+}
+
+string ShadowSignalLedgerHeader()
+{
+   return "EventId,LabelTimeLocal,LabelTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,SignalScore,Regime,Blocker,ExecutionAction,ReferencePrice,SpreadPips,NewsStatus,Reason\r\n";
+}
+
+void AppendShadowSignalLedgerRow(string symbol, int symbolIndex, datetime eventBarTime, string signalStatus, int direction, double score, string blocker, string executionAction, string reason)
+{
+   if(symbolIndex < 0 || symbolIndex >= ArraySize(g_lastShadowLedgerBarTime))
+      return;
+   if(eventBarTime <= 0)
+      eventBarTime = iTime(symbol, PilotSignalTimeframe, 0);
+   if(eventBarTime <= 0 || g_lastShadowLedgerBarTime[symbolIndex] == eventBarTime)
+      return;
+
+   g_lastShadowLedgerBarTime[symbolIndex] = eventBarTime;
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   SymbolInfoTick(symbol, tick);
+   double referencePrice = 0.0;
+   if(direction > 0)
+      referencePrice = tick.ask;
+   else if(direction < 0)
+      referencePrice = tick.bid;
+   else if(tick.bid > 0.0 && tick.ask > 0.0)
+      referencePrice = (tick.bid + tick.ask) / 2.0;
+   double spread = (tick.bid > 0.0 && tick.ask > 0.0) ? CalcSpreadPips(symbol, tick.bid, tick.ask) : 0.0;
+   RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, eventBarTime);
+   datetime serverClock = CurrentServerTime();
+   string eventId = symbol + "-" + TimeframeLabel(PilotSignalTimeframe) + "-" + IntegerToString((int)eventBarTime) + "-" + signalStatus + "-" + executionAction;
+
+   bool exists = FileIsExist("QuantGod_ShadowSignalLedger.csv");
+   ResetLastError();
+   int handle = FileOpen("QuantGod_ShadowSignalLedger.csv",
+                         FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         0, CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("QuantGod MT5 shadow ledger failed to open file. err=", GetLastError());
+      return;
+   }
+   if(!exists || FileSize(handle) <= 0)
+      FileWriteString(handle, ShadowSignalLedgerHeader());
+   FileSeek(handle, 0, SEEK_END);
+   string row = "";
+   row += CsvEscape(eventId) + ",";
+   row += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+   row += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+   row += CsvEscape(FormatDateTime(eventBarTime, true)) + ",";
+   row += CsvEscape(symbol) + ",";
+   row += CsvEscape("MA_Cross") + ",";
+   row += CsvEscape(TimeframeLabel(PilotSignalTimeframe)) + ",";
+   row += CsvEscape(signalStatus) + ",";
+   row += CsvEscape(PilotDirectionLabel(direction)) + ",";
+   row += FormatNumber(score, 1) + ",";
+   row += CsvEscape(regime.label) + ",";
+   row += CsvEscape(blocker) + ",";
+   row += CsvEscape(executionAction) + ",";
+   row += FormatNumber(referencePrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   row += FormatNumber(spread, 1) + ",";
+   row += CsvEscape(g_newsState.status) + ",";
+   row += CsvEscape(reason) + "\r\n";
+   FileWriteString(handle, row);
+   FileFlush(handle);
+   FileClose(handle);
+}
+
+void AppendShadowSignalLedgerForCurrentBar(string symbol, int symbolIndex, string signalStatus, int direction, double score, string blocker, string executionAction, string reason)
+{
+   AppendShadowSignalLedgerRow(symbol, symbolIndex, iTime(symbol, PilotSignalTimeframe, 0), signalStatus, direction, score, blocker, executionAction, reason);
+}
+
 string PilotStatusJson(const StrategyStatusSnapshot &state)
 {
    string json = "{";
@@ -1995,6 +2093,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].score = 0.0;
          g_maRuntimeStates[i].reason = g_pilotKillReason;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, "AUTO_PAUSED", 0, 0.0, "KILL_SWITCH", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       if(CountPilotPositions() >= PilotMaxTotalPositions)
@@ -2006,6 +2105,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = "Portfolio position limit reached";
          g_pilotTelemetry[i].portfolioBlocks++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, "PORTFOLIO_LIMIT", 0, 0.0, "PORTFOLIO_LIMIT", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       if(CountPilotPositions(symbol) >= PilotMaxPositionsPerSymbol)
@@ -2017,6 +2117,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = "Pilot position already open on this symbol";
          g_pilotTelemetry[i].inPositionBlocks++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, "IN_POSITION", 0, 100.0, "PILOT_POSITION_LIMIT", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       if(PilotBlockManualPerSymbol && HasManualPositionOnSymbol(symbol))
@@ -2028,6 +2129,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = "Manual position on symbol blocks pilot entries";
          g_pilotTelemetry[i].manualBlocks++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, "MANUAL_BLOCK", 0, 0.0, "MANUAL_POSITION", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       string cooldownReason = "";
@@ -2040,6 +2142,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = cooldownReason;
          g_pilotTelemetry[i].cooldownBlocks++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, "LOSS_COOLDOWN", 0, 0.0, "LOSS_COOLDOWN", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       string newsReason = "";
@@ -2052,6 +2155,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = newsReason;
          g_pilotTelemetry[i].newsBlocks++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, "NEWS_BLOCK", 0, 0.0, "NEWS_BLOCK", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       if(!IsNewPilotBar(symbol, PilotSignalTimeframe, i))
@@ -2077,6 +2181,7 @@ void RunPilotExecutionLoop()
       g_pilotTelemetry[i].evaluationPasses++;
       g_pilotTelemetry[i].lastEvalTime = TimeCurrent();
       bool hasSignal = EvaluatePilotMASignal(symbol, i, direction, score, reason, slPrice, tpPrice, evalCode);
+      string signalStatus = PilotEvalCodeLabel(evalCode);
       g_maRuntimeStates[i].active = true;
       g_maRuntimeStates[i].runtimeLabel = "ON";
       g_maRuntimeStates[i].score = score;
@@ -2096,6 +2201,17 @@ void RunPilotExecutionLoop()
             g_maRuntimeStates[i].reason = reason + " | news " + PilotActionLabelForSymbol(symbol) +
                " after " + g_newsState.eventName;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         string blocker = (evalCode == PILOT_EVAL_SPREAD_BLOCK) ? "SPREAD" :
+            (evalCode == PILOT_EVAL_SESSION_BLOCK) ? "SESSION" :
+            (evalCode == PILOT_EVAL_RANGE_BLOCK) ? "RANGE_REGIME" :
+            (evalCode == PILOT_EVAL_NOT_ENOUGH_BARS) ? "DATA_WARMUP" :
+            (evalCode == PILOT_EVAL_TICK_UNAVAILABLE) ? "TICK_DATA" :
+            (evalCode == PILOT_EVAL_INDICATOR_NOT_READY || evalCode == PILOT_EVAL_TREND_NOT_READY || evalCode == PILOT_EVAL_ATR_UNAVAILABLE) ? "INDICATOR_DATA" :
+            "NO_SIGNAL";
+         string action = (evalCode == PILOT_EVAL_RANGE_BLOCK || evalCode == PILOT_EVAL_SPREAD_BLOCK || evalCode == PILOT_EVAL_SESSION_BLOCK)
+            ? "BLOCKED"
+            : "OBSERVED";
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, blocker, action, g_maRuntimeStates[i].reason);
          continue;
       }
       g_pilotTelemetry[i].signalHits++;
@@ -2109,6 +2225,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = newsReason;
          g_pilotTelemetry[i].newsFiltered++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, "NEWS_DIRECTION_FILTER", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
       if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice))
@@ -2118,6 +2235,7 @@ void RunPilotExecutionLoop()
          g_pilotTelemetry[i].orderSent++;
          g_pilotTelemetry[i].lastOrderTime = TimeCurrent();
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, "", "ORDER_SENT", g_maRuntimeStates[i].reason);
       }
       else
       {
@@ -2125,6 +2243,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = reason + " | Order send failed, check MT5 Journal";
          g_pilotTelemetry[i].orderFailed++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, "ORDER_SEND_FAILED", "ORDER_FAILED", g_maRuntimeStates[i].reason);
       }
    }
 }
