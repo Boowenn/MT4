@@ -9,3 +9,5 @@ HistoryLookbackDays=30
 EnableShadowOutcomeLedger=true
 ShadowOutcomeMaxSourceRows=800
 ShadowOutcomeNeutralPips=2.0
+EnableShadowCandidateRouter=true
+ShadowCandidateMaxSourceRows=800

@@ -45,6 +45,7 @@ Responsibilities:
 - Export MT5 evaluation files such as `QuantGod_StrategyEvaluationReport.csv`, `QuantGod_RegimeEvaluationReport.csv`, and `QuantGod_OpportunityLabels.csv`
 - Export `QuantGod_ShadowSignalLedger.csv` as an append-only, no-trade sample ledger for each new M15 `MA_Cross` pilot evaluation, including signals, no-cross observations, blockers, and order-send outcomes
 - Export `QuantGod_ShadowOutcomeLedger.csv` as a no-trade post-outcome ledger that labels completed 15/30/60 minute horizons from Shadow Signal Ledger rows, including close move, MFE/MAE, directional outcome, and best long/short opportunity
+- Export `QuantGod_ShadowCandidateLedger.csv` and `QuantGod_ShadowCandidateOutcomeLedger.csv` for Shadow Candidate Router V1, covering MA continuation/range-soft, RSI reversal, Bollinger reversal, MACD momentum turn, and support/resistance breakout candidates as shadow-only route hypotheses
 - Export `QuantGod_ManualAlphaLedger.csv` as a learn-only ledger for manual open/closed trades, including current XAUUSDc-style discretionary trades, so strong human entries can be studied without expanding EA permissions
 - Reuse the existing dashboard assets against the active MT5 terminal files directory
 - Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
@@ -53,6 +54,7 @@ Responsibilities:
 - Provide Backtest Lab V1 for the same constrained `MA_Cross` research path: generate MT5 Strategy Tester configs and presets for `EURUSDc` / `USDJPYc`, archive run artifacts under `archive/backtests/`, and publish `QuantGod_BacktestSummary.json` so the dashboard can compare backtest support against live forward samples
 - Provide Shadow Signal Ledger for the same constrained `MA_Cross` research path so blocked and non-traded M15 opportunities become reviewable evidence without increasing live risk
 - Provide Shadow Outcome Ledger so range-blocked and no-trade M15 opportunities gain post-outcome labels before anyone considers a shadow-only route change
+- Provide Shadow Candidate Router V1 so candidate routes can be compared by post-outcome evidence before they are eligible for Backtest Lab review
 - Provide Manual Alpha Ledger as a separate learning surface for discretionary trades; promotion from manual alpha to EA automation requires a later shadow-only route plus backtest and live-forward validation
 
 Non-responsibilities in phase 1:
@@ -78,7 +80,7 @@ Responsibilities:
 - Surface both closed-trade outcomes and window-scoped new opens on that summary card, so operators can see when the current day has started trading but has not produced exits yet
 - Expose a left-navigation section layout so operators can jump between overview, monitor, trades, research, and reports
 - In the trades section, render the HFM MT5 journal surface from `QuantGod_TradeJournal.csv`, `QuantGod_CloseHistory.csv`, `QuantGod_TradeOutcomeLabels.csv`, and `QuantGod_TradeEventLinks.csv`, including explicit empty states when the live account has not closed a trade yet
-- In the overview section, render the Shadow Signal Ledger summary from `QuantGod_ShadowSignalLedger.csv` plus the Shadow Outcome Ledger summary from `QuantGod_ShadowOutcomeLedger.csv`, so sample speed, signal count, dominant blockers, and range-blocked post-outcomes are visible beside backtest and live evidence
+- In the overview section, render the Shadow Signal Ledger summary from `QuantGod_ShadowSignalLedger.csv` plus the Shadow Outcome/Candidate summaries from `QuantGod_ShadowOutcomeLedger.csv`, `QuantGod_ShadowCandidateLedger.csv`, and `QuantGod_ShadowCandidateOutcomeLedger.csv`, so sample speed, signal count, dominant blockers, range-blocked post-outcomes, and candidate route post-outcomes are visible beside backtest and live evidence
 - In the overview section, render the Manual Alpha Ledger summary from `QuantGod_ManualAlphaLedger.csv`, so manual open/closed alpha is visible as route-candidate evidence without mixing it into EA statistics
 - In the monitor section, each HFM symbol card now also renders a `Pilot 命中率` block from `symbols[].pilotTelemetry`, so operators can inspect daily evaluations, signal hits, WAIT_BAR frequency, no-crossover misses, news blocks, and order-send outcomes without opening raw JSON
 - Reuse the same recommendation layer inside the strategy evaluation table so the live row for each current slice shows its current research action
@@ -117,6 +119,8 @@ MT5 phase 1 exports only:
 - `QuantGod_OpportunityLabels.csv` (header placeholder)
 - `QuantGod_ShadowSignalLedger.csv`
 - `QuantGod_ShadowOutcomeLedger.csv`
+- `QuantGod_ShadowCandidateLedger.csv`
+- `QuantGod_ShadowCandidateOutcomeLedger.csv`
 - `QuantGod_ManualAlphaLedger.csv`
 
 HFM Cent live runtime uses the same phase 1 export set, but writes it under:

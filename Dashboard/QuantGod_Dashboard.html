@@ -3379,6 +3379,8 @@ const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
 const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
 const LOCAL_SHADOW_SIGNAL_LEDGER_PATH = 'QuantGod_ShadowSignalLedger.csv';
 const LOCAL_SHADOW_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowOutcomeLedger.csv';
+const LOCAL_SHADOW_CANDIDATE_LEDGER_PATH = 'QuantGod_ShadowCandidateLedger.csv';
+const LOCAL_SHADOW_CANDIDATE_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowCandidateOutcomeLedger.csv';
 const LOCAL_MANUAL_ALPHA_LEDGER_PATH = 'QuantGod_ManualAlphaLedger.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
@@ -3809,6 +3811,54 @@ function parseShadowOutcomeLedgerCsv(text) {
     })).filter((row) => row.eventId && row.symbol);
 }
 
+function parseShadowCandidateLedgerCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        eventId: row.EventId || '',
+        labelTimeLocal: row.LabelTimeLocal || '',
+        labelTimeServer: row.LabelTimeServer || '',
+        eventBarTime: row.EventBarTime || '',
+        symbol: row.Symbol || '',
+        candidateRoute: row.CandidateRoute || '',
+        timeframe: row.Timeframe || '',
+        candidateDirection: row.CandidateDirection || '',
+        candidateScore: toNumber(row.CandidateScore, 0),
+        regime: row.Regime || '',
+        referencePrice: toNumber(row.ReferencePrice, 0),
+        spreadPips: toNumber(row.SpreadPips, 0),
+        newsStatus: row.NewsStatus || '',
+        trigger: row.Trigger || '',
+        reason: row.Reason || ''
+    })).filter((row) => row.eventId && row.symbol && row.candidateRoute);
+}
+
+function parseShadowCandidateOutcomeLedgerCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        eventId: row.EventId || '',
+        outcomeLabelTimeLocal: row.OutcomeLabelTimeLocal || '',
+        outcomeLabelTimeServer: row.OutcomeLabelTimeServer || '',
+        eventBarTime: row.EventBarTime || '',
+        symbol: row.Symbol || '',
+        candidateRoute: row.CandidateRoute || '',
+        timeframe: row.Timeframe || '',
+        candidateDirection: row.CandidateDirection || '',
+        candidateScore: toNumber(row.CandidateScore, 0),
+        regime: row.Regime || '',
+        referencePrice: toNumber(row.ReferencePrice, 0),
+        horizonBars: toNumber(row.HorizonBars, 0),
+        horizonMinutes: toNumber(row.HorizonMinutes, 0),
+        futureClose: toNumber(row.FutureClose, 0),
+        longClosePips: toNumber(row.LongClosePips, 0),
+        shortClosePips: toNumber(row.ShortClosePips, 0),
+        longMfePips: toNumber(row.LongMFEPips, 0),
+        longMaePips: toNumber(row.LongMAEPips, 0),
+        shortMfePips: toNumber(row.ShortMFEPips, 0),
+        shortMaePips: toNumber(row.ShortMAEPips, 0),
+        directionalOutcome: row.DirectionalOutcome || '',
+        bestOpportunity: row.BestOpportunity || '',
+        outcomeReason: row.OutcomeReason || ''
+    })).filter((row) => row.eventId && row.symbol && row.candidateRoute);
+}
+
 function parseManualAlphaLedgerCsv(text) {
     return parseCsvTable(text).map((row) => ({
         positionId: row.PositionId || '',
@@ -3964,6 +4014,12 @@ async function attachSupplementalData(baseData, previousData = null) {
         shadowOutcomeLedgerRows: Array.isArray(baseData?.shadowOutcomeLedgerRows)
             ? baseData.shadowOutcomeLedgerRows
             : (previousData?.shadowOutcomeLedgerRows || []),
+        shadowCandidateLedgerRows: Array.isArray(baseData?.shadowCandidateLedgerRows)
+            ? baseData.shadowCandidateLedgerRows
+            : (previousData?.shadowCandidateLedgerRows || []),
+        shadowCandidateOutcomeLedgerRows: Array.isArray(baseData?.shadowCandidateOutcomeLedgerRows)
+            ? baseData.shadowCandidateOutcomeLedgerRows
+            : (previousData?.shadowCandidateOutcomeLedgerRows || []),
         manualAlphaLedgerRows: Array.isArray(baseData?.manualAlphaLedgerRows)
             ? baseData.manualAlphaLedgerRows
             : (previousData?.manualAlphaLedgerRows || []),
@@ -4055,6 +4111,22 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.shadowCandidateLedgerRows = await loadLocalCsvSupplement(LOCAL_SHADOW_CANDIDATE_LEDGER_PATH, parseShadowCandidateLedgerCsv);
+        data._shadowCandidateLedgerError = false;
+    } catch (error) {
+        data._shadowCandidateLedgerError = true;
+        console.warn('Shadow candidate ledger load failed.', error);
+    }
+
+    try {
+        data.shadowCandidateOutcomeLedgerRows = await loadLocalCsvSupplement(LOCAL_SHADOW_CANDIDATE_OUTCOME_LEDGER_PATH, parseShadowCandidateOutcomeLedgerCsv);
+        data._shadowCandidateOutcomeLedgerError = false;
+    } catch (error) {
+        data._shadowCandidateOutcomeLedgerError = true;
+        console.warn('Shadow candidate outcome ledger load failed.', error);
+    }
+
+    try {
         data.manualAlphaLedgerRows = await loadLocalCsvSupplement(LOCAL_MANUAL_ALPHA_LEDGER_PATH, parseManualAlphaLedgerCsv);
         data._manualAlphaLedgerError = false;
     } catch (error) {
@@ -4103,6 +4175,14 @@ function getShadowSignalLedgerRows(d) {
 
 function getShadowOutcomeLedgerRows(d) {
     return Array.isArray(d?.shadowOutcomeLedgerRows) ? d.shadowOutcomeLedgerRows : [];
+}
+
+function getShadowCandidateLedgerRows(d) {
+    return Array.isArray(d?.shadowCandidateLedgerRows) ? d.shadowCandidateLedgerRows : [];
+}
+
+function getShadowCandidateOutcomeLedgerRows(d) {
+    return Array.isArray(d?.shadowCandidateOutcomeLedgerRows) ? d.shadowCandidateOutcomeLedgerRows : [];
 }
 
 function getManualAlphaLedgerRows(d) {
@@ -5401,6 +5481,37 @@ function buildShadowOutcomeSummary(rows) {
     return summary;
 }
 
+function buildShadowCandidateSummary(rows, outcomeRows) {
+    const summary = {
+        total: rows.length,
+        outcome60: 0,
+        routeCounts: new Map(),
+        route60: new Map(),
+        latestTime: ''
+    };
+
+    rows.forEach((row) => {
+        if (row.eventBarTime && row.eventBarTime > summary.latestTime) summary.latestTime = row.eventBarTime;
+        const route = row.candidateRoute || 'UNKNOWN';
+        summary.routeCounts.set(route, (summary.routeCounts.get(route) || 0) + 1);
+    });
+
+    outcomeRows.forEach((row) => {
+        if (Number(row.horizonMinutes || 0) !== 60) return;
+        summary.outcome60 += 1;
+        const route = row.candidateRoute || 'UNKNOWN';
+        const current = summary.route60.get(route) || { total: 0, wins: 0, losses: 0, flats: 0 };
+        current.total += 1;
+        const outcome = String(row.directionalOutcome || '').toUpperCase();
+        if (outcome === 'WIN') current.wins += 1;
+        else if (outcome === 'LOSS') current.losses += 1;
+        else current.flats += 1;
+        summary.route60.set(route, current);
+    });
+
+    return summary;
+}
+
 function renderShadowLedgerCard(title, value, subText, tone = 'waiting') {
     return `
         <div class="backtest-compare-card ${tone}">
@@ -5424,6 +5535,8 @@ function updateShadowSignalLedger(d) {
 
     const rows = getShadowSignalLedgerRows(d);
     const outcomeRows = getShadowOutcomeLedgerRows(d);
+    const candidateRows = getShadowCandidateLedgerRows(d);
+    const candidateOutcomeRows = getShadowCandidateOutcomeLedgerRows(d);
     if (!rows.length) {
         summaryEl.textContent = '等待影子样本';
         metaEl.textContent = d?._shadowSignalLedgerError
@@ -5435,6 +5548,7 @@ function updateShadowSignalLedger(d) {
 
     const summary = buildShadowLedgerSummary(rows);
     const outcomeSummary = buildShadowOutcomeSummary(outcomeRows);
+    const candidateSummary = buildShadowCandidateSummary(candidateRows, candidateOutcomeRows);
     const blockerList = Array.from(summary.blockers.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 4)
@@ -5445,14 +5559,24 @@ function updateShadowSignalLedger(d) {
     const signalRate = recentSummary.total ? recentSummary.signals / recentSummary.total * 100 : 0;
     const blockRate = recentSummary.total ? recentSummary.blocked / recentSummary.total * 100 : 0;
     const range60Rate = outcomeSummary.range60 ? outcomeSummary.range60Directional / outcomeSummary.range60 * 100 : 0;
+    const candidateRoutes = Array.from(candidateSummary.routeCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([route, count]) => `${route}: ${count}`)
+        .join(' / ');
+    const candidate60 = Array.from(candidateSummary.route60.entries())
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([route, item]) => `${route} ${item.wins}/${item.losses}/${item.flats}`)
+        .join(' / ');
 
-    summaryEl.textContent = `${summary.total} 条影子样本 | ${summary.signals} 个信号 | ${summary.blocked} 次拦截`;
-    metaEl.textContent = `最近 ${recentRows.length} 条：信号率 ${formatPercentValue(signalRate, 0)}，拦截率 ${formatPercentValue(blockRate, 0)}；后验 ${outcomeSummary.total} 条，最新 ${outcomeSummary.latestTime || summary.latestTime || '--'}`;
+    summaryEl.textContent = `${summary.total} 条影子样本 | ${candidateSummary.total} 条候选 | ${summary.blocked} 次拦截`;
+    metaEl.textContent = `最近 ${recentRows.length} 条：信号率 ${formatPercentValue(signalRate, 0)}，拦截率 ${formatPercentValue(blockRate, 0)}；后验 ${outcomeSummary.total} 条，候选后验 ${candidateOutcomeRows.length} 条`;
     bodyEl.innerHTML = [
         renderShadowLedgerCard('样本速度', `${summary.total} 条`, `${Array.from(summary.symbols).join(' / ') || '--'} 每个 M15 评估都会旁路记录。`, 'supported'),
         renderShadowLedgerCard('信号/观察', `${summary.signals}/${summary.observed}`, `真实成交之外，也记录 NO_CROSS、RANGE_BLOCK、NEWS_BLOCK 等学习样本。`, 'waiting'),
         renderShadowLedgerCard('主要拦截', blockerList || '暂无', '这些是策略放宽前必须回看后验结果的候选阻塞原因。', summary.blocked ? 'conflict' : 'supported'),
-        renderShadowLedgerCard('RANGE 60m 后验', outcomeSummary.range60 ? formatPercentValue(range60Rate, 0) : '等待', outcomeSummary.range60 ? `${outcomeSummary.range60Directional}/${outcomeSummary.range60} 个 RANGE 拦截在 60 分钟后出现单边机会；仅作 shadow-only 候选证据。` : '等待 `QuantGod_ShadowOutcomeLedger.csv` 完成第一批 60 分钟后验。', outcomeSummary.range60Directional ? 'waiting' : 'supported')
+        renderShadowLedgerCard('RANGE 60m 后验', outcomeSummary.range60 ? formatPercentValue(range60Rate, 0) : '等待', outcomeSummary.range60 ? `${outcomeSummary.range60Directional}/${outcomeSummary.range60} 个 RANGE 拦截在 60 分钟后出现单边机会；仅作 shadow-only 候选证据。` : '等待 `QuantGod_ShadowOutcomeLedger.csv` 完成第一批 60 分钟后验。', outcomeSummary.range60Directional ? 'waiting' : 'supported'),
+        renderShadowLedgerCard('Candidate Router', candidateSummary.total ? `${candidateSummary.total} 条` : '等待', candidateSummary.total ? candidateRoutes : '等待 `QuantGod_ShadowCandidateLedger.csv` 生成 shadow-only 候选信号。', candidateSummary.total ? 'waiting' : 'supported'),
+        renderShadowLedgerCard('Candidate 60m', candidateSummary.outcome60 ? `${candidateSummary.outcome60} 条` : '等待', candidateSummary.outcome60 ? `${candidate60}，格式为 win/loss/flat；只用于决定是否进入 backtest。` : '等待候选信号完成 60 分钟后验。', candidateSummary.outcome60 ? 'waiting' : 'supported')
     ].join('');
 }
 

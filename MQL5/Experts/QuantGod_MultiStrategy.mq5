@@ -66,6 +66,8 @@ input int    PilotNewsRefreshSeconds    = 15;
 input bool   EnableShadowOutcomeLedger  = true;
 input int    ShadowOutcomeMaxSourceRows = 800;
 input double ShadowOutcomeNeutralPips   = 2.0;
+input bool   EnableShadowCandidateRouter = true;
+input int    ShadowCandidateMaxSourceRows = 800;
 input double PilotUsdJpyNoChaseLevel    = 160.0;
 input double PilotUsdJpyNoChaseBufferPips = 10.0;
 input double PilotMaxFloatingLossUSC    = 30.0;
@@ -273,8 +275,24 @@ struct ShadowSignalLedgerRecord
    double   referencePrice;
 };
 
+struct ShadowCandidateLedgerRecord
+{
+   string   eventId;
+   datetime eventBarTime;
+   string   symbol;
+   string   candidateRoute;
+   string   timeframe;
+   string   direction;
+   double   score;
+   string   regime;
+   double   referencePrice;
+   string   trigger;
+   string   reason;
+};
+
 datetime g_lastPilotBarTime[];
 datetime g_lastShadowLedgerBarTime[];
+datetime g_lastShadowCandidateLedgerBarTime[];
 StrategyStatusSnapshot g_maRuntimeStates[];
 PilotTelemetrySnapshot g_pilotTelemetry[];
 bool g_pilotKillSwitch = false;
@@ -559,11 +577,13 @@ bool InitializeWatchlist()
 
    ArrayResize(g_lastPilotBarTime, ArraySize(g_symbols));
    ArrayResize(g_lastShadowLedgerBarTime, ArraySize(g_symbols));
+   ArrayResize(g_lastShadowCandidateLedgerBarTime, ArraySize(g_symbols));
    ArrayResize(g_maRuntimeStates, ArraySize(g_symbols));
    for(int i = 0; i < ArraySize(g_symbols); i++)
    {
       g_lastPilotBarTime[i] = 0;
       g_lastShadowLedgerBarTime[i] = 0;
+      g_lastShadowCandidateLedgerBarTime[i] = 0;
       g_maRuntimeStates[i].enabled = false;
       g_maRuntimeStates[i].active = false;
       g_maRuntimeStates[i].runtimeLabel = "PORT";
@@ -1533,6 +1553,227 @@ string CsvCellValue(string value)
    return cell;
 }
 
+string ShadowCandidateLedgerHeader()
+{
+   return "EventId,LabelTimeLocal,LabelTimeServer,EventBarTime,Symbol,CandidateRoute,Timeframe,CandidateDirection,CandidateScore,Regime,ReferencePrice,SpreadPips,NewsStatus,Trigger,Reason\r\n";
+}
+
+void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string route, int direction, double score, string trigger, string reason)
+{
+   if(!EnableShadowCandidateRouter || eventBarTime <= 0 || direction == 0)
+      return;
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   if(!SymbolInfoTick(symbol, tick))
+      return;
+
+   double referencePrice = (direction > 0) ? tick.ask : tick.bid;
+   if(referencePrice <= 0.0)
+      return;
+
+   double spread = (tick.bid > 0.0 && tick.ask > 0.0) ? CalcSpreadPips(symbol, tick.bid, tick.ask) : 0.0;
+   RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, eventBarTime);
+   datetime serverClock = CurrentServerTime();
+   string eventId = symbol + "-" + TimeframeLabel(PilotSignalTimeframe) + "-" + IntegerToString((int)eventBarTime) + "-" + route + "-" + PilotDirectionLabel(direction);
+
+   bool exists = FileIsExist("QuantGod_ShadowCandidateLedger.csv");
+   ResetLastError();
+   int handle = FileOpen("QuantGod_ShadowCandidateLedger.csv",
+                         FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         0, CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("QuantGod MT5 shadow candidate ledger failed to open file. err=", GetLastError());
+      return;
+   }
+   if(!exists || FileSize(handle) <= 0)
+      FileWriteString(handle, ShadowCandidateLedgerHeader());
+   FileSeek(handle, 0, SEEK_END);
+
+   string row = "";
+   row += CsvEscape(eventId) + ",";
+   row += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+   row += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+   row += CsvEscape(FormatDateTime(eventBarTime, true)) + ",";
+   row += CsvEscape(symbol) + ",";
+   row += CsvEscape(route) + ",";
+   row += CsvEscape(TimeframeLabel(PilotSignalTimeframe)) + ",";
+   row += CsvEscape(PilotDirectionLabel(direction)) + ",";
+   row += FormatNumber(score, 1) + ",";
+   row += CsvEscape(regime.label) + ",";
+   row += FormatNumber(referencePrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   row += FormatNumber(spread, 1) + ",";
+   row += CsvEscape(g_newsState.status) + ",";
+   row += CsvEscape(trigger) + ",";
+   row += CsvEscape(reason) + "\r\n";
+   FileWriteString(handle, row);
+   FileFlush(handle);
+   FileClose(handle);
+}
+
+void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime eventBarTime)
+{
+   if(!EnableShadowCandidateRouter ||
+      symbolIndex < 0 ||
+      symbolIndex >= ArraySize(g_lastShadowCandidateLedgerBarTime) ||
+      eventBarTime <= 0 ||
+      g_lastShadowCandidateLedgerBarTime[symbolIndex] == eventBarTime)
+      return;
+
+   g_lastShadowCandidateLedgerBarTime[symbolIndex] = eventBarTime;
+
+   int signalBars = Bars(symbol, PilotSignalTimeframe);
+   int trendBars = Bars(symbol, PilotTrendTimeframe);
+   if(signalBars < MathMax(PilotSlowMAPeriod + 6, PilotATRPeriod + 5) ||
+      trendBars < PilotTrendMAPeriod + 5)
+      return;
+
+   double trend1 = MAValue(symbol, PilotTrendTimeframe, PilotTrendMAPeriod, 1, MODE_SMA);
+   double trendClose1 = iClose(symbol, PilotTrendTimeframe, 1);
+   double atr1 = ATRValue(symbol, PilotSignalTimeframe, PilotATRPeriod, 1);
+   double fast1 = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, 1, MODE_EMA);
+   double fast2 = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, 2, MODE_EMA);
+   double slow1 = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, 1, MODE_EMA);
+   double slow2 = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, 2, MODE_EMA);
+   double close1 = iClose(symbol, PilotSignalTimeframe, 1);
+   double open1 = iOpen(symbol, PilotSignalTimeframe, 1);
+   double high1 = iHigh(symbol, PilotSignalTimeframe, 1);
+   double low1 = iLow(symbol, PilotSignalTimeframe, 1);
+   if(trend1 == EMPTY_VALUE || fast1 == EMPTY_VALUE || fast2 == EMPTY_VALUE ||
+      slow1 == EMPTY_VALUE || slow2 == EMPTY_VALUE || atr1 <= 0.0 ||
+      trendClose1 <= 0.0 || close1 <= 0.0 || open1 <= 0.0 || high1 <= 0.0 || low1 <= 0.0)
+      return;
+
+   bool buyTrend = (trendClose1 > trend1);
+   bool sellTrend = (trendClose1 < trend1);
+   bool bullishStructure = (fast1 > slow1 && fast2 > slow2);
+   bool bearishStructure = (fast1 < slow1 && fast2 < slow2);
+   bool freshCross = false;
+   int maxShift = MathMax(1, PilotCrossLookbackBars);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      double fastCurr = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, shift, MODE_EMA);
+      double fastPrev = MAValue(symbol, PilotSignalTimeframe, PilotFastMAPeriod, shift + 1, MODE_EMA);
+      double slowCurr = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, shift, MODE_EMA);
+      double slowPrev = MAValue(symbol, PilotSignalTimeframe, PilotSlowMAPeriod, shift + 1, MODE_EMA);
+      if(fastCurr == EMPTY_VALUE || fastPrev == EMPTY_VALUE ||
+         slowCurr == EMPTY_VALUE || slowPrev == EMPTY_VALUE)
+         continue;
+      if((fastPrev <= slowPrev && fastCurr > slowCurr) ||
+         (fastPrev >= slowPrev && fastCurr < slowCurr))
+      {
+         freshCross = true;
+         break;
+      }
+   }
+
+   double pip = PipSize(symbol);
+   if(pip <= 0.0)
+      return;
+   double fastDistanceAtr = MathAbs(close1 - fast1) / atr1;
+   RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, eventBarTime);
+
+   if(!freshCross && buyTrend && bullishStructure && close1 >= fast1 && fastDistanceAtr <= 1.20)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", 1, 66.0,
+                                     "H1 uptrend, EMA structure aligned, no fresh cross",
+                                     "Shadow-only trend continuation without fresh crossover");
+   else if(!freshCross && sellTrend && bearishStructure && close1 <= fast1 && fastDistanceAtr <= 1.20)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", -1, 66.0,
+                                     "H1 downtrend, EMA structure aligned, no fresh cross",
+                                     "Shadow-only trend continuation without fresh crossover");
+
+   bool isUsdJpy = (StringFind(symbol, "USDJPY") >= 0);
+   double touchTolerance = atr1 * 0.25;
+   if(isUsdJpy && buyTrend && bullishStructure && low1 <= fast1 + touchTolerance && close1 >= fast1)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_PULLBACK_BOUNCE", 1, 68.0,
+                                     "USDJPY pullback touched fast EMA and closed back above it",
+                                     "Shadow-only USDJPY pullback/bounce candidate");
+   else if(isUsdJpy && sellTrend && bearishStructure && high1 >= fast1 - touchTolerance && close1 <= fast1)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_PULLBACK_BOUNCE", -1, 68.0,
+                                     "USDJPY pullback touched fast EMA and closed back below it",
+                                     "Shadow-only USDJPY pullback/bounce candidate");
+
+   if(regime.label == "RANGE" || regime.label == "RANGE_TIGHT")
+   {
+      if(close1 > fast1 && fast1 >= fast2)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RANGE_SOFT", 1, 54.0,
+                                        "Range regime with short-term bullish drift",
+                                        "Shadow-only range-soft candidate; live range guard unchanged");
+      else if(close1 < fast1 && fast1 <= fast2)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RANGE_SOFT", -1, 54.0,
+                                        "Range regime with short-term bearish drift",
+                                        "Shadow-only range-soft candidate; live range guard unchanged");
+   }
+
+   double rsi1 = RSIValue(symbol, PilotSignalTimeframe, 14, 1);
+   if(rsi1 > 0.0)
+   {
+      if(rsi1 <= 30.0 && close1 >= open1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", 1, 57.0,
+                                        "RSI oversold with bullish close",
+                                        "Shadow-only RSI reversal candidate");
+      else if(rsi1 >= 70.0 && close1 <= open1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 57.0,
+                                        "RSI overbought with bearish close",
+                                        "Shadow-only RSI reversal candidate");
+   }
+
+   double upperBand = BandsValue(symbol, PilotSignalTimeframe, 20, 2.0, 1, 1);
+   double lowerBand = BandsValue(symbol, PilotSignalTimeframe, 20, 2.0, 2, 1);
+   if(rsi1 > 0.0 && upperBand > 0.0 && lowerBand > 0.0)
+   {
+      if(close1 <= lowerBand && rsi1 <= 35.0)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "BB_TRIPLE_SHADOW", 1, 60.0,
+                                        "Close near lower Bollinger band with weak RSI",
+                                        "Shadow-only Bollinger/RSI reversal candidate");
+      else if(close1 >= upperBand && rsi1 >= 65.0)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "BB_TRIPLE_SHADOW", -1, 60.0,
+                                        "Close near upper Bollinger band with strong RSI",
+                                        "Shadow-only Bollinger/RSI reversal candidate");
+   }
+
+   double macdMain1 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 0, 1);
+   double macdSignal1 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 1, 1);
+   double macdMain2 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 0, 2);
+   double macdSignal2 = MACDValue(symbol, PilotSignalTimeframe, 12, 26, 9, 1, 2);
+   if(macdMain1 != EMPTY_VALUE && macdSignal1 != EMPTY_VALUE &&
+      macdMain2 != EMPTY_VALUE && macdSignal2 != EMPTY_VALUE)
+   {
+      if(macdMain2 <= macdSignal2 && macdMain1 > macdSignal1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 58.0,
+                                        "MACD crossed upward on M15",
+                                        "Shadow-only MACD momentum candidate");
+      else if(macdMain2 >= macdSignal2 && macdMain1 < macdSignal1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 58.0,
+                                        "MACD crossed downward on M15",
+                                        "Shadow-only MACD momentum candidate");
+   }
+
+   int breakoutLookback = 12;
+   double priorHigh = 0.0;
+   double priorLow = 0.0;
+   for(int shift = 2; shift <= breakoutLookback + 1; shift++)
+   {
+      double high = iHigh(symbol, PilotSignalTimeframe, shift);
+      double low = iLow(symbol, PilotSignalTimeframe, shift);
+      if(high <= 0.0 || low <= 0.0)
+         continue;
+      if(priorHigh <= 0.0 || high > priorHigh)
+         priorHigh = high;
+      if(priorLow <= 0.0 || low < priorLow)
+         priorLow = low;
+   }
+   if(priorHigh > 0.0 && close1 > priorHigh)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", 1, 62.0,
+                                     "M15 close broke above recent resistance",
+                                     "Shadow-only support/resistance breakout candidate");
+   else if(priorLow > 0.0 && close1 < priorLow)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", -1, 62.0,
+                                     "M15 close broke below recent support",
+                                     "Shadow-only support/resistance breakout candidate");
+}
+
 bool LoadShadowSignalLedgerRecords(ShadowSignalLedgerRecord &records[])
 {
    ArrayResize(records, 0);
@@ -1723,6 +1964,140 @@ string BuildShadowOutcomeLedgerCsv()
          csv += CsvEscape(records[i].signalDirection) + ",";
          csv += CsvEscape(records[i].blocker) + ",";
          csv += CsvEscape(records[i].executionAction) + ",";
+         csv += FormatNumber(records[i].referencePrice, digits) + ",";
+         csv += IntegerToString(horizonBars) + ",";
+         csv += IntegerToString((periodSeconds * horizonBars) / 60) + ",";
+         csv += FormatNumber(futureClose, digits) + ",";
+         csv += FormatNumber(longClosePips, 1) + ",";
+         csv += FormatNumber(shortClosePips, 1) + ",";
+         csv += FormatNumber(longMfePips, 1) + ",";
+         csv += FormatNumber(longMaePips, 1) + ",";
+         csv += FormatNumber(shortMfePips, 1) + ",";
+         csv += FormatNumber(shortMaePips, 1) + ",";
+         csv += CsvEscape(directionalOutcome) + ",";
+         csv += CsvEscape(bestOpportunity) + ",";
+         csv += CsvEscape(reason) + "\r\n";
+      }
+   }
+
+   return csv;
+}
+
+void PushShadowCandidateRecord(ShadowCandidateLedgerRecord &records[], ShadowCandidateLedgerRecord &record)
+{
+   int size = ArraySize(records);
+   ArrayResize(records, size + 1);
+   records[size] = record;
+}
+
+bool LoadShadowCandidateLedgerRecords(ShadowCandidateLedgerRecord &records[])
+{
+   ArrayResize(records, 0);
+   if(!FileIsExist("QuantGod_ShadowCandidateLedger.csv"))
+      return false;
+
+   ResetLastError();
+   int handle = FileOpen("QuantGod_ShadowCandidateLedger.csv",
+                         FILE_READ | FILE_CSV | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         ',', CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("QuantGod MT5 shadow candidate outcome failed to open source ledger. err=", GetLastError());
+      return false;
+   }
+
+   for(int h = 0; h < 15 && !FileIsEnding(handle); h++)
+      FileReadString(handle);
+
+   while(!FileIsEnding(handle))
+   {
+      ShadowCandidateLedgerRecord record;
+      record.eventId = CsvCellValue(FileReadString(handle));
+      if(FileIsEnding(handle) && StringLen(record.eventId) == 0)
+         break;
+      FileReadString(handle); // LabelTimeLocal
+      FileReadString(handle); // LabelTimeServer
+      string eventBarTime = CsvCellValue(FileReadString(handle));
+      record.eventBarTime = StringToTime(eventBarTime);
+      record.symbol = CsvCellValue(FileReadString(handle));
+      record.candidateRoute = CsvCellValue(FileReadString(handle));
+      record.timeframe = CsvCellValue(FileReadString(handle));
+      record.direction = CsvCellValue(FileReadString(handle));
+      record.score = StringToDouble(CsvCellValue(FileReadString(handle)));
+      record.regime = CsvCellValue(FileReadString(handle));
+      record.referencePrice = StringToDouble(CsvCellValue(FileReadString(handle)));
+      FileReadString(handle); // SpreadPips
+      FileReadString(handle); // NewsStatus
+      record.trigger = CsvCellValue(FileReadString(handle));
+      record.reason = CsvCellValue(FileReadString(handle));
+
+      if(StringLen(record.eventId) > 0 &&
+         StringLen(record.symbol) > 0 &&
+         record.eventBarTime > 0 &&
+         record.referencePrice > 0.0)
+         PushShadowCandidateRecord(records, record);
+   }
+
+   FileClose(handle);
+   return (ArraySize(records) > 0);
+}
+
+string BuildShadowCandidateOutcomeLedgerCsv()
+{
+   string csv = "EventId,OutcomeLabelTimeLocal,OutcomeLabelTimeServer,EventBarTime,Symbol,CandidateRoute,Timeframe,CandidateDirection,CandidateScore,Regime,ReferencePrice,HorizonBars,HorizonMinutes,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,DirectionalOutcome,BestOpportunity,OutcomeReason\r\n";
+   ShadowCandidateLedgerRecord records[];
+   if(!EnableShadowCandidateRouter || !LoadShadowCandidateLedgerRecords(records))
+      return csv;
+
+   int total = ArraySize(records);
+   int maxRows = MathMax(1, ShadowCandidateMaxSourceRows);
+   int start = MathMax(0, total - maxRows);
+   int horizons[3] = {1, 2, 4};
+   datetime serverClock = CurrentServerTime();
+   int periodSeconds = PeriodSeconds(PilotSignalTimeframe);
+   if(periodSeconds <= 0)
+      periodSeconds = 60 * 15;
+
+   for(int i = start; i < total; i++)
+   {
+      for(int h = 0; h < 3; h++)
+      {
+         int horizonBars = horizons[h];
+         double futureClose = 0.0;
+         double longClosePips = 0.0;
+         double shortClosePips = 0.0;
+         double longMfePips = 0.0;
+         double longMaePips = 0.0;
+         double shortMfePips = 0.0;
+         double shortMaePips = 0.0;
+         if(!CalculateShadowOutcome(records[i].symbol,
+                                    records[i].eventBarTime,
+                                    horizonBars,
+                                    records[i].referencePrice,
+                                    futureClose,
+                                    longClosePips,
+                                    shortClosePips,
+                                    longMfePips,
+                                    longMaePips,
+                                    shortMfePips,
+                                    shortMaePips))
+            continue;
+
+         int digits = (int)SymbolInfoInteger(records[i].symbol, SYMBOL_DIGITS);
+         string directionalOutcome = ShadowDirectionalOutcome(records[i].direction, longClosePips, shortClosePips);
+         string bestOpportunity = ShadowBestOpportunity(longClosePips, shortClosePips);
+         string reason = "Shadow candidate post outcome label; does not alter live order gating";
+
+         csv += CsvEscape(records[i].eventId) + ",";
+         csv += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+         csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+         csv += CsvEscape(FormatDateTime(records[i].eventBarTime, true)) + ",";
+         csv += CsvEscape(records[i].symbol) + ",";
+         csv += CsvEscape(records[i].candidateRoute) + ",";
+         csv += CsvEscape(records[i].timeframe) + ",";
+         csv += CsvEscape(records[i].direction) + ",";
+         csv += FormatNumber(records[i].score, 1) + ",";
+         csv += CsvEscape(records[i].regime) + ",";
          csv += FormatNumber(records[i].referencePrice, digits) + ",";
          csv += IntegerToString(horizonBars) + ",";
          csv += IntegerToString((periodSeconds * horizonBars) / 60) + ",";
@@ -2425,6 +2800,7 @@ void RunPilotExecutionLoop()
       int evalCode = PILOT_EVAL_NONE;
       g_pilotTelemetry[i].evaluationPasses++;
       g_pilotTelemetry[i].lastEvalTime = TimeCurrent();
+      AppendShadowCandidateRoutesForBar(symbol, i, iTime(symbol, PilotSignalTimeframe, 0));
       bool hasSignal = EvaluatePilotMASignal(symbol, i, direction, score, reason, slPrice, tpPrice, evalCode);
       string signalStatus = PilotEvalCodeLabel(evalCode);
       g_maRuntimeStates[i].active = true;
@@ -2664,6 +3040,24 @@ double ATRValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift)
 {
    int handle = iATR(symbol, timeframe, period);
    return ReadSingleBufferValue(handle, 0, shift);
+}
+
+double RSIValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift)
+{
+   int handle = iRSI(symbol, timeframe, period, PRICE_CLOSE);
+   return ReadSingleBufferValue(handle, 0, shift);
+}
+
+double BandsValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, double deviation, int bufferIndex, int shift)
+{
+   int handle = iBands(symbol, timeframe, period, 0, deviation, PRICE_CLOSE);
+   return ReadSingleBufferValue(handle, bufferIndex, shift);
+}
+
+double MACDValue(string symbol, ENUM_TIMEFRAMES timeframe, int fastPeriod, int slowPeriod, int signalPeriod, int bufferIndex, int shift)
+{
+   int handle = iMACD(symbol, timeframe, fastPeriod, slowPeriod, signalPeriod, PRICE_CLOSE);
+   return ReadSingleBufferValue(handle, bufferIndex, shift);
 }
 
 RegimeSnapshot EvaluateRegimeAt(string symbol, ENUM_TIMEFRAMES timeframe, datetime eventTime)
@@ -3369,6 +3763,7 @@ void ExportShadowCsvs(SymbolSnapshot &snapshots[], TradeJournalRecord &journal[]
    WriteTextFile("QuantGod_TradeEventLinks.csv", BuildTradeEventLinksCsv(closedTrades, journal));
    WriteTextFile("QuantGod_ManualAlphaLedger.csv", BuildManualAlphaLedgerCsv(closedTrades));
    WriteTextFile("QuantGod_ShadowOutcomeLedger.csv", BuildShadowOutcomeLedgerCsv());
+   WriteTextFile("QuantGod_ShadowCandidateOutcomeLedger.csv", BuildShadowCandidateOutcomeLedgerCsv());
    WriteTextFile("QuantGod_StrategyEvaluationReport.csv", BuildStrategyEvaluationCsv(snapshots, strategyAggregates));
    WriteTextFile("QuantGod_RegimeEvaluationReport.csv", BuildRegimeEvaluationCsv(closedTrades, regimeAggregates));
    WriteTextFile("QuantGod_OpportunityLabels.csv", "EventId,LabelTimeLocal,LabelTimeServer,EventTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,SignalScore,Regime,AdaptiveState,RiskMultiplier,HorizonBars,ReferencePrice,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,NeutralThresholdPips,DirectionalOutcome,BestOpportunity,LabelReason\r\n");

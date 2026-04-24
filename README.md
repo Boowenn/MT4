@@ -55,6 +55,7 @@ The MT5 work is intentionally split into phases:
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
+- includes Shadow Candidate Router V1, a shadow-only research layer that records MA continuation/range-soft candidates plus RSI, Bollinger, MACD, and support/resistance route candidates without changing live `MA_Cross` order rules
 - includes a Manual Alpha Ledger that turns manual trades such as XAUUSDc into learn-only route candidates without automatically expanding EA execution
 - Phase 2: not done yet
 - port the remaining strategy execution engines
@@ -214,6 +215,7 @@ This will:
 - keep manual positions protected by the safety guard across all symbols, including XAUUSDc, while keeping them separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
 - append Shadow Signal Ledger rows for each new M15 pilot evaluation, including signal, no-signal, range/spread/session/news/cooldown blocks, and order-send outcomes
 - export Shadow Outcome Ledger rows for completed 15/30/60 minute horizons from the Shadow Signal Ledger; this is analysis-only and never changes live entry rules
+- export Shadow Candidate Router V1 rows into `QuantGod_ShadowCandidateLedger.csv` plus 15/30/60 minute post-outcomes into `QuantGod_ShadowCandidateOutcomeLedger.csv`; candidates are shadow-only and cannot send orders
 - export Manual Alpha Ledger rows for manual open/closed trades, including symbol, side, regime transition, duration, floating/realized profit, and learn-only status
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
@@ -256,6 +258,8 @@ Shadow Signal Ledger:
 - It records M15 MA_Cross evaluations even when no real order is placed.
 - It lets the dashboard compare real closed trades with blocked opportunities, so range/news/spread/session guards can be reviewed with more evidence before any future strategy change.
 - `QuantGod_ShadowOutcomeLedger.csv` labels completed 15/30/60 minute horizons from those shadow events, including close move, MFE/MAE, directional outcome, and best long/short opportunity.
+- `QuantGod_ShadowCandidateLedger.csv` and `QuantGod_ShadowCandidateOutcomeLedger.csv` track shadow-only route candidates before any backtest or live pilot expansion.
+- V1 candidate routes include `TREND_CONT_NO_CROSS`, `USDJPY_PULLBACK_BOUNCE`, `RANGE_SOFT`, `RSI_REVERSAL_SHADOW`, `BB_TRIPLE_SHADOW`, `MACD_MOMENTUM_TURN`, and `SR_BREAKOUT_SHADOW`.
 - It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
 
 Manual Alpha Ledger:
