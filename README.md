@@ -54,6 +54,7 @@ The MT5 work is intentionally split into phases:
 - executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
+- includes a Manual Alpha Ledger that turns manual trades such as XAUUSDc into learn-only route candidates without automatically expanding EA execution
 - Phase 2: not done yet
 - port the remaining strategy execution engines
 - port adaptive controls and research statistics
@@ -211,6 +212,7 @@ This will:
 - arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
 - keep manual positions protected by the safety guard, but separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
 - append Shadow Signal Ledger rows for each new M15 pilot evaluation, including signal, no-signal, range/spread/session/news/cooldown blocks, and order-send outcomes
+- export Manual Alpha Ledger rows for manual open/closed trades, including symbol, side, regime transition, duration, floating/realized profit, and learn-only status
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
 
@@ -252,6 +254,12 @@ Shadow Signal Ledger:
 - It records M15 MA_Cross evaluations even when no real order is placed.
 - It lets the dashboard compare real closed trades with blocked opportunities, so range/news/spread/session guards can be reviewed with more evidence before any future strategy change.
 - It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
+
+Manual Alpha Ledger:
+
+- `QuantGod_ManualAlphaLedger.csv` records manual open and closed trades as learn-only examples.
+- A strong manual trade can become a route candidate, but it cannot directly add a symbol, strategy, or lot size to EA execution.
+- To promote a manual idea into automation, first create a shadow-only route, then require Shadow Ledger evidence, Backtest Lab support, and live `0.01` forward samples that do not refute it.
 
 ## MT4 Data Retention
 

@@ -2767,6 +2767,108 @@ string BuildTradeEventLinksCsv(ClosedTradeRecord &closedTrades[], TradeJournalRe
    return csv;
 }
 
+double DirectionalMovePips(string symbol, string side, double openPrice, double currentPrice)
+{
+   double pip = PipSize(symbol);
+   if(pip <= 0.0 || openPrice <= 0.0 || currentPrice <= 0.0)
+      return 0.0;
+   if(side == "BUY")
+      return (currentPrice - openPrice) / pip;
+   if(side == "SELL")
+      return (openPrice - currentPrice) / pip;
+   return 0.0;
+}
+
+string BuildManualAlphaLedgerCsv(ClosedTradeRecord &closedTrades[])
+{
+   string csv = "PositionId,Status,Symbol,Side,Lots,OpenTime,CloseTime,DurationMinutes,OpenPrice,CurrentOrClosePrice,MovePips,FloatingProfit,NetProfit,EntryRegime,CurrentOrExitRegime,RegimeTimeframe,Source,Comment,LearningUse\r\n";
+   datetime serverClock = TimeTradeServer();
+   if(serverClock <= 0)
+      serverClock = TimeCurrent();
+
+   for(int i = 0; i < ArraySize(closedTrades); i++)
+   {
+      ClosedTradeRecord record = closedTrades[i];
+      if(record.source != "MANUAL")
+         continue;
+
+      csv += IntegerToString((int)record.positionId) + ",";
+      csv += CsvEscape("CLOSED") + ",";
+      csv += CsvEscape(record.symbol) + ",";
+      csv += CsvEscape(record.type) + ",";
+      csv += FormatNumber(record.lots, 2) + ",";
+      csv += CsvEscape(FormatDateTime(record.openTime)) + ",";
+      csv += CsvEscape(FormatDateTime(record.closeTime)) + ",";
+      csv += IntegerToString(record.durationMinutes) + ",";
+      csv += FormatNumber(record.openPrice, (int)SymbolInfoInteger(record.symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(record.closePrice, (int)SymbolInfoInteger(record.symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(DirectionalMovePips(record.symbol, record.type, record.openPrice, record.closePrice), 1) + ",";
+      csv += "0.00,";
+      csv += FormatNumber(record.actualProfit, 2) + ",";
+      csv += CsvEscape(record.entryRegime) + ",";
+      csv += CsvEscape(record.exitRegime) + ",";
+      csv += CsvEscape(record.regimeTimeframe) + ",";
+      csv += CsvEscape(record.source) + ",";
+      csv += CsvEscape(record.comment) + ",";
+      csv += CsvEscape("LEARN_ONLY_CLOSED_MANUAL") + "\r\n";
+   }
+
+   int totalPositions = PositionsTotal();
+   for(int i = 0; i < totalPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      string source = InferTradeSource(comment);
+      if(source != "MANUAL")
+         continue;
+
+      ulong positionId = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      long positionType = PositionGetInteger(POSITION_TYPE);
+      string side = PositionTypeToString(positionType);
+      double lots = PositionGetDouble(POSITION_VOLUME);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+      if(currentPrice <= 0.0)
+      {
+         MqlTick tick;
+         ZeroMemory(tick);
+         if(SymbolInfoTick(symbol, tick))
+            currentPrice = (positionType == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
+      }
+      double floatingProfit = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      int durationMinutes = (int)MathMax(0, (long)(serverClock - openTime) / 60);
+      RegimeSnapshot entryRegime = EvaluateRegimeAt(symbol, PERIOD_H1, openTime);
+      RegimeSnapshot currentRegime = EvaluateRegimeAt(symbol, PERIOD_H1, 0);
+
+      csv += IntegerToString((int)positionId) + ",";
+      csv += CsvEscape("OPEN") + ",";
+      csv += CsvEscape(symbol) + ",";
+      csv += CsvEscape(side) + ",";
+      csv += FormatNumber(lots, 2) + ",";
+      csv += CsvEscape(FormatDateTime(openTime)) + ",";
+      csv += CsvEscape("") + ",";
+      csv += IntegerToString(durationMinutes) + ",";
+      csv += FormatNumber(openPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(currentPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+      csv += FormatNumber(DirectionalMovePips(symbol, side, openPrice, currentPrice), 1) + ",";
+      csv += FormatNumber(floatingProfit, 2) + ",";
+      csv += FormatNumber(floatingProfit, 2) + ",";
+      csv += CsvEscape(entryRegime.label) + ",";
+      csv += CsvEscape(currentRegime.label) + ",";
+      csv += CsvEscape(currentRegime.timeframe) + ",";
+      csv += CsvEscape(source) + ",";
+      csv += CsvEscape(comment) + ",";
+      csv += CsvEscape("LEARN_ONLY_OPEN_MANUAL") + "\r\n";
+   }
+
+   return csv;
+}
+
 void BuildAggregates(SymbolSnapshot &snapshots[], ClosedTradeRecord &closedTrades[], StrategyAggregateRecord &strategyAggregates[], RegimeAggregateRecord &regimeAggregates[])
 {
    ArrayResize(strategyAggregates, 0);
@@ -3020,6 +3122,7 @@ void ExportShadowCsvs(SymbolSnapshot &snapshots[], TradeJournalRecord &journal[]
    WriteTextFile("QuantGod_CloseHistory.csv", BuildCloseHistoryCsv(closedTrades));
    WriteTextFile("QuantGod_TradeOutcomeLabels.csv", BuildTradeOutcomeLabelsCsv(closedTrades));
    WriteTextFile("QuantGod_TradeEventLinks.csv", BuildTradeEventLinksCsv(closedTrades, journal));
+   WriteTextFile("QuantGod_ManualAlphaLedger.csv", BuildManualAlphaLedgerCsv(closedTrades));
    WriteTextFile("QuantGod_StrategyEvaluationReport.csv", BuildStrategyEvaluationCsv(snapshots, strategyAggregates));
    WriteTextFile("QuantGod_RegimeEvaluationReport.csv", BuildRegimeEvaluationCsv(closedTrades, regimeAggregates));
    WriteTextFile("QuantGod_OpportunityLabels.csv", "EventId,LabelTimeLocal,LabelTimeServer,EventTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,SignalScore,Regime,AdaptiveState,RiskMultiplier,HorizonBars,ReferencePrice,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,NeutralThresholdPips,DirectionalOutcome,BestOpportunity,LabelReason\r\n");

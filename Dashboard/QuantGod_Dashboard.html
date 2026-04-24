@@ -2974,6 +2974,22 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">A</div>
+                            Manual Alpha Ledger
+                        </div>
+                        <span class="eval-summary" id="manualAlphaSummary">等待人工样本</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="manualAlphaMeta">人工交易会被记录为学习样本，用来提炼路线候选；不会自动扩品种、扩策略或复制下单。</div>
+                        <div class="backtest-compare-grid" id="manualAlphaBody">
+                            <div class="empty-state">等待 `QuantGod_ManualAlphaLedger.csv`</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
@@ -3362,6 +3378,7 @@ const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
 const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
 const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
 const LOCAL_SHADOW_SIGNAL_LEDGER_PATH = 'QuantGod_ShadowSignalLedger.csv';
+const LOCAL_MANUAL_ALPHA_LEDGER_PATH = 'QuantGod_ManualAlphaLedger.csv';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -3762,6 +3779,30 @@ function parseShadowSignalLedgerCsv(text) {
     })).filter((row) => row.eventId && row.symbol);
 }
 
+function parseManualAlphaLedgerCsv(text) {
+    return parseCsvTable(text).map((row) => ({
+        positionId: row.PositionId || '',
+        status: row.Status || '',
+        symbol: row.Symbol || '',
+        side: row.Side || '',
+        lots: toNumber(row.Lots, 0),
+        openTime: row.OpenTime || '',
+        closeTime: row.CloseTime || '',
+        durationMinutes: toNumber(row.DurationMinutes, 0),
+        openPrice: toNumber(row.OpenPrice, 0),
+        currentOrClosePrice: toNumber(row.CurrentOrClosePrice, 0),
+        movePips: toNumber(row.MovePips, 0),
+        floatingProfit: toNumber(row.FloatingProfit, 0),
+        netProfit: toNumber(row.NetProfit, 0),
+        entryRegime: row.EntryRegime || '',
+        currentOrExitRegime: row.CurrentOrExitRegime || '',
+        regimeTimeframe: row.RegimeTimeframe || '',
+        source: row.Source || '',
+        comment: row.Comment || '',
+        learningUse: row.LearningUse || ''
+    })).filter((row) => row.positionId && row.symbol);
+}
+
 function parseTradeJournalCsv(text) {
     return parseCsvTable(text).map((row) => ({
         dealTicket: row.DealTicket || '',
@@ -3890,6 +3931,9 @@ async function attachSupplementalData(baseData, previousData = null) {
         shadowSignalLedgerRows: Array.isArray(baseData?.shadowSignalLedgerRows)
             ? baseData.shadowSignalLedgerRows
             : (previousData?.shadowSignalLedgerRows || []),
+        manualAlphaLedgerRows: Array.isArray(baseData?.manualAlphaLedgerRows)
+            ? baseData.manualAlphaLedgerRows
+            : (previousData?.manualAlphaLedgerRows || []),
         backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null
     };
 
@@ -3969,6 +4013,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Shadow signal ledger load failed.', error);
     }
 
+    try {
+        data.manualAlphaLedgerRows = await loadLocalCsvSupplement(LOCAL_MANUAL_ALPHA_LEDGER_PATH, parseManualAlphaLedgerCsv);
+        data._manualAlphaLedgerError = false;
+    } catch (error) {
+        data._manualAlphaLedgerError = true;
+        console.warn('Manual alpha ledger load failed.', error);
+    }
+
     return data;
 }
 
@@ -4006,6 +4058,10 @@ function getBacktestSummary(d) {
 
 function getShadowSignalLedgerRows(d) {
     return Array.isArray(d?.shadowSignalLedgerRows) ? d.shadowSignalLedgerRows : [];
+}
+
+function getManualAlphaLedgerRows(d) {
+    return Array.isArray(d?.manualAlphaLedgerRows) ? d.manualAlphaLedgerRows : [];
 }
 
 function getFocusSymbol(d) {
@@ -5327,6 +5383,84 @@ function updateShadowSignalLedger(d) {
     ].join('');
 }
 
+function buildManualAlphaSummary(rows) {
+    const summary = {
+        total: rows.length,
+        open: 0,
+        closed: 0,
+        netProfit: 0,
+        floatingProfit: 0,
+        symbols: new Set(),
+        bestRow: null,
+        latestOpen: null
+    };
+
+    rows.forEach((row) => {
+        summary.symbols.add(row.symbol);
+        const status = String(row.status || '').toUpperCase();
+        if (status === 'OPEN') {
+            summary.open += 1;
+            summary.floatingProfit += Number(row.floatingProfit || row.netProfit || 0);
+            if (!summary.latestOpen || String(row.openTime || '') > String(summary.latestOpen.openTime || '')) {
+                summary.latestOpen = row;
+            }
+        } else if (status === 'CLOSED') {
+            summary.closed += 1;
+        }
+        summary.netProfit += Number(row.netProfit || 0);
+        if (!summary.bestRow || Number(row.netProfit || 0) > Number(summary.bestRow.netProfit || 0)) {
+            summary.bestRow = row;
+        }
+    });
+
+    return summary;
+}
+
+function renderManualAlphaCard(title, value, subText, tone = 'waiting') {
+    return `
+        <div class="backtest-compare-card ${tone}">
+            <div class="backtest-compare-topline">
+                <div>
+                    <div class="research-window-kicker">Manual Alpha</div>
+                    <div class="backtest-symbol">${escapeHtml(title)}</div>
+                </div>
+                <span class="backtest-status-pill ${tone}">${escapeHtml(value)}</span>
+            </div>
+            <div class="backtest-note">${escapeHtml(subText)}</div>
+        </div>
+    `;
+}
+
+function updateManualAlphaLedger(d) {
+    const summaryEl = document.getElementById('manualAlphaSummary');
+    const metaEl = document.getElementById('manualAlphaMeta');
+    const bodyEl = document.getElementById('manualAlphaBody');
+    if (!summaryEl || !metaEl || !bodyEl) return;
+
+    const rows = getManualAlphaLedgerRows(d);
+    if (!rows.length) {
+        summaryEl.textContent = '等待人工样本';
+        metaEl.textContent = d?._manualAlphaLedgerError
+            ? '本地还没有 `QuantGod_ManualAlphaLedger.csv`；EA 下一次导出后会生成。'
+            : 'Manual Alpha Ledger 暂无行，等待人工单样本。';
+        bodyEl.innerHTML = '<div class="empty-state">等待 Manual Alpha Ledger 样本</div>';
+        return;
+    }
+
+    const summary = buildManualAlphaSummary(rows);
+    const best = summary.bestRow;
+    const latest = summary.latestOpen;
+    const symbolText = Array.from(summary.symbols).join(' / ') || '--';
+    summaryEl.textContent = `${summary.total} 条人工样本 | 开仓 ${summary.open} | 净值 ${formatMoney(summary.netProfit, 2)}`;
+    metaEl.textContent = `人工交易只进入学习路线候选；要自动化必须再经过 shadow ledger、回测和 0.01 forward 验证。覆盖品种：${symbolText}`;
+
+    bodyEl.innerHTML = [
+        renderManualAlphaCard('当前人工 Alpha', latest ? `${latest.symbol} ${latest.side}` : '无开仓', latest ? `浮动 ${formatMoney(latest.floatingProfit || latest.netProfit, 2)} | 入场 ${latest.openPrice} -> 当前 ${latest.currentOrClosePrice} | ${latest.entryRegime} -> ${latest.currentOrExitRegime}` : '当前没有人工持仓样本。', latest ? 'supported' : 'waiting'),
+        renderManualAlphaCard('最佳人工样本', best ? `${best.symbol} ${best.side}` : '--', best ? `${String(best.status).toUpperCase()} | 净值 ${formatMoney(best.netProfit, 2)} | 持续 ${best.durationMinutes} 分钟 | ${best.entryRegime} -> ${best.currentOrExitRegime}` : '等待人工样本积累。', best && best.netProfit > 0 ? 'supported' : 'waiting'),
+        renderManualAlphaCard('自动化门槛', '学习，不复制', '先提炼人工入场上下文，再做影子路线；没有 backtest + shadow + live forward 三层支持前，不扩品种、不新增自动路线。', 'conflict')
+    ].join('');
+}
+
 function updateResearchWindowSummary(d) {
     const body = document.getElementById('researchWindowBody');
     const summaryEl = document.getElementById('researchWindowSummary');
@@ -6274,6 +6408,7 @@ function updateDashboard() {
     updateResearchWindowSummary(d);
     updateBacktestLiveComparison(d);
     updateShadowSignalLedger(d);
+    updateManualAlphaLedger(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
     updateResearchSuggestions(d);
