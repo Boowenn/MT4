@@ -1,4 +1,4 @@
-DashboardBuild=QuantGod-v3.9-mt5-live-pilot-range-cooldown
+DashboardBuild=QuantGod-v3.10-mt5-live-pilot-breakeven
 Watchlist=EURUSD,USDJPY
 PreferredSymbolSuffix=AUTO
 ShadowMode=false
@@ -14,6 +14,10 @@ PilotCrossLookbackBars=3
 PilotContinuationLookbackBars=16
 PilotBlockRangeEntries=true
 PilotLossCooldownMinutes=60
+EnablePilotBreakevenProtect=true
+PilotBreakevenMinAgeMinutes=60
+PilotBreakevenTriggerPips=6.0
+PilotBreakevenLockPips=1.0
 PilotFastMAPeriod=9
 PilotSlowMAPeriod=21
 PilotTrendMAPeriod=200

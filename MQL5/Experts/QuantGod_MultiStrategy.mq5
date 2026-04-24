@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.90"
+#property version   "3.10"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.9-mt5-live-pilot-range-cooldown";
+input string DashboardBuild      = "QuantGod-v3.10-mt5-live-pilot-breakeven";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -25,6 +25,10 @@ input int    PilotCrossLookbackBars   = 3;
 input int    PilotContinuationLookbackBars = 16;
 input bool   PilotBlockRangeEntries   = true;
 input int    PilotLossCooldownMinutes = 60;
+input bool   EnablePilotBreakevenProtect = true;
+input int    PilotBreakevenMinAgeMinutes = 60;
+input double PilotBreakevenTriggerPips = 6.0;
+input double PilotBreakevenLockPips    = 1.0;
 input int    PilotFastMAPeriod        = 9;
 input int    PilotSlowMAPeriod        = 21;
 input int    PilotTrendMAPeriod       = 200;
@@ -1654,6 +1658,126 @@ void ClosePilotPositions(const string reason)
    }
 }
 
+bool ModifyPilotPositionStops(ulong ticket, string symbol, double slPrice, double tpPrice)
+{
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   MqlTradeRequest request;
+   MqlTradeResult result;
+   ZeroMemory(request);
+   ZeroMemory(result);
+
+   request.action = TRADE_ACTION_SLTP;
+   request.position = ticket;
+   request.symbol = symbol;
+   request.sl = NormalizeDouble(slPrice, digits);
+   request.tp = NormalizeDouble(tpPrice, digits);
+   request.magic = PilotMagic;
+
+   ResetLastError();
+   bool ok = OrderSend(request, result);
+   if(!ok || (result.retcode != TRADE_RETCODE_DONE && result.retcode != TRADE_RETCODE_PLACED))
+   {
+      static datetime lastWarn = 0;
+      datetime now = CurrentServerTime();
+      if(now - lastWarn >= 60)
+      {
+         lastWarn = now;
+         Print("QuantGod MT5 breakeven modify failed: ticket=", ticket,
+               " symbol=", symbol,
+               " retcode=", result.retcode,
+               " err=", GetLastError(),
+               " comment=", result.comment);
+      }
+      return false;
+   }
+
+   return true;
+}
+
+void ManagePilotBreakevenStops()
+{
+   if(!EnablePilotBreakevenProtect || PilotBreakevenTriggerPips <= 0.0)
+      return;
+
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      int ageMinutes = (int)MathMax(0, (long)(CurrentServerTime() - openTime) / 60);
+      if(ageMinutes < PilotBreakevenMinAgeMinutes)
+         continue;
+
+      double pip = PipSize(symbol);
+      double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      if(pip <= 0.0 || point <= 0.0)
+         continue;
+
+      MqlTick tick;
+      ZeroMemory(tick);
+      if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+         continue;
+
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      long positionType = PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentSL = PositionGetDouble(POSITION_SL);
+      double currentTP = PositionGetDouble(POSITION_TP);
+      double lockPips = MathMax(0.0, PilotBreakevenLockPips);
+      double favorablePips = 0.0;
+      double targetSL = 0.0;
+
+      int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      int freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+      double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point + point;
+
+      if(positionType == POSITION_TYPE_BUY)
+      {
+         favorablePips = (tick.bid - openPrice) / pip;
+         if(favorablePips < PilotBreakevenTriggerPips)
+            continue;
+
+         targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
+         if(currentSL > 0.0 && currentSL >= targetSL - point)
+            continue;
+         if(targetSL > tick.bid - minDistance)
+            continue;
+      }
+      else if(positionType == POSITION_TYPE_SELL)
+      {
+         favorablePips = (openPrice - tick.ask) / pip;
+         if(favorablePips < PilotBreakevenTriggerPips)
+            continue;
+
+         targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
+         if(currentSL > 0.0 && currentSL <= targetSL + point)
+            continue;
+         if(targetSL < tick.ask + minDistance)
+            continue;
+      }
+      else
+         continue;
+
+      if(ModifyPilotPositionStops(ticket, symbol, targetSL, currentTP))
+      {
+         Print("QuantGod MT5 breakeven protected ticket=", ticket,
+               " symbol=", symbol,
+               " age=", ageMinutes, "m",
+               " favorablePips=", DoubleToString(favorablePips, 1),
+               " newSL=", DoubleToString(targetSL, digits));
+      }
+   }
+}
+
 void RunPilotExecutionLoop()
 {
    ResetPilotRuntimeStates();
@@ -1679,6 +1803,8 @@ void RunPilotExecutionLoop()
    }
    if(g_pilotKillSwitch && PilotCloseOnKillSwitch)
       ClosePilotPositions(g_pilotKillReason);
+   if(!g_pilotKillSwitch)
+      ManagePilotBreakevenStops();
    for(int i = 0; i < ArraySize(g_symbols); i++)
    {
       string symbol = g_symbols[i];
