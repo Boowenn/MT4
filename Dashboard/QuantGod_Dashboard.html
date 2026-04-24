@@ -689,6 +689,110 @@
             font-weight: 600;
         }
 
+        .backtest-compare-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .backtest-compare-card {
+            background: linear-gradient(135deg, rgba(10, 14, 23, 0.94), rgba(17, 24, 39, 0.9));
+            border: 1px solid rgba(42, 58, 78, 0.88);
+            border-radius: 14px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+            min-height: 210px;
+        }
+
+        .backtest-compare-card.supported {
+            border-color: rgba(16, 185, 129, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
+        }
+
+        .backtest-compare-card.waiting {
+            border-color: rgba(245, 158, 11, 0.35);
+        }
+
+        .backtest-compare-card.conflict {
+            border-color: rgba(239, 68, 68, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+        }
+
+        .backtest-compare-topline {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .backtest-symbol {
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .backtest-status-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.28rem 0.6rem;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
+        .backtest-status-pill.supported {
+            background: rgba(16, 185, 129, 0.16);
+            color: var(--accent-green);
+        }
+
+        .backtest-status-pill.waiting {
+            background: rgba(245, 158, 11, 0.16);
+            color: var(--accent-orange);
+        }
+
+        .backtest-status-pill.conflict {
+            background: rgba(239, 68, 68, 0.16);
+            color: var(--accent-red);
+        }
+
+        .backtest-metric-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.7rem;
+        }
+
+        .backtest-metric {
+            background: rgba(17, 24, 39, 0.72);
+            border: 1px solid rgba(42, 58, 78, 0.78);
+            border-radius: 10px;
+            padding: 0.7rem 0.75rem;
+        }
+
+        .backtest-metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .backtest-metric-value {
+            margin-top: 0.3rem;
+            color: var(--text-primary);
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .backtest-note {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
         .radar-label {
             color: var(--text-muted);
             font-size: 11px;
@@ -2469,6 +2573,7 @@
             .eval-card-times { flex-basis: 180px; }
             .research-suggestion-grid { grid-template-columns: 1fr; }
             .research-window-grid { grid-template-columns: 1fr; }
+            .backtest-compare-grid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 1024px) {
@@ -2495,6 +2600,7 @@
             .countdown-row { flex-direction: column; align-items: flex-start; gap: 0.4rem; }
             .radar-grid { grid-template-columns: 1fr; }
             .research-window-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .backtest-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .strategy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .eval-card-header { flex-direction: column; }
             .eval-card-times { flex-basis: auto; text-align: left; }
@@ -2833,6 +2939,22 @@
                         <div class="research-window-meta" id="researchWindowMeta">窗口按服务器时间计算：昨晚 20:00-今天 08:00，对比今天 08:00-现在。</div>
                         <div class="research-window-grid" id="researchWindowBody">
                             <div class="empty-state">等待研究平仓样本</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">B</div>
+                            回测 vs 实盘
+                        </div>
+                        <span class="eval-summary" id="backtestLiveSummary">等待回测摘要</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="backtestLiveMeta">Backtest Lab V1 只比较 MA_Cross、EURUSDc/USDJPYc、0.01 的技术基线结果；后续策略调整必须同时看回测和实盘前向样本。</div>
+                        <div class="backtest-compare-grid" id="backtestLiveBody">
+                            <div class="empty-state">等待 `QuantGod_BacktestSummary.json`</div>
                         </div>
                     </div>
                 </div>
@@ -3222,6 +3344,7 @@ const LOCAL_TRADE_JOURNAL_PATH = 'QuantGod_TradeJournal.csv';
 const LOCAL_CLOSE_HISTORY_PATH = 'QuantGod_CloseHistory.csv';
 const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
 const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
+const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -3695,6 +3818,12 @@ async function loadLocalCsvSupplement(path, parser) {
     return parser(text);
 }
 
+async function loadLocalJsonSupplement(path) {
+    const response = await fetch(appendCacheBust(path), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+}
+
 async function attachSupplementalData(baseData, previousData = null) {
     const data = {
         ...baseData,
@@ -3718,7 +3847,8 @@ async function attachSupplementalData(baseData, previousData = null) {
             : (previousData?.tradeOutcomeRows || []),
         tradeEventLinkRows: Array.isArray(baseData?.tradeEventLinkRows)
             ? baseData.tradeEventLinkRows
-            : (previousData?.tradeEventLinkRows || [])
+            : (previousData?.tradeEventLinkRows || []),
+        backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null
     };
 
     if (!isLocalRuntime()) {
@@ -3781,6 +3911,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Trade event links load failed.', error);
     }
 
+    try {
+        data.backtestSummary = await loadLocalJsonSupplement(LOCAL_BACKTEST_SUMMARY_PATH);
+        data._backtestSummaryError = false;
+    } catch (error) {
+        data._backtestSummaryError = true;
+        console.warn('Backtest summary load failed.', error);
+    }
+
     return data;
 }
 
@@ -3810,6 +3948,10 @@ function getTradeOutcomeRows(d) {
 
 function getTradeEventLinkRows(d) {
     return Array.isArray(d?.tradeEventLinkRows) ? d.tradeEventLinkRows : [];
+}
+
+function getBacktestSummary(d) {
+    return d?.backtestSummary || null;
 }
 
 function getFocusSymbol(d) {
@@ -4880,6 +5022,176 @@ function renderResearchWindowCard(title, windowLabel, summary, openSummary, note
     `;
 }
 
+function summarizeLiveForwardForBacktest(d, symbol) {
+    const closeRows = getCloseHistoryRows(d).filter((row) =>
+        row.symbol === symbol &&
+        row.strategy === 'MA_Cross' &&
+        String(row.source || '').toUpperCase() === 'EA'
+    );
+    const summary = {
+        closedTrades: closeRows.length,
+        wins: 0,
+        losses: 0,
+        netProfit: 0,
+        grossProfit: 0,
+        grossLoss: 0,
+        winRate: 0,
+        profitFactor: 0,
+        lastCloseTime: ''
+    };
+
+    closeRows.forEach((row) => {
+        const profit = Number(row.netProfit || row.grossProfit || 0);
+        summary.netProfit += profit;
+        if (profit > 0) {
+            summary.wins += 1;
+            summary.grossProfit += profit;
+        } else if (profit < 0) {
+            summary.losses += 1;
+            summary.grossLoss += Math.abs(profit);
+        }
+        if (row.closeTime && (!summary.lastCloseTime || row.closeTime > summary.lastCloseTime)) {
+            summary.lastCloseTime = row.closeTime;
+        }
+    });
+
+    if (summary.closedTrades > 0) {
+        summary.winRate = summary.wins / summary.closedTrades * 100;
+    }
+    if (summary.grossLoss > 0) {
+        summary.profitFactor = summary.grossProfit / summary.grossLoss;
+    } else if (summary.grossProfit > 0) {
+        summary.profitFactor = 999;
+    }
+
+    return summary;
+}
+
+function normalizeBacktestRun(run) {
+    return {
+        ...run,
+        closedTrades: Number(run?.closedTrades || 0),
+        netProfit: Number(run?.netProfit || 0),
+        profitFactor: Number(run?.profitFactor || 0),
+        winRate: Number(run?.winRate || 0)
+    };
+}
+
+function getBacktestSupportState(run, liveSummary) {
+    const hasBacktest = Number(run?.closedTrades || 0) > 0;
+    const hasLive = Number(liveSummary?.closedTrades || 0) > 0;
+
+    if (!hasBacktest) {
+        return {
+            className: 'waiting',
+            label: '等回测',
+            reason: '已经有 tester 配置，但还没有可解析的 MT5 回测报告。'
+        };
+    }
+    if (!hasLive) {
+        return {
+            className: 'waiting',
+            label: '等实盘',
+            reason: '回测已有样本，但实盘前向闭环还不够，不能单靠回测放宽策略。'
+        };
+    }
+
+    const backtestPositive = run.netProfit > 0 && (run.profitFactor >= 1.0 || run.profitFactor >= 999);
+    const livePositive = liveSummary.netProfit > 0 && (liveSummary.profitFactor >= 1.0 || liveSummary.profitFactor >= 999);
+
+    if (backtestPositive && livePositive) {
+        return {
+            className: 'supported',
+            label: '双确认',
+            reason: '回测和实盘前向样本都偏正，后续可继续采样，但仍不代表可以放大仓位。'
+        };
+    }
+
+    return {
+        className: 'conflict',
+        label: '需谨慎',
+        reason: '回测与实盘前向结果没有同时支持，下一步策略调整必须保守。'
+    };
+}
+
+function renderBacktestCompareCard(run, liveSummary) {
+    const normalizedRun = normalizeBacktestRun(run);
+    const support = getBacktestSupportState(normalizedRun, liveSummary);
+    const btNetText = normalizedRun.closedTrades > 0 ? formatMoney(normalizedRun.netProfit, 2) : '--';
+    const liveNetText = liveSummary.closedTrades > 0 ? formatMoney(liveSummary.netProfit, 2) : '--';
+    const btPfText = normalizedRun.closedTrades > 0 ? formatProfitFactor(normalizedRun.profitFactor) : '--';
+    const livePfText = liveSummary.closedTrades > 0 ? formatProfitFactor(liveSummary.profitFactor) : '--';
+    const reportText = normalizedRun.reportPath
+        ? normalizedRun.reportPath.replace(/^.*archive[\\\/]backtests[\\\/]/, 'archive/backtests/')
+        : '等待报告路径';
+
+    return `
+        <div class="backtest-compare-card ${support.className}">
+            <div class="backtest-compare-topline">
+                <div>
+                    <div class="research-window-kicker">MA_Cross · 0.01 · M15/H1</div>
+                    <div class="backtest-symbol">${escapeHtml(normalizedRun.symbol || '--')}</div>
+                    <div class="research-window-time">${escapeHtml(normalizedRun.status || 'CONFIG_READY')}</div>
+                </div>
+                <span class="backtest-status-pill ${support.className}">${escapeHtml(support.label)}</span>
+            </div>
+            <div class="backtest-metric-grid">
+                <div class="backtest-metric">
+                    <div class="backtest-metric-label">回测样本</div>
+                    <div class="backtest-metric-value">${normalizedRun.closedTrades || '--'}</div>
+                </div>
+                <div class="backtest-metric">
+                    <div class="backtest-metric-label">回测净值</div>
+                    <div class="backtest-metric-value ${normalizedRun.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(btNetText)}</div>
+                </div>
+                <div class="backtest-metric">
+                    <div class="backtest-metric-label">回测 PF</div>
+                    <div class="backtest-metric-value">${escapeHtml(btPfText)}</div>
+                </div>
+                <div class="backtest-metric">
+                    <div class="backtest-metric-label">实盘样本</div>
+                    <div class="backtest-metric-value">${liveSummary.closedTrades || '--'}</div>
+                </div>
+                <div class="backtest-metric">
+                    <div class="backtest-metric-label">实盘净值</div>
+                    <div class="backtest-metric-value ${liveSummary.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(liveNetText)}</div>
+                </div>
+                <div class="backtest-metric">
+                    <div class="backtest-metric-label">实盘 PF</div>
+                    <div class="backtest-metric-value">${escapeHtml(livePfText)}</div>
+                </div>
+            </div>
+            <div class="backtest-note">${escapeHtml(support.reason)}</div>
+            <div class="backtest-note">报告：${escapeHtml(reportText)}</div>
+        </div>
+    `;
+}
+
+function updateBacktestLiveComparison(d) {
+    const summaryEl = document.getElementById('backtestLiveSummary');
+    const metaEl = document.getElementById('backtestLiveMeta');
+    const bodyEl = document.getElementById('backtestLiveBody');
+    if (!summaryEl || !metaEl || !bodyEl) return;
+
+    const summary = getBacktestSummary(d);
+    if (!summary || !Array.isArray(summary.runs) || summary.runs.length === 0) {
+        summaryEl.textContent = '等待回测摘要';
+        metaEl.textContent = d?._backtestSummaryError
+            ? '本地还没有 `QuantGod_BacktestSummary.json`。先运行 `Start_QuantGod_MT5_HFM_BacktestLab.bat` 生成配置和摘要。'
+            : 'Backtest Lab 摘要为空，等待下一次生成。';
+        bodyEl.innerHTML = '<div class="empty-state">等待 Backtest Lab V1 摘要</div>';
+        return;
+    }
+
+    const runs = summary.runs.map(normalizeBacktestRun);
+    const withReports = runs.filter((run) => Number(run.closedTrades || 0) > 0).length;
+    const liveSummaries = runs.map((run) => summarizeLiveForwardForBacktest(d, run.symbol));
+    const liveClosed = liveSummaries.reduce((sum, item) => sum + item.closedTrades, 0);
+    summaryEl.textContent = `回测 ${withReports}/${runs.length} 有样本 | 实盘 ${liveClosed} 闭环`;
+    metaEl.textContent = `${summary.lab || 'HFM_MT5_BACKTEST_LAB_V1'} | ${summary.fromDate || '--'} -> ${summary.toDate || '--'} | ${summary.note || '策略调整必须同时看回测和实盘前向样本。'}`;
+    bodyEl.innerHTML = runs.map((run, index) => renderBacktestCompareCard(run, liveSummaries[index])).join('');
+}
+
 function updateResearchWindowSummary(d) {
     const body = document.getElementById('researchWindowBody');
     const summaryEl = document.getElementById('researchWindowSummary');
@@ -5825,6 +6137,7 @@ function updateDashboard() {
     document.getElementById('statWinRate').textContent = winRate + '%';
     document.getElementById('statTotalTrades').textContent = total + ' 笔交易';
     updateResearchWindowSummary(d);
+    updateBacktestLiveComparison(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
     updateResearchSuggestions(d);

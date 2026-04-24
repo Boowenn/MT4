@@ -52,6 +52,7 @@ The MT5 work is intentionally split into phases:
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
 - executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
+- includes HFM MT5 Backtest Lab V1 for `MA_Cross` on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - Phase 2: not done yet
 - port the remaining strategy execution engines
 - port adaptive controls and research statistics
@@ -210,6 +211,38 @@ This will:
 - keep `USDJPYc` blocked if you already have a manual position on that symbol
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
+
+For HFM MT5 Backtest Lab V1:
+
+```bat
+Start_QuantGod_MT5_HFM_BacktestLab.bat
+```
+
+This prepares MT5 Strategy Tester configs for:
+
+- `MA_Cross`
+- `EURUSDc` and `USDJPYc`
+- `0.01` lot only
+- `M15` trigger with `H1` trend filter
+
+By default it does not interrupt the live HFM terminal. It writes a local summary to:
+
+```text
+archive/backtests/latest/QuantGod_BacktestSummary.json
+```
+
+and copies that summary to the HFM Files folder so the dashboard can render the `回测 vs 实盘` comparison card.
+
+If you intentionally want to launch the HFM MT5 Strategy Tester, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\run_mt5_backtest_lab.ps1 -RunTerminal
+```
+
+Strategy changes should now pass both checks before loosening risk:
+
+- backtest evidence supports the idea
+- live `0.01` forward samples do not contradict it
 
 ## MT4 Data Retention
 

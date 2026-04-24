@@ -21,6 +21,9 @@ exit /b 1
 echo 1. Syncing dashboard assets to MT5 Files...
 copy /Y "%REPO_ROOT%\Dashboard\QuantGod_Dashboard.html" "%QG_FILES%\QuantGod_Dashboard.html" >nul
 copy /Y "%REPO_ROOT%\Dashboard\dashboard_server.js" "%QG_FILES%\dashboard_server.js" >nul
+if exist "%REPO_ROOT%\archive\backtests\latest\QuantGod_BacktestSummary.json" (
+copy /Y "%REPO_ROOT%\archive\backtests\latest\QuantGod_BacktestSummary.json" "%QG_FILES%\QuantGod_BacktestSummary.json" >nul
+)
 
 echo 2. Syncing MT5 EA source...
 copy /Y "%REPO_ROOT%\MQL5\Experts\QuantGod_MultiStrategy.mq5" "%QG_EXPERTS%\QuantGod_MultiStrategy.mq5" >nul
