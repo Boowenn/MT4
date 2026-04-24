@@ -210,7 +210,7 @@ This will:
 - sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
 - restart the official HFM MT5 client in live pilot mode
 - arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
-- keep manual positions protected by the safety guard, but separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
+- keep manual positions protected by the safety guard across all symbols, including XAUUSDc, while keeping them separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
 - append Shadow Signal Ledger rows for each new M15 pilot evaluation, including signal, no-signal, range/spread/session/news/cooldown blocks, and order-send outcomes
 - export Manual Alpha Ledger rows for manual open/closed trades, including symbol, side, regime transition, duration, floating/realized profit, and learn-only status
 - start the local dashboard server against the HFM files folder
