@@ -63,6 +63,9 @@ input int    PilotNewsPreBlockMinutes   = 10;
 input int    PilotNewsPostBlockMinutes  = 5;
 input int    PilotNewsBiasMinutes       = 45;
 input int    PilotNewsRefreshSeconds    = 15;
+input bool   EnableShadowOutcomeLedger  = true;
+input int    ShadowOutcomeMaxSourceRows = 800;
+input double ShadowOutcomeNeutralPips   = 2.0;
 input double PilotUsdJpyNoChaseLevel    = 160.0;
 input double PilotUsdJpyNoChaseBufferPips = 10.0;
 input double PilotMaxFloatingLossUSC    = 30.0;
@@ -254,6 +257,20 @@ struct NewsFilterState
    int      minutesToEvent;
    int      minutesSinceEvent;
    string   reason;
+};
+
+struct ShadowSignalLedgerRecord
+{
+   string   eventId;
+   datetime eventBarTime;
+   string   symbol;
+   string   strategy;
+   string   timeframe;
+   string   signalStatus;
+   string   signalDirection;
+   string   blocker;
+   string   executionAction;
+   double   referencePrice;
 };
 
 datetime g_lastPilotBarTime[];
@@ -1495,6 +1512,222 @@ void AppendShadowSignalLedgerRow(string symbol, int symbolIndex, datetime eventB
 void AppendShadowSignalLedgerForCurrentBar(string symbol, int symbolIndex, string signalStatus, int direction, double score, string blocker, string executionAction, string reason)
 {
    AppendShadowSignalLedgerRow(symbol, symbolIndex, iTime(symbol, PilotSignalTimeframe, 0), signalStatus, direction, score, blocker, executionAction, reason);
+}
+
+void PushShadowSignalRecord(ShadowSignalLedgerRecord &records[], ShadowSignalLedgerRecord &record)
+{
+   int size = ArraySize(records);
+   ArrayResize(records, size + 1);
+   records[size] = record;
+}
+
+bool LoadShadowSignalLedgerRecords(ShadowSignalLedgerRecord &records[])
+{
+   ArrayResize(records, 0);
+   if(!FileIsExist("QuantGod_ShadowSignalLedger.csv"))
+      return false;
+
+   ResetLastError();
+   int handle = FileOpen("QuantGod_ShadowSignalLedger.csv",
+                         FILE_READ | FILE_CSV | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         ',', CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("QuantGod MT5 shadow outcome failed to open source ledger. err=", GetLastError());
+      return false;
+   }
+
+   for(int h = 0; h < 17 && !FileIsEnding(handle); h++)
+      FileReadString(handle);
+
+   while(!FileIsEnding(handle))
+   {
+      ShadowSignalLedgerRecord record;
+      record.eventId = FileReadString(handle);
+      if(FileIsEnding(handle) && StringLen(record.eventId) == 0)
+         break;
+      FileReadString(handle); // LabelTimeLocal
+      FileReadString(handle); // LabelTimeServer
+      string eventBarTime = FileReadString(handle);
+      record.eventBarTime = StringToTime(eventBarTime);
+      record.symbol = FileReadString(handle);
+      record.strategy = FileReadString(handle);
+      record.timeframe = FileReadString(handle);
+      record.signalStatus = FileReadString(handle);
+      record.signalDirection = FileReadString(handle);
+      FileReadString(handle); // SignalScore
+      FileReadString(handle); // Regime
+      record.blocker = FileReadString(handle);
+      record.executionAction = FileReadString(handle);
+      record.referencePrice = StringToDouble(FileReadString(handle));
+      FileReadString(handle); // SpreadPips
+      FileReadString(handle); // NewsStatus
+      FileReadString(handle); // Reason
+
+      if(StringLen(record.eventId) > 0 &&
+         StringLen(record.symbol) > 0 &&
+         record.eventBarTime > 0 &&
+         record.referencePrice > 0.0)
+         PushShadowSignalRecord(records, record);
+   }
+
+   FileClose(handle);
+   return (ArraySize(records) > 0);
+}
+
+bool CalculateShadowOutcome(string symbol, datetime eventBarTime, int horizonBars, double referencePrice,
+                            double &futureClose, double &longClosePips, double &shortClosePips,
+                            double &longMfePips, double &longMaePips, double &shortMfePips, double &shortMaePips)
+{
+   futureClose = 0.0;
+   longClosePips = 0.0;
+   shortClosePips = 0.0;
+   longMfePips = 0.0;
+   longMaePips = 0.0;
+   shortMfePips = 0.0;
+   shortMaePips = 0.0;
+   if(horizonBars <= 0 || StringLen(symbol) == 0 || eventBarTime <= 0 || referencePrice <= 0.0)
+      return false;
+
+   double pip = PipSize(symbol);
+   if(pip <= 0.0)
+      return false;
+
+   int eventShift = iBarShift(symbol, PilotSignalTimeframe, eventBarTime, true);
+   if(eventShift < 0)
+      return false;
+
+   int futureShift = eventShift - horizonBars + 1;
+   if(futureShift < 1)
+      return false;
+
+   futureClose = iClose(symbol, PilotSignalTimeframe, futureShift);
+   if(futureClose <= 0.0)
+      return false;
+
+   double maxHigh = referencePrice;
+   double minLow = referencePrice;
+   for(int shift = eventShift; shift >= futureShift; shift--)
+   {
+      double high = iHigh(symbol, PilotSignalTimeframe, shift);
+      double low = iLow(symbol, PilotSignalTimeframe, shift);
+      if(high > 0.0 && high > maxHigh)
+         maxHigh = high;
+      if(low > 0.0 && low < minLow)
+         minLow = low;
+   }
+
+   longClosePips = (futureClose - referencePrice) / pip;
+   shortClosePips = (referencePrice - futureClose) / pip;
+   longMfePips = (maxHigh - referencePrice) / pip;
+   longMaePips = (referencePrice - minLow) / pip;
+   shortMfePips = (referencePrice - minLow) / pip;
+   shortMaePips = (maxHigh - referencePrice) / pip;
+   return true;
+}
+
+string ShadowDirectionalOutcome(string direction, double longClosePips, double shortClosePips)
+{
+   double neutral = MathMax(0.1, ShadowOutcomeNeutralPips);
+   if(direction == "BUY")
+   {
+      if(longClosePips >= neutral) return "WIN";
+      if(longClosePips <= -neutral) return "LOSS";
+      return "FLAT";
+   }
+   if(direction == "SELL")
+   {
+      if(shortClosePips >= neutral) return "WIN";
+      if(shortClosePips <= -neutral) return "LOSS";
+      return "FLAT";
+   }
+   return "NO_DIRECTION";
+}
+
+string ShadowBestOpportunity(double longClosePips, double shortClosePips)
+{
+   double neutral = MathMax(0.1, ShadowOutcomeNeutralPips);
+   if(longClosePips >= neutral && longClosePips >= shortClosePips)
+      return "LONG";
+   if(shortClosePips >= neutral && shortClosePips > longClosePips)
+      return "SHORT";
+   return "NEUTRAL";
+}
+
+string BuildShadowOutcomeLedgerCsv()
+{
+   string csv = "EventId,OutcomeLabelTimeLocal,OutcomeLabelTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,Blocker,ExecutionAction,ReferencePrice,HorizonBars,HorizonMinutes,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,DirectionalOutcome,BestOpportunity,OutcomeReason\r\n";
+   ShadowSignalLedgerRecord records[];
+   if(!EnableShadowOutcomeLedger || !LoadShadowSignalLedgerRecords(records))
+      return csv;
+
+   int total = ArraySize(records);
+   int maxRows = MathMax(1, ShadowOutcomeMaxSourceRows);
+   int start = MathMax(0, total - maxRows);
+   int horizons[3] = {1, 2, 4};
+   datetime serverClock = CurrentServerTime();
+   int periodSeconds = PeriodSeconds(PilotSignalTimeframe);
+   if(periodSeconds <= 0)
+      periodSeconds = 60 * 15;
+
+   for(int i = start; i < total; i++)
+   {
+      for(int h = 0; h < 3; h++)
+      {
+         int horizonBars = horizons[h];
+         double futureClose = 0.0;
+         double longClosePips = 0.0;
+         double shortClosePips = 0.0;
+         double longMfePips = 0.0;
+         double longMaePips = 0.0;
+         double shortMfePips = 0.0;
+         double shortMaePips = 0.0;
+         if(!CalculateShadowOutcome(records[i].symbol,
+                                    records[i].eventBarTime,
+                                    horizonBars,
+                                    records[i].referencePrice,
+                                    futureClose,
+                                    longClosePips,
+                                    shortClosePips,
+                                    longMfePips,
+                                    longMaePips,
+                                    shortMfePips,
+                                    shortMaePips))
+            continue;
+
+         int digits = (int)SymbolInfoInteger(records[i].symbol, SYMBOL_DIGITS);
+         string directionalOutcome = ShadowDirectionalOutcome(records[i].signalDirection, longClosePips, shortClosePips);
+         string bestOpportunity = ShadowBestOpportunity(longClosePips, shortClosePips);
+         string reason = "Shadow-only post outcome label; does not alter live order gating";
+
+         csv += CsvEscape(records[i].eventId) + ",";
+         csv += CsvEscape(FormatDateTime(TimeLocal(), true)) + ",";
+         csv += CsvEscape(FormatDateTime(serverClock, true)) + ",";
+         csv += CsvEscape(FormatDateTime(records[i].eventBarTime, true)) + ",";
+         csv += CsvEscape(records[i].symbol) + ",";
+         csv += CsvEscape(records[i].strategy) + ",";
+         csv += CsvEscape(records[i].timeframe) + ",";
+         csv += CsvEscape(records[i].signalStatus) + ",";
+         csv += CsvEscape(records[i].signalDirection) + ",";
+         csv += CsvEscape(records[i].blocker) + ",";
+         csv += CsvEscape(records[i].executionAction) + ",";
+         csv += FormatNumber(records[i].referencePrice, digits) + ",";
+         csv += IntegerToString(horizonBars) + ",";
+         csv += IntegerToString((periodSeconds * horizonBars) / 60) + ",";
+         csv += FormatNumber(futureClose, digits) + ",";
+         csv += FormatNumber(longClosePips, 1) + ",";
+         csv += FormatNumber(shortClosePips, 1) + ",";
+         csv += FormatNumber(longMfePips, 1) + ",";
+         csv += FormatNumber(longMaePips, 1) + ",";
+         csv += FormatNumber(shortMfePips, 1) + ",";
+         csv += FormatNumber(shortMaePips, 1) + ",";
+         csv += CsvEscape(directionalOutcome) + ",";
+         csv += CsvEscape(bestOpportunity) + ",";
+         csv += CsvEscape(reason) + "\r\n";
+      }
+   }
+
+   return csv;
 }
 
 string PilotStatusJson(const StrategyStatusSnapshot &state)
@@ -3123,6 +3356,7 @@ void ExportShadowCsvs(SymbolSnapshot &snapshots[], TradeJournalRecord &journal[]
    WriteTextFile("QuantGod_TradeOutcomeLabels.csv", BuildTradeOutcomeLabelsCsv(closedTrades));
    WriteTextFile("QuantGod_TradeEventLinks.csv", BuildTradeEventLinksCsv(closedTrades, journal));
    WriteTextFile("QuantGod_ManualAlphaLedger.csv", BuildManualAlphaLedgerCsv(closedTrades));
+   WriteTextFile("QuantGod_ShadowOutcomeLedger.csv", BuildShadowOutcomeLedgerCsv());
    WriteTextFile("QuantGod_StrategyEvaluationReport.csv", BuildStrategyEvaluationCsv(snapshots, strategyAggregates));
    WriteTextFile("QuantGod_RegimeEvaluationReport.csv", BuildRegimeEvaluationCsv(closedTrades, regimeAggregates));
    WriteTextFile("QuantGod_OpportunityLabels.csv", "EventId,LabelTimeLocal,LabelTimeServer,EventTimeServer,EventBarTime,Symbol,Strategy,Timeframe,SignalStatus,SignalDirection,SignalScore,Regime,AdaptiveState,RiskMultiplier,HorizonBars,ReferencePrice,FutureClose,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips,NeutralThresholdPips,DirectionalOutcome,BestOpportunity,LabelReason\r\n");
