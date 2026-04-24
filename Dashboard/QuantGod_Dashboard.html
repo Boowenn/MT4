@@ -93,6 +93,7 @@
         }
 
         .status-badge {
+            --status-pulse-rgb: 16, 185, 129;
             display: flex;
             align-items: center;
             gap: 6px;
@@ -103,30 +104,35 @@
         }
 
         .status-live {
+            --status-pulse-rgb: 16, 185, 129;
             background: rgba(16, 185, 129, 0.15);
             color: var(--accent-green);
             border: 1px solid rgba(16, 185, 129, 0.3);
         }
 
         .status-info {
+            --status-pulse-rgb: 59, 130, 246;
             background: rgba(59, 130, 246, 0.15);
             color: var(--accent-blue);
             border: 1px solid rgba(59, 130, 246, 0.3);
         }
 
         .status-warn {
+            --status-pulse-rgb: 245, 158, 11;
             background: rgba(245, 158, 11, 0.16);
             color: var(--accent-orange);
             border: 1px solid rgba(245, 158, 11, 0.32);
         }
 
         .status-danger {
+            --status-pulse-rgb: 239, 68, 68;
             background: rgba(239, 68, 68, 0.15);
             color: var(--accent-red);
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
         .status-muted {
+            --status-pulse-rgb: 100, 116, 139;
             background: rgba(100, 116, 139, 0.16);
             color: var(--text-muted);
             border: 1px solid rgba(100, 116, 139, 0.28);
@@ -146,8 +152,8 @@
         .status-badge.status-muted .status-dot { background: var(--text-muted); }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-            50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(var(--status-pulse-rgb), 0.5); }
+            50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(var(--status-pulse-rgb), 0); }
         }
 
         .last-update {
@@ -3439,6 +3445,8 @@ const STATUS_META = {
     TOO_MANY_POSITIONS:       { label: '仓位上限',         tone: 'status-warn',   cardTone: 'card-watch' },
     POSITION_LIMIT:           { label: '仓位上限',         tone: 'status-warn',   cardTone: 'card-watch' },
     PORTFOLIO_LIMIT:          { label: '组合仓位上限',     tone: 'status-warn',   cardTone: 'card-watch' },
+    NEWS_BLOCK:               { label: '新闻拦截',         tone: 'status-warn',   cardTone: 'card-watch' },
+    NEWS_FILTER:              { label: '新闻过滤',         tone: 'status-warn',   cardTone: 'card-watch' },
     STALE_TICKS:              { label: '行情延迟',         tone: 'status-warn',   cardTone: 'card-watch' },
     WAITING_MARKET:           { label: '等待行情',         tone: 'status-warn',   cardTone: 'card-watch' },
     AUTOTRADING_OFF:          { label: '自动交易关闭',     tone: 'status-danger', cardTone: 'card-danger' },
@@ -5922,7 +5930,8 @@ function getResearchReviewWindows(d) {
 
 function getStatusMeta(status) {
     if (!status) return STATUS_META.NO_DATA;
-    return STATUS_META[status] || { label: status.replaceAll('_', ' '), tone: 'status-muted', cardTone: '' };
+    const normalized = String(status).trim().toUpperCase().replace(/[\s-]+/g, '_');
+    return STATUS_META[normalized] || { label: normalized.replaceAll('_', ' '), tone: 'status-muted', cardTone: '' };
 }
 
 function getAdaptiveMeta(strategy) {
