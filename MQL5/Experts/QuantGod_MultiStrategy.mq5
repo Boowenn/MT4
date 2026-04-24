@@ -1521,6 +1521,18 @@ void PushShadowSignalRecord(ShadowSignalLedgerRecord &records[], ShadowSignalLed
    records[size] = record;
 }
 
+string CsvCellValue(string value)
+{
+   string cell = TrimString(value);
+   int len = StringLen(cell);
+   if(len >= 2 &&
+      StringGetCharacter(cell, 0) == '"' &&
+      StringGetCharacter(cell, len - 1) == '"')
+      cell = StringSubstr(cell, 1, len - 2);
+   StringReplace(cell, "\"\"", "\"");
+   return cell;
+}
+
 bool LoadShadowSignalLedgerRecords(ShadowSignalLedgerRecord &records[])
 {
    ArrayResize(records, 0);
@@ -1543,23 +1555,23 @@ bool LoadShadowSignalLedgerRecords(ShadowSignalLedgerRecord &records[])
    while(!FileIsEnding(handle))
    {
       ShadowSignalLedgerRecord record;
-      record.eventId = FileReadString(handle);
+      record.eventId = CsvCellValue(FileReadString(handle));
       if(FileIsEnding(handle) && StringLen(record.eventId) == 0)
          break;
       FileReadString(handle); // LabelTimeLocal
       FileReadString(handle); // LabelTimeServer
-      string eventBarTime = FileReadString(handle);
+      string eventBarTime = CsvCellValue(FileReadString(handle));
       record.eventBarTime = StringToTime(eventBarTime);
-      record.symbol = FileReadString(handle);
-      record.strategy = FileReadString(handle);
-      record.timeframe = FileReadString(handle);
-      record.signalStatus = FileReadString(handle);
-      record.signalDirection = FileReadString(handle);
+      record.symbol = CsvCellValue(FileReadString(handle));
+      record.strategy = CsvCellValue(FileReadString(handle));
+      record.timeframe = CsvCellValue(FileReadString(handle));
+      record.signalStatus = CsvCellValue(FileReadString(handle));
+      record.signalDirection = CsvCellValue(FileReadString(handle));
       FileReadString(handle); // SignalScore
       FileReadString(handle); // Regime
-      record.blocker = FileReadString(handle);
-      record.executionAction = FileReadString(handle);
-      record.referencePrice = StringToDouble(FileReadString(handle));
+      record.blocker = CsvCellValue(FileReadString(handle));
+      record.executionAction = CsvCellValue(FileReadString(handle));
+      record.referencePrice = StringToDouble(CsvCellValue(FileReadString(handle)));
       FileReadString(handle); // SpreadPips
       FileReadString(handle); // NewsStatus
       FileReadString(handle); // Reason
