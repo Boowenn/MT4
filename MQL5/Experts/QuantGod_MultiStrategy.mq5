@@ -252,6 +252,8 @@ struct NewsFilterState
    string   status;
    string   phase;
    string   eventName;
+   string   eventCode;
+   int      eventKind;
    datetime eventTime;
    double   actual;
    double   forecast;
@@ -301,6 +303,7 @@ double g_pilotRealizedLossToday = 0.0;
 int g_pilotConsecutiveLosses = 0;
 ulong g_usdTrackedEventIds[];
 string g_usdTrackedEventNames[];
+string g_usdTrackedEventCodes[];
 int g_usdTrackedEventKinds[];
 NewsFilterState g_newsState;
 datetime g_lastNewsRefresh = 0;
@@ -618,6 +621,8 @@ void ResetNewsFilterState()
    g_newsState.status = EnablePilotNewsFilter ? "IDLE" : "DISABLED";
    g_newsState.phase = "none";
    g_newsState.eventName = "";
+   g_newsState.eventCode = "";
+   g_newsState.eventKind = USD_NEWS_UNKNOWN;
    g_newsState.eventTime = 0;
    g_newsState.actual = 0.0;
    g_newsState.forecast = 0.0;
@@ -647,10 +652,10 @@ int DetermineUsdNewsKind(string sourceText)
 string UsdNewsKindLabel(int kind)
 {
    if(kind == USD_NEWS_JOBLESS)
-      return "JOBLESS";
+      return "US jobless claims";
    if(kind == USD_NEWS_PMI)
-      return "PMI";
-   return "UNKNOWN";
+      return "US PMI";
+   return "USD calendar event";
 }
 
 bool CalendarFieldToDouble(long rawValue, double &value)
@@ -666,6 +671,7 @@ void LoadTrackedUsdCalendarEvents()
 {
    ArrayResize(g_usdTrackedEventIds, 0);
    ArrayResize(g_usdTrackedEventNames, 0);
+   ArrayResize(g_usdTrackedEventCodes, 0);
    ArrayResize(g_usdTrackedEventKinds, 0);
 
    if(!EnablePilotNewsFilter)
@@ -692,6 +698,7 @@ void LoadTrackedUsdCalendarEvents()
 
       PushULong(g_usdTrackedEventIds, events[i].id);
       PushString(g_usdTrackedEventNames, events[i].name);
+      PushString(g_usdTrackedEventCodes, events[i].event_code);
       PushInt(g_usdTrackedEventKinds, kind);
    }
 
@@ -789,22 +796,30 @@ void RefreshNewsFilterState(bool force=false)
    bool hasPreBlock = false;
    datetime preBlockTime = 0;
    string preBlockName = "";
+   string preBlockCode = "";
+   int preBlockKind = USD_NEWS_UNKNOWN;
    int preBlockMinutes = 0;
 
    bool hasPostBlock = false;
    datetime postBlockTime = 0;
    string postBlockName = "";
+   string postBlockCode = "";
+   int postBlockKind = USD_NEWS_UNKNOWN;
    int postBlockMinutes = 0;
 
    bool hasUpcoming = false;
    datetime upcomingTime = 0;
    string upcomingName = "";
+   string upcomingCode = "";
+   int upcomingKind = USD_NEWS_UNKNOWN;
    int upcomingMinutes = 0;
 
    int biasScore = 0;
    int biasSamples = 0;
    datetime biasEventTime = 0;
    string biasEventName = "";
+   string biasEventCode = "";
+   int biasEventKind = USD_NEWS_UNKNOWN;
    double biasActual = 0.0;
    double biasForecast = 0.0;
    double biasPrevious = 0.0;
@@ -825,6 +840,8 @@ void RefreshNewsFilterState(bool force=false)
             continue;
 
          string eventName = g_usdTrackedEventNames[i];
+         string eventCode = (i < ArraySize(g_usdTrackedEventCodes)) ? g_usdTrackedEventCodes[i] : "";
+         int eventKind = (i < ArraySize(g_usdTrackedEventKinds)) ? g_usdTrackedEventKinds[i] : USD_NEWS_UNKNOWN;
          if(eventTime > now)
          {
             int minutesToEvent = (int)MathMax(0, (long)(eventTime - now) / 60);
@@ -833,6 +850,8 @@ void RefreshNewsFilterState(bool force=false)
                hasUpcoming = true;
                upcomingTime = eventTime;
                upcomingName = eventName;
+               upcomingCode = eventCode;
+               upcomingKind = eventKind;
                upcomingMinutes = minutesToEvent;
             }
             if(minutesToEvent <= PilotNewsPreBlockMinutes && (!hasPreBlock || eventTime < preBlockTime))
@@ -840,6 +859,8 @@ void RefreshNewsFilterState(bool force=false)
                hasPreBlock = true;
                preBlockTime = eventTime;
                preBlockName = eventName;
+               preBlockCode = eventCode;
+               preBlockKind = eventKind;
                preBlockMinutes = minutesToEvent;
             }
             continue;
@@ -853,6 +874,8 @@ void RefreshNewsFilterState(bool force=false)
                hasPostBlock = true;
                postBlockTime = eventTime;
                postBlockName = eventName;
+               postBlockCode = eventCode;
+               postBlockKind = eventKind;
                postBlockMinutes = minutesSinceEvent;
             }
          }
@@ -879,6 +902,8 @@ void RefreshNewsFilterState(bool force=false)
          {
             biasEventTime = eventTime;
             biasEventName = eventName;
+            biasEventCode = eventCode;
+            biasEventKind = eventKind;
             biasActual = actual;
             biasForecast = forecast;
             biasPrevious = previous;
@@ -893,9 +918,11 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.status = "PRE_BLOCK";
       g_newsState.phase = "pre";
       g_newsState.eventName = preBlockName;
+      g_newsState.eventCode = preBlockCode;
+      g_newsState.eventKind = preBlockKind;
       g_newsState.eventTime = preBlockTime;
       g_newsState.minutesToEvent = preBlockMinutes;
-      g_newsState.reason = "USD news pre-block: " + preBlockName +
+      g_newsState.reason = "USD news pre-block: " + CurrentNewsEventLabel() +
          " in " + IntegerToString(preBlockMinutes) + "m";
       return;
    }
@@ -906,9 +933,11 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.status = "POST_BLOCK";
       g_newsState.phase = "post";
       g_newsState.eventName = postBlockName;
+      g_newsState.eventCode = postBlockCode;
+      g_newsState.eventKind = postBlockKind;
       g_newsState.eventTime = postBlockTime;
       g_newsState.minutesSinceEvent = postBlockMinutes;
-      g_newsState.reason = "USD news post-release cooldown: " + postBlockName +
+      g_newsState.reason = "USD news post-release cooldown: " + CurrentNewsEventLabel() +
          " +" + IntegerToString(postBlockMinutes) + "m";
       return;
    }
@@ -920,13 +949,15 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.status = "BIAS_ACTIVE";
       g_newsState.phase = "bias";
       g_newsState.eventName = biasEventName;
+      g_newsState.eventCode = biasEventCode;
+      g_newsState.eventKind = biasEventKind;
       g_newsState.eventTime = biasEventTime;
       g_newsState.actual = biasActual;
       g_newsState.forecast = biasForecast;
       g_newsState.previous = biasPrevious;
       g_newsState.minutesSinceEvent = biasMinutesSince;
       g_newsState.reason = "USD news bias " + UsdBiasLabel(g_newsState.usdBiasDirection) +
-         " from " + biasEventName +
+         " from " + CurrentNewsEventLabel() +
          " | actual=" + DoubleToString(biasActual, 2) +
          " forecast=" + DoubleToString(biasForecast, 2);
       return;
@@ -937,9 +968,11 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.status = "TRACKING";
       g_newsState.phase = "tracking";
       g_newsState.eventName = upcomingName;
+      g_newsState.eventCode = upcomingCode;
+      g_newsState.eventKind = upcomingKind;
       g_newsState.eventTime = upcomingTime;
       g_newsState.minutesToEvent = upcomingMinutes;
-      g_newsState.reason = "Tracking next USD event: " + upcomingName +
+      g_newsState.reason = "Tracking next USD event: " + CurrentNewsEventLabel() +
          " in " + IntegerToString(upcomingMinutes) + "m";
       return;
    }
@@ -984,20 +1017,38 @@ string SafeNewsEventName(string value)
    return "USD tracked event";
 }
 
+string SafeNewsEventLabel(string eventCode, string eventName, int eventKind)
+{
+   string safeCode = TrimString(eventCode);
+   if(StringLen(safeCode) > 0 && IsDisplaySafeAscii(safeCode))
+      return safeCode;
+
+   string safeName = SafeNewsEventName(eventName);
+   if(StringLen(safeName) > 0 && safeName != "USD tracked event")
+      return safeName;
+
+   return UsdNewsKindLabel(eventKind);
+}
+
+string CurrentNewsEventLabel()
+{
+   return SafeNewsEventLabel(g_newsState.eventCode, g_newsState.eventName, g_newsState.eventKind);
+}
+
 string SafeNewsReasonText(string reason)
 {
    if(StringLen(reason) <= 0)
       return reason;
 
    string safeReason = reason;
-   string safeEvent = SafeNewsEventName(g_newsState.eventName);
-   if(StringLen(g_newsState.eventName) > 0 && safeEvent != g_newsState.eventName)
+   string safeEvent = CurrentNewsEventLabel();
+   if(StringLen(g_newsState.eventName) > 0)
       StringReplace(safeReason, g_newsState.eventName, safeEvent);
 
    if(IsDisplaySafeAscii(safeReason))
       return safeReason;
 
-   string label = (StringLen(safeEvent) > 0) ? safeEvent : "USD tracked event";
+   string label = (StringLen(safeEvent) > 0) ? safeEvent : "USD calendar event";
    if(g_newsState.status == "PRE_BLOCK")
       return "USD news pre-block: " + label + " in " + IntegerToString(g_newsState.minutesToEvent) + "m";
    if(g_newsState.status == "POST_BLOCK")
@@ -1028,7 +1079,7 @@ bool PilotDirectionAllowedByNews(string symbol, int direction, MqlTick &tick, st
    if(g_newsState.biasActive && preferredDirection != 0 && direction != preferredDirection)
    {
       reason = "News bias allows only " + PilotActionLabelForSymbol(symbol) +
-         " after " + SafeNewsEventName(g_newsState.eventName);
+         " after " + CurrentNewsEventLabel();
       return false;
    }
 
@@ -1061,6 +1112,7 @@ string BuildNewsJson()
       newsReason = "No tracked USD event near the current pilot window";
    }
    string safeEventName = SafeNewsEventName(g_newsState.eventName);
+   string safeEventLabel = CurrentNewsEventLabel();
    newsReason = SafeNewsReasonText(newsReason);
 
    string json = "{";
@@ -1073,6 +1125,9 @@ string BuildNewsJson()
    json += "\"biasActive\": " + JsonBool(g_newsState.biasActive) + ", ";
    json += "\"usdBias\": \"" + JsonEscape(UsdBiasLabel(g_newsState.usdBiasDirection)) + "\", ";
    json += "\"eventName\": \"" + JsonEscape(safeEventName) + "\", ";
+   json += "\"eventCode\": \"" + JsonEscape(g_newsState.eventCode) + "\", ";
+   json += "\"eventKind\": \"" + JsonEscape(UsdNewsKindLabel(g_newsState.eventKind)) + "\", ";
+   json += "\"eventLabel\": \"" + JsonEscape(safeEventLabel) + "\", ";
    json += "\"eventTimeServer\": \"" + JsonEscape(FormatDateTime(g_newsState.eventTime, true)) + "\", ";
    json += "\"minutesToEvent\": " + IntegerToString(g_newsState.minutesToEvent) + ", ";
    json += "\"minutesSinceEvent\": " + IntegerToString(g_newsState.minutesSinceEvent) + ", ";
@@ -2887,7 +2942,7 @@ void RunPilotExecutionLoop()
          g_maRuntimeStates[i].reason = "Waiting for next M15 bar";
          if(g_newsState.biasActive)
             g_maRuntimeStates[i].reason += " | news " + PilotActionLabelForSymbol(symbol) +
-               " after " + SafeNewsEventName(g_newsState.eventName);
+               " after " + CurrentNewsEventLabel();
          g_pilotTelemetry[i].waitBarSkips++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          continue;
@@ -2920,7 +2975,7 @@ void RunPilotExecutionLoop()
             g_pilotTelemetry[i].noCrossMisses++;
          if(g_newsState.biasActive)
             g_maRuntimeStates[i].reason = reason + " | news " + PilotActionLabelForSymbol(symbol) +
-               " after " + SafeNewsEventName(g_newsState.eventName);
+               " after " + CurrentNewsEventLabel();
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
          string blocker = (evalCode == PILOT_EVAL_SPREAD_BLOCK) ? "SPREAD" :
             (evalCode == PILOT_EVAL_SESSION_BLOCK) ? "SESSION" :

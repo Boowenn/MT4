@@ -263,6 +263,11 @@ Shadow Signal Ledger:
 - Candidate Router V1.1 adds soft shadow triggers for trend continuation, RSI reversal, MACD histogram turns, and near support/resistance breakouts to increase sample speed without changing live `OrderSend` gating.
 - It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
 
+News Filter Visibility:
+
+- `QuantGod_Dashboard.json` exports USD news filter status, MT5 event code/kind/label, event server time, countdown, tracked USD event count, block/bias state, and the current reason.
+- The dashboard execution radar surfaces the current USD news filter state and next tracked event so operators can see why `NEWS_BLOCK` is active before it affects live pilot entries.
+
 Manual Alpha Ledger:
 
 - `QuantGod_ManualAlphaLedger.csv` records manual open and closed trades as learn-only examples.

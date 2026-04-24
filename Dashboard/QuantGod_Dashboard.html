@@ -2928,6 +2928,16 @@
                                     <div class="radar-value" id="radarBlockers">--</div>
                                     <div class="radar-sub" id="radarBlockersMeta">当前主要在等待信号</div>
                                 </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">USD 新闻过滤</div>
+                                    <div class="radar-value" id="radarNewsStatus">--</div>
+                                    <div class="radar-sub" id="radarNewsMeta">等待 MT5 日历状态</div>
+                                </div>
+                                <div class="radar-item">
+                                    <div class="radar-label">下一条新闻</div>
+                                    <div class="radar-value" id="radarNewsEvent">--</div>
+                                    <div class="radar-sub" id="radarNewsTime">服务器时间 --</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -6107,6 +6117,26 @@ function getRuntimeSummary(d) {
     return { text: `${prefix} | ${meta.label}`, tone: meta.tone };
 }
 
+function getNewsStatusText(news) {
+    const status = String(news?.status || '').toUpperCase();
+    const map = {
+        PRE_BLOCK: '新闻预拦截',
+        POST_BLOCK: '新闻冷却',
+        BIAS_ACTIVE: '新闻偏向',
+        TRACKING: '追踪中',
+        IDLE: '空窗',
+        NO_CALENDAR: '无日历',
+        DISABLED: '已关闭'
+    };
+    return map[status] || (status ? status.replaceAll('_', ' ') : '暂无数据');
+}
+
+function getNewsEventLabel(news) {
+    const label = String(news?.eventLabel || news?.eventCode || news?.eventName || '').trim();
+    if (!label || label === 'USD tracked event') return 'USD 日历事件';
+    return label;
+}
+
 function updateRuntimeBadge(d) {
     const badge = document.querySelector('.nav-status .status-badge');
     const label = document.getElementById('connectionStatus');
@@ -6168,6 +6198,7 @@ function updateEvaluationCountdown(d) {
 
 function updateExecutionRadar(d) {
     const runtime = d?.runtime || {};
+    const news = d?.news || {};
     const runtimeMeta = getStatusMeta(runtime.tradeStatus || 'NO_DATA');
     const estimatedServerTime = getEstimatedServerTime(d);
     const nextH1 = estimatedServerTime ? getNextMinuteBoundary(estimatedServerTime, 15) : null;
@@ -6256,6 +6287,30 @@ function updateExecutionRadar(d) {
     byId('radarOpportunityMeta').textContent = bestOpportunity ? `评分 ${bestOpportunity.score.toFixed(0)}/100 | ${bestOpportunity.reason}` : '等待新的高质量机会';
     byId('radarBlockers').textContent = blockerValue;
     byId('radarBlockersMeta').textContent = blockerMeta;
+
+    const newsStatus = getNewsStatusText(news);
+    const trackedEvents = Number.isFinite(Number(news.trackedEvents)) ? Number(news.trackedEvents) : 0;
+    const minutesToEvent = Number(news.minutesToEvent || 0);
+    const minutesSinceEvent = Number(news.minutesSinceEvent || 0);
+    const newsReason = translateDiagnosticReason(news.reason || '');
+    const eventLabel = getNewsEventLabel(news);
+    const eventCode = String(news.eventCode || '').trim();
+    const eventKind = String(news.eventKind || '').trim();
+    const newsMetaParts = [
+        news.calendarAvailable ? `已读 ${trackedEvents} 条 USD 日历` : 'MT5 日历不可用',
+        news.blocked ? '当前阻止入场' : '当前不阻止',
+        news.biasActive ? `偏向 ${news.usdBias || 'NEUTRAL'}` : ''
+    ].filter(Boolean);
+    const newsTimeText = news.eventTimeServer
+        ? `服务器 ${news.eventTimeServer}${minutesToEvent > 0 ? ` | ${minutesToEvent}m 后` : (minutesSinceEvent > 0 ? ` | 已过 ${minutesSinceEvent}m` : '')}`
+        : '服务器时间 --';
+
+    byId('radarNewsStatus').textContent = newsStatus;
+    byId('radarNewsMeta').textContent = newsReason || newsMetaParts.join(' | ');
+    byId('radarNewsEvent').textContent = eventLabel;
+    byId('radarNewsTime').textContent = [newsTimeText, eventCode && eventCode !== eventLabel ? `代码 ${eventCode}` : '', eventKind && eventKind !== eventLabel ? eventKind : '']
+        .filter(Boolean)
+        .join(' | ');
 }
 
 function updateSidebarSummary(d) {

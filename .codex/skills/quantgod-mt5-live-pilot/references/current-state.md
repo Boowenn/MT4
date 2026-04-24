@@ -56,6 +56,7 @@ Responsibilities:
 - Provide Shadow Outcome Ledger so range-blocked and no-trade M15 opportunities gain post-outcome labels before anyone considers a shadow-only route change
 - Provide Shadow Candidate Router V1 so candidate routes can be compared by post-outcome evidence before they are eligible for Backtest Lab review
 - Provide Manual Alpha Ledger as a separate learning surface for discretionary trades; promotion from manual alpha to EA automation requires a later shadow-only route plus backtest and live-forward validation
+- Surface the MT5 USD news filter state in `QuantGod_Dashboard.json` and the dashboard execution radar, including event code/kind/label, countdown, server event time, tracked-event count, block state, and bias state
 
 Non-responsibilities in phase 1:
 
