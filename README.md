@@ -208,7 +208,7 @@ This will:
 - sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
 - restart the official HFM MT5 client in live pilot mode
 - arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
-- keep `USDJPYc` blocked if you already have a manual position on that symbol
+- keep manual positions protected by the safety guard, but separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
 - start the local dashboard server against the HFM files folder
 - open the dashboard with a cache-busting timestamp
 
