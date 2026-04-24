@@ -3049,11 +3049,24 @@ void CollectTradeJournal(TradeJournalRecord &journal[])
 
       long entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
       string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+      string attributionComment = comment;
+      ulong positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+      if(IsExitDeal(entryType))
+      {
+         ulong entryTicket = 0;
+         FindPositionEntryDeal(positionId, entryTicket);
+         if(entryTicket != 0)
+         {
+            string entryComment = HistoryDealGetString(entryTicket, DEAL_COMMENT);
+            if(StringLen(TrimString(entryComment)) > 0)
+               attributionComment = entryComment;
+         }
+      }
       RegimeSnapshot regime = EvaluateRegimeAt(symbol, PERIOD_H1, (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME));
 
       TradeJournalRecord record;
       record.dealTicket = dealTicket;
-      record.positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+      record.positionId = positionId;
       record.eventType = IsExitDeal(entryType) ? "EXIT" : "ENTRY";
       record.side = DealEntryToPositionTypeString(dealType);
       record.symbol = symbol;
@@ -3064,8 +3077,8 @@ void CollectTradeJournal(TradeJournalRecord &journal[])
       record.swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
       record.netProfit = record.grossProfit + record.commission + record.swap;
       record.eventTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
-      record.strategy = InferStrategyFromComment(comment);
-      record.source = InferTradeSource(comment);
+      record.strategy = InferStrategyFromComment(attributionComment);
+      record.source = InferTradeSource(attributionComment);
       record.comment = comment;
       record.regime = regime.label;
       record.regimeTimeframe = regime.timeframe;
