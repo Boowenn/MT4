@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.11"
+#property version   "3.12"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.11-mt5-live-pilot-manual-safety";
+input string DashboardBuild      = "QuantGod-v3.12-mt5-live-pilot-trailing";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -29,11 +29,19 @@ input bool   EnablePilotBreakevenProtect = true;
 input int    PilotBreakevenMinAgeMinutes = 60;
 input double PilotBreakevenTriggerPips = 6.0;
 input double PilotBreakevenLockPips    = 1.0;
+input bool   EnablePilotTrailingStop   = true;
+input double PilotTrailingStartPips    = 10.0;
+input double PilotTrailingDistancePips = 5.0;
+input double PilotTrailingStepPips     = 1.0;
 input bool   EnableManualSafetyGuard    = true;
 input bool   ManualSafetyWatchlistOnly  = true;
 input double ManualSafetyInitialSLPips  = 25.0;
 input double ManualSafetyBreakevenTriggerPips = 8.0;
 input double ManualSafetyBreakevenLockPips    = 1.0;
+input bool   EnableManualTrailingStop   = true;
+input double ManualSafetyTrailingStartPips    = 10.0;
+input double ManualSafetyTrailingDistancePips = 6.0;
+input double ManualSafetyTrailingStepPips     = 1.0;
 input double ManualSafetyMaxLossUSC     = 20.0;
 input bool   ManualSafetyCloseOnMaxLoss = true;
 input int    PilotFastMAPeriod        = 9;
@@ -1703,7 +1711,11 @@ bool ModifyPilotPositionStops(ulong ticket, string symbol, double slPrice, doubl
 
 void ManagePilotBreakevenStops()
 {
-   if(!EnablePilotBreakevenProtect || PilotBreakevenTriggerPips <= 0.0)
+   bool breakevenOn = (EnablePilotBreakevenProtect && PilotBreakevenTriggerPips > 0.0);
+   bool trailingOn = (EnablePilotTrailingStop &&
+                      PilotTrailingStartPips > 0.0 &&
+                      PilotTrailingDistancePips > 0.0);
+   if(!breakevenOn && !trailingOn)
       return;
 
    int total = PositionsTotal();
@@ -1742,41 +1754,59 @@ void ManagePilotBreakevenStops()
       double lockPips = MathMax(0.0, PilotBreakevenLockPips);
       double favorablePips = 0.0;
       double targetSL = 0.0;
+      bool shouldModify = false;
 
       int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
       int freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
       double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point + point;
+      double stepDistance = MathMax(0.1, PilotTrailingStepPips) * pip;
 
       if(positionType == POSITION_TYPE_BUY)
       {
          favorablePips = (tick.bid - openPrice) / pip;
-         if(favorablePips < PilotBreakevenTriggerPips)
+         if(breakevenOn && favorablePips >= PilotBreakevenTriggerPips)
+            targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
+         if(trailingOn && favorablePips >= PilotTrailingStartPips)
+         {
+            double trailingSL = NormalizeDouble(tick.bid - PilotTrailingDistancePips * pip, digits);
+            if(targetSL <= 0.0 || trailingSL > targetSL)
+               targetSL = trailingSL;
+         }
+         if(targetSL <= 0.0)
             continue;
 
-         targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
-         if(currentSL > 0.0 && currentSL >= targetSL - point)
+         if(currentSL > 0.0 && currentSL >= targetSL - stepDistance)
             continue;
          if(targetSL > tick.bid - minDistance)
             continue;
+         shouldModify = true;
       }
       else if(positionType == POSITION_TYPE_SELL)
       {
          favorablePips = (openPrice - tick.ask) / pip;
-         if(favorablePips < PilotBreakevenTriggerPips)
+         if(breakevenOn && favorablePips >= PilotBreakevenTriggerPips)
+            targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
+         if(trailingOn && favorablePips >= PilotTrailingStartPips)
+         {
+            double trailingSL = NormalizeDouble(tick.ask + PilotTrailingDistancePips * pip, digits);
+            if(targetSL <= 0.0 || trailingSL < targetSL)
+               targetSL = trailingSL;
+         }
+         if(targetSL <= 0.0)
             continue;
 
-         targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
-         if(currentSL > 0.0 && currentSL <= targetSL + point)
+         if(currentSL > 0.0 && currentSL <= targetSL + stepDistance)
             continue;
          if(targetSL < tick.ask + minDistance)
             continue;
+         shouldModify = true;
       }
       else
          continue;
 
-      if(ModifyPilotPositionStops(ticket, symbol, targetSL, currentTP))
+      if(shouldModify && ModifyPilotPositionStops(ticket, symbol, targetSL, currentTP))
       {
-         Print("QuantGod MT5 breakeven protected ticket=", ticket,
+         Print("QuantGod MT5 pilot stop protected ticket=", ticket,
                " symbol=", symbol,
                " age=", ageMinutes, "m",
                " favorablePips=", DoubleToString(favorablePips, 1),
@@ -1829,7 +1859,11 @@ void ManageManualSafetyGuard()
          continue;
       }
 
-      if(ManualSafetyInitialSLPips <= 0.0)
+      bool initialSlOn = (ManualSafetyInitialSLPips > 0.0);
+      bool trailingOn = (EnableManualTrailingStop &&
+                         ManualSafetyTrailingStartPips > 0.0 &&
+                         ManualSafetyTrailingDistancePips > 0.0);
+      if(!initialSlOn && !trailingOn)
          continue;
 
       double pip = PipSize(symbol);
@@ -1855,20 +1889,27 @@ void ManageManualSafetyGuard()
       int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
       int freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
       double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point + point;
+      double stepDistance = MathMax(0.1, ManualSafetyTrailingStepPips) * pip;
 
       if(positionType == POSITION_TYPE_BUY)
       {
          favorablePips = (tick.bid - openPrice) / pip;
-         double fallbackSL = NormalizeDouble(openPrice - ManualSafetyInitialSLPips * pip, digits);
+         double fallbackSL = initialSlOn ? NormalizeDouble(openPrice - ManualSafetyInitialSLPips * pip, digits) : 0.0;
          if(ManualSafetyBreakevenTriggerPips > 0.0 &&
             favorablePips >= ManualSafetyBreakevenTriggerPips)
             targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
-         else if(currentSL <= 0.0 || currentSL < fallbackSL - point)
+         if(trailingOn && favorablePips >= ManualSafetyTrailingStartPips)
+         {
+            double trailingSL = NormalizeDouble(tick.bid - ManualSafetyTrailingDistancePips * pip, digits);
+            if(targetSL <= 0.0 || trailingSL > targetSL)
+               targetSL = trailingSL;
+         }
+         if(targetSL <= 0.0 && initialSlOn && (currentSL <= 0.0 || currentSL < fallbackSL - point))
             targetSL = fallbackSL;
-         else
+         if(targetSL <= 0.0)
             continue;
 
-         if(currentSL > 0.0 && currentSL >= targetSL - point)
+         if(currentSL > 0.0 && currentSL >= targetSL - stepDistance)
             continue;
          if(targetSL > tick.bid - minDistance)
             continue;
@@ -1877,16 +1918,22 @@ void ManageManualSafetyGuard()
       else if(positionType == POSITION_TYPE_SELL)
       {
          favorablePips = (openPrice - tick.ask) / pip;
-         double fallbackSL = NormalizeDouble(openPrice + ManualSafetyInitialSLPips * pip, digits);
+         double fallbackSL = initialSlOn ? NormalizeDouble(openPrice + ManualSafetyInitialSLPips * pip, digits) : 0.0;
          if(ManualSafetyBreakevenTriggerPips > 0.0 &&
             favorablePips >= ManualSafetyBreakevenTriggerPips)
             targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
-         else if(currentSL <= 0.0 || currentSL > fallbackSL + point)
+         if(trailingOn && favorablePips >= ManualSafetyTrailingStartPips)
+         {
+            double trailingSL = NormalizeDouble(tick.ask + ManualSafetyTrailingDistancePips * pip, digits);
+            if(targetSL <= 0.0 || trailingSL < targetSL)
+               targetSL = trailingSL;
+         }
+         if(targetSL <= 0.0 && initialSlOn && (currentSL <= 0.0 || currentSL > fallbackSL + point))
             targetSL = fallbackSL;
-         else
+         if(targetSL <= 0.0)
             continue;
 
-         if(currentSL > 0.0 && currentSL <= targetSL + point)
+         if(currentSL > 0.0 && currentSL <= targetSL + stepDistance)
             continue;
          if(targetSL < tick.ask + minDistance)
             continue;
