@@ -347,15 +347,27 @@ $runSummaryPath = Join-Path $runDir "QuantGod_BacktestSummary.json"
 $latestSummaryPath = Join-Path $latestDir "QuantGod_BacktestSummary.json"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($runSummaryPath, $summaryJson, $utf8NoBom)
-[System.IO.File]::WriteAllText($latestSummaryPath, $summaryJson, $utf8NoBom)
 
-if (Test-Path -LiteralPath $hfmFiles) {
-    Copy-Item -LiteralPath $latestSummaryPath -Destination (Join-Path $hfmFiles "QuantGod_BacktestSummary.json") -Force
+$publishSummary = $RunTerminal -or -not (Test-Path -LiteralPath $latestSummaryPath)
+if ($publishSummary) {
+    [System.IO.File]::WriteAllText($latestSummaryPath, $summaryJson, $utf8NoBom)
+
+    if (Test-Path -LiteralPath $hfmFiles) {
+        Copy-Item -LiteralPath $latestSummaryPath -Destination (Join-Path $hfmFiles "QuantGod_BacktestSummary.json") -Force
+    }
 }
 
 Write-Host "QuantGod Backtest Lab V1 summary written:"
 Write-Host "  $runSummaryPath"
-Write-Host "  $latestSummaryPath"
+if ($publishSummary) {
+    Write-Host "  $latestSummaryPath"
+} else {
+    Write-Host "Latest effective tester summary preserved:"
+    Write-Host "  $latestSummaryPath"
+}
 if (-not $RunTerminal) {
     Write-Host "Configs are ready. To launch MT5 Strategy Tester, rerun with -RunTerminal."
+    if (-not $publishSummary) {
+        Write-Host "CONFIG_READY summary was archived but not published to HFM Files."
+    }
 }

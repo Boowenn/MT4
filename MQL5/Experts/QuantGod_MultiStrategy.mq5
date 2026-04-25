@@ -1786,6 +1786,15 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
    bool slowSlopeUp = (slow1 >= slow2);
    bool slowSlopeDown = (slow1 <= slow2);
    RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, eventBarTime);
+   MqlTick routeTick;
+   ZeroMemory(routeTick);
+   double routeSpreadPips = 0.0;
+   bool lowSpreadForResearch = false;
+   if(SymbolInfoTick(symbol, routeTick) && routeTick.bid > 0.0 && routeTick.ask > 0.0)
+   {
+      routeSpreadPips = CalcSpreadPips(symbol, routeTick.bid, routeTick.ask);
+      lowSpreadForResearch = (routeSpreadPips <= PilotMaxSpreadPips);
+   }
 
    if(!freshCross && buyTrend && bullishStructure && close1 >= fast1 && fastDistanceAtr <= 1.20)
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", 1, 66.0,
@@ -1806,49 +1815,61 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
 
    bool isUsdJpy = (StringFind(symbol, "USDJPY") >= 0);
    double touchTolerance = atr1 * 0.25;
-   if(isUsdJpy && buyTrend && bullishStructure && low1 <= fast1 + touchTolerance && close1 >= fast1)
+   bool usdJpyRangePullback = (isUsdJpy && lowSpreadForResearch &&
+                               (regime.label == "RANGE" || regime.label == "RANGE_TIGHT") &&
+                               MathAbs(close1 - fast1) <= atr1 * 0.85);
+   if(isUsdJpy && lowSpreadForResearch && buyTrend && bullishStructure && low1 <= fast1 + touchTolerance && close1 >= fast1)
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_PULLBACK_BOUNCE", 1, 68.0,
                                      "USDJPY pullback touched fast EMA and closed back above it",
                                      "Shadow-only USDJPY pullback/bounce candidate");
-   else if(isUsdJpy && sellTrend && bearishStructure && high1 >= fast1 - touchTolerance && close1 <= fast1)
+   else if(isUsdJpy && lowSpreadForResearch && sellTrend && bearishStructure && high1 >= fast1 - touchTolerance && close1 <= fast1)
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_PULLBACK_BOUNCE", -1, 68.0,
                                      "USDJPY pullback touched fast EMA and closed back below it",
                                      "Shadow-only USDJPY pullback/bounce candidate");
+   else if(usdJpyRangePullback && bullishClose && close1 >= fast1 && fastSlopeUp)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_PULLBACK_BOUNCE", 1, 61.0,
+                                     "USDJPY low-spread range pullback reclaimed fast EMA",
+                                     "Shadow-only Manual Alpha inspired USDJPY pullback sample; live entries unchanged");
+   else if(usdJpyRangePullback && bearishClose && close1 <= fast1 && fastSlopeDown)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_PULLBACK_BOUNCE", -1, 61.0,
+                                     "USDJPY low-spread range pullback rejected fast EMA",
+                                     "Shadow-only Manual Alpha inspired USDJPY pullback sample; live entries unchanged");
 
    if(regime.label == "RANGE" || regime.label == "RANGE_TIGHT")
    {
-      if(close1 > fast1 && fast1 >= fast2)
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RANGE_SOFT", 1, 54.0,
-                                        "Range regime with short-term bullish drift",
-                                        "Shadow-only range-soft candidate; live range guard unchanged");
-      else if(close1 < fast1 && fast1 <= fast2)
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RANGE_SOFT", -1, 54.0,
-                                        "Range regime with short-term bearish drift",
-                                        "Shadow-only range-soft candidate; live range guard unchanged");
+      if(lowSpreadForResearch && close1 > fast1 && fast1 >= fast2 && bullishClose && fastDistanceAtr <= 0.90)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RANGE_SOFT", 1, 46.0,
+                                        "Low-spread range with tighter bullish drift confirmation",
+                                        "Deprioritized shadow-only range-soft candidate after weak post-outcomes; live range guard unchanged");
+      else if(lowSpreadForResearch && close1 < fast1 && fast1 <= fast2 && bearishClose && fastDistanceAtr <= 0.90)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RANGE_SOFT", -1, 46.0,
+                                        "Low-spread range with tighter bearish drift confirmation",
+                                        "Deprioritized shadow-only range-soft candidate after weak post-outcomes; live range guard unchanged");
    }
 
    double rsi1 = RSIValue(symbol, PilotSignalTimeframe, 14, 1);
    double rsi2 = RSIValue(symbol, PilotSignalTimeframe, 14, 2);
-   if(rsi1 > 0.0)
+   bool rsiResearchRegime = (lowSpreadForResearch && (regime.label == "RANGE" || regime.label == "RANGE_TIGHT"));
+   if(rsi1 > 0.0 && rsiResearchRegime)
    {
       if(rsi1 <= 30.0 && close1 >= open1)
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", 1, 57.0,
-                                        "RSI oversold with bullish close",
-                                        "Shadow-only RSI reversal candidate");
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", 1, 60.0,
+                                        "Low-spread range RSI oversold with bullish close",
+                                        "Shadow-only RSI reversal candidate with stricter research filters");
       else if(rsi1 >= 70.0 && close1 <= open1)
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 57.0,
-                                        "RSI overbought with bearish close",
-                                        "Shadow-only RSI reversal candidate");
-      else if((rsi1 <= 42.0 && bullishClose) ||
-              (rsi2 > 0.0 && rsi2 <= 35.0 && rsi1 > rsi2 + 2.0 && close1 >= fast1 - atr1 * 0.35))
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", 1, 52.0,
-                                        "Soft RSI bullish reversal pressure",
-                                        "Shadow-only soft RSI reversal sample; live entries unchanged");
-      else if((rsi1 >= 58.0 && bearishClose) ||
-              (rsi2 > 0.0 && rsi2 >= 65.0 && rsi1 < rsi2 - 2.0 && close1 <= fast1 + atr1 * 0.35))
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 52.0,
-                                        "Soft RSI bearish reversal pressure",
-                                        "Shadow-only soft RSI reversal sample; live entries unchanged");
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 60.0,
+                                        "Low-spread range RSI overbought with bearish close",
+                                        "Shadow-only RSI reversal candidate with stricter research filters");
+      else if((rsi1 <= 38.0 && bullishClose && close1 >= fast1 - atr1 * 0.20) ||
+              (rsi2 > 0.0 && rsi2 <= 32.0 && rsi1 > rsi2 + 2.5 && close1 >= fast1 - atr1 * 0.25))
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", 1, 55.0,
+                                        "Low-spread range soft RSI bullish reversal pressure",
+                                        "Shadow-only soft RSI reversal sample with stricter filters; live entries unchanged");
+      else if((rsi1 >= 62.0 && bearishClose && close1 <= fast1 + atr1 * 0.20) ||
+              (rsi2 > 0.0 && rsi2 >= 68.0 && rsi1 < rsi2 - 2.5 && close1 <= fast1 + atr1 * 0.25))
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "RSI_REVERSAL_SHADOW", -1, 55.0,
+                                        "Low-spread range soft RSI bearish reversal pressure",
+                                        "Shadow-only soft RSI reversal sample with stricter filters; live entries unchanged");
    }
 
    double upperBand = BandsValue(symbol, PilotSignalTimeframe, 20, 2.0, 1, 1);
@@ -1877,22 +1898,22 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
       double macdHist1 = macdMain1 - macdSignal1;
       double macdHist2 = macdMain2 - macdSignal2;
       double macdHist3 = (macdMain3 != EMPTY_VALUE && macdSignal3 != EMPTY_VALUE) ? macdMain3 - macdSignal3 : macdHist2;
-      if(macdMain2 <= macdSignal2 && macdMain1 > macdSignal1)
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 58.0,
-                                        "MACD crossed upward on M15",
-                                        "Shadow-only MACD momentum candidate");
-      else if(macdMain2 >= macdSignal2 && macdMain1 < macdSignal1)
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 58.0,
-                                        "MACD crossed downward on M15",
-                                        "Shadow-only MACD momentum candidate");
-      else if(macdHist1 > macdHist2 && macdHist2 > macdHist3 && (close1 >= fast1 || buyTrend))
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 53.0,
-                                        "MACD histogram rising for two bars",
-                                        "Shadow-only soft MACD momentum sample; live entries unchanged");
-      else if(macdHist1 < macdHist2 && macdHist2 < macdHist3 && (close1 <= fast1 || sellTrend))
-         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 53.0,
-                                        "MACD histogram falling for two bars",
-                                        "Shadow-only soft MACD momentum sample; live entries unchanged");
+      if(lowSpreadForResearch && buyTrend && bullishClose && macdMain2 <= macdSignal2 && macdMain1 > macdSignal1 && close1 >= fast1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 49.0,
+                                        "Low-spread MACD upward cross with trend and EMA confirmation",
+                                        "Deprioritized shadow-only MACD momentum candidate after weak post-outcomes");
+      else if(lowSpreadForResearch && sellTrend && bearishClose && macdMain2 >= macdSignal2 && macdMain1 < macdSignal1 && close1 <= fast1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 49.0,
+                                        "Low-spread MACD downward cross with trend and EMA confirmation",
+                                        "Deprioritized shadow-only MACD momentum candidate after weak post-outcomes");
+      else if(lowSpreadForResearch && buyTrend && bullishClose && macdHist1 > macdHist2 && macdHist2 > macdHist3 && close1 >= fast1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", 1, 44.0,
+                                        "Low-spread MACD histogram rising with trend confirmation",
+                                        "Deprioritized shadow-only soft MACD sample; live entries unchanged");
+      else if(lowSpreadForResearch && sellTrend && bearishClose && macdHist1 < macdHist2 && macdHist2 < macdHist3 && close1 <= fast1)
+         AppendShadowCandidateLedgerRow(symbol, eventBarTime, "MACD_MOMENTUM_TURN", -1, 44.0,
+                                        "Low-spread MACD histogram falling with trend confirmation",
+                                        "Deprioritized shadow-only soft MACD sample; live entries unchanged");
    }
 
    int breakoutLookback = 12;
@@ -1911,22 +1932,14 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
    }
    double breakoutBuffer = MathMax(2.0 * pip, atr1 * 0.10);
    double candleMid = (high1 + low1) * 0.5;
-   if(priorHigh > 0.0 && close1 > priorHigh)
-      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", 1, 62.0,
-                                     "M15 close broke above recent resistance",
-                                     "Shadow-only support/resistance breakout candidate");
-   else if(priorLow > 0.0 && close1 < priorLow)
-      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", -1, 62.0,
-                                     "M15 close broke below recent support",
-                                     "Shadow-only support/resistance breakout candidate");
-   else if(priorHigh > 0.0 && close1 >= priorHigh - breakoutBuffer && bullishClose && close1 >= candleMid)
-      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", 1, 55.0,
-                                     "Soft resistance breakout pressure near prior high",
-                                     "Shadow-only soft support/resistance breakout sample; live entries unchanged");
-   else if(priorLow > 0.0 && close1 <= priorLow + breakoutBuffer && bearishClose && close1 <= candleMid)
-      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", -1, 55.0,
-                                     "Soft support breakdown pressure near prior low",
-                                     "Shadow-only soft support/resistance breakout sample; live entries unchanged");
+   if(lowSpreadForResearch && buyTrend && bullishClose && priorHigh > 0.0 && close1 > priorHigh + breakoutBuffer)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", 1, 47.0,
+                                     "Low-spread trend-aligned close broke above resistance with buffer",
+                                     "Deprioritized shadow-only support/resistance breakout candidate after weak post-outcomes");
+   else if(lowSpreadForResearch && sellTrend && bearishClose && priorLow > 0.0 && close1 < priorLow - breakoutBuffer)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "SR_BREAKOUT_SHADOW", -1, 47.0,
+                                     "Low-spread trend-aligned close broke below support with buffer",
+                                     "Deprioritized shadow-only support/resistance breakout candidate after weak post-outcomes");
 }
 
 bool LoadShadowSignalLedgerRecords(ShadowSignalLedgerRecord &records[])

@@ -239,7 +239,7 @@ By default it does not interrupt the live HFM terminal. It writes a local summar
 archive/backtests/latest/QuantGod_BacktestSummary.json
 ```
 
-and copies that summary to the HFM Files folder so the dashboard can render the `回测 vs 实盘` comparison card.
+and copies that summary to the HFM Files folder so the dashboard can render the `回测 vs 实盘` comparison card. A no-terminal config-only run archives its own `CONFIG_READY` summary under `archive/backtests/runs/`, but it does not overwrite the latest effective tester result already published to HFM Files.
 
 If you intentionally want to launch the HFM MT5 Strategy Tester, run:
 
@@ -261,6 +261,7 @@ Shadow Signal Ledger:
 - `QuantGod_ShadowCandidateLedger.csv` and `QuantGod_ShadowCandidateOutcomeLedger.csv` track shadow-only route candidates before any backtest or live pilot expansion.
 - V1 candidate routes include `TREND_CONT_NO_CROSS`, `USDJPY_PULLBACK_BOUNCE`, `RANGE_SOFT`, `RSI_REVERSAL_SHADOW`, `BB_TRIPLE_SHADOW`, `MACD_MOMENTUM_TURN`, and `SR_BREAKOUT_SHADOW`.
 - Candidate Router V1.1 adds soft shadow triggers for trend continuation, RSI reversal, MACD histogram turns, and near support/resistance breakouts to increase sample speed without changing live `OrderSend` gating.
+- Candidate Router V1.2 keeps live entries unchanged while applying the 2026-04-25 evidence pass: `USDJPY_PULLBACK_BOUNCE` receives stricter low-spread Manual Alpha inspired samples, `RSI_REVERSAL_SHADOW` is limited to low-spread range regimes, and weak post-outcome routes (`RANGE_SOFT`, `MACD_MOMENTUM_TURN`, `SR_BREAKOUT_SHADOW`) are lower-score and require stronger confirmation.
 - It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
 
 News Filter Visibility:
