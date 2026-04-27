@@ -2559,6 +2559,20 @@ string LegacyPilotAggregateJson(string strategyKey, string scopeSymbol)
    return json;
 }
 
+string LegacyPilotAggregateScopeSymbol(string strategyKey, string fallbackSymbol)
+{
+   if(FindSymbolIndex(fallbackSymbol) >= 0 && LegacyPilotRouteInScope(strategyKey, fallbackSymbol))
+      return fallbackSymbol;
+
+   for(int i = 0; i < ArraySize(g_symbols); i++)
+   {
+      if(LegacyPilotRouteInScope(strategyKey, g_symbols[i]))
+         return g_symbols[i];
+   }
+
+   return fallbackSymbol;
+}
+
 bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode)
 {
    direction = 0;
@@ -3890,7 +3904,7 @@ string BuildRootStrategyJson(string strategyKey)
    if(strategyKey == "MA_Cross" && (EnablePilotMA || IsPilotLiveMode()))
       return PilotAggregateJson(g_focusSymbol);
    if(strategyKey != "MA_Cross" && IsLegacyPilotRouteCandidateEnabled(strategyKey))
-      return LegacyPilotAggregateJson(strategyKey, g_focusSymbol);
+      return LegacyPilotAggregateJson(strategyKey, LegacyPilotAggregateScopeSymbol(strategyKey, g_focusSymbol));
 
    string reason = "MT5 phase 1 skeleton: adaptive control and strategy execution have not been ported yet";
    return StrategyPlaceholderJson(g_focusSymbol, reason);

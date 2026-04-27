@@ -2,7 +2,7 @@
 
 MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard, and a virtual small-account research mode.
 
-The repository now also includes an MT5 migration track that exports dashboard-compatible runtime JSON/CSV, plus a tightly constrained HFM Cent live pilot at `0.01` lot. `MA_Cross` remains the default real-money route in the live preset; the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes are now ported as candidate/backtest/live-gated routes for controlled validation.
+The repository now also includes an MT5 migration track that exports dashboard-compatible runtime JSON/CSV, plus a tightly constrained HFM Cent live pilot at `0.01` lot. `MA_Cross` remains the default real-money route in the live preset, and the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes are now all enabled as controlled live-gated routes for faster forward sampling while preserving the shared `0.01` lot, one-position cap, hard `SL/TP`, news, spread, session, cooldown, portfolio, and kill-switch controls.
 
 For HFM Cent live-account work, use the official HFM MT5 client at `C:\Program Files\HFM Metatrader 5`. The generic `C:\Program Files\MetaTrader 5` install may contain stale migration smoke data and should not be treated as the live-account source of truth.
 
@@ -52,7 +52,7 @@ The MT5 work is intentionally split into phases:
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
 - executes `MA_Cross` in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
-- ports the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` signal routes into MT5 as candidate/backtest/live-gated routes; the shipped HFM live preset keeps their live switches off until validation
+- ports the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` signal routes into MT5 as candidate/backtest/live-gated routes; the shipped HFM live preset now enables all four legacy live switches under the same `0.01` lot and one-position pilot controls to speed up forward sampling
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` plus tester presets that can validate the legacy routes on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
@@ -63,7 +63,7 @@ The MT5 work is intentionally split into phases:
 - port adaptive controls and research statistics
 - port trade labeling, linkage, and regime reports
 
-Important: the current MT5 implementation is still a partial port. In the shipped HFM live preset, the only real-money automation enabled by default is the constrained `MA_Cross` live pilot. Legacy routes are available for candidate/backtest validation and require their explicit `EnablePilot*Live` switch plus the shared pilot risk controls before they can send orders.
+Important: the current MT5 implementation is still a partial port. In the shipped HFM live preset, real-money automation is limited by shared pilot controls rather than by a single legacy route: `MA_Cross`, `USDJPY RSI_Reversal H1`, `BB_Triple H1`, `MACD_Divergence H1`, and `SR_Breakout M15` may all send orders only when their own signal and the shared `0.01` lot, one-position, spread/session/news/cooldown/portfolio/order-send, hard-SL, and kill-switch checks pass.
 
 ## Strategies
 
@@ -213,7 +213,7 @@ This will:
 - sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
 - restart the official HFM MT5 client in live pilot mode
 - arm `MA_Cross` with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
-- load the legacy MT4 route ports (`USDJPY RSI_Reversal H1`, `BB_Triple H1`, `MACD_Divergence H1`, `SR_Breakout M15`) as candidate-only by default; they can populate dashboard status and candidate ledgers but cannot send live orders unless their explicit live switch is enabled after validation
+- load the legacy MT4 route ports with `RSI_Reversal H1`, `BB_Triple H1`, `MACD_Divergence H1`, and `SR_Breakout M15` live-gated on for controlled `0.01` forward sampling; `USDJPY RSI_Reversal H1` remains scoped to USDJPY, and all routes still share the same one-position and risk controls
 - keep manual positions protected by the safety guard across all symbols, including XAUUSDc, while keeping them separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
 - append Shadow Signal Ledger rows for each new M15 pilot evaluation, including signal, no-signal, range/spread/session/news/cooldown blocks, and order-send outcomes
 - export Shadow Outcome Ledger rows for completed 15/30/60 minute horizons from the Shadow Signal Ledger; this is analysis-only and never changes live entry rules
@@ -268,7 +268,7 @@ Shadow Signal Ledger:
 - V1 candidate routes include `TREND_CONT_NO_CROSS`, `USDJPY_PULLBACK_BOUNCE`, `RANGE_SOFT`, `RSI_REVERSAL_SHADOW`, `BB_TRIPLE_SHADOW`, `MACD_MOMENTUM_TURN`, and `SR_BREAKOUT_SHADOW`.
 - Candidate Router V1.1 adds soft shadow triggers for trend continuation, RSI reversal, MACD histogram turns, and near support/resistance breakouts to increase sample speed without changing live `OrderSend` gating.
 - Candidate Router V1.2 keeps live entries unchanged while applying the 2026-04-25 evidence pass: `USDJPY_PULLBACK_BOUNCE` receives stricter low-spread Manual Alpha inspired samples, `RSI_REVERSAL_SHADOW` is limited to low-spread range regimes, and weak post-outcome routes (`RANGE_SOFT`, `MACD_MOMENTUM_TURN`, `SR_BREAKOUT_SHADOW`) are lower-score and require stronger confirmation.
-- Legacy Route Port V1 adds executable MT5 signal evaluation for the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes. The live preset keeps them candidate-only by default; backtest presets can enable their live switches inside Strategy Tester.
+- Legacy Route Port V1 adds executable MT5 signal evaluation for the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes. The live preset now enables all four legacy live switches for controlled `0.01` forward sampling, while backtest presets still validate the same route family inside Strategy Tester.
 - It must not be used by itself to loosen risk; it is an additional evidence layer beside Backtest Lab and live `0.01` forward outcomes.
 
 News Filter Visibility:
@@ -356,7 +356,7 @@ The dashboard shows:
 - strategy profit distribution
 - daily research P&L
 
-In MT5 phase 1, the same dashboard renders from MT5 runtime files. `MA_Cross` is the default live route, while the four legacy MT4 routes now expose candidate/backtest/live-gated status instead of remaining pure placeholders.
+In MT5 phase 1, the same dashboard renders from MT5 runtime files. `MA_Cross` is the default live route, and the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes now expose real live-gated status instead of remaining pure placeholders. Their live entries are still constrained by the shared `0.01` pilot controls.
 
 ## Key Parameters
 
