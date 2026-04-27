@@ -2795,6 +2795,12 @@ bool IsDowntrendRegimeLabel(string regime)
    return (StringFind(upper, "DOWN") >= 0);
 }
 
+bool IsUptrendRegimeLabel(string regime)
+{
+   string upper = ToUpperString(regime);
+   return (StringFind(upper, "UP") >= 0);
+}
+
 bool CommonLegacyPilotPrecheck(string symbol, ENUM_TIMEFRAMES timeframe, int minBars, MqlTick &tick, string &reason, int &evalCode)
 {
    if(Bars(symbol, timeframe) < minBars)
@@ -2961,6 +2967,13 @@ bool EvaluatePilotBBH1Signal(string symbol, int &direction, double &score, strin
       evalCode = PILOT_EVAL_RANGE_BLOCK;
       return false;
    }
+   if(bbBuySignal && rsiBuySignal && !macdBuyConfirm)
+   {
+      score = buyScore;
+      reason = "BB_Triple candidate tightened: buy requires MACD confirmation";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
+   }
    if(bbBuySignal && rsiBuySignal)
    {
       direction = 1;
@@ -2971,6 +2984,13 @@ bool EvaluatePilotBBH1Signal(string symbol, int &direction, double &score, strin
       reason = "BB_Triple H1 buy setup ported from MT4";
       evalCode = PILOT_EVAL_SIGNAL_BUY;
       return true;
+   }
+   if(bbSellSignal && rsiSellSignal && !macdSellConfirm)
+   {
+      score = sellScore;
+      reason = "BB_Triple candidate tightened: sell requires MACD confirmation";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
    }
    if(bbSellSignal && rsiSellSignal)
    {
@@ -3070,23 +3090,49 @@ bool EvaluatePilotMacdH1Signal(string symbol, int &direction, double &score, str
    bool bullDiv = DetectPilotBullishMacdDivergence(symbol);
    bool bearDiv = DetectPilotBearishMacdDivergence(symbol);
    RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotMacdTimeframe, 0);
-   if(StringFind(ToUpperString(symbol), "EURUSD") >= 0 && bullDiv && IsDowntrendRegimeLabel(regime.label) && !bearDiv)
+   if(bullDiv && IsDowntrendRegimeLabel(regime.label) && !bearDiv)
    {
       score = 100.0;
-      reason = "EURUSD MACD guard skipped bullish divergence in downtrend regime";
+      reason = "MACD candidate tightened: bullish divergence skipped in downtrend regime";
+      evalCode = PILOT_EVAL_RANGE_BLOCK;
+      return false;
+   }
+   if(bearDiv && IsUptrendRegimeLabel(regime.label) && !bullDiv)
+   {
+      score = 100.0;
+      reason = "MACD candidate tightened: bearish divergence skipped in uptrend regime";
       evalCode = PILOT_EVAL_RANGE_BLOCK;
       return false;
    }
 
    double atr1 = ATRValue(symbol, PilotMacdTimeframe, PilotATRPeriod, 1);
+   double macdMain1 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 0, 1);
+   double macdMain2 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 0, 2);
+   double macdSignal1 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 1, 1);
    if(atr1 <= 0.0)
    {
       reason = "MACD H1 ATR unavailable";
       evalCode = PILOT_EVAL_ATR_UNAVAILABLE;
       return false;
    }
+   if(macdMain1 == EMPTY_VALUE || macdMain2 == EMPTY_VALUE || macdSignal1 == EMPTY_VALUE)
+   {
+      reason = "MACD H1 buffers not ready";
+      evalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+      return false;
+   }
+
+   bool bullishMomentumConfirm = (macdMain1 > macdSignal1 && macdMain1 > macdMain2);
+   bool bearishMomentumConfirm = (macdMain1 < macdSignal1 && macdMain1 < macdMain2);
    double stopDistance = atr1 * 2.0;
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(bullDiv && !bullishMomentumConfirm)
+   {
+      score = 70.0;
+      reason = "MACD candidate tightened: bullish divergence requires current MACD momentum confirmation";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
+   }
    if(bullDiv)
    {
       direction = 1;
@@ -3097,6 +3143,13 @@ bool EvaluatePilotMacdH1Signal(string symbol, int &direction, double &score, str
       reason = "MACD_Divergence H1 buy setup ported from MT4";
       evalCode = PILOT_EVAL_SIGNAL_BUY;
       return true;
+   }
+   if(bearDiv && !bearishMomentumConfirm)
+   {
+      score = 70.0;
+      reason = "MACD candidate tightened: bearish divergence requires current MACD momentum confirmation";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
    }
    if(bearDiv)
    {
@@ -3164,6 +3217,13 @@ bool EvaluatePilotSRM15Signal(string symbol, int &direction, double &score, stri
    double sellScore = (double)((sellPrevAbove ? 1 : 0) + (sellBreak ? 1 : 0) + (volumeConfirm ? 1 : 0)) / 3.0 * 100.0;
    double stopDistance = atr1 * 1.5;
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(buyPrevBelow && buyBreak && !volumeConfirm)
+   {
+      score = buyScore;
+      reason = "SR_Breakout candidate tightened: buy breakout requires volume confirmation";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
+   }
    if(buyPrevBelow && buyBreak)
    {
       direction = 1;
@@ -3174,6 +3234,13 @@ bool EvaluatePilotSRM15Signal(string symbol, int &direction, double &score, stri
       reason = "SR_Breakout M15 buy setup ported from MT4";
       evalCode = PILOT_EVAL_SIGNAL_BUY;
       return true;
+   }
+   if(sellPrevAbove && sellBreak && !volumeConfirm)
+   {
+      score = sellScore;
+      reason = "SR_Breakout candidate tightened: sell breakdown requires volume confirmation";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
    }
    if(sellPrevAbove && sellBreak)
    {
