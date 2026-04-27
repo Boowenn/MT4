@@ -19,6 +19,34 @@ input int    ClosedTradeLimit    = 50;
 input int    HistoryLookbackDays = 30;
 input bool   EnablePilotAutoTrading   = false;
 input bool   EnablePilotMA            = true;
+input bool   EnablePilotRsiH1Candidate = true;
+input bool   EnablePilotRsiH1Live      = false;
+input ENUM_TIMEFRAMES PilotRsiTimeframe = PERIOD_H1;
+input int    PilotRsiPeriod           = 2;
+input int    PilotRsiOverbought       = 80;
+input int    PilotRsiOversold         = 20;
+input double PilotRsiBandTolerancePct = 0.008;
+input double PilotRsiATRMultiplierSL  = 1.5;
+input bool   EnablePilotBBH1Candidate = true;
+input bool   EnablePilotBBH1Live      = false;
+input ENUM_TIMEFRAMES PilotBBTimeframe = PERIOD_H1;
+input int    PilotBBPeriod            = 20;
+input double PilotBBDeviation         = 2.0;
+input int    PilotBBRsiPeriod         = 14;
+input int    PilotBBRsiOverbought     = 65;
+input int    PilotBBRsiOversold       = 35;
+input bool   EnablePilotMacdH1Candidate = true;
+input bool   EnablePilotMacdH1Live      = false;
+input ENUM_TIMEFRAMES PilotMacdTimeframe = PERIOD_H1;
+input int    PilotMacdFast            = 12;
+input int    PilotMacdSlow            = 26;
+input int    PilotMacdSignal          = 9;
+input int    PilotMacdLookback        = 24;
+input bool   EnablePilotSRM15Candidate = true;
+input bool   EnablePilotSRM15Live      = false;
+input ENUM_TIMEFRAMES PilotSRTimeframe = PERIOD_M15;
+input int    PilotSRLookback          = 24;
+input double PilotSRBreakPips         = 2.0;
 input ENUM_TIMEFRAMES PilotSignalTimeframe = PERIOD_M15;
 input ENUM_TIMEFRAMES PilotTrendTimeframe  = PERIOD_H1;
 input int    PilotCrossLookbackBars   = 5;
@@ -293,9 +321,17 @@ struct ShadowCandidateLedgerRecord
 };
 
 datetime g_lastPilotBarTime[];
+datetime g_lastRsiPilotBarTime[];
+datetime g_lastBBPilotBarTime[];
+datetime g_lastMacdPilotBarTime[];
+datetime g_lastSRPilotBarTime[];
 datetime g_lastShadowLedgerBarTime[];
 datetime g_lastShadowCandidateLedgerBarTime[];
 StrategyStatusSnapshot g_maRuntimeStates[];
+StrategyStatusSnapshot g_rsiRuntimeStates[];
+StrategyStatusSnapshot g_bbRuntimeStates[];
+StrategyStatusSnapshot g_macdRuntimeStates[];
+StrategyStatusSnapshot g_srRuntimeStates[];
 PilotTelemetrySnapshot g_pilotTelemetry[];
 bool g_pilotKillSwitch = false;
 string g_pilotKillReason = "";
@@ -579,12 +615,24 @@ bool InitializeWatchlist()
       SymbolSelect(g_symbols[i], true);
 
    ArrayResize(g_lastPilotBarTime, ArraySize(g_symbols));
+   ArrayResize(g_lastRsiPilotBarTime, ArraySize(g_symbols));
+   ArrayResize(g_lastBBPilotBarTime, ArraySize(g_symbols));
+   ArrayResize(g_lastMacdPilotBarTime, ArraySize(g_symbols));
+   ArrayResize(g_lastSRPilotBarTime, ArraySize(g_symbols));
    ArrayResize(g_lastShadowLedgerBarTime, ArraySize(g_symbols));
    ArrayResize(g_lastShadowCandidateLedgerBarTime, ArraySize(g_symbols));
    ArrayResize(g_maRuntimeStates, ArraySize(g_symbols));
+   ArrayResize(g_rsiRuntimeStates, ArraySize(g_symbols));
+   ArrayResize(g_bbRuntimeStates, ArraySize(g_symbols));
+   ArrayResize(g_macdRuntimeStates, ArraySize(g_symbols));
+   ArrayResize(g_srRuntimeStates, ArraySize(g_symbols));
    for(int i = 0; i < ArraySize(g_symbols); i++)
    {
       g_lastPilotBarTime[i] = 0;
+      g_lastRsiPilotBarTime[i] = 0;
+      g_lastBBPilotBarTime[i] = 0;
+      g_lastMacdPilotBarTime[i] = 0;
+      g_lastSRPilotBarTime[i] = 0;
       g_lastShadowLedgerBarTime[i] = 0;
       g_lastShadowCandidateLedgerBarTime[i] = 0;
       g_maRuntimeStates[i].enabled = false;
@@ -596,6 +644,10 @@ bool InitializeWatchlist()
       g_maRuntimeStates[i].riskMultiplier = 0.0;
       g_maRuntimeStates[i].score = 0.0;
       g_maRuntimeStates[i].reason = "MT5 pilot runtime has not evaluated yet";
+      g_rsiRuntimeStates[i] = g_maRuntimeStates[i];
+      g_bbRuntimeStates[i] = g_maRuntimeStates[i];
+      g_macdRuntimeStates[i] = g_maRuntimeStates[i];
+      g_srRuntimeStates[i] = g_maRuntimeStates[i];
    }
 
    return true;
@@ -1145,14 +1197,60 @@ bool IsPilotLiveMode()
    return (EnablePilotAutoTrading && !ReadOnlyMode);
 }
 
+bool IsUsdJpySymbol(string symbol)
+{
+   return (StringFind(ToUpperString(symbol), "USDJPY") >= 0);
+}
+
+bool IsLegacyPilotRouteCandidateEnabled(string strategyKey)
+{
+   if(strategyKey == "RSI_Reversal")
+      return (EnablePilotRsiH1Candidate || EnablePilotRsiH1Live);
+   if(strategyKey == "BB_Triple")
+      return (EnablePilotBBH1Candidate || EnablePilotBBH1Live);
+   if(strategyKey == "MACD_Divergence")
+      return (EnablePilotMacdH1Candidate || EnablePilotMacdH1Live);
+   if(strategyKey == "SR_Breakout")
+      return (EnablePilotSRM15Candidate || EnablePilotSRM15Live);
+   return false;
+}
+
+bool IsLegacyPilotRouteLiveEnabled(string strategyKey)
+{
+   if(!IsPilotLiveMode())
+      return false;
+   if(strategyKey == "RSI_Reversal")
+      return EnablePilotRsiH1Live;
+   if(strategyKey == "BB_Triple")
+      return EnablePilotBBH1Live;
+   if(strategyKey == "MACD_Divergence")
+      return EnablePilotMacdH1Live;
+   if(strategyKey == "SR_Breakout")
+      return EnablePilotSRM15Live;
+   return false;
+}
+
 bool IsPilotStrategyComment(string comment)
 {
    string upper = ToUpperString(comment);
-   return (StringFind(upper, "QG_MA_CROSS_MT5") >= 0 || StringFind(upper, "QG_MA_CROSS") >= 0);
+   return (StringFind(upper, "QG_MA_CROSS_MT5") >= 0 ||
+           StringFind(upper, "QG_MA_CROSS") >= 0 ||
+           StringFind(upper, "QG_RSI_REV") >= 0 ||
+           StringFind(upper, "QG_BB_TRIPLE") >= 0 ||
+           StringFind(upper, "QG_MACD_DIV") >= 0 ||
+           StringFind(upper, "QG_SR_BREAK") >= 0);
 }
 
-string PilotTradeComment(int direction)
+string PilotTradeComment(string strategyKey, int direction)
 {
+   if(strategyKey == "RSI_Reversal")
+      return (direction > 0) ? "QG_RSI_Rev_MT5_BUY" : "QG_RSI_Rev_MT5_SELL";
+   if(strategyKey == "BB_Triple")
+      return (direction > 0) ? "QG_BB_Triple_MT5_BUY" : "QG_BB_Triple_MT5_SELL";
+   if(strategyKey == "MACD_Divergence")
+      return (direction > 0) ? "QG_MACD_Div_MT5_BUY" : "QG_MACD_Div_MT5_SELL";
+   if(strategyKey == "SR_Breakout")
+      return (direction > 0) ? "QG_SR_Break_MT5_BUY" : "QG_SR_Break_MT5_SELL";
    return (direction > 0) ? "QG_MA_Cross_MT5_BUY" : "QG_MA_Cross_MT5_SELL";
 }
 
@@ -1198,6 +1296,58 @@ void ResetPilotRuntimeStates()
       g_maRuntimeStates[i].reason = g_maRuntimeStates[i].enabled
          ? "Waiting for first pilot evaluation"
          : "MT5 phase 1 skeleton: execution engine not ported yet";
+
+      bool rsiEnabled = IsLegacyPilotRouteCandidateEnabled("RSI_Reversal") && IsUsdJpySymbol(g_symbols[i]);
+      g_rsiRuntimeStates[i].enabled = rsiEnabled;
+      g_rsiRuntimeStates[i].active = false;
+      g_rsiRuntimeStates[i].runtimeLabel = rsiEnabled ? (IsLegacyPilotRouteLiveEnabled("RSI_Reversal") ? "ON" : "CAND") : "PORT";
+      g_rsiRuntimeStates[i].status = rsiEnabled ? "WAIT_SIGNAL" : "NO_DATA";
+      g_rsiRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("RSI_Reversal") ? "CAUTION" : "CANDIDATE";
+      g_rsiRuntimeStates[i].adaptiveReason = rsiEnabled
+         ? "USDJPY RSI_Reversal H1 route ported from MT4; live entry gated by EnablePilotRsiH1Live and shared pilot risk controls"
+         : "MT5 RSI_Reversal route is scoped to USDJPY candidate/backtest validation";
+      g_rsiRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("RSI_Reversal") ? 1.0 : 0.0;
+      g_rsiRuntimeStates[i].score = 0.0;
+      g_rsiRuntimeStates[i].reason = rsiEnabled ? "Waiting for first H1 RSI evaluation" : "Not in USDJPY RSI candidate scope";
+
+      bool bbEnabled = IsLegacyPilotRouteCandidateEnabled("BB_Triple");
+      g_bbRuntimeStates[i].enabled = bbEnabled;
+      g_bbRuntimeStates[i].active = false;
+      g_bbRuntimeStates[i].runtimeLabel = bbEnabled ? (IsLegacyPilotRouteLiveEnabled("BB_Triple") ? "ON" : "CAND") : "PORT";
+      g_bbRuntimeStates[i].status = bbEnabled ? "WAIT_SIGNAL" : "NO_DATA";
+      g_bbRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("BB_Triple") ? "CAUTION" : "CANDIDATE";
+      g_bbRuntimeStates[i].adaptiveReason = bbEnabled
+         ? "BB_Triple H1 route ported from MT4; live entry gated by EnablePilotBBH1Live and shared pilot risk controls"
+         : "MT5 BB_Triple route is disabled";
+      g_bbRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("BB_Triple") ? 1.0 : 0.0;
+      g_bbRuntimeStates[i].score = 0.0;
+      g_bbRuntimeStates[i].reason = bbEnabled ? "Waiting for first H1 BB evaluation" : "BB_Triple route disabled";
+
+      bool macdEnabled = IsLegacyPilotRouteCandidateEnabled("MACD_Divergence");
+      g_macdRuntimeStates[i].enabled = macdEnabled;
+      g_macdRuntimeStates[i].active = false;
+      g_macdRuntimeStates[i].runtimeLabel = macdEnabled ? (IsLegacyPilotRouteLiveEnabled("MACD_Divergence") ? "ON" : "CAND") : "PORT";
+      g_macdRuntimeStates[i].status = macdEnabled ? "WAIT_SIGNAL" : "NO_DATA";
+      g_macdRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("MACD_Divergence") ? "CAUTION" : "CANDIDATE";
+      g_macdRuntimeStates[i].adaptiveReason = macdEnabled
+         ? "MACD_Divergence H1 route ported from MT4; live entry gated by EnablePilotMacdH1Live and shared pilot risk controls"
+         : "MT5 MACD_Divergence route is disabled";
+      g_macdRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("MACD_Divergence") ? 1.0 : 0.0;
+      g_macdRuntimeStates[i].score = 0.0;
+      g_macdRuntimeStates[i].reason = macdEnabled ? "Waiting for first H1 MACD divergence evaluation" : "MACD_Divergence route disabled";
+
+      bool srEnabled = IsLegacyPilotRouteCandidateEnabled("SR_Breakout");
+      g_srRuntimeStates[i].enabled = srEnabled;
+      g_srRuntimeStates[i].active = false;
+      g_srRuntimeStates[i].runtimeLabel = srEnabled ? (IsLegacyPilotRouteLiveEnabled("SR_Breakout") ? "ON" : "CAND") : "PORT";
+      g_srRuntimeStates[i].status = srEnabled ? "WAIT_SIGNAL" : "NO_DATA";
+      g_srRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("SR_Breakout") ? "CAUTION" : "CANDIDATE";
+      g_srRuntimeStates[i].adaptiveReason = srEnabled
+         ? "SR_Breakout M15 route ported from MT4; live entry gated by EnablePilotSRM15Live and shared pilot risk controls"
+         : "MT5 SR_Breakout route is disabled";
+      g_srRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("SR_Breakout") ? 1.0 : 0.0;
+      g_srRuntimeStates[i].score = 0.0;
+      g_srRuntimeStates[i].reason = srEnabled ? "Waiting for first M15 SR evaluation" : "SR_Breakout route disabled";
    }
 }
 
@@ -1546,6 +1696,26 @@ bool IsNewPilotBar(string symbol, ENUM_TIMEFRAMES timeframe, int symbolIndex)
    return false;
 }
 
+bool IsNewTrackedBar(string symbol, ENUM_TIMEFRAMES timeframe, int symbolIndex, datetime &lastBarTimes[])
+{
+   if(symbolIndex < 0 || symbolIndex >= ArraySize(lastBarTimes))
+      return false;
+   datetime barTime = iTime(symbol, timeframe, 0);
+   if(barTime <= 0)
+      return false;
+   if(lastBarTimes[symbolIndex] == 0)
+   {
+      lastBarTimes[symbolIndex] = barTime;
+      return false;
+   }
+   if(barTime != lastBarTimes[symbolIndex])
+   {
+      lastBarTimes[symbolIndex] = barTime;
+      return true;
+   }
+   return false;
+}
+
 string PilotEvalCodeLabel(int evalCode)
 {
    if(evalCode == PILOT_EVAL_NOT_ENOUGH_BARS) return "NOT_ENOUGH_BARS";
@@ -1567,6 +1737,11 @@ string PilotDirectionLabel(int direction)
    if(direction > 0) return "BUY";
    if(direction < 0) return "SELL";
    return "NONE";
+}
+
+string BoolLabel(bool value)
+{
+   return value ? "Y" : "N";
 }
 
 string ShadowSignalLedgerHeader()
@@ -1665,7 +1840,7 @@ string ShadowCandidateLedgerHeader()
    return "EventId,LabelTimeLocal,LabelTimeServer,EventBarTime,Symbol,CandidateRoute,Timeframe,CandidateDirection,CandidateScore,Regime,ReferencePrice,SpreadPips,NewsStatus,Trigger,Reason\r\n";
 }
 
-void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string route, int direction, double score, string trigger, string reason)
+void AppendShadowCandidateLedgerRowForTimeframe(string symbol, ENUM_TIMEFRAMES routeTimeframe, datetime eventBarTime, string route, int direction, double score, string trigger, string reason)
 {
    if(!EnableShadowCandidateRouter || eventBarTime <= 0 || direction == 0)
       return;
@@ -1682,7 +1857,7 @@ void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string
    double spread = (tick.bid > 0.0 && tick.ask > 0.0) ? CalcSpreadPips(symbol, tick.bid, tick.ask) : 0.0;
    RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, eventBarTime);
    datetime serverClock = CurrentServerTime();
-   string eventId = symbol + "-" + TimeframeLabel(PilotSignalTimeframe) + "-" + IntegerToString((int)eventBarTime) + "-" + route + "-" + PilotDirectionLabel(direction);
+   string eventId = symbol + "-" + TimeframeLabel(routeTimeframe) + "-" + IntegerToString((int)eventBarTime) + "-" + route + "-" + PilotDirectionLabel(direction);
 
    bool exists = FileIsExist("QuantGod_ShadowCandidateLedger.csv");
    ResetLastError();
@@ -1705,7 +1880,7 @@ void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string
    row += CsvEscape(FormatDateTime(eventBarTime, true)) + ",";
    row += CsvEscape(symbol) + ",";
    row += CsvEscape(route) + ",";
-   row += CsvEscape(TimeframeLabel(PilotSignalTimeframe)) + ",";
+   row += CsvEscape(TimeframeLabel(routeTimeframe)) + ",";
    row += CsvEscape(PilotDirectionLabel(direction)) + ",";
    row += FormatNumber(score, 1) + ",";
    row += CsvEscape(regime.label) + ",";
@@ -1717,6 +1892,11 @@ void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string
    FileWriteString(handle, row);
    FileFlush(handle);
    FileClose(handle);
+}
+
+void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string route, int direction, double score, string trigger, string reason)
+{
+   AppendShadowCandidateLedgerRowForTimeframe(symbol, PilotSignalTimeframe, eventBarTime, route, direction, score, trigger, reason);
 }
 
 void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime eventBarTime)
@@ -2323,6 +2503,62 @@ string PilotAggregateJson(string scopeSymbol)
    json += "}";
    return json;
 }
+
+string LegacyPilotAggregateJson(string strategyKey, string scopeSymbol)
+{
+   int symbolIndex = FindSymbolIndex(scopeSymbol);
+   StrategyStatusSnapshot state;
+   bool hasState = false;
+   if(strategyKey == "RSI_Reversal" && symbolIndex >= 0 && symbolIndex < ArraySize(g_rsiRuntimeStates))
+   {
+      state = g_rsiRuntimeStates[symbolIndex];
+      hasState = true;
+   }
+   else if(strategyKey == "BB_Triple" && symbolIndex >= 0 && symbolIndex < ArraySize(g_bbRuntimeStates))
+   {
+      state = g_bbRuntimeStates[symbolIndex];
+      hasState = true;
+   }
+   else if(strategyKey == "MACD_Divergence" && symbolIndex >= 0 && symbolIndex < ArraySize(g_macdRuntimeStates))
+   {
+      state = g_macdRuntimeStates[symbolIndex];
+      hasState = true;
+   }
+   else if(strategyKey == "SR_Breakout" && symbolIndex >= 0 && symbolIndex < ArraySize(g_srRuntimeStates))
+   {
+      state = g_srRuntimeStates[symbolIndex];
+      hasState = true;
+   }
+
+   bool candidateEnabled = IsLegacyPilotRouteCandidateEnabled(strategyKey);
+   bool inScope = (symbolIndex >= 0) && LegacyPilotRouteInScope(strategyKey, scopeSymbol);
+   bool enabled = candidateEnabled && inScope;
+   bool liveEnabled = enabled && IsLegacyPilotRouteLiveEnabled(strategyKey);
+   string aggregateState = hasState ? state.adaptiveState : (liveEnabled ? "CAUTION" : "CANDIDATE");
+   string aggregateReason = hasState ? state.reason :
+      (enabled ? "MT4 legacy route is ported as candidate/backtest first; live entry requires explicit live switch and shared pilot risk controls"
+               : "MT4 legacy route is disabled or out of scope for this symbol");
+
+   string json = "{";
+   json += "\"enabled\": " + JsonBool(enabled) + ", ";
+   json += "\"active\": " + JsonBool(enabled && hasState && state.active && !g_pilotKillSwitch) + ", ";
+   json += "\"scopeSymbol\": \"" + JsonEscape(scopeSymbol) + "\", ";
+   json += "\"state\": \"" + JsonEscape(g_pilotKillSwitch ? "COOLDOWN" : aggregateState) + "\", ";
+   json += "\"riskMultiplier\": " + FormatNumber((enabled && hasState) ? state.riskMultiplier : 0.0, 2) + ", ";
+   json += "\"sampleTrades\": 0, ";
+   json += "\"sampleWindowTrades\": 0, ";
+   json += "\"winRate\": 0.0, ";
+   json += "\"profitFactor\": 0.00, ";
+   json += "\"avgNet\": 0.00, ";
+   json += "\"netProfit\": 0.00, ";
+   json += "\"disabledUntil\": \"\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : aggregateReason) + "\", ";
+   json += "\"positions\": " + IntegerToString(CountPilotPositions(scopeSymbol)) + ", ";
+   json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
+   json += "}";
+   return json;
+}
+
 bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode)
 {
    direction = 0;
@@ -2505,7 +2741,545 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
    evalCode = PILOT_EVAL_NO_CROSS;
    return false;
 }
-bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice)
+
+ENUM_TIMEFRAMES LegacyPilotRouteTimeframe(string strategyKey)
+{
+   if(strategyKey == "RSI_Reversal")
+      return PilotRsiTimeframe;
+   if(strategyKey == "BB_Triple")
+      return PilotBBTimeframe;
+   if(strategyKey == "MACD_Divergence")
+      return PilotMacdTimeframe;
+   if(strategyKey == "SR_Breakout")
+      return PilotSRTimeframe;
+   return PilotSignalTimeframe;
+}
+
+string LegacyPilotRouteName(string strategyKey)
+{
+   if(strategyKey == "RSI_Reversal")
+      return "USDJPY_RSI_H1_LIVE_CANDIDATE";
+   if(strategyKey == "BB_Triple")
+      return "BB_TRIPLE_H1_LEGACY_CANDIDATE";
+   if(strategyKey == "MACD_Divergence")
+      return "MACD_DIVERGENCE_H1_LEGACY_CANDIDATE";
+   if(strategyKey == "SR_Breakout")
+      return "SR_BREAKOUT_M15_LEGACY_CANDIDATE";
+   return "LEGACY_CANDIDATE";
+}
+
+bool LegacyPilotRouteInScope(string strategyKey, string symbol)
+{
+   if(strategyKey == "RSI_Reversal")
+      return IsUsdJpySymbol(symbol);
+   return true;
+}
+
+bool IsDowntrendRegimeLabel(string regime)
+{
+   string upper = ToUpperString(regime);
+   return (StringFind(upper, "DOWN") >= 0);
+}
+
+bool CommonLegacyPilotPrecheck(string symbol, ENUM_TIMEFRAMES timeframe, int minBars, MqlTick &tick, string &reason, int &evalCode)
+{
+   if(Bars(symbol, timeframe) < minBars)
+   {
+      reason = "Not enough bars for " + TimeframeLabel(timeframe) + " legacy pilot route";
+      evalCode = PILOT_EVAL_NOT_ENOUGH_BARS;
+      return false;
+   }
+   if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+   {
+      reason = "Tick data unavailable";
+      evalCode = PILOT_EVAL_TICK_UNAVAILABLE;
+      return false;
+   }
+   double spread = CalcSpreadPips(symbol, tick.bid, tick.ask);
+   if(spread > PilotMaxSpreadPips)
+   {
+      reason = "Spread above pilot limit";
+      evalCode = PILOT_EVAL_SPREAD_BLOCK;
+      return false;
+   }
+   if(!IsPilotSessionOpen())
+   {
+      reason = "Outside pilot trading session";
+      evalCode = PILOT_EVAL_SESSION_BLOCK;
+      return false;
+   }
+   return true;
+}
+
+bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode, string &trigger)
+{
+   direction = 0;
+   score = 0.0;
+   reason = "Waiting for USDJPY RSI_Reversal H1 evaluation";
+   trigger = "";
+   slPrice = 0.0;
+   tpPrice = 0.0;
+   evalCode = PILOT_EVAL_NONE;
+
+   if(!IsUsdJpySymbol(symbol))
+   {
+      reason = "RSI_Reversal H1 live-candidate route is scoped to USDJPY";
+      evalCode = PILOT_EVAL_NO_CROSS;
+      return false;
+   }
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   if(!CommonLegacyPilotPrecheck(symbol, PilotRsiTimeframe, MathMax(30, PilotRsiPeriod + 5), tick, reason, evalCode))
+      return false;
+
+   double rsi1 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 1);
+   double rsi2 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 2);
+   double lowerBand = BandsValue(symbol, PilotRsiTimeframe, 20, 2.0, 2, 1);
+   double upperBand = BandsValue(symbol, PilotRsiTimeframe, 20, 2.0, 1, 1);
+   double close1 = iClose(symbol, PilotRsiTimeframe, 1);
+   double atr1 = ATRValue(symbol, PilotRsiTimeframe, PilotATRPeriod, 1);
+   if(rsi1 <= 0.0 || rsi2 <= 0.0 || lowerBand <= 0.0 || upperBand <= 0.0 || close1 <= 0.0 || atr1 <= 0.0)
+   {
+      reason = "RSI H1 indicator buffers not ready";
+      evalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+      return false;
+   }
+
+   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold);
+   bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought);
+   bool buyReversal = (rsi1 <= PilotRsiOversold || exactBuyReversal);
+   bool sellReversal = (rsi1 >= PilotRsiOverbought || exactSellReversal);
+   double tolerance = MathMax(0.0, PilotRsiBandTolerancePct);
+   bool buyBand = (close1 <= lowerBand * (1.0 + tolerance));
+   bool sellBand = (close1 >= upperBand * (1.0 - tolerance));
+   double buyScore = (double)((buyReversal ? 1 : 0) + (buyBand ? 1 : 0)) / 2.0 * 100.0;
+   double sellScore = (double)((sellReversal ? 1 : 0) + (sellBand ? 1 : 0)) / 2.0 * 100.0;
+   double stopDistance = atr1 * MathMax(0.5, PilotRsiATRMultiplierSL);
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+
+   if(buyReversal && buyBand)
+   {
+      direction = 1;
+      score = 100.0;
+      slPrice = NormalizeDouble(tick.ask - stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.ask + stopDistance * PilotRewardRatio, digits);
+      trigger = "RSI2 H1 oversold/crossback with lower Bollinger touch";
+      reason = "USDJPY RSI_Reversal H1 buy setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_BUY;
+      return true;
+   }
+   if(sellReversal && sellBand)
+   {
+      direction = -1;
+      score = 100.0;
+      slPrice = NormalizeDouble(tick.bid + stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.bid - stopDistance * PilotRewardRatio, digits);
+      trigger = "RSI2 H1 overbought/crossback with upper Bollinger touch";
+      reason = "USDJPY RSI_Reversal H1 sell setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_SELL;
+      return true;
+   }
+
+   if(buyScore >= sellScore)
+   {
+      score = buyScore;
+      reason = "RSI H1 BUY bias " + FormatNumber(buyScore, 0) + "/100 | reversal=" + BoolLabel(buyReversal) + " band=" + BoolLabel(buyBand);
+   }
+   else
+   {
+      score = sellScore;
+      reason = "RSI H1 SELL bias " + FormatNumber(sellScore, 0) + "/100 | reversal=" + BoolLabel(sellReversal) + " band=" + BoolLabel(sellBand);
+   }
+   evalCode = PILOT_EVAL_NO_CROSS;
+   return false;
+}
+
+bool EvaluatePilotBBH1Signal(string symbol, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode, string &trigger)
+{
+   direction = 0;
+   score = 0.0;
+   reason = "Waiting for BB_Triple H1 evaluation";
+   trigger = "";
+   slPrice = 0.0;
+   tpPrice = 0.0;
+   evalCode = PILOT_EVAL_NONE;
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   if(!CommonLegacyPilotPrecheck(symbol, PilotBBTimeframe, MathMax(PilotBBPeriod + 5, PilotBBRsiPeriod + 5), tick, reason, evalCode))
+      return false;
+
+   double close1 = iClose(symbol, PilotBBTimeframe, 1);
+   double upperBand = BandsValue(symbol, PilotBBTimeframe, PilotBBPeriod, PilotBBDeviation, 1, 1);
+   double lowerBand = BandsValue(symbol, PilotBBTimeframe, PilotBBPeriod, PilotBBDeviation, 2, 1);
+   double rsi1 = RSIValue(symbol, PilotBBTimeframe, PilotBBRsiPeriod, 1);
+   double rsi2 = RSIValue(symbol, PilotBBTimeframe, PilotBBRsiPeriod, 2);
+   double macdMain1 = MACDValue(symbol, PilotBBTimeframe, 12, 26, 9, 0, 1);
+   double macdMain2 = MACDValue(symbol, PilotBBTimeframe, 12, 26, 9, 0, 2);
+   double macdSignal1 = MACDValue(symbol, PilotBBTimeframe, 12, 26, 9, 1, 1);
+   double macdSignal2 = MACDValue(symbol, PilotBBTimeframe, 12, 26, 9, 1, 2);
+   double atr1 = ATRValue(symbol, PilotBBTimeframe, PilotATRPeriod, 1);
+   if(close1 <= 0.0 || upperBand <= 0.0 || lowerBand <= 0.0 || rsi1 <= 0.0 || rsi2 <= 0.0 || atr1 <= 0.0 ||
+      macdMain1 == EMPTY_VALUE || macdMain2 == EMPTY_VALUE || macdSignal1 == EMPTY_VALUE || macdSignal2 == EMPTY_VALUE)
+   {
+      reason = "BB H1 indicator buffers not ready";
+      evalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+      return false;
+   }
+
+   RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotBBTimeframe, 0);
+   bool bbBuySignal = (close1 <= lowerBand * 1.005);
+   bool rsiBuySignal = (rsi1 < PilotBBRsiOversold || (rsi2 < PilotBBRsiOversold && rsi1 > PilotBBRsiOversold));
+   bool macdBuyConfirm = (macdMain1 > macdSignal1 || (macdMain2 < macdSignal2 && macdMain1 > macdSignal1));
+   bool bbSellSignal = (close1 >= upperBand * 0.995);
+   bool rsiSellSignal = (rsi1 > PilotBBRsiOverbought || (rsi2 > PilotBBRsiOverbought && rsi1 < PilotBBRsiOverbought));
+   bool macdSellConfirm = (macdMain1 < macdSignal1 || (macdMain2 > macdSignal2 && macdMain1 < macdSignal1));
+   double buyScore = (double)((bbBuySignal ? 1 : 0) + (rsiBuySignal ? 1 : 0) + (macdBuyConfirm ? 1 : 0)) / 3.0 * 100.0;
+   double sellScore = (double)((bbSellSignal ? 1 : 0) + (rsiSellSignal ? 1 : 0) + (macdSellConfirm ? 1 : 0)) / 3.0 * 100.0;
+   double stopDistance = atr1 * 2.0;
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+
+   if(StringFind(ToUpperString(symbol), "EURUSD") >= 0 && regime.label == "TREND_EXP_DOWN" && bbBuySignal && rsiBuySignal)
+   {
+      score = buyScore;
+      reason = "EURUSD BB guard skipped buy setup in TREND_EXP_DOWN";
+      evalCode = PILOT_EVAL_RANGE_BLOCK;
+      return false;
+   }
+   if(bbBuySignal && rsiBuySignal)
+   {
+      direction = 1;
+      score = 100.0;
+      slPrice = NormalizeDouble(tick.ask - stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.ask + MathMax(upperBand - close1, stopDistance * PilotRewardRatio), digits);
+      trigger = "H1 lower Bollinger touch plus RSI recovery; MACD=" + BoolLabel(macdBuyConfirm);
+      reason = "BB_Triple H1 buy setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_BUY;
+      return true;
+   }
+   if(bbSellSignal && rsiSellSignal)
+   {
+      direction = -1;
+      score = 100.0;
+      slPrice = NormalizeDouble(tick.bid + stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.bid - MathMax(close1 - lowerBand, stopDistance * PilotRewardRatio), digits);
+      trigger = "H1 upper Bollinger touch plus RSI fade; MACD=" + BoolLabel(macdSellConfirm);
+      reason = "BB_Triple H1 sell setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_SELL;
+      return true;
+   }
+
+   score = MathMax(buyScore, sellScore);
+   reason = ((buyScore >= sellScore) ? "BB H1 BUY bias " : "BB H1 SELL bias ") + FormatNumber(score, 0) + "/100";
+   evalCode = PILOT_EVAL_NO_CROSS;
+   return false;
+}
+
+bool DetectPilotBullishMacdDivergence(string symbol)
+{
+   double priceLow1 = 0.0, priceLow2 = 0.0, macdLow1 = 0.0, macdLow2 = 0.0;
+   int pos1 = 0, pos2 = 0;
+   for(int shift = 2; shift < PilotMacdLookback; shift++)
+   {
+      double lowPrev = iLow(symbol, PilotMacdTimeframe, shift + 1);
+      double lowCurr = iLow(symbol, PilotMacdTimeframe, shift);
+      double lowNext = iLow(symbol, PilotMacdTimeframe, shift - 1);
+      if(lowCurr <= 0.0 || lowPrev <= 0.0 || lowNext <= 0.0)
+         continue;
+      if(lowCurr < lowPrev && lowCurr < lowNext)
+      {
+         if(pos1 == 0)
+         {
+            pos1 = shift;
+            priceLow1 = lowCurr;
+            macdLow1 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 0, shift);
+         }
+         else if(pos2 == 0)
+         {
+            pos2 = shift;
+            priceLow2 = lowCurr;
+            macdLow2 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 0, shift);
+            break;
+         }
+      }
+   }
+   return (pos1 > 0 && pos2 > 0 && priceLow1 < priceLow2 && macdLow1 > macdLow2);
+}
+
+bool DetectPilotBearishMacdDivergence(string symbol)
+{
+   double priceHigh1 = 0.0, priceHigh2 = 0.0, macdHigh1 = 0.0, macdHigh2 = 0.0;
+   int pos1 = 0, pos2 = 0;
+   for(int shift = 2; shift < PilotMacdLookback; shift++)
+   {
+      double highPrev = iHigh(symbol, PilotMacdTimeframe, shift + 1);
+      double highCurr = iHigh(symbol, PilotMacdTimeframe, shift);
+      double highNext = iHigh(symbol, PilotMacdTimeframe, shift - 1);
+      if(highCurr <= 0.0 || highPrev <= 0.0 || highNext <= 0.0)
+         continue;
+      if(highCurr > highPrev && highCurr > highNext)
+      {
+         if(pos1 == 0)
+         {
+            pos1 = shift;
+            priceHigh1 = highCurr;
+            macdHigh1 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 0, shift);
+         }
+         else if(pos2 == 0)
+         {
+            pos2 = shift;
+            priceHigh2 = highCurr;
+            macdHigh2 = MACDValue(symbol, PilotMacdTimeframe, PilotMacdFast, PilotMacdSlow, PilotMacdSignal, 0, shift);
+            break;
+         }
+      }
+   }
+   return (pos1 > 0 && pos2 > 0 && priceHigh1 > priceHigh2 && macdHigh1 < macdHigh2);
+}
+
+bool EvaluatePilotMacdH1Signal(string symbol, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode, string &trigger)
+{
+   direction = 0;
+   score = 0.0;
+   reason = "Waiting for MACD_Divergence H1 evaluation";
+   trigger = "";
+   slPrice = 0.0;
+   tpPrice = 0.0;
+   evalCode = PILOT_EVAL_NONE;
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   if(!CommonLegacyPilotPrecheck(symbol, PilotMacdTimeframe, MathMax(PilotMacdLookback + 5, 40), tick, reason, evalCode))
+      return false;
+
+   bool bullDiv = DetectPilotBullishMacdDivergence(symbol);
+   bool bearDiv = DetectPilotBearishMacdDivergence(symbol);
+   RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotMacdTimeframe, 0);
+   if(StringFind(ToUpperString(symbol), "EURUSD") >= 0 && bullDiv && IsDowntrendRegimeLabel(regime.label) && !bearDiv)
+   {
+      score = 100.0;
+      reason = "EURUSD MACD guard skipped bullish divergence in downtrend regime";
+      evalCode = PILOT_EVAL_RANGE_BLOCK;
+      return false;
+   }
+
+   double atr1 = ATRValue(symbol, PilotMacdTimeframe, PilotATRPeriod, 1);
+   if(atr1 <= 0.0)
+   {
+      reason = "MACD H1 ATR unavailable";
+      evalCode = PILOT_EVAL_ATR_UNAVAILABLE;
+      return false;
+   }
+   double stopDistance = atr1 * 2.0;
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(bullDiv)
+   {
+      direction = 1;
+      score = 100.0;
+      slPrice = NormalizeDouble(tick.ask - stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.ask + stopDistance * 2.0, digits);
+      trigger = "H1 bullish MACD divergence";
+      reason = "MACD_Divergence H1 buy setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_BUY;
+      return true;
+   }
+   if(bearDiv)
+   {
+      direction = -1;
+      score = 100.0;
+      slPrice = NormalizeDouble(tick.bid + stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.bid - stopDistance * 2.0, digits);
+      trigger = "H1 bearish MACD divergence";
+      reason = "MACD_Divergence H1 sell setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_SELL;
+      return true;
+   }
+   reason = "No MACD divergence found in the last " + IntegerToString(PilotMacdLookback) + " H1 bars";
+   evalCode = PILOT_EVAL_NO_CROSS;
+   return false;
+}
+
+bool EvaluatePilotSRM15Signal(string symbol, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode, string &trigger)
+{
+   direction = 0;
+   score = 0.0;
+   reason = "Waiting for SR_Breakout M15 evaluation";
+   trigger = "";
+   slPrice = 0.0;
+   tpPrice = 0.0;
+   evalCode = PILOT_EVAL_NONE;
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   if(!CommonLegacyPilotPrecheck(symbol, PilotSRTimeframe, MathMax(PilotSRLookback + 5, 30), tick, reason, evalCode))
+      return false;
+
+   double resistance = 0.0;
+   double support = 999999.0;
+   for(int shift = 1; shift <= PilotSRLookback; shift++)
+   {
+      double high = iHigh(symbol, PilotSRTimeframe, shift);
+      double low = iLow(symbol, PilotSRTimeframe, shift);
+      if(high > resistance)
+         resistance = high;
+      if(low > 0.0 && low < support)
+         support = low;
+   }
+   double close1 = iClose(symbol, PilotSRTimeframe, 1);
+   double close2 = iClose(symbol, PilotSRTimeframe, 2);
+   double pip = PipSize(symbol);
+   double atr1 = ATRValue(symbol, PilotSRTimeframe, PilotATRPeriod, 1);
+   if(resistance <= 0.0 || support >= 999999.0 || close1 <= 0.0 || close2 <= 0.0 || pip <= 0.0 || atr1 <= 0.0)
+   {
+      reason = "SR M15 buffers not ready";
+      evalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+      return false;
+   }
+   double avgVolume = 0.0;
+   for(int v = 1; v <= 20; v++)
+      avgVolume += (double)iVolume(symbol, PilotSRTimeframe, v);
+   avgVolume /= 20.0;
+   bool volumeConfirm = ((double)iVolume(symbol, PilotSRTimeframe, 1) > avgVolume * 1.05);
+   double breakPrice = MathMax(0.0, PilotSRBreakPips) * pip;
+   bool buyPrevBelow = (close2 < resistance);
+   bool buyBreak = (close1 > resistance + breakPrice);
+   bool sellPrevAbove = (close2 > support);
+   bool sellBreak = (close1 < support - breakPrice);
+   double buyScore = (double)((buyPrevBelow ? 1 : 0) + (buyBreak ? 1 : 0) + (volumeConfirm ? 1 : 0)) / 3.0 * 100.0;
+   double sellScore = (double)((sellPrevAbove ? 1 : 0) + (sellBreak ? 1 : 0) + (volumeConfirm ? 1 : 0)) / 3.0 * 100.0;
+   double stopDistance = atr1 * 1.5;
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(buyPrevBelow && buyBreak)
+   {
+      direction = 1;
+      score = MathMax(80.0, buyScore);
+      slPrice = NormalizeDouble(tick.ask - stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.ask + stopDistance * 2.0, digits);
+      trigger = "M15 resistance breakout; volume=" + BoolLabel(volumeConfirm);
+      reason = "SR_Breakout M15 buy setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_BUY;
+      return true;
+   }
+   if(sellPrevAbove && sellBreak)
+   {
+      direction = -1;
+      score = MathMax(80.0, sellScore);
+      slPrice = NormalizeDouble(tick.bid + stopDistance, digits);
+      tpPrice = NormalizeDouble(tick.bid - stopDistance * 2.0, digits);
+      trigger = "M15 support breakdown; volume=" + BoolLabel(volumeConfirm);
+      reason = "SR_Breakout M15 sell setup ported from MT4";
+      evalCode = PILOT_EVAL_SIGNAL_SELL;
+      return true;
+   }
+   score = MathMax(buyScore, sellScore);
+   reason = ((buyScore >= sellScore) ? "SR M15 BUY bias " : "SR M15 SELL bias ") + FormatNumber(score, 0) + "/100";
+   evalCode = PILOT_EVAL_NO_CROSS;
+   return false;
+}
+
+bool EvaluateLegacyPilotRouteSignal(string strategyKey, string symbol, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode, string &trigger)
+{
+   if(strategyKey == "RSI_Reversal")
+      return EvaluatePilotRsiH1Signal(symbol, direction, score, reason, slPrice, tpPrice, evalCode, trigger);
+   if(strategyKey == "BB_Triple")
+      return EvaluatePilotBBH1Signal(symbol, direction, score, reason, slPrice, tpPrice, evalCode, trigger);
+   if(strategyKey == "MACD_Divergence")
+      return EvaluatePilotMacdH1Signal(symbol, direction, score, reason, slPrice, tpPrice, evalCode, trigger);
+   if(strategyKey == "SR_Breakout")
+      return EvaluatePilotSRM15Signal(symbol, direction, score, reason, slPrice, tpPrice, evalCode, trigger);
+   reason = "Unknown legacy pilot route";
+   evalCode = PILOT_EVAL_NO_CROSS;
+   return false;
+}
+
+bool ProcessLegacyPilotRoute(string strategyKey, string symbol, int symbolIndex, StrategyStatusSnapshot &states[], datetime &lastBarTimes[])
+{
+   if(symbolIndex < 0 || symbolIndex >= ArraySize(states))
+      return false;
+
+   bool candidateEnabled = IsLegacyPilotRouteCandidateEnabled(strategyKey);
+   bool inScope = LegacyPilotRouteInScope(strategyKey, symbol);
+   bool liveEnabled = IsLegacyPilotRouteLiveEnabled(strategyKey);
+   states[symbolIndex].enabled = candidateEnabled && inScope;
+   states[symbolIndex].active = false;
+   states[symbolIndex].runtimeLabel = (candidateEnabled && inScope) ? (liveEnabled ? "ON" : "CAND") : "PORT";
+   states[symbolIndex].adaptiveState = liveEnabled ? "CAUTION" : "CANDIDATE";
+   states[symbolIndex].adaptiveReason = strategyKey + " route ported from MT4; live entry gated by strategy-specific live switch and shared pilot risk controls";
+   states[symbolIndex].riskMultiplier = liveEnabled ? 1.0 : 0.0;
+
+   if(!candidateEnabled || !inScope)
+   {
+      states[symbolIndex].status = "NO_DATA";
+      states[symbolIndex].score = 0.0;
+      states[symbolIndex].reason = inScope ? "Legacy route disabled" : "Route scope excludes this symbol";
+      return false;
+   }
+
+   ENUM_TIMEFRAMES timeframe = LegacyPilotRouteTimeframe(strategyKey);
+   if(!IsNewTrackedBar(symbol, timeframe, symbolIndex, lastBarTimes))
+   {
+      states[symbolIndex].active = true;
+      states[symbolIndex].status = "WAIT_BAR";
+      states[symbolIndex].score = 0.0;
+      states[symbolIndex].reason = "Waiting for next " + TimeframeLabel(timeframe) + " bar";
+      return false;
+   }
+
+   int direction = 0;
+   double score = 0.0;
+   string reason = "";
+   string trigger = "";
+   double slPrice = 0.0;
+   double tpPrice = 0.0;
+   int evalCode = PILOT_EVAL_NONE;
+   bool hasSignal = EvaluateLegacyPilotRouteSignal(strategyKey, symbol, direction, score, reason, slPrice, tpPrice, evalCode, trigger);
+   states[symbolIndex].active = true;
+   states[symbolIndex].score = score;
+   states[symbolIndex].reason = reason;
+   if(!hasSignal || direction == 0)
+   {
+      states[symbolIndex].status = PilotEvalCodeLabel(evalCode);
+      return false;
+   }
+
+   datetime eventBarTime = iTime(symbol, timeframe, 0);
+   AppendShadowCandidateLedgerRowForTimeframe(symbol, timeframe, eventBarTime, LegacyPilotRouteName(strategyKey), direction, score, trigger,
+      liveEnabled ? "Legacy MT4 route is live-enabled in this run; shared pilot risk controls still apply" :
+                    "Legacy MT4 route candidate/backtest evidence only; live entries remain disabled pending validation");
+
+   if(!liveEnabled)
+   {
+      states[symbolIndex].status = "LIVE_CANDIDATE";
+      states[symbolIndex].reason = reason + " | candidate-only; live switch is disabled";
+      return false;
+   }
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   SymbolInfoTick(symbol, tick);
+   string newsReason = "";
+   if(!PilotDirectionAllowedByNews(symbol, direction, tick, newsReason))
+   {
+      states[symbolIndex].status = "NEWS_FILTERED";
+      states[symbolIndex].reason = newsReason;
+      return true;
+   }
+
+   if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice, strategyKey))
+   {
+      states[symbolIndex].status = (direction > 0) ? "BUY_ORDER_SENT" : "SELL_ORDER_SENT";
+      states[symbolIndex].reason = reason + " | " + strategyKey + " order sent with 0.01 lot";
+   }
+   else
+   {
+      states[symbolIndex].status = "ORDER_SEND_FAILED";
+      states[symbolIndex].reason = reason + " | Order send failed, check MT5 Journal";
+   }
+   return true;
+}
+
+bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice, string strategyKey)
 {
    double volume = NormalizeVolumeForSymbol(symbol, PilotLotSize);
    g_trade.SetExpertMagicNumber(PilotMagic);
@@ -2513,7 +3287,7 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
    g_trade.SetTypeFillingBySymbol(symbol);
 
    bool ok = false;
-   string comment = PilotTradeComment(direction);
+   string comment = PilotTradeComment(strategyKey, direction);
    if(direction > 0)
       ok = g_trade.Buy(volume, symbol, 0.0, slPrice, tpPrice, comment);
    else if(direction < 0)
@@ -2527,7 +3301,8 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
       return false;
    }
 
-   Print("QuantGod MT5 pilot order sent: symbol=", symbol,
+   Print("QuantGod MT5 pilot order sent: strategy=", strategyKey,
+         " symbol=", symbol,
          " dir=", direction > 0 ? "BUY" : "SELL",
          " volume=", DoubleToString(volume, 2),
          " sl=", DoubleToString(slPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
@@ -2946,6 +3721,16 @@ void RunPilotExecutionLoop()
          AppendShadowSignalLedgerForCurrentBar(symbol, i, "NEWS_BLOCK", 0, 0.0, "NEWS_BLOCK", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
+
+      if(ProcessLegacyPilotRoute("RSI_Reversal", symbol, i, g_rsiRuntimeStates, g_lastRsiPilotBarTime))
+         continue;
+      if(ProcessLegacyPilotRoute("BB_Triple", symbol, i, g_bbRuntimeStates, g_lastBBPilotBarTime))
+         continue;
+      if(ProcessLegacyPilotRoute("MACD_Divergence", symbol, i, g_macdRuntimeStates, g_lastMacdPilotBarTime))
+         continue;
+      if(ProcessLegacyPilotRoute("SR_Breakout", symbol, i, g_srRuntimeStates, g_lastSRPilotBarTime))
+         continue;
+
       if(!IsNewPilotBar(symbol, PilotSignalTimeframe, i))
       {
          g_maRuntimeStates[i].active = true;
@@ -3017,7 +3802,7 @@ void RunPilotExecutionLoop()
          AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, "NEWS_DIRECTION_FILTER", "BLOCKED", g_maRuntimeStates[i].reason);
          continue;
       }
-      if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice))
+      if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice, "MA_Cross"))
       {
          g_maRuntimeStates[i].status = (direction > 0) ? "BUY_ORDER_SENT" : "SELL_ORDER_SENT";
          g_maRuntimeStates[i].reason = reason + " | Pilot order sent with 0.01 lot";
@@ -3087,6 +3872,14 @@ string BuildSymbolStrategyJson(string symbol, int symbolIndex, string strategyKe
 {
    if(strategyKey == "MA_Cross" && symbolIndex >= 0 && symbolIndex < ArraySize(g_maRuntimeStates) && (EnablePilotMA || IsPilotLiveMode()))
       return PilotStatusJson(g_maRuntimeStates[symbolIndex]);
+   if(strategyKey == "RSI_Reversal" && symbolIndex >= 0 && symbolIndex < ArraySize(g_rsiRuntimeStates) && IsLegacyPilotRouteCandidateEnabled("RSI_Reversal"))
+      return PilotStatusJson(g_rsiRuntimeStates[symbolIndex]);
+   if(strategyKey == "BB_Triple" && symbolIndex >= 0 && symbolIndex < ArraySize(g_bbRuntimeStates) && IsLegacyPilotRouteCandidateEnabled("BB_Triple"))
+      return PilotStatusJson(g_bbRuntimeStates[symbolIndex]);
+   if(strategyKey == "MACD_Divergence" && symbolIndex >= 0 && symbolIndex < ArraySize(g_macdRuntimeStates) && IsLegacyPilotRouteCandidateEnabled("MACD_Divergence"))
+      return PilotStatusJson(g_macdRuntimeStates[symbolIndex]);
+   if(strategyKey == "SR_Breakout" && symbolIndex >= 0 && symbolIndex < ArraySize(g_srRuntimeStates) && IsLegacyPilotRouteCandidateEnabled("SR_Breakout"))
+      return PilotStatusJson(g_srRuntimeStates[symbolIndex]);
 
    string placeholderReason = "MT5 phase 1 skeleton: JSON export is live, strategy execution port is not implemented yet";
    return SymbolStrategyPlaceholderJson(placeholderReason);
@@ -3096,6 +3889,8 @@ string BuildRootStrategyJson(string strategyKey)
 {
    if(strategyKey == "MA_Cross" && (EnablePilotMA || IsPilotLiveMode()))
       return PilotAggregateJson(g_focusSymbol);
+   if(strategyKey != "MA_Cross" && IsLegacyPilotRouteCandidateEnabled(strategyKey))
+      return LegacyPilotAggregateJson(strategyKey, g_focusSymbol);
 
    string reason = "MT5 phase 1 skeleton: adaptive control and strategy execution have not been ported yet";
    return StrategyPlaceholderJson(g_focusSymbol, reason);
@@ -3113,6 +3908,14 @@ string BuildRootDiagnosticJson(string strategyKey)
       json += "}";
       return json;
    }
+   if(strategyKey == "RSI_Reversal" && ArraySize(g_rsiRuntimeStates) > 0 && IsLegacyPilotRouteCandidateEnabled("RSI_Reversal"))
+      return PilotStatusJson(g_rsiRuntimeStates[0]);
+   if(strategyKey == "BB_Triple" && ArraySize(g_bbRuntimeStates) > 0 && IsLegacyPilotRouteCandidateEnabled("BB_Triple"))
+      return PilotStatusJson(g_bbRuntimeStates[0]);
+   if(strategyKey == "MACD_Divergence" && ArraySize(g_macdRuntimeStates) > 0 && IsLegacyPilotRouteCandidateEnabled("MACD_Divergence"))
+      return PilotStatusJson(g_macdRuntimeStates[0]);
+   if(strategyKey == "SR_Breakout" && ArraySize(g_srRuntimeStates) > 0 && IsLegacyPilotRouteCandidateEnabled("SR_Breakout"))
+      return PilotStatusJson(g_srRuntimeStates[0]);
 
    string reason = "MT5 phase 1 skeleton: diagnostics become live after the MT5 strategy engine is ported";
    return DiagnosticPlaceholderJson(reason);

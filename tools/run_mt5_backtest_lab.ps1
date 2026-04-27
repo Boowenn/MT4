@@ -273,16 +273,15 @@ foreach ($symbol in $Symbols) {
     New-TesterConfig $symbol $presetName $configPath $reportPath
 
     $terminalExitCode = $null
-    $testerProfileSynced = $false
+    $testerProfileSynced = Sync-TesterProfileFromPreset $presetSource $testerProfilePreset
+    if ($testerProfileSynced) {
+        Copy-Item -LiteralPath $testerProfilePreset -Destination $testerParameterPreset -Force
+    }
     $agentFilesCopied = $false
     $agentMetrics = $null
     if ($RunTerminal) {
         if (-not (Test-Path -LiteralPath $terminal)) {
             throw "HFM terminal not found: $terminal"
-        }
-        $testerProfileSynced = Sync-TesterProfileFromPreset $presetSource $testerProfilePreset
-        if ($testerProfileSynced) {
-            Copy-Item -LiteralPath $testerProfilePreset -Destination $testerParameterPreset -Force
         }
         $process = Start-Process -FilePath $terminal -ArgumentList ('/config:"' + $configPath + '"') -Wait -PassThru
         $terminalExitCode = $process.ExitCode
