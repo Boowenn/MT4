@@ -21,8 +21,8 @@ input bool   EnablePilotAutoTrading   = false;
 input bool   EnablePilotMA            = true;
 input ENUM_TIMEFRAMES PilotSignalTimeframe = PERIOD_M15;
 input ENUM_TIMEFRAMES PilotTrendTimeframe  = PERIOD_H1;
-input int    PilotCrossLookbackBars   = 3;
-input int    PilotContinuationLookbackBars = 16;
+input int    PilotCrossLookbackBars   = 5;
+input int    PilotContinuationLookbackBars = 24;
 input bool   PilotBlockRangeEntries   = true;
 input int    PilotLossCooldownMinutes = 60;
 input bool   EnablePilotBreakevenProtect = true;
@@ -1191,7 +1191,7 @@ void ResetPilotRuntimeStates()
       g_maRuntimeStates[i].status = g_maRuntimeStates[i].enabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_maRuntimeStates[i].adaptiveState = g_maRuntimeStates[i].enabled ? "CAUTION" : "WARMUP";
       g_maRuntimeStates[i].adaptiveReason = g_maRuntimeStates[i].enabled
-         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 3-bar cross plus pullback continuation, range guard, and post-loss cooldown"
+         ? "MT5 0.01 live pilot armed: M15 signal, H1 trend filter, 5-bar cross plus 24-bar pullback continuation, range guard, and post-loss cooldown"
          : "MT5 phase 1 skeleton: execution engine not ported yet";
       g_maRuntimeStates[i].riskMultiplier = g_maRuntimeStates[i].enabled ? 1.0 : 0.0;
       g_maRuntimeStates[i].score = 0.0;
@@ -2317,7 +2317,7 @@ string PilotAggregateJson(string scopeSymbol)
    json += "\"avgNet\": 0.00, ";
    json += "\"netProfit\": 0.00, ";
    json += "\"disabledUntil\": \"\", ";
-   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 3-bar cross plus pullback continuation, range guard, post-loss cooldown, USD news filter") + "\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 5-bar cross plus 24-bar pullback continuation, range guard, post-loss cooldown, USD news filter") + "\", ";
    json += "\"positions\": " + IntegerToString(positions) + ", ";
    json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
    json += "}";

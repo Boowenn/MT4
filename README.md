@@ -51,7 +51,7 @@ The MT5 work is intentionally split into phases:
 - supports a local-first launcher through `Start_QuantGod_MT5.bat`
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
-- executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
+- executes `MA_Cross` only in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
@@ -211,7 +211,7 @@ This will:
 - sync the dashboard assets into `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
 - sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
 - restart the official HFM MT5 client in live pilot mode
-- arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
+- arm `MA_Cross` only with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias
 - keep manual positions protected by the safety guard across all symbols, including XAUUSDc, while keeping them separate from EA pilot positions; manual trades no longer block same-symbol EA entries or count as EA research samples
 - append Shadow Signal Ledger rows for each new M15 pilot evaluation, including signal, no-signal, range/spread/session/news/cooldown blocks, and order-send outcomes
 - export Shadow Outcome Ledger rows for completed 15/30/60 minute horizons from the Shadow Signal Ledger; this is analysis-only and never changes live entry rules
@@ -231,7 +231,7 @@ This prepares MT5 Strategy Tester configs for:
 - `MA_Cross`
 - `EURUSDc` and `USDJPYc`
 - `0.01` lot only
-- `M15` trigger with `H1` trend filter
+- `M15` trigger with `H1` trend filter, 5-bar fresh-crossover lookback, and 24-bar pullback-continuation window
 
 By default it does not interrupt the live HFM terminal. It writes a local summary to:
 
