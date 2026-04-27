@@ -2,7 +2,7 @@
 
 MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard, and a virtual small-account research mode.
 
-The repository now also includes an MT5 migration track that exports dashboard-compatible runtime JSON/CSV, plus a tightly constrained HFM Cent live pilot at `0.01` lot. `MA_Cross` and the old strong `USDJPY RSI_Reversal H1` slice are the current real-money routes in the live preset. The old MT4 `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes remain candidate/backtest routes until their iterated versions show enough evidence for live promotion.
+The repository now also includes an MT5 migration track that exports dashboard-compatible runtime JSON/CSV, plus a tightly constrained HFM Cent live pilot at `0.01` lot. `MA_Cross` and the old strong `USDJPY RSI_Reversal H1` slice are the current real-money routes in the live preset. The old MT4 `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes remain candidate/backtest routes until their iterated versions show enough evidence for live promotion. If a demoted route still has an old live pilot position, the EA exits it at breakeven or profit and also cuts it at a small demoted-route loss threshold instead of waiting for the original TP/SL.
 
 For HFM Cent live-account work, use the official HFM MT5 client at `C:\Program Files\HFM Metatrader 5`. The generic `C:\Program Files\MetaTrader 5` install may contain stale migration smoke data and should not be treated as the live-account source of truth.
 
@@ -51,7 +51,7 @@ The MT5 work is intentionally split into phases:
 - supports a local-first launcher through `Start_QuantGod_MT5.bat`
 - supports an HFM Cent shadow launcher through `Start_QuantGod_MT5_HFM_Shadow.bat`
 - supports an HFM Cent live pilot launcher through `Start_QuantGod_MT5_HFM_LivePilot.bat`
-- executes `MA_Cross` in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, and a USD high-impact news filter
+- executes `MA_Cross` in HFM live pilot mode with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, a USD high-impact news filter, and a demoted-route exit guard for old live positions whose route has since been returned to candidate/simulation
 - ports the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` signal routes into MT5 as candidate/backtest/live-gated routes; the shipped HFM live preset enables `USDJPY RSI_Reversal H1` only among legacy routes, while `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` stay candidate/backtest-only for iteration
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` plus tester presets that can validate the legacy routes on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
@@ -64,6 +64,8 @@ The MT5 work is intentionally split into phases:
 - port trade labeling, linkage, and regime reports
 
 Important: the current MT5 implementation is still a partial port. In the shipped HFM live preset, real-money automation is limited to constrained `MA_Cross` plus `USDJPY RSI_Reversal H1`. `BB_Triple H1`, `MACD_Divergence H1`, and `SR_Breakout M15` are candidate/backtest iteration routes and cannot send live orders unless their explicit live switch is re-enabled after evidence improves.
+
+Live route promotion and demotion are now evidence-driven automation decisions. A live route can be demoted quickly when its recent `0.01` forward results, order-send health, or shadow/candidate outcomes show weakness; it then stays in simulation/backtest and is iterated there. A candidate route can be promoted back to live only after old-history context, Backtest Lab, candidate/outcome ledgers, and fresh `0.01` forward-style evidence show a stable edge without obvious risk objections. Promotion never changes the lot size, account, server, single-symbol cap, hard SL/TP, spread/session/news/cooldown/portfolio/order-send controls, or kill switches.
 
 ## Strategies
 

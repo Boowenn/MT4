@@ -61,6 +61,9 @@ input bool   EnablePilotTrailingStop   = true;
 input double PilotTrailingStartPips    = 10.0;
 input double PilotTrailingDistancePips = 5.0;
 input double PilotTrailingStepPips     = 1.0;
+input bool   EnableDemotedPilotRouteExit = true;
+input double DemotedPilotRouteProfitExitUSC = 0.0;
+input double DemotedPilotRouteMaxLossUSC = 0.50;
 input bool   EnableManualSafetyGuard    = true;
 input bool   ManualSafetyWatchlistOnly  = false;
 input double ManualSafetyInitialSLPips  = 25.0;
@@ -3451,6 +3454,61 @@ bool ModifyPilotPositionStops(ulong ticket, string symbol, double slPrice, doubl
    return true;
 }
 
+bool IsPilotRouteLiveEnabledByComment(string comment)
+{
+   string upper = ToUpperString(comment);
+   if(StringFind(upper, "QG_RSI_REV") >= 0)
+      return EnablePilotRsiH1Live;
+   if(StringFind(upper, "QG_BB_TRIPLE") >= 0)
+      return EnablePilotBBH1Live;
+   if(StringFind(upper, "QG_MACD_DIV") >= 0)
+      return EnablePilotMacdH1Live;
+   if(StringFind(upper, "QG_SR_BREAK") >= 0)
+      return EnablePilotSRM15Live;
+   return true;
+}
+
+void ManageDemotedPilotRouteExits()
+{
+   if(!EnableDemotedPilotRouteExit)
+      return;
+
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+      if(IsPilotRouteLiveEnabledByComment(comment))
+         continue;
+
+      double netProfit = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      bool profitExit = (netProfit >= DemotedPilotRouteProfitExitUSC);
+      bool maxLossExit = (DemotedPilotRouteMaxLossUSC > 0.0 &&
+                          netProfit <= -MathAbs(DemotedPilotRouteMaxLossUSC));
+      if(!profitExit && !maxLossExit)
+         continue;
+
+      g_trade.SetExpertMagicNumber(PilotMagic);
+      g_trade.SetDeviationInPoints(PilotDeviationPoints);
+      g_trade.SetTypeFillingBySymbol(symbol);
+      bool closed = g_trade.PositionClose(ticket);
+      Print("QuantGod MT5 demoted route exit ticket=", ticket,
+            " symbol=", symbol,
+            " net=", DoubleToString(netProfit, 2),
+            " comment=", comment,
+            " reason=", (profitExit ? "profit-or-breakeven" : "demoted-route-max-loss"),
+            " ok=", (closed ? "true" : "false"),
+            " retcode=", g_trade.ResultRetcode());
+   }
+}
+
 void ManagePilotBreakevenStops()
 {
    bool breakevenOn = (EnablePilotBreakevenProtect && PilotBreakevenTriggerPips > 0.0);
@@ -3717,6 +3775,7 @@ void RunPilotExecutionLoop()
    }
    if(g_pilotKillSwitch && PilotCloseOnKillSwitch)
       ClosePilotPositions(g_pilotKillReason);
+   ManageDemotedPilotRouteExits();
    ManageManualSafetyGuard();
    if(!g_pilotKillSwitch)
       ManagePilotBreakevenStops();
