@@ -8,7 +8,7 @@ Implemented:
 
 - Param Optimization Plan: proposes tester-only parameter candidates and task metadata.
 - ParamLab Runner: materializes tester-only `.set` and `.ini` files, with Strategy Tester launch guarded by explicit authorization flags.
-- ParamLab Results Parser: parses completed tester reports, scores PF, win rate, net profit, trade count, and drawdown, then writes a unified results ledger.
+- ParamLab Report Watcher: discovers completed tester reports, scores PF, win rate, net profit, trade count, and drawdown, writes `QuantGod_ParamLabReportWatcher.json`, and updates the unified results ledger.
 - ParamLab batch dashboard: shows runnable, waiting-report, scored, and route-filtered task state.
 - Strategy Workspace: gives MA/RSI/BB/MACD/SR independent route cards.
 - AI/Governance Feedback: explains why a route should keep live, stay simulation, retune, demote, or enter promotion review.
@@ -65,14 +65,20 @@ Purpose:
 
 - After a tester run starts, automatically detect whether the report was produced, parsed, missing, stale, or malformed.
 
-Needed behavior:
+Implemented behavior:
 
-- Poll expected report paths by run ID and candidate ID.
-- Detect terminal timeout separately from tester failure.
-- Parse partial reports when possible.
-- Mark rows as `REPORT_PARSED`, `REPORT_MISSING`, `REPORT_FOUND_UNPARSED`, or `RUN_FAILED`.
-- Requeue retryable failures with a cap.
+- Scans ParamLab run archives, current `QuantGod_ParamLabStatus.json`, Auto Scheduler queue records, and known report paths.
+- Matches landed reports by candidate ID and expected report path.
+- Parses partial reports when possible.
+- Writes `QuantGod_ParamLabReportWatcher.json`, `QuantGod_ParamLabReportWatcherLedger.csv`, `QuantGod_ParamLabResults.json`, and `QuantGod_ParamLabResultsLedger.csv`.
+- Marks pending reports as non-promotion evidence and malformed reports as blocked evidence.
 - Never reuse stale reports from a previous candidate.
+
+Remaining recovery work:
+
+- Poll continuously during authorized tester windows instead of running as a one-shot builder.
+- Detect terminal timeout separately from tester failure.
+- Requeue retryable failures with a cap.
 
 ### 3. Backtest Budget and Experiment Control
 
@@ -134,8 +140,8 @@ Yes, the backtest loop can be fully automatic if "fully automatic" means:
 2. ParamLab Scheduler selects a route-balanced run batch.
 3. The runner generates tester-only configs and presets.
 4. During an allowed window or explicit authorization, the runner launches MT5 Strategy Tester.
-5. A report watcher waits for output.
-6. Results Parser scores reports.
+5. A report watcher discovers output.
+6. Report Watcher scores reports into the unified results ledger.
 7. Strategy Version Registry updates parent/child version state.
 8. Optimizer V2 creates the next generation.
 9. Governance Advisor and Version Promotion Gate produce dry-run recommendations.
@@ -157,12 +163,11 @@ The recommended target is:
 
 ## Suggested Implementation Order
 
-1. Implement `Report Watcher` and run-state ledger.
-2. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
-3. Add Dashboard run-history panel.
-4. Add retry/budget controls.
-5. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
+1. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
+2. Add Dashboard run-history panel.
+3. Add retry/budget controls.
+4. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
 
 ## Immediate Next Step
 
-Build `Report Watcher` next. ParamLab Auto Scheduler now chooses the next tester-only batch without launching MT5 by default; the remaining gap is watching the expected report paths after an authorized tester run, marking each queued item as parsed, missing, malformed, retryable, or failed, and feeding that state back into the unified results ledger.
+Build `AUTO_TESTER_WINDOW` next. Auto Scheduler now chooses the next tester-only batch without launching MT5, and Report Watcher now discovers/report-scores landed tester reports. The remaining gap for full automation is a guarded Strategy Tester execution mode with a lockfile, verified terminal/profile targets, explicit weekend/authorization checks, and no live-preset mutation.

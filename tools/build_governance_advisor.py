@@ -24,6 +24,7 @@ OUTPUT_NAME = "QuantGod_GovernanceAdvisor.json"
 PARAM_OPTIMIZATION_NAME = "QuantGod_ParamOptimizationPlan.json"
 PARAM_LAB_STATUS_NAME = "QuantGod_ParamLabStatus.json"
 PARAM_LAB_RESULTS_NAME = "QuantGod_ParamLabResults.json"
+PARAM_LAB_REPORT_WATCHER_NAME = "QuantGod_ParamLabReportWatcher.json"
 STRATEGY_VERSION_REGISTRY_NAME = "QuantGod_StrategyVersionRegistry.json"
 OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
 VERSION_PROMOTION_GATE_NAME = "QuantGod_VersionPromotionGate.json"
@@ -41,6 +42,7 @@ RUNTIME_FILE_HEALTH = [
     ("param_optimization", PARAM_OPTIMIZATION_NAME, 7 * 24 * 60 * 60),
     ("param_lab", PARAM_LAB_STATUS_NAME, 7 * 24 * 60 * 60),
     ("param_lab_results", PARAM_LAB_RESULTS_NAME, 7 * 24 * 60 * 60),
+    ("param_lab_report_watcher", PARAM_LAB_REPORT_WATCHER_NAME, 7 * 24 * 60 * 60),
     ("strategy_version_registry", STRATEGY_VERSION_REGISTRY_NAME, 7 * 24 * 60 * 60),
     ("optimizer_v2", OPTIMIZER_V2_NAME, 7 * 24 * 60 * 60),
     ("version_promotion_gate", VERSION_PROMOTION_GATE_NAME, 7 * 24 * 60 * 60),
@@ -590,6 +592,38 @@ def summarize_param_lab_results(results: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_param_lab_report_watcher(watcher: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(watcher, dict) or not watcher:
+        return {
+            "status": "missing",
+            "knownTaskCount": 0,
+            "reportFileCount": 0,
+            "parsedReportCount": 0,
+            "pendingReportCount": 0,
+            "malformedReportCount": 0,
+            "newlyParsedReportCount": 0,
+            "orphanReportCount": 0,
+            "runTerminal": False,
+            "livePresetMutation": False,
+        }
+    summary = watcher.get("summary") if isinstance(watcher.get("summary"), dict) else {}
+    return {
+        "status": "ready",
+        "generatedAtIso": watcher.get("generatedAtIso", ""),
+        "mode": watcher.get("mode", "FILE_ONLY_REPORT_WATCHER"),
+        "knownTaskCount": int(summary.get("knownTaskCount") or 0),
+        "reportFileCount": int(summary.get("reportFileCount") or 0),
+        "parsedReportCount": int(summary.get("parsedReportCount") or 0),
+        "pendingReportCount": int(summary.get("pendingReportCount") or 0),
+        "malformedReportCount": int(summary.get("malformedReportCount") or 0),
+        "newlyParsedReportCount": int(summary.get("newlyParsedReportCount") or 0),
+        "orphanReportCount": int(summary.get("orphanReportCount") or 0),
+        "promotionReadyCount": int(summary.get("promotionReadyCount") or 0),
+        "runTerminal": False,
+        "livePresetMutation": False,
+    }
+
+
 def summarize_strategy_version_registry(registry: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(registry, dict) or not registry:
         return {
@@ -1091,6 +1125,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_optimization_plan = read_json(runtime_dir / PARAM_OPTIMIZATION_NAME)
     param_lab_status = read_json(runtime_dir / PARAM_LAB_STATUS_NAME)
     param_lab_results_doc = read_json(runtime_dir / PARAM_LAB_RESULTS_NAME)
+    param_lab_report_watcher_doc = read_json(runtime_dir / PARAM_LAB_REPORT_WATCHER_NAME)
     strategy_version_registry_doc = read_json(runtime_dir / STRATEGY_VERSION_REGISTRY_NAME)
     optimizer_v2_doc = read_json(runtime_dir / OPTIMIZER_V2_NAME)
     version_promotion_gate_doc = read_json(runtime_dir / VERSION_PROMOTION_GATE_NAME)
@@ -1106,6 +1141,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_optimization = summarize_param_optimization(param_optimization_plan)
     param_lab = summarize_param_lab(param_lab_status)
     param_lab_results = summarize_param_lab_results(param_lab_results_doc)
+    param_lab_report_watcher = summarize_param_lab_report_watcher(param_lab_report_watcher_doc)
     strategy_version_registry = summarize_strategy_version_registry(strategy_version_registry_doc)
     optimizer_v2 = summarize_optimizer_v2(optimizer_v2_doc)
     version_promotion_gate = summarize_version_promotion_gate(version_promotion_gate_doc)
@@ -1177,6 +1213,9 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramLabResultCount": param_lab_results["resultCount"],
             "paramLabResultParsed": param_lab_results["parsedReportCount"],
             "paramLabPromotionReady": param_lab_results["promotionReadyCount"],
+            "paramLabReportWatcherParsed": param_lab_report_watcher["parsedReportCount"],
+            "paramLabReportWatcherPending": param_lab_report_watcher["pendingReportCount"],
+            "paramLabReportWatcherMalformed": param_lab_report_watcher["malformedReportCount"],
             "strategyVersionCount": strategy_version_registry["routeCount"],
             "optimizerV2Proposals": optimizer_v2["proposalCount"],
             "optimizerV2WaitingReport": optimizer_v2["waitingReportCount"],
@@ -1199,6 +1238,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "paramOptimization": param_optimization,
         "paramLab": param_lab,
         "paramLabResults": param_lab_results,
+        "paramLabReportWatcher": param_lab_report_watcher,
         "strategyVersionRegistry": strategy_version_registry,
         "optimizerV2": optimizer_v2,
         "versionPromotionGate": version_promotion_gate,
@@ -1210,7 +1250,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "Keep BB/MACD/SR in simulation and retune routes with weak 60m candidate outcomes.",
             "Use ParamOptimizationPlan candidates as offline tester tasks only; never overwrite the live preset automatically.",
             "Use ParamLabStatus as the controlled Strategy Tester task queue; CONFIG_READY tasks still require an authorized tester run before promotion review.",
-            "Use ParamLabResults as the parameter-version ranking source after Strategy Tester reports exist; pending reports are not promotion evidence.",
+            "Use ParamLabReportWatcher to discover landed Strategy Tester reports, then use ParamLabResults as the parameter-version ranking source; pending or malformed reports are not promotion evidence.",
             "Use VersionPromotionGate as dry-run promotion/demotion review; it never mutates live switches by itself.",
             "Use ParamLabAutoScheduler as the config-only queue for the next tester-only batch; it never adds -RunTerminal.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",

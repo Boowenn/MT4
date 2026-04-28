@@ -5807,6 +5807,26 @@
                         </div>
                     </div>
                 </div>
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">W</div>
+                            Report Watcher 回灌
+                        </div>
+                        <span class="eval-summary" id="paramLabReportWatcherSummary">等待 Report Watcher</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="paramlab-batch-toolbar">
+                            <div class="paramlab-batch-meta" id="paramLabReportWatcherMeta">
+                                自动发现 Strategy Tester reportPath，解析 PF / 胜率 / 净收益 / 回撤 / 交易数并回写统一 Results Ledger。
+                            </div>
+                            <div class="paramlab-batch-counters" id="paramLabReportWatcherCounters"></div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper paramlab-batch-table" id="paramLabReportWatcherBody">
+                            <div class="empty-state">等待 QuantGod_ParamLabReportWatcher.json</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-reports" data-nav-section="reports">
@@ -5902,6 +5922,7 @@ const LOCAL_STRATEGY_VERSION_REGISTRY_PATH = 'QuantGod_StrategyVersionRegistry.j
 const LOCAL_OPTIMIZER_V2_PATH = 'QuantGod_OptimizerV2Plan.json';
 const LOCAL_VERSION_PROMOTION_GATE_PATH = 'QuantGod_VersionPromotionGate.json';
 const LOCAL_PARAM_LAB_AUTO_SCHEDULER_PATH = 'QuantGod_ParamLabAutoScheduler.json';
+const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -6050,6 +6071,7 @@ function setRouteStrategyFilter(strategy) {
     updateGovernanceAdvisor(dashboardData);
     updateParamLabBatchPanel(dashboardData);
     updateParamLabAutoSchedulerPanel(dashboardData);
+    updateParamLabReportWatcherPanel(dashboardData);
     updateStrategyWorkspace(dashboardData);
     updateStrategyVersionOptimizerPanel(dashboardData);
     updateGovernanceFeedback(dashboardData);
@@ -6701,7 +6723,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         strategyVersionRegistry: baseData?.strategyVersionRegistry || previousData?.strategyVersionRegistry || null,
         optimizerV2: baseData?.optimizerV2 || previousData?.optimizerV2 || null,
         versionPromotionGate: baseData?.versionPromotionGate || previousData?.versionPromotionGate || null,
-        paramLabAutoScheduler: baseData?.paramLabAutoScheduler || previousData?.paramLabAutoScheduler || null
+        paramLabAutoScheduler: baseData?.paramLabAutoScheduler || previousData?.paramLabAutoScheduler || null,
+        paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null
     };
 
     if (!isLocalRuntime()) {
@@ -6852,6 +6875,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('ParamLab auto scheduler load failed.', error);
     }
 
+    try {
+        data.paramLabReportWatcher = await loadLocalJsonSupplement(LOCAL_PARAM_LAB_REPORT_WATCHER_PATH);
+        data._paramLabReportWatcherError = false;
+    } catch (error) {
+        data._paramLabReportWatcherError = true;
+        console.warn('ParamLab report watcher load failed.', error);
+    }
+
     return data;
 }
 
@@ -6925,6 +6956,10 @@ function getVersionPromotionGate(d) {
 
 function getParamLabAutoScheduler(d) {
     return d?.paramLabAutoScheduler || d?.governanceAdvisor?.paramLabAutoScheduler || null;
+}
+
+function getParamLabReportWatcher(d) {
+    return d?.paramLabReportWatcher || d?.governanceAdvisor?.paramLabReportWatcher || null;
 }
 
 function getFocusSymbol(d) {
@@ -8593,7 +8628,7 @@ function getParamLabBatchState(task = {}, result = {}) {
         return { key: 'waiting_report', label: '等待报告', tone: 'status-warn', next: '已尝试运行，等待 Strategy Tester reportPath 产出后再回灌评分。' };
     }
     if (attempted || reportExists || resultStatus === 'REPORT_FOUND_UNPARSED') {
-        return { key: 'ran', label: '已运行', tone: 'status-info', next: '已有运行痕迹，下一步用 Results Parser 解析并评分。' };
+        return { key: 'ran', label: '已运行', tone: 'status-info', next: '已有运行痕迹，下一步用 Report Watcher 解析并评分。' };
     }
     if (taskStatus === 'CONFIG_READY' || task.configPath || task.presetPath) {
         return { key: 'ready', label: '可在授权窗口运行', tone: 'status-info', next: '周末或明确授权 Strategy Tester 窗口内可按候选运行。' };
@@ -9038,6 +9073,140 @@ function updateParamLabAutoSchedulerPanel(d) {
             </tr>
         </thead>
         <tbody>${rows.map(renderParamLabAutoSchedulerRow).join('')}</tbody>
+    </table>`;
+}
+
+function getParamLabReportWatcherRows(d) {
+    const watcher = getParamLabReportWatcher(d);
+    const rows = Array.isArray(watcher?.watchedResults)
+        ? watcher.watchedResults
+        : (Array.isArray(watcher?.results) ? watcher.results : []);
+    return isRouteStrategyFiltered()
+        ? rows.filter((row) => (row?.routeKey || row?.strategy) === routeStrategyFilter)
+        : rows;
+}
+
+function reportWatcherState(result = {}) {
+    const metrics = result.metrics || {};
+    const status = String(result.status || '').toUpperCase();
+    const grade = String(result.grade || '').toUpperCase();
+    if (grade && grade !== 'PENDING_REPORT') {
+        return { label: '已评分', tone: 'status-live' };
+    }
+    if (status === 'REPORT_FOUND_UNPARSED') {
+        return { label: '报告异常', tone: 'status-danger' };
+    }
+    if (metrics.reportExists || status === 'PARSED_PARTIAL') {
+        return { label: '已解析', tone: 'status-info' };
+    }
+    return { label: '等待报告', tone: 'status-warn' };
+}
+
+function renderParamLabReportWatcherRow(result) {
+    const routeKey = result?.routeKey || result?.strategy || 'UNKNOWN';
+    const metrics = result?.metrics || {};
+    const watcher = result?.watcher || {};
+    const candidateId = result?.candidateId || '--';
+    const state = reportWatcherState(result);
+    const score = result?.grade && result.grade !== 'PENDING_REPORT'
+        ? `${formatParamLabNumber(result.resultScore, 1)} / ${result.grade}`
+        : '--';
+    const pf = formatParamLabNumber(metrics.profitFactor, 2);
+    const winRate = hasParamLabNumber(metrics.winRate) ? formatPercentValue(metrics.winRate, 1) : '--';
+    const net = hasParamLabNumber(metrics.netProfit) ? formatMoney(metrics.netProfit, 2) : '--';
+    const trades = hasParamLabNumber(metrics.closedTrades) ? String(metrics.closedTrades) : '--';
+    const dd = hasParamLabNumber(metrics.relativeDrawdownPct)
+        ? formatPercentValue(metrics.relativeDrawdownPct, 1)
+        : formatParamLabNumber(metrics.maxDrawdown, 2);
+    const blockers = Array.isArray(result?.blockers) && result.blockers.length ? result.blockers.join(' / ') : '--';
+
+    return `<tr>
+        <td class="paramlab-route-cell">
+            <div class="paramlab-route-name">${escapeHtml(strategyShortLabel(routeKey))} · ${escapeHtml(strategyLabel(routeKey))}</div>
+            <div class="paramlab-route-sub">${escapeHtml(result?.symbol || '--')} / ${escapeHtml(result?.timeframe || '--')} · ${escapeHtml(result?.variant || '--')}</div>
+        </td>
+        <td>
+            <span class="table-badge ${state.tone}">${escapeHtml(state.label)}</span>
+            <div class="paramlab-path">${escapeHtml(candidateId)}</div>
+            <div class="paramlab-path">${escapeHtml(watcher.matchType || '--')}</div>
+        </td>
+        <td>
+            <div class="paramlab-metric-strip">
+                ${renderParamLabMetricChip('Score', score)}
+                ${renderParamLabMetricChip('PF', pf)}
+                ${renderParamLabMetricChip('Win', winRate)}
+                ${renderParamLabMetricChip('Trades', trades)}
+                ${renderParamLabMetricChip('Net', net)}
+                ${renderParamLabMetricChip('DD', dd)}
+            </div>
+        </td>
+        <td>
+            <span class="paramlab-path">modified: ${escapeHtml(watcher.reportModifiedAtIso || '--')}</span>
+            <span class="paramlab-path">source: ${escapeHtml(watcher.source || '--')}</span>
+            <span class="paramlab-path">blocker: ${escapeHtml(blockers)}</span>
+        </td>
+        <td>
+            <span class="paramlab-path">report: ${escapeHtml(result?.reportPath || '--')}</span>
+            <div class="governance-feedback-actions">${renderCopyButton(result?.reportPath || '', '复制路径', '无 report 路径')}</div>
+        </td>
+    </tr>`;
+}
+
+function updateParamLabReportWatcherPanel(d) {
+    const summaryEl = document.getElementById('paramLabReportWatcherSummary');
+    const metaEl = document.getElementById('paramLabReportWatcherMeta');
+    const countersEl = document.getElementById('paramLabReportWatcherCounters');
+    const bodyEl = document.getElementById('paramLabReportWatcherBody');
+    if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
+
+    const watcher = getParamLabReportWatcher(d);
+    const rows = getParamLabReportWatcherRows(d);
+    if (!watcher || watcher.status === 'missing') {
+        summaryEl.textContent = '等待 Report Watcher';
+        metaEl.textContent = '等待 QuantGod_ParamLabReportWatcher.json；页面只读，不启动 MT5。';
+        countersEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="empty-state">等待 Report Watcher 回灌结果</div>';
+        return;
+    }
+
+    const summary = watcher.summary || watcher;
+    const routeLabel = isRouteStrategyFiltered() ? strategyLabel(routeStrategyFilter) : '全部路线';
+    const parsed = Number(summary.parsedReportCount || 0);
+    const pending = Number(summary.pendingReportCount || 0);
+    const malformed = Number(summary.malformedReportCount || 0);
+    const newlyParsed = Number(summary.newlyParsedReportCount || 0);
+    summaryEl.textContent = `${routeLabel} | parsed ${parsed} / pending ${pending} / malformed ${malformed}`;
+    metaEl.textContent = `Mode ${watcher.mode || 'FILE_ONLY_REPORT_WATCHER'} · 报告文件 ${summary.reportFileCount || 0} · 新解析 ${newlyParsed} · 生成 ${watcher.generatedAtIso || '--'}；只回写结果账本。`;
+    countersEl.innerHTML = [
+        `<span class="table-badge status-live">parsed ${parsed}</span>`,
+        `<span class="table-badge status-warn">pending ${pending}</span>`,
+        `<span class="table-badge status-danger">malformed ${malformed}</span>`,
+        `<span class="table-badge status-muted">no terminal</span>`
+    ].join('');
+
+    if (!rows.length) {
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(routeLabel)} 当前没有 watcher 记录；运行 ParamLab config 队列后会出现候选 reportPath。</div>`;
+        return;
+    }
+
+    bodyEl.innerHTML = `<table>
+        <colgroup>
+            <col style="width: 17%;">
+            <col style="width: 22%;">
+            <col style="width: 22%;">
+            <col style="width: 19%;">
+            <col style="width: 20%;">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>路线</th>
+                <th>报告状态</th>
+                <th>解析指标</th>
+                <th>Watcher 证据</th>
+                <th>Report 路径</th>
+            </tr>
+        </thead>
+        <tbody>${rows.map(renderParamLabReportWatcherRow).join('')}</tbody>
     </table>`;
 }
 
@@ -10849,6 +11018,7 @@ function updateDashboard() {
     updateGovernanceAdvisor(d);
     updateParamLabBatchPanel(d);
     updateParamLabAutoSchedulerPanel(d);
+    updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
