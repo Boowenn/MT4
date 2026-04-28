@@ -24,6 +24,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketExecutionGateLedger.csv`
 - `QuantGod_PolymarketDryRunOrders.json`
 - `QuantGod_PolymarketExecutionLedger.csv`
+- `QuantGod_PolymarketDryRunOutcomeWatcher.json`
+- `QuantGod_PolymarketDryRunOutcomeLedger.csv`
 
 ## Bridge
 
@@ -106,6 +108,29 @@ This layer answers "if a market eventually passed the gate, what would the order
 
 Blocked gate candidates still get a hypothetical plan, but `simulatedStakeUSDC=0` and `decision=DRY_RUN_BLOCKED_BY_GATE`. This prevents an eventual executor from appearing before the audit schema and exit rules are visible.
 
+## Dry-Run Outcome Watcher
+
+Run:
+
+```bat
+tools\watch_polymarket_dry_run_outcomes.bat
+```
+
+The watcher consumes `QuantGod_PolymarketDryRunOrders.json` and the latest `QuantGod_PolymarketMarketRadar.json`, then writes:
+
+- `QuantGod_PolymarketDryRunOutcomeWatcher.json`
+- `QuantGod_PolymarketDryRunOutcomeLedger.csv`
+
+It keeps a stable tracking key per `market + track + side` and carries forward observed high/low prices from the previous watcher output. This lets the system validate whether the dry-run exit rules would have worked:
+
+- current price and unrealized percentage;
+- MFE/MAE since first observation;
+- whether TP, SL, trailing exit, max-hold exit, or pre-resolution exit would have fired;
+- ambiguous TP/SL triggers when sparse polling cannot prove which happened first;
+- persistent `walletWrite=false`, `orderSend=false`, `startsExecutor=false`, and `mutatesMt5=false`.
+
+This is still an observation layer. It does not place, cancel, or close any order.
+
 ## Retune Planner
 
 Run:
@@ -135,6 +160,7 @@ It displays:
 - Opportunity Radar: public Gamma scan with probability, liquidity, divergence, score, risk, and suggested shadow track.
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
+- Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.

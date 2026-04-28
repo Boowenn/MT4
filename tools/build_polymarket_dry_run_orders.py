@@ -31,6 +31,7 @@ LEDGER_FIELDS = [
     "schema_version",
     "mode",
     "dry_run_order_id",
+    "tracking_key",
     "market_id",
     "question",
     "track",
@@ -218,6 +219,9 @@ def build_order_plan(
     contract = gate.get("executionContract") or {}
     stake_policy = contract.get("stakePolicy") or {}
     market_id = str(row.get("marketId") or radar_item.get("marketId") or "").strip()
+    track = row.get("suggestedShadowTrack") or radar_item.get("suggestedShadowTrack") or ""
+    side = str(args.default_side or "YES").upper()
+    tracking_key = f"{market_id}|{track}|{side}"
     blockers = unique([str(item) for item in (row.get("blockers") or [])])
     gate_can_bet = bool(row.get("canBet")) and not blockers
     entry_price = price_from_probability(row.get("probability", radar_item.get("probability")))
@@ -231,11 +235,12 @@ def build_order_plan(
     decision = "DRY_RUN_READY_NO_WALLET_WRITE" if gate_can_bet else "DRY_RUN_BLOCKED_BY_GATE"
     return {
         "dryRunOrderId": f"DRYRUN-{market_id or 'UNKNOWN'}-{now.strftime('%Y%m%d%H%M%S')}",
+        "trackingKey": tracking_key,
         "marketId": market_id,
         "question": row.get("question") or radar_item.get("question") or "",
         "polymarketUrl": row.get("polymarketUrl") or radar_item.get("polymarketUrl") or "",
-        "track": row.get("suggestedShadowTrack") or radar_item.get("suggestedShadowTrack") or "",
-        "side": str(args.default_side or "YES").upper(),
+        "track": track,
+        "side": side,
         "decision": decision,
         "canOpenDryRun": gate_can_bet,
         "walletWrite": False,
@@ -332,6 +337,7 @@ def ledger_csv(snapshot: dict[str, Any]) -> str:
                 "schema_version": SCHEMA_VERSION,
                 "mode": snapshot.get("mode", ""),
                 "dry_run_order_id": row.get("dryRunOrderId", ""),
+                "tracking_key": row.get("trackingKey", ""),
                 "market_id": row.get("marketId", ""),
                 "question": row.get("question", ""),
                 "track": row.get("track", ""),

@@ -6097,6 +6097,7 @@
         .polymarket-radar-grid,
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
+        .polymarket-outcome-grid,
         .polymarket-retune-grid,
         .polymarket-risk-grid {
             display: grid;
@@ -6117,6 +6118,10 @@
         }
 
         .polymarket-dryrun-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-outcome-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6394,6 +6399,7 @@
         .polymarket-radar-grid,
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
+        .polymarket-outcome-grid,
         .polymarket-retune-grid,
         .polymarket-risk-grid {
             grid-template-columns: 1fr;
@@ -7110,6 +7116,21 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-green);">W</div>
+                            模拟结果 / 退出观察
+                        </div>
+                        <span class="eval-summary" id="polymarketOutcomeWatcherSummary">等待模拟结果观察</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-outcome-grid" id="polymarketOutcomeWatcherBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketDryRunOutcomeWatcher.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-green);">T</div>
                             重调计划 / 只影子队列
                         </div>
@@ -7668,6 +7689,7 @@ const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json'
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
 const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.json';
 const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
+const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -8478,7 +8500,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null,
         polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null,
-        polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null
+        polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null,
+        polymarketDryRunOutcomeWatcher: baseData?.polymarketDryRunOutcomeWatcher || previousData?.polymarketDryRunOutcomeWatcher || null
     };
 
     if (!isLocalRuntime()) {
@@ -8693,6 +8716,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Polymarket dry-run order plan load failed.', error);
     }
 
+    try {
+        data.polymarketDryRunOutcomeWatcher = await loadLocalJsonSupplement(LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH);
+        data._polymarketDryRunOutcomeWatcherError = false;
+    } catch (error) {
+        data._polymarketDryRunOutcomeWatcherError = true;
+        console.warn('Polymarket dry-run outcome watcher load failed.', error);
+    }
+
     return data;
 }
 
@@ -8800,6 +8831,10 @@ function getPolymarketDryRunOrders(d) {
     return d?.polymarketDryRunOrders || null;
 }
 
+function getPolymarketDryRunOutcomeWatcher(d) {
+    return d?.polymarketDryRunOutcomeWatcher || null;
+}
+
 function getPolymarketTone(stats = {}) {
     const pnl = Number(stats.realizedPnl || 0);
     const pf = stats.profitFactor === null || stats.profitFactor === undefined ? null : Number(stats.profitFactor);
@@ -8857,6 +8892,18 @@ function translatePolymarketToken(value) {
         SCHEMA_READY_NO_WALLET_WRITE: '账本结构就绪：不写钱包',
         POLYMARKET_DRY_RUN_ORDER_SIMULATOR_V1: 'Polymarket 模拟订单 V1',
         POLY_EXEC_LEDGER_V1: '执行账本结构 V1',
+        OUTCOME_WATCH_ONLY_NO_WALLET_WRITE: '只观察模拟结果：不写钱包',
+        POLYMARKET_DRY_RUN_OUTCOME_WATCHER_V1: '模拟结果观察 V1',
+        GATE_BLOCKED_PRICE_WATCH_ONLY: '闸门阻断：只观察价格',
+        HOLD_DRY_RUN: '模拟持有中',
+        WAITING_CURRENT_PRICE: '等待当前价格',
+        WAITING_PRICE: '等待价格',
+        WOULD_EXIT_STOP_LOSS_PRICE_HIT: '本应止损退出',
+        WOULD_EXIT_TAKE_PROFIT_PRICE_HIT: '本应止盈退出',
+        WOULD_EXIT_TRAILING_STOP_ARMED_AND_REVERSED: '本应移动止盈退出',
+        WOULD_EXIT_MAX_HOLD_TIME_REACHED: '本应超时退出',
+        WOULD_EXIT_EXIT_BEFORE_RESOLUTION: '本应结算前退出',
+        AMBIGUOUS_TP_SL_TRIGGER: '止盈止损触发顺序不确定',
         SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
         SHADOW_REVIEW: '进入影子观察',
         OBSERVE_ONLY: '只观察',
@@ -9163,6 +9210,92 @@ function updatePolymarketDryRunOrders(d) {
         policyCard,
         ...orders.slice(0, 7).map(renderPolymarketDryRunOrder),
     ].join('') || '<div class="empty-state">暂无 Polymarket 模拟订单。</div>';
+}
+
+function formatPolymarketSignedPct(value) {
+    if (value === null || value === undefined || value === '') return '--';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '--';
+    return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+}
+
+function renderPolymarketOutcomeCard(row = {}) {
+    const triggered = Array.isArray(row.triggeredReasons) ? row.triggeredReasons : [];
+    const blockers = Array.isArray(row.blockers) ? row.blockers : [];
+    const state = row.state || 'WAITING_PRICE';
+    const tone = String(state).includes('STOP_LOSS') || String(state).includes('AMBIGUOUS') ? 'danger'
+        : (String(state).includes('TAKE_PROFIT') || String(state).includes('TRAILING') ? 'good' : 'watch');
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(row.track || '模拟结果')}</div>
+            <div class="polymarket-title">${escapeHtml(row.question || row.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('状态', translatePolymarketToken(state))}
+                ${renderPolymarketMetric('当前价', row.currentPrice ?? '--')}
+                ${renderPolymarketMetric('浮动%', formatPolymarketSignedPct(row.unrealizedPct))}
+                ${renderPolymarketMetric('MFE/MAE', `${formatPolymarketSignedPct(row.mfePct)} / ${formatPolymarketSignedPct(row.maePct)}`)}
+                ${renderPolymarketMetric('最高/最低', `${row.maxObservedPrice ?? '--'} / ${row.minObservedPrice ?? '--'}`)}
+                ${renderPolymarketMetric('移动止盈价', row.trailingStopPrice || '--')}
+                ${renderPolymarketMetric('最晚退出', formatPolymarketTime(row.maxHoldUntil))}
+                ${renderPolymarketMetric('结算前退出', formatPolymarketTime(row.exitBeforeResolutionAt))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">触发条件 ${escapeHtml(translatePolymarketList(triggered, 5))}</div>
+                <div class="polymarket-action">阻断原因 ${escapeHtml(translatePolymarketList(blockers, 4))}</div>
+                <div class="polymarket-action">写钱包 ${row.walletWrite ? '是' : '否'} · 下单 ${row.orderSend ? '是' : '否'} · ${escapeHtml(translatePolymarketToken(row.observationStatus || '--'))}</div>
+            </div>
+        </div>
+    `;
+}
+
+function updatePolymarketDryRunOutcomeWatcher(d) {
+    const watcher = getPolymarketDryRunOutcomeWatcher(d);
+    const summaryEl = document.getElementById('polymarketOutcomeWatcherSummary');
+    const body = document.getElementById('polymarketOutcomeWatcherBody');
+    if (!body) return;
+    if (!watcher || d?._polymarketDryRunOutcomeWatcherError) {
+        if (summaryEl) summaryEl.textContent = '等待模拟结果';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketDryRunOutcomeWatcher.json`；这里只观察模拟 TP/SL/退出，不接钱包。</div>';
+        return;
+    }
+    const summary = watcher.summary || {};
+    if (summaryEl) {
+        summaryEl.textContent = `${translatePolymarketToken(watcher.decision || 'OUTCOME_WATCH_ONLY_NO_WALLET_WRITE')} | 观察 ${summary.watchedOrders || 0} | 本应退出 ${summary.wouldExit || 0} | TP/SL ${summary.takeProfit || 0}/${summary.stopLoss || 0}`;
+    }
+    const rules = watcher.outcomeRules || {};
+    const safety = watcher.safety || {};
+    const ruleCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">观察规则</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(watcher.mode || 'POLYMARKET_DRY_RUN_OUTCOME_WATCHER_V1'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('价格来源', '机会雷达最新概率')}
+                ${renderPolymarketMetric('追踪键', rules.trackingKey || 'market + track + side')}
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('下单', safety.orderSendAllowed ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">每轮会继承最高/最低观察价，用来验证止盈、止损、移动止盈和超时退出。</div>
+        </div>
+    `;
+    const summaryCard = `
+        <div class="polymarket-card ${summary.wouldExit ? 'danger' : 'watch'}">
+            <div class="polymarket-eyebrow">本轮模拟结果</div>
+            <div class="polymarket-title">本应退出 ${escapeHtml(summary.wouldExit || 0)} 个</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('止盈', summary.takeProfit || 0)}
+                ${renderPolymarketMetric('止损', summary.stopLoss || 0)}
+                ${renderPolymarketMetric('移动退出', summary.trailingExit || 0)}
+                ${renderPolymarketMetric('超时/结算前', `${summary.timeExit || 0}/${summary.preResolutionExit || 0}`)}
+            </div>
+            <div class="polymarket-note">当前只是 outcome watcher，不会真正退出或撤单。</div>
+        </div>
+    `;
+    const rows = Array.isArray(watcher.outcomes) ? watcher.outcomes : [];
+    body.innerHTML = [
+        ruleCard,
+        summaryCard,
+        ...rows.slice(0, 7).map(renderPolymarketOutcomeCard),
+    ].join('') || '<div class="empty-state">暂无模拟结果观察。</div>';
 }
 
 function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraClass = '') {
@@ -14077,6 +14210,7 @@ function updateDashboard() {
     updatePolymarketMarketRadar(d);
     updatePolymarketExecutionGate(d);
     updatePolymarketDryRunOrders(d);
+    updatePolymarketDryRunOutcomeWatcher(d);
     updatePolymarketRetunePlanner(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
