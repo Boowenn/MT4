@@ -18,6 +18,7 @@ Implemented:
 - Version Promotion Gate dry-run: writes `QuantGod_VersionPromotionGate.json` and `QuantGod_VersionPromotionGateLedger.csv`, judging each current route version and optimizer proposal by `versionId` without changing live switches.
 - ParamLab Auto Scheduler config-only: writes `QuantGod_ParamLabAutoScheduler.json` and `QuantGod_ParamLabAutoSchedulerLedger.csv`, translating Gate `WAIT_REPORT`, `RETUNE`, and `WAIT_FORWARD` evidence into the next route-balanced tester-only queue without adding `-RunTerminal`.
 - AUTO_TESTER_WINDOW guarded execution layer: writes `QuantGod_AutoTesterWindow.json` and `QuantGod_AutoTesterWindowLedger.csv`; default mode is evaluation-only, and run-terminal execution is blocked unless the Strategy Tester window, authorization lock, tester-only queue, HFM terminal/profile target, ParamLab config, report path, lot size, and position caps all pass.
+- ParamLab Run History / Recovery: writes `QuantGod_ParamLabRunRecovery.json` and `QuantGod_ParamLabRunRecoveryLedger.csv`, summarizing each guarded/config run by runId, terminal exit code, report missing/parsed/malformed state, retry count, stop reason, and next recovery action.
 
 Current live-trading boundary:
 
@@ -89,6 +90,7 @@ Remaining recovery work:
 - Poll continuously during authorized tester windows instead of running as a one-shot builder.
 - Detect terminal timeout separately from tester failure.
 - Requeue retryable failures with a cap.
+- Run history and dashboard recovery visibility are now implemented; retry/budget policy still needs a capped executor layer before unattended reruns.
 
 ### 3. Backtest Budget and Experiment Control
 
@@ -112,7 +114,7 @@ Purpose:
 
 - Make the automatic backtest loop transparent.
 
-Needed dashboard surface:
+Implemented dashboard surface:
 
 - Current run ID.
 - Queue length.
@@ -124,6 +126,11 @@ Needed dashboard surface:
 - Score and grade.
 - Next automatic action.
 - Why the scheduler stopped.
+
+Remaining dashboard work:
+
+- Add optional run-detail drilldown after real Strategy Tester runs exist.
+- Add retry budget chips once retry policy is implemented.
 
 ### 5. QuantDinger Pieces Not Worth Porting Now
 

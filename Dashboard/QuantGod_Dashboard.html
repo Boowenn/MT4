@@ -324,6 +324,7 @@
 
         .page-content {
             min-width: 0;
+            min-height: calc(100vh - 145px);
         }
 
         /* 主内容 */
@@ -341,6 +342,14 @@
             flex-direction: column;
             gap: 1.25rem;
             scroll-margin-top: 112px;
+        }
+
+        .main.workspace-mode .content-section {
+            display: none;
+        }
+
+        .main.workspace-mode .content-section.is-active-section {
+            display: flex;
         }
 
         .section-heading {
@@ -5046,7 +5055,7 @@
                     <div class="sidebar-summary-value" id="sidebarFilterScope">全部</div>
                 </div>
             </div>
-            <div class="sidebar-note">左侧导航负责分区跳转，研究建议会跟随本页的 regime 品种筛选同步更新。</div>
+            <div class="sidebar-note">左侧导航切换工作台视图，只显示当前模块；研究建议会跟随 regime 和路线筛选同步更新。</div>
         </div>
         <nav class="sidebar-nav">
             <a class="sidebar-link active" href="#section-overview" data-section-link="overview">
@@ -5789,6 +5798,27 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(168,85,247,0.15); color: #7c3aed;">R</div>
+                            Run History / Recovery
+                        </div>
+                        <span class="eval-summary" id="paramLabRunRecoverySummary">等待运行恢复账本</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="paramlab-batch-toolbar">
+                            <div class="paramlab-batch-meta" id="paramLabRunRecoveryMeta">
+                                汇总每次 ParamLab guarded/config run 的 runId、terminal exit code、报告状态、retry 次数和停止原因；只读恢复建议，不启动 MT5。
+                            </div>
+                            <div class="paramlab-batch-counters" id="paramLabRunRecoveryCounters"></div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper paramlab-batch-table" id="paramLabRunRecoveryBody">
+                            <div class="empty-state">等待 QuantGod_ParamLabRunRecovery.json</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">A</div>
                             切片研究建议
                         </div>
@@ -5945,6 +5975,7 @@ const LOCAL_VERSION_PROMOTION_GATE_PATH = 'QuantGod_VersionPromotionGate.json';
 const LOCAL_PARAM_LAB_AUTO_SCHEDULER_PATH = 'QuantGod_ParamLabAutoScheduler.json';
 const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json';
 const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
+const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -6094,6 +6125,7 @@ function setRouteStrategyFilter(strategy) {
     updateParamLabBatchPanel(dashboardData);
     updateParamLabAutoSchedulerPanel(dashboardData);
     updateAutoTesterWindowPanel(dashboardData);
+    updateParamLabRunRecoveryPanel(dashboardData);
     updateParamLabReportWatcherPanel(dashboardData);
     updateStrategyWorkspace(dashboardData);
     updateStrategyVersionOptimizerPanel(dashboardData);
@@ -6748,7 +6780,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         versionPromotionGate: baseData?.versionPromotionGate || previousData?.versionPromotionGate || null,
         paramLabAutoScheduler: baseData?.paramLabAutoScheduler || previousData?.paramLabAutoScheduler || null,
         paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null,
-        autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null
+        autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null,
+        paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null
     };
 
     if (!isLocalRuntime()) {
@@ -6915,6 +6948,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('AUTO_TESTER_WINDOW load failed.', error);
     }
 
+    try {
+        data.paramLabRunRecovery = await loadLocalJsonSupplement(LOCAL_PARAM_LAB_RUN_RECOVERY_PATH);
+        data._paramLabRunRecoveryError = false;
+    } catch (error) {
+        data._paramLabRunRecoveryError = true;
+        console.warn('ParamLab run recovery load failed.', error);
+    }
+
     return data;
 }
 
@@ -6996,6 +7037,10 @@ function getParamLabReportWatcher(d) {
 
 function getAutoTesterWindow(d) {
     return d?.autoTesterWindow || d?.governanceAdvisor?.autoTesterWindow || null;
+}
+
+function getParamLabRunRecovery(d) {
+    return d?.paramLabRunRecovery || d?.governanceAdvisor?.paramLabRunRecovery || null;
 }
 
 function getFocusSymbol(d) {
@@ -9200,6 +9245,157 @@ function updateAutoTesterWindowPanel(d) {
     </div>`;
 }
 
+function getParamLabRunRecoveryRows(d) {
+    const recovery = getParamLabRunRecovery(d);
+    const rows = Array.isArray(recovery?.runs) ? recovery.runs : [];
+    return isRouteStrategyFiltered()
+        ? rows.filter((row) => Array.isArray(row?.routeKeys) && row.routeKeys.includes(routeStrategyFilter))
+        : rows;
+}
+
+function runRecoveryTone(row = {}) {
+    const reason = String(row.stopReason || '').toLowerCase();
+    if (reason === 'reports_parsed') return { label: '已解析', tone: 'status-live' };
+    if (reason.includes('malformed') || reason.includes('nonzero')) return { label: '需处理', tone: 'status-danger' };
+    if (reason.includes('missing')) return { label: '缺报告', tone: 'status-warn' };
+    if (reason.includes('guard') || reason.includes('window')) return { label: '等窗口', tone: 'status-warn' };
+    return { label: '待恢复', tone: 'status-info' };
+}
+
+function runRecoveryStopText(reason = '') {
+    const mapping = {
+        no_paramlab_tasks: '没有 ParamLab 任务',
+        report_malformed: '报告格式异常',
+        terminal_exit_nonzero: 'terminal exit 非零',
+        report_missing_after_run: '运行后缺报告',
+        reports_parsed: '报告已解析',
+        waiting_guard_clearance: '等待守护条件',
+        config_only_waiting_tester_window: 'config-only 等授权窗口',
+        waiting_report: '等待报告',
+        pending_recovery_review: '待恢复复核'
+    };
+    return mapping[reason] || reason || '--';
+}
+
+function runRecoveryActionText(action = '') {
+    const mapping = {
+        BUILD_SCHEDULER_QUEUE: '先生成调度队列',
+        OPEN_REPORT_AND_REPARSE: '打开报告并修 parser',
+        CHECK_TERMINAL_LOG_THEN_RETRY: '查 terminal/tester 日志再重跑',
+        CHECK_REPORT_PATH_THEN_RETRY_WATCHER: '核 reportPath 后重跑 watcher',
+        SCORE_AND_VERSION_GATE: '交给 Score / Gate',
+        WAIT_AUTO_TESTER_WINDOW: '等 AUTO_TESTER_WINDOW 全绿',
+        WAIT_AUTHORIZED_TESTER_WINDOW: '等授权 Strategy Tester 窗口',
+        WAIT_OR_RUN_REPORT_WATCHER: '等待或重跑 watcher',
+        REVIEW_RUN_STATE: '人工复核运行状态'
+    };
+    return mapping[action] || action || '--';
+}
+
+function renderParamLabRunRecoveryRow(row) {
+    const state = runRecoveryTone(row);
+    const routeText = Array.isArray(row?.routeKeys) && row.routeKeys.length
+        ? row.routeKeys.map(strategyShortLabel).join(' / ')
+        : '--';
+    const candidateCount = Array.isArray(row?.candidateIds) ? row.candidateIds.length : 0;
+    const exitText = Array.isArray(row?.terminalExitCodes) && row.terminalExitCodes.length
+        ? row.terminalExitCodes.join(' / ')
+        : (row?.terminalExitCodeLabel || '--');
+    const reportText = [
+        `parsed ${Number(row?.reportParsedCount || 0)}`,
+        `missing ${Number(row?.reportMissingCount || 0)}`,
+        `malformed ${Number(row?.reportMalformedCount || 0)}`,
+        `pending ${Number(row?.reportPendingCount || 0)}`
+    ].join(' · ');
+    return `<tr>
+        <td class="paramlab-route-cell">
+            <div class="paramlab-route-name">${escapeHtml(row?.runId || '--')}</div>
+            <div class="paramlab-route-sub">${escapeHtml(row?.generatedAtIso || '--')}</div>
+        </td>
+        <td>
+            <span class="table-badge ${state.tone}">${escapeHtml(state.label)}</span>
+            <div class="paramlab-path">${escapeHtml(row?.mode || '--')} · ${row?.runTerminal ? 'RunTerminal' : 'config-only'}</div>
+        </td>
+        <td>
+            <div class="paramlab-metric-strip">
+                ${renderParamLabMetricChip('Exit', exitText)}
+                ${renderParamLabMetricChip('Retry', String(row?.retryCount ?? 0))}
+                ${renderParamLabMetricChip('Tasks', String(row?.taskCount ?? candidateCount))}
+                ${renderParamLabMetricChip('Routes', routeText)}
+            </div>
+        </td>
+        <td>
+            <span class="paramlab-path">${escapeHtml(reportText)}</span>
+            <span class="paramlab-path">stop: ${escapeHtml(runRecoveryStopText(row?.stopReason))}</span>
+            <span class="paramlab-path">action: ${escapeHtml(runRecoveryActionText(row?.recoveryAction))}</span>
+        </td>
+        <td>
+            <span class="paramlab-path">status: ${escapeHtml(row?.statusPath || '--')}</span>
+            <div class="governance-feedback-actions">${renderCopyButton(row?.statusPath || '', '复制 status', '无 status 路径')}</div>
+        </td>
+    </tr>`;
+}
+
+function updateParamLabRunRecoveryPanel(d) {
+    const summaryEl = document.getElementById('paramLabRunRecoverySummary');
+    const metaEl = document.getElementById('paramLabRunRecoveryMeta');
+    const countersEl = document.getElementById('paramLabRunRecoveryCounters');
+    const bodyEl = document.getElementById('paramLabRunRecoveryBody');
+    if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
+
+    const recovery = getParamLabRunRecovery(d);
+    const rows = getParamLabRunRecoveryRows(d);
+    if (!recovery || recovery.status === 'missing') {
+        summaryEl.textContent = '等待运行恢复账本';
+        metaEl.textContent = d?._paramLabRunRecoveryError
+            ? '本地还没有 QuantGod_ParamLabRunRecovery.json；运行 build_governance_advisor.bat 会生成。'
+            : 'Run Recovery 暂无数据；页面只读，不启动 MT5。';
+        countersEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="empty-state">等待 ParamLab Run Recovery 输出</div>';
+        return;
+    }
+
+    const summary = recovery.summary || recovery;
+    const routeLabel = isRouteStrategyFiltered() ? strategyLabel(routeStrategyFilter) : '全部路线';
+    const runCount = Number(summary.runCount || rows.length || 0);
+    const missing = Number(summary.reportMissingCount || 0);
+    const malformed = Number(summary.reportMalformedCount || 0);
+    const recoveryQueue = Number(summary.recoveryQueueCount || 0);
+    summaryEl.textContent = `${routeLabel} | runs ${rows.length}/${runCount} | recovery ${recoveryQueue}`;
+    metaEl.textContent = `Mode ${recovery.mode || 'FILE_ONLY_RUN_HISTORY_RECOVERY'} · latest ${summary.latestRunId || '--'} / ${runRecoveryStopText(summary.latestStopReason)} · 生成 ${recovery.generatedAtIso || '--'}。`;
+    countersEl.innerHTML = [
+        `<span class="table-badge status-muted">config ${Number(summary.configOnlyCount || 0)}</span>`,
+        `<span class="table-badge status-info">attempted ${Number(summary.runAttemptedCount || 0)}</span>`,
+        `<span class="table-badge ${missing ? 'status-warn' : 'status-live'}">missing ${missing}</span>`,
+        `<span class="table-badge ${malformed ? 'status-danger' : 'status-live'}">malformed ${malformed}</span>`
+    ].join('');
+
+    if (!rows.length) {
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(routeLabel)} 当前没有 Run Recovery 记录；先生成 ParamLab config-only 队列后会出现 runId。</div>`;
+        return;
+    }
+
+    bodyEl.innerHTML = `<table>
+        <colgroup>
+            <col style="width: 20%;">
+            <col style="width: 16%;">
+            <col style="width: 22%;">
+            <col style="width: 24%;">
+            <col style="width: 18%;">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>runId</th>
+                <th>模式</th>
+                <th>执行/重试</th>
+                <th>报告与停止原因</th>
+                <th>恢复证据</th>
+            </tr>
+        </thead>
+        <tbody>${rows.slice(0, 30).map(renderParamLabRunRecoveryRow).join('')}</tbody>
+    </table>`;
+}
+
 function getParamLabReportWatcherRows(d) {
     const watcher = getParamLabReportWatcher(d);
     const rows = Array.isArray(watcher?.watchedResults)
@@ -10783,18 +10979,34 @@ function updateSidebarSummary(d) {
     filterEl.textContent = scopeText;
 }
 
-function updateSidebarActiveLink() {
+function normalizeSectionKey(sectionKey = '') {
+    return String(sectionKey || '').replace(/^#/, '').replace(/^section-/, '').trim();
+}
+
+function getValidSectionKeys() {
+    const sections = Array.from(document.querySelectorAll('.content-section[data-nav-section]'));
+    return sections.map((section) => section.dataset.navSection || normalizeSectionKey(section.id));
+}
+
+function setDashboardSection(sectionKey = '', options = {}) {
     const sections = Array.from(document.querySelectorAll('.content-section[data-nav-section]'));
     const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
     const menuItems = Array.from(document.querySelectorAll('.qd-menu-item[href^="#section-"]'));
-    if (!sections.length || !links.length) return;
+    if (!sections.length) return false;
 
-    let activeSection = sections[0].dataset.navSection || '';
-    const threshold = 170;
+    const validKeys = getValidSectionKeys();
+    let activeSection = normalizeSectionKey(sectionKey);
+    if (!validKeys.includes(activeSection)) {
+        activeSection = validKeys[0] || 'overview';
+    }
+
+    const mainEl = document.querySelector('.main');
+    if (mainEl) mainEl.classList.add('workspace-mode');
     sections.forEach((section) => {
-        if (section.getBoundingClientRect().top - threshold <= 0) {
-            activeSection = section.dataset.navSection || activeSection;
-        }
+        const key = section.dataset.navSection || normalizeSectionKey(section.id);
+        const active = key === activeSection;
+        section.classList.toggle('is-active-section', active);
+        section.setAttribute('aria-hidden', active ? 'false' : 'true');
     });
 
     links.forEach((link) => {
@@ -10804,37 +11016,43 @@ function updateSidebarActiveLink() {
         const itemSection = String(item.getAttribute('href') || '').replace(/^#section-/, '');
         item.classList.toggle('active', itemSection === activeSection);
     });
+
+    if (options.updateHash !== false) {
+        const nextHash = `#section-${activeSection}`;
+        if (window.location.hash !== nextHash) {
+            history.pushState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+        }
+    }
+    if (options.scrollTop) {
+        const shell = document.querySelector('.app-shell');
+        const top = shell ? shell.getBoundingClientRect().top + window.scrollY - 18 : 0;
+        window.scrollTo({ top: Math.max(0, top), behavior: options.smooth ? 'smooth' : 'auto' });
+    }
+    return true;
 }
 
 function updateSidebarActiveFromHash() {
     const hash = String(window.location.hash || '').replace(/^#section-/, '').trim();
-    if (!hash) return false;
-
-    const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
-    const menuItems = Array.from(document.querySelectorAll('.qd-menu-item[href^="#section-"]'));
-    if (!links.some((link) => link.dataset.sectionLink === hash)) return false;
-
-    links.forEach((link) => {
-        link.classList.toggle('active', link.dataset.sectionLink === hash);
-    });
-    menuItems.forEach((item) => {
-        const itemSection = String(item.getAttribute('href') || '').replace(/^#section-/, '');
-        item.classList.toggle('active', itemSection === hash);
-    });
-    return true;
+    return setDashboardSection(hash || 'overview', { updateHash: false, scrollTop: false });
 }
 
 function initSidebarNavigation() {
-    if (!updateSidebarActiveFromHash()) {
-        updateSidebarActiveLink();
+    if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
     }
-    window.addEventListener('scroll', updateSidebarActiveLink, { passive: true });
-    window.addEventListener('resize', updateSidebarActiveLink);
-    window.addEventListener('hashchange', () => {
-        if (!updateSidebarActiveFromHash()) {
-            updateSidebarActiveLink();
-        }
+    updateSidebarActiveFromHash();
+    document.addEventListener('click', (event) => {
+        const link = event.target.closest('a[href^="#section-"]');
+        if (!link) return;
+        const sectionKey = normalizeSectionKey(link.getAttribute('href'));
+        if (!getValidSectionKeys().includes(sectionKey)) return;
+        event.preventDefault();
+        setDashboardSection(sectionKey, { updateHash: true, scrollTop: true, smooth: false });
     });
+    window.addEventListener('hashchange', () => {
+        updateSidebarActiveFromHash();
+    });
+    window.addEventListener('popstate', updateSidebarActiveFromHash);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -11143,6 +11361,7 @@ function updateDashboard() {
     updateParamLabBatchPanel(d);
     updateParamLabAutoSchedulerPanel(d);
     updateAutoTesterWindowPanel(d);
+    updateParamLabRunRecoveryPanel(d);
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updateStrategyVersionOptimizerPanel(d);
