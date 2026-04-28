@@ -16,6 +16,7 @@ python "%REPO_ROOT%\tools\build_param_lab_auto_scheduler.py" --runtime-dir "%RUN
 python "%REPO_ROOT%\tools\build_param_lab_run_recovery.py" --runtime-dir "%RUNTIME_DIR%"
 python "%REPO_ROOT%\tools\build_polymarket_research_bridge.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard" --polymarket-root "D:\polymarket"
 python "%REPO_ROOT%\tools\build_polymarket_market_radar.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
+python "%REPO_ROOT%\tools\analyze_polymarket_single_market.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
 python "%REPO_ROOT%\tools\build_polymarket_retune_planner.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
 python "%REPO_ROOT%\tools\build_polymarket_execution_gate.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
 python "%REPO_ROOT%\tools\build_polymarket_dry_run_orders.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"

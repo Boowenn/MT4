@@ -18,6 +18,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketResearchLedger.csv`
 - `QuantGod_PolymarketMarketRadar.json`
 - `QuantGod_PolymarketMarketRadar.csv`
+- `QuantGod_PolymarketSingleMarketAnalysis.json`
+- `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
 - `QuantGod_PolymarketRetunePlanner.json`
 - `QuantGod_PolymarketRetunePlanner.csv`
 - `QuantGod_PolymarketExecutionGate.json`
@@ -65,6 +67,36 @@ Current radar behavior is deliberately `SHADOW_ONLY_MARKET_RADAR_NO_BETTING`:
 - no MT5 mutation.
 
 If Polymarket execution is added later, it should be a separate promoted module gated by Strategy Version Registry, Governance Advisor, bankroll isolation, position sizing, per-market max loss, take-profit/stop-loss exit rules, order-send audit, and a kill switch. The radar is the discovery layer, not the execution layer.
+
+## Single Market AI Analysis V1
+
+Run:
+
+```bat
+tools\analyze_polymarket_single_market.bat
+```
+
+Optional with a specific market URL/title/market id:
+
+```bat
+tools\analyze_polymarket_single_market.bat "C:\Program Files\HFM Metatrader 5\MQL5\Files" "https://polymarket.com/event/example-market"
+```
+
+If no CLI query is supplied, the analyzer first looks for `QuantGod_PolymarketSingleMarketRequest.json` in `Dashboard\` or the HFM runtime files directory. The request can contain `query`, `url`, `marketUrl`, `polymarketUrl`, `marketId`, `slug`, `title`, or `question`. If no request exists, it falls back to the top `QuantGod_PolymarketMarketRadar.json` candidate.
+
+The analyzer writes:
+
+- `QuantGod_PolymarketSingleMarketAnalysis.json`
+- `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
+
+It is still research-only:
+
+- uses public Gamma active-market data;
+- uses a deterministic `RULE_PROXY_NO_LLM` AI/rule probability proxy until an explicit AI service is added;
+- outputs market probability, AI/rule probability, divergence, recommendation, confidence, risk factors, and suggested shadow track;
+- keeps `walletWriteAllowed=false`, `orderSendAllowed=false`, `startsExecutor=false`, and `mutatesMt5=false`.
+
+This layer is useful for inspecting a single market before it is allowed into dry-run or execution-gate review. It must not directly restore betting.
 
 ## Execution Gate V1
 
@@ -158,6 +190,7 @@ It displays:
 - Safety boundary: DB is read-only, `.env` secret values are redacted, no executor, no MT5 mutation.
 - Account snapshot: separate Polymarket cash and configured bankroll, never mixed with MT5 equity.
 - Opportunity Radar: public Gamma scan with probability, liquidity, divergence, score, risk, and suggested shadow track.
+- Single Market AI Analysis: URL/title/marketId focused analysis with market probability, AI/rule probability, divergence, confidence, risk factors, and shadow-track recommendation.
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.

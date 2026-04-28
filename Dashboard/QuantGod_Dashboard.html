@@ -6095,6 +6095,7 @@
         .polymarket-summary-grid,
         .polymarket-group-grid,
         .polymarket-radar-grid,
+        .polymarket-single-grid,
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
@@ -6110,6 +6111,10 @@
         }
 
         .polymarket-radar-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-single-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6397,6 +6402,7 @@
         .polymarket-summary-grid,
         .polymarket-group-grid,
         .polymarket-radar-grid,
+        .polymarket-single-grid,
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
@@ -7086,6 +7092,21 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(168,85,247,0.16); color: var(--accent-purple);">A</div>
+                            单市场 AI 分析 / URL 标题入口
+                        </div>
+                        <span class="eval-summary" id="polymarketSingleMarketSummary">等待单市场分析</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-single-grid" id="polymarketSingleMarketBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketSingleMarketAnalysis.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(244,63,94,0.16); color: var(--accent-red);">G</div>
                             执行闸门 / 空壳契约
                         </div>
@@ -7686,6 +7707,7 @@ const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
 const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
+const LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_PATH = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
 const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.json';
 const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
@@ -8693,6 +8715,14 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.polymarketSingleMarketAnalysis = await loadLocalJsonSupplement(LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_PATH);
+        data._polymarketSingleMarketAnalysisError = false;
+    } catch (error) {
+        data._polymarketSingleMarketAnalysisError = true;
+        console.warn('Polymarket single market analysis load failed.', error);
+    }
+
+    try {
         data.polymarketRetunePlanner = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RETUNE_PLANNER_PATH);
         data._polymarketRetunePlannerError = false;
     } catch (error) {
@@ -8819,6 +8849,10 @@ function getPolymarketMarketRadar(d) {
     return d?.polymarketMarketRadar || null;
 }
 
+function getPolymarketSingleMarketAnalysis(d) {
+    return d?.polymarketSingleMarketAnalysis || null;
+}
+
 function getPolymarketRetunePlanner(d) {
     return d?.polymarketRetunePlanner || null;
 }
@@ -8905,8 +8939,15 @@ function translatePolymarketToken(value) {
         WOULD_EXIT_EXIT_BEFORE_RESOLUTION: '本应结算前退出',
         AMBIGUOUS_TP_SL_TRIGGER: '止盈止损触发顺序不确定',
         SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
+        RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING: '单市场研究：不下注',
+        POLYMARKET_SINGLE_MARKET_AI_ANALYSIS_V1: '单市场 AI/规则分析 V1',
+        RULE_PROXY_NO_LLM: '规则代理评分，未接 LLM',
+        SHADOW_REVIEW_HIGH_PRIORITY: '高优先级影子观察',
         SHADOW_REVIEW: '进入影子观察',
         OBSERVE_ONLY: '只观察',
+        AVOID_OR_OBSERVE: '回避或只观察',
+        NO_TRADE: '不进入交易',
+        NO_TARGET: '未指定市场',
         TAKE_PROFIT_PRICE_HIT: '触及止盈价格',
         STOP_LOSS_PRICE_HIT: '触及止损价格',
         TRAILING_STOP_ARMED_AND_REVERSED: '移动止盈启动后回落',
@@ -9033,6 +9074,99 @@ function updatePolymarketMarketRadar(d) {
         boundaryCard,
         ...items.slice(0, 8).map(renderPolymarketRadarCard),
     ].join('') || '<div class="empty-state">公共市场扫描暂无可展示市场。</div>';
+}
+
+function updatePolymarketSingleMarketAnalysis(d) {
+    const single = getPolymarketSingleMarketAnalysis(d);
+    const summaryEl = document.getElementById('polymarketSingleMarketSummary');
+    const body = document.getElementById('polymarketSingleMarketBody');
+    if (!body) return;
+    if (!single || d?._polymarketSingleMarketAnalysisError) {
+        if (summaryEl) summaryEl.textContent = '等待单市场分析';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketSingleMarketAnalysis.json`；可用 URL/标题/marketId 生成，不触发下注。</div>';
+        return;
+    }
+    const request = single.request || {};
+    const market = single.market || {};
+    const analysis = single.analysis || {};
+    const safety = single.safety || {};
+    const recommendation = analysis.recommendation || single.summary?.recommendation || 'NO_TARGET';
+    const risk = analysis.riskLevel || single.summary?.risk || 'unknown';
+    const confidence = analysis.confidencePct ?? single.summary?.confidencePct ?? 0;
+    if (summaryEl) {
+        summaryEl.textContent = `${single.status || 'UNKNOWN'} | ${translatePolymarketToken(recommendation)} | 风险 ${translatePolymarketToken(risk)} | 信心 ${confidence}%`;
+    }
+    if (single.status === 'ERROR') {
+        body.innerHTML = `
+            <div class="polymarket-card danger">
+                <div class="polymarket-eyebrow">单市场分析</div>
+                <div class="polymarket-title">分析失败，保持不下注</div>
+                <div class="polymarket-note">${escapeHtml(single.error || 'Gamma 单市场分析失败。')}</div>
+            </div>
+        `;
+        return;
+    }
+    const noTarget = single.status === 'NO_TARGET';
+    const probability = analysis.marketProbabilityPct === null || analysis.marketProbabilityPct === undefined
+        ? '--'
+        : `${Number(analysis.marketProbabilityPct).toFixed(1)}%`;
+    const aiProbability = analysis.aiProbabilityPct === null || analysis.aiProbabilityPct === undefined
+        ? '--'
+        : `${Number(analysis.aiProbabilityPct).toFixed(1)}%`;
+    const divergence = analysis.divergencePct === null || analysis.divergencePct === undefined
+        ? '--'
+        : `${Number(analysis.divergencePct) >= 0 ? '+' : ''}${Number(analysis.divergencePct).toFixed(1)}pp`;
+    const requestCard = `
+        <div class="polymarket-card ${noTarget ? 'watch' : 'good'}">
+            <div class="polymarket-eyebrow">输入入口</div>
+            <div class="polymarket-title">${escapeHtml(noTarget ? '等待 URL / 标题 / marketId' : (market.question || market.slug || market.marketId || '--'))}</div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">来源 ${escapeHtml(request.source || '--')}</div>
+                <div class="polymarket-action">查询 ${escapeHtml(request.query || '写入 QuantGod_PolymarketSingleMarketRequest.json')}</div>
+                <div class="polymarket-action">匹配分 ${escapeHtml(request.matchScore ?? '--')} · fallback ${request.fallbackUsed ? '是' : '否'}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(market.polymarketUrl || '只读 Gamma API；没有连接钱包。')}</div>
+        </div>
+    `;
+    const analysisCard = `
+        <div class="polymarket-card ${risk === 'high' ? 'danger' : (recommendation === 'SHADOW_REVIEW_HIGH_PRIORITY' ? 'good' : 'watch')}">
+            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(single.decision || 'RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING'))}</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(recommendation))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('市场概率', probability)}
+                ${renderPolymarketMetric('AI/规则概率', aiProbability)}
+                ${renderPolymarketMetric('偏离', divergence)}
+                ${renderPolymarketMetric('信心', `${confidence}%`)}
+            </div>
+            <div class="polymarket-note">评分模式：${escapeHtml(translatePolymarketToken(analysis.aiScoringMode || 'RULE_PROXY_NO_LLM'))}。</div>
+        </div>
+    `;
+    const riskNotes = Array.isArray(analysis.riskNotes) ? analysis.riskNotes : [];
+    const riskCard = `
+        <div class="polymarket-card ${risk === 'high' ? 'danger' : 'watch'}">
+            <div class="polymarket-eyebrow">风险和影子路线</div>
+            <div class="polymarket-title">${escapeHtml(analysis.suggestedShadowTrack || 'poly_single_market_shadow_review_v1')}</div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">风险 ${escapeHtml(translatePolymarketToken(risk))} · 标记 ${escapeHtml(translatePolymarketList(analysis.riskFactors || [], 6))}</div>
+                <div class="polymarket-action">成交量 ${escapeHtml(formatPolymarketCompactNumber(market.volume))} · 24h ${escapeHtml(formatPolymarketCompactNumber(market.volume24h))} · 流动性 ${escapeHtml(formatPolymarketCompactNumber(market.liquidity))}</div>
+                ${(riskNotes.length ? riskNotes : ['暂无额外风险说明。']).slice(0, 5).map((note) => `<div class="polymarket-action">${escapeHtml(translatePolymarketToken(note))}</div>`).join('')}
+            </div>
+        </div>
+    `;
+    const safetyCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">安全边界</div>
+            <div class="polymarket-title">不碰钱包、不下注、不碰 MT5</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('发送订单', safety.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('启动执行器', safety.startsExecutor ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">单市场分析只能补研究能力，不能绕过 Execution Gate / dry-run / 钱包守卫。</div>
+        </div>
+    `;
+    body.innerHTML = [requestCard, analysisCard, riskCard, safetyCard].join('');
 }
 
 function renderPolymarketExecutionGateDecision(row = {}) {
@@ -14208,6 +14342,7 @@ function updateDashboard() {
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
     updatePolymarketMarketRadar(d);
+    updatePolymarketSingleMarketAnalysis(d);
     updatePolymarketExecutionGate(d);
     updatePolymarketDryRunOrders(d);
     updatePolymarketDryRunOutcomeWatcher(d);
