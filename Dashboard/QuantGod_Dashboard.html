@@ -5700,6 +5700,97 @@
             border-color: #303744;
             color: #687382;
         }
+
+        .strategy-workspace-grid {
+            gap: 16px;
+        }
+
+        .strategy-workspace-card {
+            background: #171b21;
+            border-color: #2d3440;
+        }
+
+        .strategy-workspace-card.supported {
+            background:
+                linear-gradient(180deg, rgba(31, 199, 126, 0.075), transparent 42%),
+                #171b21;
+            border-color: rgba(31, 199, 126, 0.38);
+        }
+
+        .strategy-workspace-card.waiting {
+            background:
+                linear-gradient(180deg, rgba(255, 172, 56, 0.08), transparent 44%),
+                #171b21;
+            border-color: rgba(255, 172, 56, 0.38);
+        }
+
+        .strategy-workspace-card.conflict {
+            background:
+                linear-gradient(180deg, rgba(255, 77, 94, 0.08), transparent 44%),
+                #171b21;
+            border-color: rgba(255, 77, 94, 0.36);
+        }
+
+        .strategy-workspace-metric,
+        .strategy-workspace-lane {
+            background: #20242b;
+            border: 1px solid #303744;
+            color: #dfe7f2;
+        }
+
+        .strategy-workspace-metric-label,
+        .strategy-workspace-lane-title {
+            color: #8f9aa8;
+        }
+
+        .strategy-workspace-metric-value,
+        .strategy-workspace-lane-copy {
+            color: #f3f6fb;
+        }
+
+        .strategy-workspace-metric-note {
+            color: #9aa6b5;
+        }
+
+        .strategy-workspace-action-row {
+            border-top-color: #343c49;
+        }
+
+        .strategy-workspace-focus,
+        .strategy-workspace-link {
+            background: #20242b;
+            border-color: #394353;
+            color: #c8d2df;
+        }
+
+        .strategy-workspace-focus {
+            background: rgba(19, 144, 255, 0.15);
+            border-color: rgba(19, 144, 255, 0.42);
+            color: #a6d8ff;
+        }
+
+        .strategy-workspace-link:hover,
+        .strategy-workspace-focus:hover {
+            background: rgba(19, 144, 255, 0.24);
+            border-color: rgba(19, 144, 255, 0.62);
+            color: #f2f8ff;
+        }
+
+        .strategy-workspace-card .table-badge {
+            background-color: rgba(255, 255, 255, 0.055);
+        }
+
+        .strategy-workspace-card .table-badge.status-live {
+            background-color: rgba(31, 199, 126, 0.15);
+        }
+
+        .strategy-workspace-card .table-badge.status-warn {
+            background-color: rgba(255, 172, 56, 0.15);
+        }
+
+        .strategy-workspace-card .table-badge.status-danger {
+            background-color: rgba(255, 77, 94, 0.15);
+        }
     </style>
 </head>
 <body>
