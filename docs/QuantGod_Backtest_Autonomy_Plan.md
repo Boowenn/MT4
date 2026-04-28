@@ -19,6 +19,10 @@ Implemented:
 - ParamLab Auto Scheduler config-only: writes `QuantGod_ParamLabAutoScheduler.json` and `QuantGod_ParamLabAutoSchedulerLedger.csv`, translating Gate `WAIT_REPORT`, `RETUNE`, and `WAIT_FORWARD` evidence into the next route-balanced tester-only queue without adding `-RunTerminal`.
 - AUTO_TESTER_WINDOW guarded execution layer: writes `QuantGod_AutoTesterWindow.json` and `QuantGod_AutoTesterWindowLedger.csv`; default mode is evaluation-only, and run-terminal execution is blocked unless the Strategy Tester window, authorization lock, tester-only queue, HFM terminal/profile target, ParamLab config, report path, lot size, and position caps all pass.
 - ParamLab Run History / Recovery: writes `QuantGod_ParamLabRunRecovery.json`, `QuantGod_ParamLabRunRecoveryLedger.csv`, and `QuantGod_ParamLabRunRecoveryDrilldown.csv`, summarizing each guarded/config run by runId, terminal exit code, report missing/parsed/malformed state, retry count, stop reason, and next recovery action, then aggregating each candidate into a red/yellow/green retry-budget and failure-reason drilldown.
+- Executor-level retry enforcement: AUTO_TESTER_WINDOW now reads Run Recovery drilldown before launching the runner, writes a filtered `QuantGod_AutoTesterWindowExecutorPlan.json`, and excludes red candidates so they do not consume automatic tester retries.
+- Backtest budget / experiment control: AUTO_TESTER_WINDOW enforces per-route, per-parameter-family, and per-failure-family budgets before the runner sees the queue. Optional overrides can be supplied with `QuantGod_ParamLabBacktestBudget.json`; defaults stay conservative.
+- Continuous watcher bridge: AUTO_TESTER_WINDOW can run Report Watcher in a bounded polling loop after a guarded Strategy Tester run, so reports can be parsed during the same authorized tester window.
+- Isolated tester terminal/profile support: AUTO_TESTER_WINDOW accepts a separate `--tester-root` and can require it with `--require-isolated-tester`; this lets future tester execution target an isolated terminal/profile instead of the live HFM installation.
 
 Current live-trading boundary:
 
@@ -58,9 +62,9 @@ Implemented safety gates before `-RunTerminal`:
 
 Remaining runner work:
 
-- Add no-open-position / isolated-terminal policy before unattended weekday or live-session tester automation.
-- Add retry/budget controls and continuous polling.
-- Add stronger terminal timeout vs tester-failure classification.
+- Add no-open-position policy before unattended weekday or live-session tester automation.
+- Add stronger terminal timeout vs tester-failure classification after real guarded runs exist.
+- Prepare and validate a physical isolated tester terminal directory before enabling `--require-isolated-tester` for unattended runs.
 
 Proposed mode names:
 
@@ -87,10 +91,9 @@ Implemented behavior:
 
 Remaining recovery work:
 
-- Poll continuously during authorized tester windows instead of running as a one-shot builder.
 - Detect terminal timeout separately from tester failure.
-- Requeue retryable failures with an executor-level cap.
-- Run history, dashboard recovery visibility, and candidate retry-budget drilldown are now implemented; the remaining gap is wiring the drilldown into the guarded executor so red candidates cannot consume unattended reruns.
+- Requeue retryable failures from watcher output only when executor retry and budget controls still allow the candidate.
+- Run history, dashboard recovery visibility, candidate drilldown, and executor-level red-skip enforcement are now implemented.
 
 ### 3. Backtest Budget and Experiment Control
 
@@ -98,15 +101,18 @@ Purpose:
 
 - Avoid wasting tester time or overfitting.
 
-Needed behavior:
+Implemented behavior:
 
 - Per route run budget.
 - Per parameter family run budget.
-- Minimum trade count threshold.
-- Maximum drawdown threshold.
-- Sample-size penalty.
-- Cooldown for repeatedly failing parameter families.
-- Keep control-arm versions in the queue so Optimizer V2 does not chase noise.
+- Per failure family run budget, based on Run Recovery risk reasons.
+- Red drilldown candidates are skipped before budget accounting, preserving retries.
+- Control-arm versions can remain queued as long as they pass retry and budget gates.
+
+Remaining budget work:
+
+- Add min-trade, maximum-drawdown, and sample-size penalty controls after more parsed reports exist.
+- Add cooldown windows for repeatedly failing parameter families once terminal/report failure history is large enough.
 
 ### 4. Dashboard Run History / Audit Trail
 
@@ -130,7 +136,7 @@ Implemented dashboard surface:
 Remaining dashboard work:
 
 - Add optional run-detail drilldown after real Strategy Tester runs exist.
-- Add retry budget chips once retry policy is implemented.
+- The AUTO_TESTER_WINDOW panel now shows executor filtering, red-skip count, budget decisions, isolation status, and continuous watcher status.
 
 ### 5. QuantDinger Pieces Not Worth Porting Now
 
@@ -180,11 +186,10 @@ The recommended target is:
 
 ## Suggested Implementation Order
 
-1. Add Dashboard run-history panel with run ID, child process exit code, terminal/report state, and guard blockers.
-2. Add retry/budget controls.
-3. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
-4. Add explicit no-open-position / live-session compatibility policy before unattended execution.
+1. Prepare an isolated tester terminal/profile directory if fully unattended tester runs should happen while the live pilot is also open.
+2. Add explicit no-open-position / live-session compatibility policy before unattended execution.
+3. After the next authorized tester window produces reports, add timeout-vs-tester-failure classification and min-trade/drawdown budget rules.
 
 ## Immediate Next Step
 
-Use the run-history / recovery drilldown to drive the next retry policy. Auto Scheduler chooses the next tester-only batch, AUTO_TESTER_WINDOW gates whether it may run, Report Watcher discovers/report-scores landed tester reports, and Run Recovery now shows red/yellow/green candidate risk. The remaining gap for comfortable full automation is executor-level retry enforcement, not live-risk expansion.
+Use the new executor plan in `QuantGod_AutoTesterWindowExecutorPlan.json` as the safe runner input. Auto Scheduler chooses the next tester-only batch, Run Recovery marks red/yellow/green risk, AUTO_TESTER_WINDOW removes red and over-budget candidates before runner launch, and Report Watcher can poll continuously during an authorized tester window. The next safety step before unattended weekday-style use is a no-open-position policy plus a prepared isolated tester terminal/profile.

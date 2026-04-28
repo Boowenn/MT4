@@ -5856,6 +5856,150 @@
         #governanceFeedbackBody .governance-feedback-command {
             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
         }
+
+        /* Final dark sweep: remove leftover light cards in legacy evidence modules. */
+        .research-window-card,
+        .research-window-card.positive,
+        .research-window-card.negative,
+        .research-window-card.neutral,
+        .backtest-compare-card,
+        .backtest-compare-card.supported,
+        .backtest-compare-card.waiting,
+        .backtest-compare-card.conflict,
+        .research-suggestion-card,
+        .research-suggestion-card.keep,
+        .research-suggestion-card.reduce,
+        .research-suggestion-card.pause,
+        .eval-card,
+        .strategy-workspace-card,
+        .strategy-workspace-card.supported,
+        .strategy-workspace-card.waiting,
+        .strategy-workspace-card.conflict,
+        .strategy-version-card,
+        .governance-feedback-card,
+        .governance-feedback-card.supported,
+        .governance-feedback-card.waiting,
+        .governance-feedback-card.conflict,
+        .mt5-shadow-subpanel {
+            background: #171b21 !important;
+            border-color: #2d3440 !important;
+            color: #e8eef6 !important;
+            box-shadow: none !important;
+        }
+
+        .research-window-card.positive,
+        .backtest-compare-card.supported,
+        .research-suggestion-card.keep,
+        .strategy-workspace-card.supported,
+        .governance-feedback-card.supported {
+            background:
+                linear-gradient(180deg, rgba(31, 199, 126, 0.075), transparent 46%),
+                #171b21 !important;
+            border-color: rgba(31, 199, 126, 0.36) !important;
+        }
+
+        .research-window-card.negative,
+        .backtest-compare-card.conflict,
+        .research-suggestion-card.pause,
+        .strategy-workspace-card.conflict,
+        .governance-feedback-card.conflict {
+            background:
+                linear-gradient(180deg, rgba(255, 77, 94, 0.075), transparent 46%),
+                #171b21 !important;
+            border-color: rgba(255, 77, 94, 0.34) !important;
+        }
+
+        .research-window-card.neutral,
+        .backtest-compare-card.waiting,
+        .research-suggestion-card.reduce,
+        .strategy-workspace-card.waiting,
+        .governance-feedback-card.waiting {
+            background:
+                linear-gradient(180deg, rgba(255, 172, 56, 0.075), transparent 46%),
+                #171b21 !important;
+            border-color: rgba(255, 172, 56, 0.34) !important;
+        }
+
+        .research-window-metric,
+        .backtest-metric,
+        .research-suggestion-metric,
+        .eval-card-times,
+        .eval-block,
+        .strategy-workspace-metric,
+        .strategy-workspace-lane,
+        .strategy-version-fact,
+        .governance-feedback-column,
+        .governance-feedback-param,
+        .governance-feedback-copy-block,
+        .mt5-shadow-metric,
+        .qd-action-stat,
+        .qd-main-metric,
+        .qd-evidence-item {
+            background: #20242b !important;
+            border-color: #303744 !important;
+            color: #dfe7f2 !important;
+            box-shadow: none !important;
+        }
+
+        .research-window-title,
+        .research-window-net,
+        .research-window-metric-value,
+        .backtest-symbol,
+        .backtest-metric-value,
+        .research-suggestion-symbol,
+        .research-suggestion-metric-value,
+        .eval-card-symbol,
+        .eval-block-hero,
+        .strategy-workspace-title,
+        .strategy-workspace-metric-value,
+        .strategy-version-title,
+        .strategy-version-fact-value,
+        .governance-feedback-title,
+        .governance-feedback-column-title,
+        .governance-feedback-param-text,
+        .mt5-shadow-metric-value {
+            color: #f3f6fb !important;
+        }
+
+        .research-window-time,
+        .research-window-note,
+        .research-window-meta,
+        .research-window-metric-label,
+        .backtest-note,
+        .backtest-metric-label,
+        .research-suggestion-subline,
+        .research-suggestion-reason,
+        .research-suggestion-next,
+        .research-suggestion-metric-label,
+        .eval-card-subline,
+        .eval-card-time-meta,
+        .eval-block-note,
+        .strategy-workspace-sub,
+        .strategy-workspace-metric-label,
+        .strategy-version-sub,
+        .strategy-version-copy,
+        .strategy-version-fact-label,
+        .governance-feedback-sub,
+        .governance-feedback-item,
+        .governance-feedback-risk,
+        .governance-feedback-next,
+        .mt5-shadow-metric-label,
+        .mt5-shadow-metric-meta {
+            color: #96a1af !important;
+        }
+
+        .research-window-kicker,
+        .eval-card-title,
+        .governance-feedback-command,
+        .paramlab-command {
+            color: #8dccff !important;
+        }
+
+        .governance-feedback-next,
+        .strategy-workspace-action-row,
+        .eval-card-header {
+            border-color: #303744 !important;
+        }
     </style>
 </head>
 <body>
@@ -10096,14 +10240,19 @@ function updateParamLabAutoSchedulerPanel(d) {
 function renderAutoTesterWindowTaskRow(task) {
     const routeKey = task?.routeKey || 'UNKNOWN';
     const candidateId = task?.candidateId || '--';
-    const taskOk = task?.testerOnly && !task?.livePresetMutation && !task?.runTerminalDefault;
+    const executorDecision = String(task?.executorDecision || '').toUpperCase();
+    const skipped = executorDecision.startsWith('SKIP_');
+    const taskOk = task?.testerOnly && !task?.livePresetMutation && !task?.runTerminalDefault && !skipped;
+    const riskLevel = String(task?.retryRiskLevel || '--').toLowerCase();
+    const riskTone = riskLevel === 'red' ? 'status-danger' : (riskLevel === 'yellow' ? 'status-warn' : 'status-live');
     return `<tr>
         <td class="paramlab-route-cell">
             <div class="paramlab-route-name">${escapeHtml(strategyShortLabel(routeKey))} · ${escapeHtml(strategyLabel(routeKey))}</div>
             <div class="paramlab-route-sub">${escapeHtml(task?.symbol || '--')} / ${escapeHtml(task?.timeframe || '--')}</div>
         </td>
         <td>
-            <span class="table-badge ${taskOk ? 'status-live' : 'status-danger'}">${taskOk ? 'tester-only' : '需阻断'}</span>
+            <span class="table-badge ${taskOk ? 'status-live' : (skipped ? 'status-warn' : 'status-danger')}">${taskOk ? 'executor allow' : (skipped ? 'executor skip' : '需阻断')}</span>
+            <span class="table-badge ${riskTone}">${escapeHtml(riskLevel)}</span>
             <div class="paramlab-path">${escapeHtml(candidateId)}</div>
         </td>
         <td>
@@ -10111,6 +10260,9 @@ function renderAutoTesterWindowTaskRow(task) {
             <span class="paramlab-path">source: ${escapeHtml(task?.sourceDecision || '--')}</span>
         </td>
         <td>
+            <span class="paramlab-path">executor: ${escapeHtml(task?.executorDecision || '--')}</span>
+            <span class="paramlab-path">budget: ${escapeHtml(task?.budgetDecision || '--')}</span>
+            <span class="paramlab-path">risk: ${escapeHtml(task?.retryRiskReason || '--')} / retry ${escapeHtml(String(task?.retryUsed ?? '--'))}:${escapeHtml(String(task?.retryRemaining ?? '--'))}</span>
             <span class="paramlab-path">runTerminalDefault: ${task?.runTerminalDefault ? 'true' : 'false'}</span>
             <span class="paramlab-path">livePresetMutation: ${task?.livePresetMutation ? 'true' : 'false'}</span>
         </td>
@@ -10135,7 +10287,9 @@ function updateAutoTesterWindowPanel(d) {
 
     const summary = windowState.summary || windowState;
     const gate = windowState.gate || {};
-    const rows = Array.isArray(windowState.selectedTasks) ? windowState.selectedTasks : [];
+    const selectedRows = Array.isArray(windowState.selectedTasks) ? windowState.selectedTasks : [];
+    const excludedRows = Array.isArray(windowState.excludedTasks) ? windowState.excludedTasks : [];
+    const rows = selectedRows.concat(excludedRows);
     const filteredRows = isRouteStrategyFiltered()
         ? rows.filter((task) => (task?.routeKey || task?.strategy) === routeStrategyFilter)
         : rows;
@@ -10144,13 +10298,19 @@ function updateAutoTesterWindowPanel(d) {
         : (Array.isArray(windowState.blockers) ? windowState.blockers : []);
     const canRun = Boolean(summary.canRunTerminal || windowState.canRunTerminal);
     const mode = windowState.mode || summary.mode || 'EVALUATE_ONLY';
-    summaryEl.textContent = `${canRun ? '可运行' : '阻断'} | 队列 ${filteredRows.length}/${summary.queueCount || rows.length || 0} | blockers ${blockers.length}`;
-    metaEl.textContent = `Mode ${mode} · ${windowState.generatedAtIso || '--'}；带 -RunTerminal 必须 window/lock/queue/profile/config 全绿。`;
+    const excludedCount = Number(summary.executorExcludedCount || excludedRows.length || 0);
+    const redSkipped = Number(summary.redSkippedCount || 0);
+    const isolationMode = summary.isolationMode || windowState?.testerIsolation?.mode || 'SHARED_TERMINAL';
+    summaryEl.textContent = `${canRun ? '可运行' : '阻断'} | executor ${selectedRows.length}/${summary.sourceQueueCount || rows.length || 0} | skip ${excludedCount}`;
+    metaEl.textContent = `Mode ${mode} · ${windowState.generatedAtIso || '--'}；executor 先读 Recovery 红黄绿和预算，再把过滤后的 plan 交给 runner。tester=${isolationMode}`;
     countersEl.innerHTML = [
         `<span class="table-badge ${summary.windowOk ? 'status-live' : 'status-warn'}">window ${summary.windowOk ? 'OK' : 'NO'}</span>`,
         `<span class="table-badge ${summary.lockOk ? 'status-live' : 'status-warn'}">lock ${summary.lockOk ? 'OK' : 'NO'}</span>`,
         `<span class="table-badge ${summary.queueOk ? 'status-live' : 'status-danger'}">queue ${summary.queueOk ? 'OK' : 'NO'}</span>`,
-        `<span class="table-badge ${summary.environmentOk ? 'status-live' : 'status-danger'}">profile ${summary.environmentOk ? 'OK' : 'NO'}</span>`
+        `<span class="table-badge ${summary.environmentOk ? 'status-live' : 'status-danger'}">profile ${summary.environmentOk ? 'OK' : 'NO'}</span>`,
+        `<span class="table-badge ${summary.isolationOk ? 'status-live' : 'status-warn'}">isolation ${summary.isolationOk ? 'OK' : 'NO'}</span>`,
+        `<span class="table-badge ${redSkipped ? 'status-danger' : 'status-live'}">red skip ${redSkipped}</span>`,
+        `<span class="table-badge ${summary.continuousWatcherEnabled ? 'status-info' : 'status-muted'}">watch ${summary.continuousWatcherEnabled ? (summary.continuousWatcherStopReason || 'armed') : 'off'}</span>`
     ].join('');
 
     if (!filteredRows.length) {
@@ -10170,13 +10330,13 @@ function updateAutoTesterWindowPanel(d) {
                 <th>路线</th>
                 <th>候选</th>
                 <th>调度来源</th>
-                <th>硬保护</th>
+                <th>执行/预算/硬保护</th>
             </tr>
         </thead>
         <tbody>${filteredRows.map(renderAutoTesterWindowTaskRow).join('')}</tbody>
     </table>
     <div class="paramlab-batch-toolbar">
-        <div class="paramlab-batch-meta">blockers: ${escapeHtml(blockers.slice(0, 8).join(' / ') || '--')}</div>
+        <div class="paramlab-batch-meta">blockers: ${escapeHtml(blockers.slice(0, 8).join(' / ') || '--')} · executorPlan: ${escapeHtml(windowState.executorPlanPath || '--')}</div>
         <div class="governance-feedback-actions">${renderCopyButton(windowState.guardedRunCommand || '', '复制 guarded run', '无运行命令')}</div>
     </div>`;
 }

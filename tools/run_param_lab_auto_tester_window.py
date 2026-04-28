@@ -14,7 +14,9 @@ import argparse
 import csv
 import json
 import subprocess
-from datetime import datetime, timezone
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,31 @@ DEFAULT_HFM_ROOT = Path(r"C:\Program Files\HFM Metatrader 5")
 DEFAULT_RUNTIME_DIR = DEFAULT_HFM_ROOT / "MQL5" / "Files"
 SCHEDULER_NAME = "QuantGod_ParamLabAutoScheduler.json"
 STATUS_NAME = "QuantGod_ParamLabStatus.json"
+RUN_RECOVERY_NAME = "QuantGod_ParamLabRunRecovery.json"
+WATCHER_NAME = "QuantGod_ParamLabReportWatcher.json"
+BACKTEST_BUDGET_NAME = "QuantGod_ParamLabBacktestBudget.json"
+EXECUTOR_PLAN_NAME = "QuantGod_AutoTesterWindowExecutorPlan.json"
+
+DEFAULT_ROUTE_BUDGET = {
+    "MA_Cross": 2,
+    "RSI_Reversal": 2,
+    "BB_Triple": 1,
+    "MACD_Divergence": 1,
+    "SR_Breakout": 1,
+}
+DEFAULT_BACKTEST_BUDGET = {
+    "schemaVersion": 1,
+    "source": "QuantGod AUTO_TESTER_WINDOW default budget policy",
+    "defaultRouteBudget": 1,
+    "routeBudget": DEFAULT_ROUTE_BUDGET,
+    "defaultParameterFamilyBudget": 2,
+    "defaultFailureFamilyBudget": 1,
+    "hardGuards": [
+        "Budget policy is enforced before runner launch.",
+        "Red retry drilldown candidates are excluded before budget accounting.",
+        "Budget limits only tester-only ParamLab work and never mutate live presets.",
+    ],
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +71,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="")
     parser.add_argument("--ledger", default="")
     parser.add_argument("--lock", default="")
+    parser.add_argument("--run-recovery", default="")
+    parser.add_argument("--budget-policy", default="")
+    parser.add_argument("--executor-plan", default="")
+    parser.add_argument("--tester-root", default="", help="Optional isolated tester terminal root. Defaults to --hfm-root.")
+    parser.add_argument(
+        "--require-isolated-tester",
+        action="store_true",
+        help="Block run-terminal execution unless --tester-root differs from --hfm-root.",
+    )
     parser.add_argument("--max-tasks", type=int, default=4)
     parser.add_argument("--route", action="append", default=[])
     parser.add_argument("--candidate-id", action="append", default=[])
@@ -64,6 +100,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only honored when the authorization lock also has allowOutsideWindow=true.",
     )
+    parser.add_argument(
+        "--disable-retry-drilldown",
+        action="store_true",
+        help="Do not enforce Run Recovery red/yellow/green drilldown before runner launch.",
+    )
+    parser.add_argument(
+        "--disable-budget-control",
+        action="store_true",
+        help="Do not enforce per-route/parameter-family/failure-family tester budget before runner launch.",
+    )
+    parser.add_argument(
+        "--continuous-watch",
+        action="store_true",
+        help="After a guarded tester run, poll Report Watcher until reports parse or timeout.",
+    )
+    parser.add_argument("--watch-interval-seconds", type=int, default=30)
+    parser.add_argument("--watch-timeout-seconds", type=int, default=900)
     return parser.parse_args()
 
 
@@ -81,21 +134,42 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> 
             writer.writerow({key: row.get(key, "") for key in fieldnames})
 
 
-def command_for_runner(args: argparse.Namespace, *, run_terminal: bool, lock_path: Path) -> list[str]:
+def safe_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def safe_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def path_same(left: Path, right: Path) -> bool:
+    try:
+        return str(left.resolve()).lower() == str(right.resolve()).lower()
+    except Exception:
+        return str(left).lower() == str(right).lower()
+
+
+def command_for_runner(
+    args: argparse.Namespace,
+    *,
+    run_terminal: bool,
+    lock_path: Path,
+    plan_path: Path,
+    hfm_root: Path,
+) -> list[str]:
     repo_root = Path(args.repo_root)
     runtime_dir = Path(args.runtime_dir)
-    scheduler_path = Path(args.scheduler) if args.scheduler else runtime_dir / SCHEDULER_NAME
     command = [
         "python",
         str(repo_root / "tools" / "run_param_lab.py"),
         "--repo-root",
         str(repo_root),
         "--hfm-root",
-        str(Path(args.hfm_root)),
+        str(hfm_root),
         "--runtime-dir",
         str(runtime_dir),
         "--plan",
-        str(scheduler_path),
+        str(plan_path),
         "--max-tasks",
         str(args.max_tasks),
         "--rank-mode",
@@ -122,6 +196,22 @@ def command_for_runner(args: argparse.Namespace, *, run_terminal: bool, lock_pat
     return command
 
 
+def command_for_watcher(args: argparse.Namespace) -> list[str]:
+    repo_root = Path(args.repo_root)
+    runtime_dir = Path(args.runtime_dir)
+    scheduler_path = Path(args.executor_plan) if args.executor_plan else runtime_dir / EXECUTOR_PLAN_NAME
+    return [
+        "python",
+        str(repo_root / "tools" / "watch_param_lab_reports.py"),
+        "--repo-root",
+        str(repo_root),
+        "--runtime-dir",
+        str(runtime_dir),
+        "--scheduler",
+        str(scheduler_path),
+    ]
+
+
 def command_to_text(command: list[str]) -> str:
     return " ".join(f'"{part}"' if " " in part else part for part in command)
 
@@ -143,34 +233,345 @@ def summarize_selected_tasks(scheduler: dict[str, Any]) -> list[dict[str, Any]]:
             "testerOnly": task.get("testerOnly") is True,
             "livePresetMutation": bool(task.get("livePresetMutation")),
             "runTerminalDefault": bool(task.get("runTerminalDefault")),
+            "executorDecision": task.get("executorDecision", ""),
+            "retryRiskLevel": task.get("retryRiskLevel", ""),
+            "retryRiskReason": task.get("retryRiskReason", ""),
+            "retryUsed": task.get("retryUsed", ""),
+            "retryRemaining": task.get("retryRemaining", ""),
+            "budgetFamily": task.get("budgetFamily", ""),
+            "budgetDecision": task.get("budgetDecision", ""),
         })
     return rows
+
+
+def load_budget_policy(path: Path) -> dict[str, Any]:
+    policy = read_json(path)
+    if not policy:
+        return dict(DEFAULT_BACKTEST_BUDGET)
+    merged = dict(DEFAULT_BACKTEST_BUDGET)
+    merged.update(policy)
+    route_budget = dict(DEFAULT_ROUTE_BUDGET)
+    route_budget.update(safe_dict(policy.get("routeBudget")))
+    merged["routeBudget"] = route_budget
+    return merged
+
+
+def drilldown_index(recovery: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = recovery.get("candidateDrilldown") if isinstance(recovery.get("candidateDrilldown"), list) else []
+    return {
+        str(row.get("candidateId") or ""): row
+        for row in rows
+        if isinstance(row, dict) and str(row.get("candidateId") or "")
+    }
+
+
+def parameter_family(task: dict[str, Any]) -> str:
+    route_key = str(task.get("routeKey") or task.get("strategy") or "UNKNOWN")
+    variant = str(task.get("variant") or "").strip()
+    if variant:
+        return f"{route_key}:{variant}"
+    candidate_id = str(task.get("candidateId") or "")
+    for symbol in ("EURUSDc", "USDJPYc", "XAUUSDc"):
+        candidate_id = candidate_id.replace(f"_{symbol}_", "_")
+    prefix = f"{route_key}_"
+    if candidate_id.startswith(prefix):
+        candidate_id = candidate_id[len(prefix):]
+    parts = [part for part in candidate_id.split("_") if part]
+    return f"{route_key}:{'_'.join(parts[:4]) or 'unknown'}"
+
+
+def failure_family(task: dict[str, Any], drilldown: dict[str, Any]) -> str:
+    route_key = str(task.get("routeKey") or task.get("strategy") or "UNKNOWN")
+    reason = str(drilldown.get("riskReason") or "within_retry_budget")
+    if reason == "within_retry_budget":
+        blockers = [str(item) for item in safe_list(task.get("blockers"))]
+        for marker in ("report_missing", "malformed", "terminal", "win_lt", "pf_lt", "drawdown"):
+            if any(marker in blocker.lower() for blocker in blockers):
+                reason = marker
+                break
+    return f"{route_key}:{reason}"
+
+
+def budget_limit(policy: dict[str, Any], key: str, default_key: str, fallback: int) -> int:
+    try:
+        return max(0, int(policy.get(key, policy.get(default_key, fallback))))
+    except Exception:
+        return fallback
+
+
+def route_budget_for(policy: dict[str, Any], route_key: str) -> int:
+    route_budget = safe_dict(policy.get("routeBudget"))
+    try:
+        return max(0, int(route_budget.get(route_key, policy.get("defaultRouteBudget", 1))))
+    except Exception:
+        return 1
+
+
+def apply_executor_controls(
+    *,
+    scheduler: dict[str, Any],
+    recovery: dict[str, Any],
+    budget_policy: dict[str, Any],
+    max_tasks: int,
+    enforce_retry_drilldown: bool,
+    enforce_budget: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    tasks = [safe_dict(task) for task in safe_list(scheduler.get("selectedTasks"))]
+    task_by_id = {str(task.get("candidateId") or ""): task for task in tasks}
+    drilldowns = drilldown_index(recovery)
+    allowed_ids: list[str] = []
+    excluded: list[dict[str, Any]] = []
+    route_used: dict[str, int] = defaultdict(int)
+    family_used: dict[str, int] = defaultdict(int)
+    failure_used: dict[str, int] = defaultdict(int)
+    route_blocked = family_blocked = failure_blocked = red_blocked = 0
+    max_allowed = max(1, int(max_tasks or 1))
+    family_limit = budget_limit(budget_policy, "parameterFamilyBudget", "defaultParameterFamilyBudget", 2)
+    failure_limit = budget_limit(budget_policy, "failureFamilyBudget", "defaultFailureFamilyBudget", 1)
+
+    for task in tasks:
+        candidate_id = str(task.get("candidateId") or "")
+        route_key = str(task.get("routeKey") or task.get("strategy") or "UNKNOWN")
+        drilldown = drilldowns.get(candidate_id, {})
+        risk_level = str(drilldown.get("riskLevel") or "green").lower()
+        risk_reason = str(drilldown.get("riskReason") or "within_retry_budget")
+        family = parameter_family(task)
+        fail_family = failure_family(task, drilldown)
+        enriched = dict(task)
+        enriched.update({
+            "retryRiskLevel": risk_level,
+            "retryRiskReason": risk_reason,
+            "retryUsed": drilldown.get("retryUsed", 0),
+            "retryRemaining": drilldown.get("retryRemaining", ""),
+            "budgetFamily": family,
+            "failureFamily": fail_family,
+        })
+
+        if enforce_retry_drilldown and risk_level == "red":
+            enriched["executorDecision"] = "SKIP_RED_DRILLDOWN_NO_RETRY"
+            enriched["budgetDecision"] = "retry_protected"
+            excluded.append(enriched)
+            red_blocked += 1
+            continue
+
+        if enforce_budget:
+            route_limit = route_budget_for(budget_policy, route_key)
+            if route_used[route_key] >= route_limit:
+                enriched["executorDecision"] = "SKIP_ROUTE_BUDGET"
+                enriched["budgetDecision"] = f"route_budget_{route_used[route_key]}/{route_limit}"
+                excluded.append(enriched)
+                route_blocked += 1
+                continue
+            if family_used[family] >= family_limit:
+                enriched["executorDecision"] = "SKIP_PARAMETER_FAMILY_BUDGET"
+                enriched["budgetDecision"] = f"family_budget_{family_used[family]}/{family_limit}"
+                excluded.append(enriched)
+                family_blocked += 1
+                continue
+            if risk_reason != "within_retry_budget" and failure_used[fail_family] >= failure_limit:
+                enriched["executorDecision"] = "SKIP_FAILURE_FAMILY_BUDGET"
+                enriched["budgetDecision"] = f"failure_budget_{failure_used[fail_family]}/{failure_limit}"
+                excluded.append(enriched)
+                failure_blocked += 1
+                continue
+
+        enriched["executorDecision"] = "ALLOW_EXECUTOR_QUEUE"
+        enriched["budgetDecision"] = "within_budget"
+        route_used[route_key] += 1
+        family_used[family] += 1
+        if risk_reason != "within_retry_budget":
+            failure_used[fail_family] += 1
+        allowed_ids.append(candidate_id)
+        task_by_id[candidate_id] = enriched
+        if len(allowed_ids) >= max_allowed:
+            break
+
+    allowed_set = set(allowed_ids)
+    effective = json.loads(json.dumps(scheduler))
+    effective["selectedTasks"] = [task_by_id[cid] for cid in allowed_ids if cid in task_by_id]
+    effective["backtestTasks"] = []
+    for raw_task in safe_list(scheduler.get("backtestTasks")):
+        task = safe_dict(raw_task)
+        candidate_id = str(task.get("candidateId") or "")
+        if candidate_id in allowed_set:
+            effective["backtestTasks"].append(task_by_id.get(candidate_id, task))
+    for route_plan in safe_list(effective.get("routePlans")):
+        if not isinstance(route_plan, dict):
+            continue
+        route_plan["candidates"] = [
+            candidate for candidate in safe_list(route_plan.get("candidates"))
+            if str(safe_dict(candidate).get("candidateId") or "") in allowed_set
+        ]
+        route_plan["scheduledTaskCount"] = len(route_plan["candidates"])
+    effective["executorControls"] = {
+        "generatedAtIso": datetime.now(timezone.utc).isoformat(),
+        "retryDrilldownEnforced": enforce_retry_drilldown,
+        "budgetControlEnforced": enforce_budget,
+        "allowedCount": len(allowed_ids),
+        "excludedCount": len(excluded),
+        "redSkippedCount": red_blocked,
+        "routeBudgetSkippedCount": route_blocked,
+        "parameterFamilyBudgetSkippedCount": family_blocked,
+        "failureFamilyBudgetSkippedCount": failure_blocked,
+        "routeUsed": dict(route_used),
+        "parameterFamilyUsed": dict(family_used),
+        "failureFamilyUsed": dict(failure_used),
+        "budgetPolicy": budget_policy,
+    }
+    effective_summary = safe_dict(effective.get("summary"))
+    effective_summary["queueCount"] = len(effective["selectedTasks"])
+    effective_summary["executorFilteredQueueCount"] = len(effective["selectedTasks"])
+    effective_summary["executorExcludedCount"] = len(excluded)
+    effective_summary["runTerminal"] = False
+    effective_summary["livePresetMutation"] = False
+    effective["summary"] = effective_summary
+    return effective, {
+        **effective["executorControls"],
+        "excludedTasks": excluded,
+    }
+
+
+def build_isolation_status(*, hfm_root: Path, tester_root: Path, require_isolated: bool) -> dict[str, Any]:
+    shared = path_same(hfm_root, tester_root)
+    terminal_path = tester_root / "terminal64.exe"
+    profile_root = tester_root / "MQL5" / "Profiles" / "Tester"
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if require_isolated and shared:
+        blockers.append("isolated_tester_required_but_shared_with_live_hfm_root")
+    if not terminal_path.exists():
+        blockers.append("tester_terminal64_missing")
+    if not profile_root.exists():
+        blockers.append("tester_profile_root_missing")
+    if shared:
+        warnings.append("tester_root_shared_with_live_hfm_root")
+    return {
+        "mode": "SHARED_TERMINAL" if shared else "ISOLATED_TERMINAL",
+        "status": "ready" if not blockers else "blocked",
+        "ok": not blockers,
+        "requireIsolatedTester": bool(require_isolated),
+        "hfmRoot": str(hfm_root),
+        "testerRoot": str(tester_root),
+        "terminalPath": str(terminal_path),
+        "testerProfileRoot": str(profile_root),
+        "blockers": blockers,
+        "warnings": warnings,
+    }
+
+
+def run_continuous_watcher(args: argparse.Namespace, *, enabled: bool) -> dict[str, Any]:
+    watcher_command = command_for_watcher(args)
+    watcher_status: dict[str, Any] = {
+        "enabled": bool(args.continuous_watch),
+        "attempted": False,
+        "iterations": 0,
+        "exitCodes": [],
+        "lastStdoutTail": "",
+        "lastStderrTail": "",
+        "startedAtIso": "",
+        "endedAtIso": "",
+        "stopReason": "not_enabled" if not args.continuous_watch else "not_attempted",
+        "watcherCommand": command_to_text(watcher_command),
+    }
+    if not (args.continuous_watch and enabled):
+        return watcher_status
+    timeout_seconds = max(0, int(args.watch_timeout_seconds or 0))
+    interval_seconds = max(1, int(args.watch_interval_seconds or 1))
+    deadline = time.monotonic() + timeout_seconds
+    runtime_dir = Path(args.runtime_dir)
+    watcher_path = runtime_dir / WATCHER_NAME
+    watcher_status["attempted"] = True
+    watcher_status["startedAtIso"] = datetime.now(timezone.utc).isoformat()
+    if timeout_seconds <= 0:
+        watcher_status["stopReason"] = "watch_timeout_zero"
+        watcher_status["endedAtIso"] = datetime.now(timezone.utc).isoformat()
+        return watcher_status
+
+    while time.monotonic() <= deadline:
+        process = subprocess.run(watcher_command, text=True, capture_output=True, check=False)
+        watcher_status["iterations"] += 1
+        watcher_status["exitCodes"].append(process.returncode)
+        watcher_status["lastStdoutTail"] = "\n".join(process.stdout.splitlines()[-20:])
+        watcher_status["lastStderrTail"] = "\n".join(process.stderr.splitlines()[-20:])
+        watcher_doc = read_json(watcher_path)
+        summary = safe_dict(watcher_doc.get("summary"))
+        pending = int(summary.get("pendingReportCount") or 0)
+        malformed = int(summary.get("malformedReportCount") or 0)
+        parsed = int(summary.get("parsedReportCount") or 0)
+        if process.returncode != 0:
+            watcher_status["stopReason"] = "watcher_exit_nonzero"
+            break
+        if parsed and pending <= 0 and malformed <= 0:
+            watcher_status["stopReason"] = "reports_parsed"
+            break
+        watcher_status["stopReason"] = "watch_timeout"
+        time.sleep(interval_seconds)
+    watcher_status["endedAtIso"] = datetime.now(timezone.utc).isoformat()
+    return watcher_status
 
 
 def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     repo_root = Path(args.repo_root)
     hfm_root = Path(args.hfm_root)
+    tester_root = Path(args.tester_root) if args.tester_root else hfm_root
     runtime_dir = Path(args.runtime_dir)
     scheduler_path = Path(args.scheduler) if args.scheduler else runtime_dir / SCHEDULER_NAME
     output_path = Path(args.output) if args.output else runtime_dir / AUTO_TESTER_WINDOW_NAME
     ledger_path = Path(args.ledger) if args.ledger else runtime_dir / AUTO_TESTER_WINDOW_LEDGER_NAME
     lock_path = Path(args.lock) if args.lock else runtime_dir / LOCK_NAME
+    run_recovery_path = Path(args.run_recovery) if args.run_recovery else runtime_dir / RUN_RECOVERY_NAME
+    budget_policy_path = Path(args.budget_policy) if args.budget_policy else runtime_dir / BACKTEST_BUDGET_NAME
+    executor_plan_path = Path(args.executor_plan) if args.executor_plan else runtime_dir / EXECUTOR_PLAN_NAME
     now = parse_now(args.now_iso)
     scheduler = read_json(scheduler_path)
-    selected_tasks = summarize_selected_tasks(scheduler)
+    run_recovery = read_json(run_recovery_path)
+    budget_policy = load_budget_policy(budget_policy_path)
+    effective_scheduler, executor_controls = apply_executor_controls(
+        scheduler=scheduler,
+        recovery=run_recovery,
+        budget_policy=budget_policy,
+        max_tasks=args.max_tasks,
+        enforce_retry_drilldown=not args.disable_retry_drilldown,
+        enforce_budget=not args.disable_budget_control,
+    )
+    write_json(executor_plan_path, effective_scheduler)
+    selected_tasks = summarize_selected_tasks(effective_scheduler)
+    effective_max_tasks = max(1, min(args.max_tasks, len(selected_tasks) or args.max_tasks))
+    isolation = build_isolation_status(
+        hfm_root=hfm_root,
+        tester_root=tester_root,
+        require_isolated=args.require_isolated_tester,
+    )
 
     gate = evaluate_execution_gate(
-        scheduler=scheduler,
+        scheduler=effective_scheduler,
         runtime_dir=runtime_dir,
-        hfm_root=hfm_root,
+        hfm_root=tester_root,
         repo_root=repo_root,
         lock_path=lock_path,
         now_utc=now,
-        max_tasks=args.max_tasks,
+        max_tasks=effective_max_tasks,
         allow_outside_window=args.allow_outside_window,
     )
-    config_only_command = command_for_runner(args, run_terminal=False, lock_path=lock_path)
-    run_command = command_for_runner(args, run_terminal=True, lock_path=lock_path)
+    if not isolation.get("ok"):
+        gate["blockers"].extend(isolation.get("blockers") or [])
+        gate["canRunTerminal"] = False
+        gate["status"] = "blocked"
+    gate["testerIsolation"] = isolation
+    config_only_command = command_for_runner(
+        args,
+        run_terminal=False,
+        lock_path=lock_path,
+        plan_path=executor_plan_path,
+        hfm_root=tester_root,
+    )
+    run_command = command_for_runner(
+        args,
+        run_terminal=True,
+        lock_path=lock_path,
+        plan_path=executor_plan_path,
+        hfm_root=tester_root,
+    )
     child_status: dict[str, Any] = {
         "attempted": False,
         "exitCode": None,
@@ -198,6 +599,10 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             }
             exit_code = process.returncode
 
+    watcher_status = run_continuous_watcher(
+        args,
+        enabled=bool(args.run_terminal and child_status["attempted"]),
+    )
     latest_runner_status = read_json(runtime_dir / STATUS_NAME)
     summary = {
         "mode": mode,
@@ -206,17 +611,29 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "runAttempted": bool(child_status["attempted"]),
         "selectedTaskCount": len(selected_tasks),
         "queueCount": gate.get("queue", {}).get("queueCount", 0),
+        "sourceQueueCount": len(summarize_selected_tasks(scheduler)),
+        "executorExcludedCount": executor_controls.get("excludedCount", 0),
+        "redSkippedCount": executor_controls.get("redSkippedCount", 0),
+        "routeBudgetSkippedCount": executor_controls.get("routeBudgetSkippedCount", 0),
+        "parameterFamilyBudgetSkippedCount": executor_controls.get("parameterFamilyBudgetSkippedCount", 0),
+        "failureFamilyBudgetSkippedCount": executor_controls.get("failureFamilyBudgetSkippedCount", 0),
         "windowOk": bool(gate.get("window", {}).get("ok")),
         "lockOk": bool(gate.get("authorizationLock", {}).get("ok")),
         "queueOk": bool(gate.get("queue", {}).get("ok")),
         "environmentOk": gate.get("environment", {}).get("status") == "ready",
+        "isolationOk": bool(isolation.get("ok")),
+        "isolationMode": isolation.get("mode", ""),
         "blockerCount": len(gate.get("blockers") or []),
         "childExitCode": child_status["exitCode"],
+        "continuousWatcherEnabled": bool(args.continuous_watch),
+        "continuousWatcherAttempted": bool(watcher_status.get("attempted")),
+        "continuousWatcherIterations": int(watcher_status.get("iterations") or 0),
+        "continuousWatcherStopReason": watcher_status.get("stopReason", ""),
         "runTerminal": bool(child_status["attempted"]),
         "livePresetMutation": False,
     }
     status = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "source": "QuantGod AUTO_TESTER_WINDOW Guard",
         "generatedAtIso": datetime.now(timezone.utc).isoformat(),
         "evaluatedAtIso": now.isoformat(),
@@ -224,13 +641,21 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "runtimeDir": str(runtime_dir),
         "repoRoot": str(repo_root),
         "hfmRoot": str(hfm_root),
+        "testerRoot": str(tester_root),
         "schedulerPath": str(scheduler_path),
+        "executorPlanPath": str(executor_plan_path),
+        "runRecoveryPath": str(run_recovery_path),
+        "budgetPolicyPath": str(budget_policy_path),
         "lockPath": str(lock_path),
         "summary": summary,
         "gate": gate,
+        "testerIsolation": isolation,
+        "executorControls": executor_controls,
         "selectedTasks": selected_tasks,
+        "excludedTasks": executor_controls.get("excludedTasks", []),
         "configOnlyCommand": command_to_text(config_only_command),
         "guardedRunCommand": command_to_text(run_command),
+        "continuousWatcher": watcher_status,
         "childProcess": child_status,
         "latestParamLabStatus": {
             "runId": latest_runner_status.get("runId", ""),
@@ -242,8 +667,10 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "nextOperatorSteps": [
             "Keep this in EVALUATE_ONLY mode on weekdays.",
             "Create the authorization lock only for a controlled Strategy Tester session.",
-            "Use guardedRunCommand only when canRunTerminal=true.",
-            "After reports land, run watch_param_lab_reports.py and rebuild Governance Advisor.",
+            "Use guardedRunCommand only when canRunTerminal=true and executorControls.allowedCount is positive.",
+            "Red Run Recovery drilldown candidates are excluded before runner launch and do not consume automatic retries.",
+            "Continuous watcher can poll reports during an authorized tester window after a guarded run.",
+            "Use --tester-root with --require-isolated-tester when an isolated terminal/profile is prepared.",
         ],
     }
     write_json(output_path, status)
@@ -256,9 +683,32 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "WindowOk": str(summary["windowOk"]).lower(),
             "LockOk": str(summary["lockOk"]).lower(),
             "QueueOk": str(summary["queueOk"]).lower(),
+            "IsolationOk": str(summary["isolationOk"]).lower(),
             "CandidateId": task.get("candidateId", ""),
             "RouteKey": task.get("routeKey", ""),
             "ScheduleAction": task.get("scheduleAction", ""),
+            "ExecutorDecision": task.get("executorDecision", ""),
+            "RetryRiskLevel": task.get("retryRiskLevel", ""),
+            "RetryRiskReason": task.get("retryRiskReason", ""),
+            "BudgetDecision": task.get("budgetDecision", ""),
+            "Blockers": "/".join(gate.get("blockers") or []),
+        })
+    for task in executor_controls.get("excludedTasks", []):
+        rows.append({
+            "GeneratedAtIso": status["generatedAtIso"],
+            "Mode": mode,
+            "CanRunTerminal": str(summary["canRunTerminal"]).lower(),
+            "WindowOk": str(summary["windowOk"]).lower(),
+            "LockOk": str(summary["lockOk"]).lower(),
+            "QueueOk": str(summary["queueOk"]).lower(),
+            "IsolationOk": str(summary["isolationOk"]).lower(),
+            "CandidateId": task.get("candidateId", ""),
+            "RouteKey": task.get("routeKey", ""),
+            "ScheduleAction": task.get("scheduleAction", ""),
+            "ExecutorDecision": task.get("executorDecision", ""),
+            "RetryRiskLevel": task.get("retryRiskLevel", ""),
+            "RetryRiskReason": task.get("retryRiskReason", ""),
+            "BudgetDecision": task.get("budgetDecision", ""),
             "Blockers": "/".join(gate.get("blockers") or []),
         })
     write_csv(
@@ -271,19 +721,26 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "WindowOk",
             "LockOk",
             "QueueOk",
+            "IsolationOk",
             "CandidateId",
             "RouteKey",
             "ScheduleAction",
+            "ExecutorDecision",
+            "RetryRiskLevel",
+            "RetryRiskReason",
+            "BudgetDecision",
             "Blockers",
         ],
     )
     print(f"Wrote {output_path}")
     print(f"Wrote {ledger_path}")
+    print(f"Wrote {executor_plan_path}")
     print(
         "AUTO_TESTER_WINDOW: "
         f"mode={mode} canRunTerminal={summary['canRunTerminal']} "
         f"windowOk={summary['windowOk']} lockOk={summary['lockOk']} "
-        f"queue={summary['queueCount']} blockers={summary['blockerCount']}"
+        f"queue={summary['queueCount']} excluded={summary['executorExcludedCount']} "
+        f"redSkipped={summary['redSkippedCount']} blockers={summary['blockerCount']}"
     )
     return status, exit_code
 
