@@ -104,6 +104,7 @@ input double PilotUsdJpyNoChaseBufferPips = 10.0;
 input double PilotMaxFloatingLossUSC    = 30.0;
 input double PilotMaxRealizedLossDayUSC = 60.0;
 input int    PilotMaxConsecutiveLosses  = 2;
+input int    PilotConsecutiveLossPauseMinutes = 180;
 input bool   PilotCloseOnKillSwitch     = true;
 input long   PilotMagic                 = 520001;
 input int    PilotDeviationPoints       = 30;
@@ -340,6 +341,10 @@ bool g_pilotKillSwitch = false;
 string g_pilotKillReason = "";
 double g_pilotRealizedLossToday = 0.0;
 int g_pilotConsecutiveLosses = 0;
+datetime g_pilotLatestConsecutiveLossTime = 0;
+double g_pilotLatestConsecutiveLossNet = 0.0;
+int g_pilotConsecutiveLossPauseRemainingMinutes = 0;
+bool g_pilotConsecutiveLossPauseExpired = false;
 ulong g_usdTrackedEventIds[];
 string g_usdTrackedEventNames[];
 string g_usdTrackedEventCodes[];
@@ -1283,6 +1288,10 @@ void ResetPilotRuntimeStates()
    g_pilotKillReason = "";
    g_pilotRealizedLossToday = 0.0;
    g_pilotConsecutiveLosses = 0;
+   g_pilotLatestConsecutiveLossTime = 0;
+   g_pilotLatestConsecutiveLossNet = 0.0;
+   g_pilotConsecutiveLossPauseRemainingMinutes = 0;
+   g_pilotConsecutiveLossPauseExpired = false;
 
    for(int i = 0; i < ArraySize(g_maRuntimeStates); i++)
    {
@@ -1560,6 +1569,10 @@ void UpdatePilotClosedStats()
 {
    g_pilotRealizedLossToday = 0.0;
    g_pilotConsecutiveLosses = 0;
+   g_pilotLatestConsecutiveLossTime = 0;
+   g_pilotLatestConsecutiveLossNet = 0.0;
+   g_pilotConsecutiveLossPauseRemainingMinutes = 0;
+   g_pilotConsecutiveLossPauseExpired = false;
 
    datetime nowServer = CurrentServerTime();
    MqlDateTime parts;
@@ -1600,7 +1613,14 @@ void UpdatePilotClosedStats()
       if(!streakLocked)
       {
          if(net < 0.0)
+         {
             g_pilotConsecutiveLosses++;
+            if(g_pilotLatestConsecutiveLossTime <= 0)
+            {
+               g_pilotLatestConsecutiveLossTime = dealTime;
+               g_pilotLatestConsecutiveLossNet = net;
+            }
+         }
          else
             streakLocked = true;
       }
@@ -1667,6 +1687,41 @@ bool PilotLossCooldownActive(string symbol, string &reason)
    reason = "Loss cooldown active for " + IntegerToString(minutesLeft) +
             "m after " + FormatNumber(MathAbs(netProfit), 2) + " USC stopout";
    return true;
+}
+
+bool PilotConsecutiveLossPauseActive(string &reason)
+{
+   reason = "";
+   g_pilotConsecutiveLossPauseRemainingMinutes = 0;
+   g_pilotConsecutiveLossPauseExpired = false;
+
+   if(PilotMaxConsecutiveLosses <= 0)
+      return false;
+   if(g_pilotConsecutiveLosses < PilotMaxConsecutiveLosses)
+      return false;
+
+   if(PilotConsecutiveLossPauseMinutes <= 0 || g_pilotLatestConsecutiveLossTime <= 0)
+   {
+      reason = "Consecutive loss limit reached";
+      return true;
+   }
+
+   int elapsedMinutes = (int)((CurrentServerTime() - g_pilotLatestConsecutiveLossTime) / 60);
+   if(elapsedMinutes < 0)
+      elapsedMinutes = 0;
+
+   int minutesLeft = PilotConsecutiveLossPauseMinutes - elapsedMinutes;
+   if(minutesLeft > 0)
+   {
+      g_pilotConsecutiveLossPauseRemainingMinutes = minutesLeft;
+      reason = "Consecutive loss pause active for " + IntegerToString(minutesLeft) +
+               "m after " + IntegerToString(g_pilotConsecutiveLosses) +
+               " pilot losses";
+      return true;
+   }
+
+   g_pilotConsecutiveLossPauseExpired = true;
+   return false;
 }
 
 bool IsPilotSessionOpen()
@@ -3763,12 +3818,14 @@ void RunPilotExecutionLoop()
       g_pilotKillSwitch = true;
       g_pilotKillReason = "Daily realized loss limit reached";
    }
-   if(g_pilotConsecutiveLosses >= PilotMaxConsecutiveLosses)
+
+   string consecutiveLossPauseReason = "";
+   if(!g_pilotKillSwitch && PilotConsecutiveLossPauseActive(consecutiveLossPauseReason))
    {
       g_pilotKillSwitch = true;
-      g_pilotKillReason = "Consecutive loss limit reached";
+      g_pilotKillReason = consecutiveLossPauseReason;
    }
-   if(SumPilotFloatingProfit() <= -MathAbs(PilotMaxFloatingLossUSC))
+   if(!g_pilotKillSwitch && SumPilotFloatingProfit() <= -MathAbs(PilotMaxFloatingLossUSC))
    {
       g_pilotKillSwitch = true;
       g_pilotKillReason = "Floating loss limit reached";
@@ -5368,6 +5425,11 @@ void ExportDashboard()
    json += "    \"pilotKillReason\": \"" + JsonEscape(g_pilotKillReason) + "\",\r\n";
    json += "    \"pilotRealizedLossToday\": " + FormatNumber(g_pilotRealizedLossToday, 2) + ",\r\n";
    json += "    \"pilotConsecutiveLosses\": " + IntegerToString(g_pilotConsecutiveLosses) + ",\r\n";
+   json += "    \"pilotConsecutiveLossPauseMinutes\": " + IntegerToString(PilotConsecutiveLossPauseMinutes) + ",\r\n";
+   json += "    \"pilotConsecutiveLossPauseRemainingMinutes\": " + IntegerToString(g_pilotConsecutiveLossPauseRemainingMinutes) + ",\r\n";
+   json += "    \"pilotConsecutiveLossPauseExpired\": " + JsonBool(g_pilotConsecutiveLossPauseExpired) + ",\r\n";
+   json += "    \"pilotLatestConsecutiveLossTime\": \"" + JsonEscape(g_pilotLatestConsecutiveLossTime > 0 ? FormatDateTime(g_pilotLatestConsecutiveLossTime, true) : "") + "\",\r\n";
+   json += "    \"pilotLatestConsecutiveLossNet\": " + FormatNumber(g_pilotLatestConsecutiveLossNet, 2) + ",\r\n";
    json += "    \"pilotFloatingProfit\": " + FormatNumber(SumPilotFloatingProfit(), 2) + ",\r\n";
    json += "    \"connected\": " + JsonBool(connected) + ",\r\n";
    json += "    \"terminalConnected\": " + JsonBool(terminalConnected) + ",\r\n";
@@ -5452,6 +5514,11 @@ void ExportDashboard()
    statusFile += "pilotKillReason=" + g_pilotKillReason + "\r\n";
    statusFile += "pilotRealizedLossToday=" + FormatNumber(g_pilotRealizedLossToday, 2) + "\r\n";
    statusFile += "pilotConsecutiveLosses=" + IntegerToString(g_pilotConsecutiveLosses) + "\r\n";
+   statusFile += "pilotConsecutiveLossPauseMinutes=" + IntegerToString(PilotConsecutiveLossPauseMinutes) + "\r\n";
+   statusFile += "pilotConsecutiveLossPauseRemainingMinutes=" + IntegerToString(g_pilotConsecutiveLossPauseRemainingMinutes) + "\r\n";
+   statusFile += "pilotConsecutiveLossPauseExpired=" + (g_pilotConsecutiveLossPauseExpired ? "true" : "false") + "\r\n";
+   statusFile += "pilotLatestConsecutiveLossTime=" + (g_pilotLatestConsecutiveLossTime > 0 ? FormatDateTime(g_pilotLatestConsecutiveLossTime, true) : "") + "\r\n";
+   statusFile += "pilotLatestConsecutiveLossNet=" + FormatNumber(g_pilotLatestConsecutiveLossNet, 2) + "\r\n";
    statusFile += "pilotFloatingProfit=" + FormatNumber(SumPilotFloatingProfit(), 2) + "\r\n";
    string exportNewsReason = g_newsState.reason;
    if(EnablePilotNewsFilter &&

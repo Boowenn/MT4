@@ -93,6 +93,7 @@ PilotUsdJpyNoChaseBufferPips=10.0
 PilotMaxFloatingLossUSC=30.0
 PilotMaxRealizedLossDayUSC=60.0
 PilotMaxConsecutiveLosses=2
+PilotConsecutiveLossPauseMinutes=180
 PilotCloseOnKillSwitch=true
 PilotMagic=520001
 PilotDeviationPoints=30
