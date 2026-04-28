@@ -8043,6 +8043,9 @@ const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRun
 const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
 const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
+const POLYMARKET_RADAR_API_PATH = '/api/polymarket/radar';
+const POLYMARKET_ANALYZE_HISTORY_API_PATH = '/api/polymarket/analyze/history';
+const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -9040,6 +9043,12 @@ async function loadLocalJsonSupplement(path) {
     return JSON.parse(text);
 }
 
+async function loadPolymarketApiJson(path) {
+    const response = await fetch(appendCacheBust(path), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+}
+
 function getPolymarketHistoryApiFilter() {
     const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots'].includes(polymarketHistoryApiFilter.table)
         ? polymarketHistoryApiFilter.table
@@ -9111,6 +9120,11 @@ async function attachSupplementalData(baseData, previousData = null) {
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
+        polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
+        polymarketSingleMarketAnalysisLedgerRows: Array.isArray(baseData?.polymarketSingleMarketAnalysisLedgerRows)
+            ? baseData.polymarketSingleMarketAnalysisLedgerRows
+            : (previousData?.polymarketSingleMarketAnalysisLedgerRows || []),
+        polymarketAnalyzeHistoryApi: baseData?.polymarketAnalyzeHistoryApi || previousData?.polymarketAnalyzeHistoryApi || null,
         polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null,
         polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null,
         polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null,
@@ -9300,28 +9314,50 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
-        data.polymarketMarketRadar = await loadLocalJsonSupplement(LOCAL_POLYMARKET_MARKET_RADAR_PATH);
+        data.polymarketMarketRadar = await loadPolymarketApiJson(POLYMARKET_RADAR_API_PATH);
         data._polymarketMarketRadarError = false;
-    } catch (error) {
-        data._polymarketMarketRadarError = true;
-        console.warn('Polymarket market radar load failed.', error);
+        data._polymarketMarketRadarSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketMarketRadar = await loadLocalJsonSupplement(LOCAL_POLYMARKET_MARKET_RADAR_PATH);
+            data._polymarketMarketRadarError = false;
+            data._polymarketMarketRadarSource = 'file';
+        } catch (fileError) {
+            data._polymarketMarketRadarError = true;
+            data._polymarketMarketRadarSource = 'unavailable';
+            console.warn('Polymarket market radar API/file load failed.', apiError, fileError);
+        }
     }
 
     try {
-        data.polymarketSingleMarketAnalysis = await loadLocalJsonSupplement(LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_PATH);
-        data._polymarketSingleMarketAnalysisError = false;
-    } catch (error) {
-        data._polymarketSingleMarketAnalysisError = true;
-        console.warn('Polymarket single market analysis load failed.', error);
-    }
-
-    try {
-        data.polymarketSingleMarketAnalysisLedgerRows = await loadLocalCsvSupplement(LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_LEDGER_PATH, parsePolymarketSingleMarketAnalysisLedgerCsv);
+        const analyzeHistory = await loadPolymarketApiJson(POLYMARKET_ANALYZE_HISTORY_API_PATH);
+        data.polymarketAnalyzeHistoryApi = analyzeHistory;
+        data.polymarketSingleMarketAnalysis = analyzeHistory.latest || data.polymarketSingleMarketAnalysis || null;
+        data.polymarketSingleMarketAnalysisLedgerRows = Array.isArray(analyzeHistory.rows) ? analyzeHistory.rows : [];
+        data._polymarketSingleMarketAnalysisError = !data.polymarketSingleMarketAnalysis;
         data._polymarketSingleMarketAnalysisLedgerError = false;
-    } catch (error) {
-        data.polymarketSingleMarketAnalysisLedgerRows = [];
-        data._polymarketSingleMarketAnalysisLedgerError = true;
-        console.warn('Polymarket single market analysis ledger load failed.', error);
+        data._polymarketSingleMarketAnalysisSource = 'api';
+        data._polymarketSingleMarketAnalysisLedgerSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketSingleMarketAnalysis = await loadLocalJsonSupplement(LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_PATH);
+            data._polymarketSingleMarketAnalysisError = false;
+            data._polymarketSingleMarketAnalysisSource = 'file';
+        } catch (fileError) {
+            data._polymarketSingleMarketAnalysisError = true;
+            data._polymarketSingleMarketAnalysisSource = 'unavailable';
+            console.warn('Polymarket single market analysis API/file load failed.', apiError, fileError);
+        }
+        try {
+            data.polymarketSingleMarketAnalysisLedgerRows = await loadLocalCsvSupplement(LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_LEDGER_PATH, parsePolymarketSingleMarketAnalysisLedgerCsv);
+            data._polymarketSingleMarketAnalysisLedgerError = false;
+            data._polymarketSingleMarketAnalysisLedgerSource = 'file';
+        } catch (fileError) {
+            data.polymarketSingleMarketAnalysisLedgerRows = [];
+            data._polymarketSingleMarketAnalysisLedgerError = true;
+            data._polymarketSingleMarketAnalysisLedgerSource = 'unavailable';
+            console.warn('Polymarket single market analysis ledger API/file load failed.', apiError, fileError);
+        }
     }
 
     try {
@@ -9373,11 +9409,19 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
-        data.polymarketAiScore = await loadLocalJsonSupplement(LOCAL_POLYMARKET_AI_SCORE_PATH);
+        data.polymarketAiScore = await loadPolymarketApiJson(POLYMARKET_AI_SCORE_API_PATH);
         data._polymarketAiScoreError = false;
-    } catch (error) {
-        data._polymarketAiScoreError = true;
-        console.warn('Polymarket AI score load failed.', error);
+        data._polymarketAiScoreSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketAiScore = await loadLocalJsonSupplement(LOCAL_POLYMARKET_AI_SCORE_PATH);
+            data._polymarketAiScoreError = false;
+            data._polymarketAiScoreSource = 'file';
+        } catch (fileError) {
+            data._polymarketAiScoreError = true;
+            data._polymarketAiScoreSource = 'unavailable';
+            console.warn('Polymarket AI score API/file load failed.', apiError, fileError);
+        }
     }
 
     return data;
@@ -9711,7 +9755,8 @@ function updatePolymarketMarketRadar(d) {
     }
     const summary = radar.summary || {};
     if (summaryEl) {
-        summaryEl.textContent = `${radar.status || 'UNKNOWN'} | 候选 ${summary.rankedMarkets || 0} | 低/中/高风险 ${summary.lowRisk || 0}/${summary.mediumRisk || 0}/${summary.highRisk || 0}`;
+        const sourceLabel = d?._polymarketMarketRadarSource === 'api' || radar._api?.endpoint ? 'API' : '文件';
+        summaryEl.textContent = `${sourceLabel} | ${radar.status || 'UNKNOWN'} | 候选 ${summary.rankedMarkets || 0} | 低/中/高风险 ${summary.lowRisk || 0}/${summary.mediumRisk || 0}/${summary.highRisk || 0}`;
     }
     if (radar.status === 'ERROR') {
         body.innerHTML = `
@@ -9804,7 +9849,8 @@ function updatePolymarketAiScore(d) {
     const summary = score.summary || {};
     const scores = Array.isArray(score.scores) ? score.scores : [];
     if (summaryEl) {
-        summaryEl.textContent = `${translatePolymarketToken(score.decision || 'AI_SCORE_ONLY_NO_BETTING')} | 候选 ${summary.candidates || scores.length || 0} | 绿/黄/红 ${summary.green || 0}/${summary.yellow || 0}/${summary.red || 0} | 最高 ${formatPolymarketScore(summary.topScore)}`;
+        const sourceLabel = d?._polymarketAiScoreSource === 'api' || score._api?.endpoint ? 'API' : '文件';
+        summaryEl.textContent = `${sourceLabel} | ${translatePolymarketToken(score.decision || 'AI_SCORE_ONLY_NO_BETTING')} | 候选 ${summary.candidates || scores.length || 0} | 绿/黄/红 ${summary.green || 0}/${summary.yellow || 0}/${summary.red || 0} | 最高 ${formatPolymarketScore(summary.topScore)}`;
     }
     const boundaryCard = `
         <div class="polymarket-card danger">
@@ -9864,7 +9910,8 @@ function renderPolymarketSingleMarketHistory(d, limit = 12) {
     const lowRisk = rows.filter((row) => String(row.risk || '').toLowerCase() === 'low').length;
     const highPriority = rows.filter((row) => String(row.recommendation || '').toUpperCase().includes('HIGH_PRIORITY')).length;
     const noWalletWrites = rows.filter((row) => !row.walletWrite && !row.orderSend).length;
-    const ledgerState = d?._polymarketSingleMarketAnalysisLedgerError ? '账本未读取' : `历史 ${rows.length} 条`;
+    const ledgerSource = d?._polymarketSingleMarketAnalysisLedgerSource === 'api' ? 'API历史' : '文件历史';
+    const ledgerState = d?._polymarketSingleMarketAnalysisLedgerError ? '账本未读取' : `${ledgerSource} ${rows.length} 条`;
     if (!rows.length) {
         return `
             <div class="polymarket-card polymarket-history-card watch">
@@ -9934,7 +9981,8 @@ function updatePolymarketSingleMarketAnalysis(d) {
     const historyCard = renderPolymarketSingleMarketHistory(d);
     const historyRows = getPolymarketSingleMarketAnalysisHistory(d);
     if (!single || d?._polymarketSingleMarketAnalysisError) {
-        if (summaryEl) summaryEl.textContent = `等待单市场分析 | 历史 ${historyRows.length} 条`;
+        const sourceLabel = d?._polymarketSingleMarketAnalysisLedgerSource === 'api' ? 'API历史' : '历史';
+        if (summaryEl) summaryEl.textContent = `等待单市场分析 | ${sourceLabel} ${historyRows.length} 条`;
         body.innerHTML = `${requestForm}<div class="empty-state">等待 \`QuantGod_PolymarketSingleMarketAnalysis.json\`；可用 URL/标题/marketId 生成，不触发下注。</div>${historyCard}`;
         return;
     }
@@ -9946,7 +9994,9 @@ function updatePolymarketSingleMarketAnalysis(d) {
     const risk = analysis.riskLevel || single.summary?.risk || 'unknown';
     const confidence = analysis.confidencePct ?? single.summary?.confidencePct ?? 0;
     if (summaryEl) {
-        summaryEl.textContent = `${single.status || 'UNKNOWN'} | ${translatePolymarketToken(recommendation)} | 风险 ${translatePolymarketToken(risk)} | 信心 ${confidence}% | 历史 ${historyRows.length} 条`;
+        const sourceLabel = d?._polymarketSingleMarketAnalysisSource === 'api' || single._api?.endpoint ? 'API' : '文件';
+        const historyLabel = d?._polymarketSingleMarketAnalysisLedgerSource === 'api' ? 'API历史' : '历史';
+        summaryEl.textContent = `${sourceLabel} | ${single.status || 'UNKNOWN'} | ${translatePolymarketToken(recommendation)} | 风险 ${translatePolymarketToken(risk)} | 信心 ${confidence}% | ${historyLabel} ${historyRows.length} 条`;
     }
     if (single.status === 'ERROR') {
         body.innerHTML = `

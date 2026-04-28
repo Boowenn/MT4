@@ -238,6 +238,27 @@ Dashboard behavior is now API-first:
 
 The endpoint is still research-only: no private-key read, no wallet write, no CLOB order call, no executor start, and no MT5 mutation.
 
+## Unified Read-Only Service API V1
+
+The dashboard server also exposes the active Polymarket research artifacts through one read-only service layer:
+
+```text
+GET /api/polymarket/radar
+GET /api/polymarket/analyze/history?limit=80&q=keyword
+GET /api/polymarket/ai-score
+```
+
+These endpoints are API-first replacements for direct dashboard reads of:
+
+- `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketSingleMarketAnalysis.json`
+- `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
+- `QuantGod_PolymarketAiScoreV1.json`
+
+`/api/polymarket/analyze/history` combines the latest single-market analysis snapshot with historical rows from the read-only SQLite history helper. The Dashboard now prefers these endpoints and only falls back to local JSON/CSV files if the service is unavailable.
+
+This layer is intentionally a facade, not an executor: it does not read private keys, does not write wallets, does not call CLOB order APIs, does not start betting workers, and does not mutate MT5.
+
 ## History-Aware AI Score V1
 
 Run:

@@ -9,8 +9,16 @@ const rootDir = __dirname;
 const repoRoot = path.resolve(rootDir, '..');
 const defaultRuntimeDir = 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
 const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
+const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
+const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
+const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
+const polymarketReadOnlyJsonFiles = new Set([
+  polymarketRadarName,
+  polymarketAiScoreName,
+  polymarketSingleMarketAnalysisName
+]);
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -192,6 +200,93 @@ function runJsonPython(script, args = [], timeoutMs = 15000) {
   });
 }
 
+function readQuantGodJsonFile(fileName) {
+  const base = path.basename(fileName || '');
+  if (!polymarketReadOnlyJsonFiles.has(base)) {
+    throw new Error(`unsupported read-only json file: ${base}`);
+  }
+  const candidates = [path.join(rootDir, base)];
+  if (fs.existsSync(defaultRuntimeDir)) {
+    candidates.push(path.join(defaultRuntimeDir, base));
+  }
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const text = fs.readFileSync(candidate, 'utf8').replace(/^\uFEFF/, '');
+    return { payload: JSON.parse(text), filePath: candidate };
+  }
+  throw new Error(`file not found: ${base}`);
+}
+
+function withServiceMeta(payload, endpoint, filePath) {
+  const source = {
+    service: 'quantgod_dashboard_local_api',
+    endpoint,
+    filePath,
+    readOnly: true,
+    walletWriteAllowed: false,
+    orderSendAllowed: false,
+    mutatesMt5: false
+  };
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return { ...payload, _api: source };
+  }
+  return { payload, _api: source };
+}
+
+async function queryPolymarketHistory(table, query = '', limit = '50', offset = '0') {
+  return runJsonPython(polymarketHistoryApiScript, [
+    '--repo-root',
+    repoRoot,
+    '--table',
+    table,
+    '--q',
+    query,
+    '--limit',
+    String(limit),
+    '--offset',
+    String(offset)
+  ], 15000);
+}
+
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return '';
+}
+
+function toBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'y';
+}
+
+function normalizeAnalyzeHistoryRows(rows = []) {
+  return rows.map((row, index) => ({
+    rowId: index + 1,
+    generatedAt: firstDefined(row.generatedAt, row.lastSeenAt, row.seenAt),
+    status: firstDefined(row.status, 'OK'),
+    decision: firstDefined(row.decision, 'RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING'),
+    query: firstDefined(row.query, row.question, row.marketId),
+    querySource: firstDefined(row.querySource, row.source, 'history_api'),
+    marketId: firstDefined(row.marketId),
+    question: firstDefined(row.question, row.eventTitle),
+    category: firstDefined(row.category),
+    marketProbability: firstDefined(row.marketProbability, row.marketProbabilityPct),
+    aiProbability: firstDefined(row.aiProbability, row.aiProbabilityPct),
+    divergence: firstDefined(row.divergence, row.divergencePct),
+    confidence: firstDefined(row.confidence, row.confidencePct),
+    recommendation: firstDefined(row.recommendation, row.recommendedAction),
+    risk: firstDefined(row.risk),
+    shadowTrack: firstDefined(row.suggestedShadowTrack, row.shadowTrack),
+    url: firstDefined(row.polymarketUrl, row.url),
+    walletWrite: toBoolean(firstDefined(row.walletWrite, row.walletWriteAllowed)),
+    orderSend: toBoolean(firstDefined(row.orderSend, row.orderSendAllowed)),
+    historyType: firstDefined(row.historyType, 'analyses'),
+    source: 'sqlite_history_api'
+  }));
+}
+
 async function handleSingleMarketRequest(req, res) {
   try {
     const text = await readRequestBody(req);
@@ -220,23 +315,90 @@ async function handlePolymarketHistory(req, res) {
     const query = parsed.searchParams.get('q') || '';
     const limit = parsed.searchParams.get('limit') || '50';
     const offset = parsed.searchParams.get('offset') || '0';
-    const result = await runJsonPython(polymarketHistoryApiScript, [
-      '--repo-root',
-      repoRoot,
-      '--table',
-      table,
-      '--q',
-      query,
-      '--limit',
-      limit,
-      '--offset',
-      offset
-    ], 15000);
+    const result = await queryPolymarketHistory(table, query, limit, offset);
     if (!result.ok) {
       sendJson(res, 500, { ok: false, error: result.stderr || result.reason || 'history_query_failed', detail: result });
       return;
     }
     sendJson(res, 200, result.payload);
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error.message || String(error) });
+  }
+}
+
+async function handlePolymarketReadOnlyJson(req, res, fileName, endpoint) {
+  try {
+    const { payload, filePath } = readQuantGodJsonFile(fileName);
+    sendJson(res, 200, withServiceMeta(payload, endpoint, filePath));
+  } catch (error) {
+    sendJson(res, 404, {
+      ok: false,
+      error: error.message || String(error),
+      endpoint,
+      safety: {
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        mutatesMt5: false,
+        readOnly: true
+      }
+    });
+  }
+}
+
+async function handlePolymarketAnalyzeHistory(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const query = parsed.searchParams.get('q') || '';
+    const limit = parsed.searchParams.get('limit') || '80';
+    let latest = null;
+    let latestPath = '';
+    let latestError = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketSingleMarketAnalysisName);
+      latest = withServiceMeta(read.payload, '/api/polymarket/analyze/history', read.filePath);
+      latestPath = read.filePath;
+    } catch (error) {
+      latestError = error.message || String(error);
+    }
+
+    const result = await queryPolymarketHistory('analyses', query, limit, '0');
+    if (!result.ok) {
+      sendJson(res, 500, {
+        ok: false,
+        error: result.stderr || result.reason || 'analyze_history_query_failed',
+        latest,
+        latestError,
+        detail: result
+      });
+      return;
+    }
+
+    const rows = normalizeAnalyzeHistoryRows(result.payload?.search?.rows || result.payload?.recent?.analyses || []);
+    sendJson(res, 200, {
+      mode: 'POLYMARKET_ANALYZE_HISTORY_API_V1',
+      status: result.payload?.status || 'OK',
+      generatedAt: new Date().toISOString(),
+      source: 'quantgod_dashboard_local_api',
+      decision: 'READ_ONLY_ANALYZE_HISTORY_NO_WALLET_WRITE',
+      latest,
+      latestPath,
+      latestError,
+      rows,
+      summary: {
+        rows: rows.length,
+        matched: result.payload?.search?.count || rows.length,
+        totalRows: result.payload?.summary?.marketAnalyses || rows.length
+      },
+      history: result.payload,
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
+        mutatesMt5: false,
+        readOnly: true
+      }
+    });
   } catch (error) {
     sendJson(res, 400, { ok: false, error: error.message || String(error) });
   }
@@ -329,6 +491,18 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {
     handlePolymarketHistory(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar') {
+    handlePolymarketReadOnlyJson(req, res, polymarketRadarName, '/api/polymarket/radar');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {
+    handlePolymarketReadOnlyJson(req, res, polymarketAiScoreName, '/api/polymarket/ai-score');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/analyze/history') {
+    handlePolymarketAnalyzeHistory(req, res);
     return;
   }
   if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/single-market-request') {
