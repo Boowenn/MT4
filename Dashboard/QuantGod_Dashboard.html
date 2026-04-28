@@ -8470,6 +8470,7 @@ const LOCAL_CLOSE_HISTORY_PATH = 'QuantGod_CloseHistory.csv';
 const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
 const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
 const LOCAL_MT5_RESEARCH_STATS_PATH = 'QuantGod_MT5ResearchStats.json';
+const LOCAL_MT5_BACKEND_BACKTEST_PATH = 'QuantGod_MT5BackendBacktest.json';
 const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
 const LOCAL_SHADOW_SIGNAL_LEDGER_PATH = 'QuantGod_ShadowSignalLedger.csv';
 const LOCAL_SHADOW_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowOutcomeLedger.csv';
@@ -9689,6 +9690,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         mt5ReadOnlyBridge: baseData?.mt5ReadOnlyBridge || previousData?.mt5ReadOnlyBridge || null,
         mt5SymbolRegistry: baseData?.mt5SymbolRegistry || previousData?.mt5SymbolRegistry || null,
         mt5ResearchStats: baseData?.mt5ResearchStats || previousData?.mt5ResearchStats || null,
+        mt5BackendBacktest: baseData?.mt5BackendBacktest || previousData?.mt5BackendBacktest || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
@@ -9773,6 +9775,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         data._mt5ResearchStatsError = true;
         data._mt5ResearchStatsSource = 'dashboard_fallback';
         console.warn('MT5 research stats artifact load failed.', error);
+    }
+
+    try {
+        data.mt5BackendBacktest = await loadLocalJsonSupplement(LOCAL_MT5_BACKEND_BACKTEST_PATH);
+        data._mt5BackendBacktestError = false;
+    } catch (error) {
+        data._mt5BackendBacktestError = true;
+        console.warn('MT5 backend backtest artifact load failed.', error);
     }
 
     try {
@@ -13266,9 +13276,13 @@ function updateGovernanceAdvisor(d) {
     const resultText = paramLabResults.status === 'ready'
         ? `结果回灌 ${paramLabResults.parsedReportCount || 0}/${paramLabResults.resultCount || 0} / ready ${paramLabResults.promotionReadyCount || 0}`
         : '结果回灌等待';
+    const backendBacktest = advisor.mt5BackendBacktest || d?.mt5BackendBacktest || {};
+    const backendBacktestText = backendBacktest.status === 'ready' || backendBacktest.ok
+        ? `BackendBacktest ${backendBacktest.taskCount || backendBacktest.summary?.taskCount || 0} tasks / ready ${backendBacktest.readyCount || backendBacktest.summary?.readyCount || 0} / caution ${backendBacktest.cautionCount || backendBacktest.summary?.cautionCount || 0} / top ${backendBacktest.topCandidateId || backendBacktest.summary?.topCandidateId || '--'}`
+        : 'BackendBacktest 等待';
     const visibleDecisions = getRouteFilteredDecisions(advisor.routeDecisions);
     summaryEl.textContent = `${getRouteStrategyFilterLabel()} | ${visibleDecisions.length}/${advisor.routeDecisions.length} 条路线 | ${actionText || '等待动作'}`;
-    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；${healthText}；${paramText}；${labText}；${resultText}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
+    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；${healthText}；${paramText}；${labText}；${resultText}；${backendBacktestText}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
     bodyEl.innerHTML = visibleDecisions.length
         ? visibleDecisions.map(renderGovernanceRouteCard).join('')
         : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Governance Advisor 路线卡</div>`;
@@ -16631,6 +16645,12 @@ function applyMt5SymbolRegistryToDashboardData(data) {
         data.mt5ResearchStats = {
             ...data.mt5ResearchStats,
             rows: data.mt5ResearchStats.rows.map((row) => applyMt5SymbolToRow(row, resolver))
+        };
+    }
+    if (Array.isArray(data.mt5BackendBacktest?.rows)) {
+        data.mt5BackendBacktest = {
+            ...data.mt5BackendBacktest,
+            rows: data.mt5BackendBacktest.rows.map((row) => applyMt5SymbolToRow(row, resolver))
         };
     }
     data._mt5SymbolResolverReady = true;

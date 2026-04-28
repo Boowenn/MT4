@@ -15,9 +15,11 @@ const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnaly
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
+const mt5BackendBacktestScript = path.join(repoRoot, 'tools', 'run_mt5_backend_backtest_loop.py');
 const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
+const mt5BackendBacktestName = 'QuantGod_MT5BackendBacktest.json';
 const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
   polymarketAiScoreName,
@@ -447,6 +449,118 @@ async function handleMt5SymbolRegistry(req, res, endpoint) {
       }
     });
   }
+}
+
+function clampMt5BackendDays(value, fallback = 180) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(7, Math.min(parsed, 730));
+}
+
+function clampMt5BackendTasks(value, fallback = 20) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(parsed, 80));
+}
+
+function buildMt5BackendBacktestArgs(parsedUrl) {
+  const params = parsedUrl.searchParams;
+  const args = [
+    '--repo-root',
+    repoRoot,
+    '--runtime-dir',
+    defaultRuntimeDir,
+    '--days',
+    String(clampMt5BackendDays(params.get('days'), 180)),
+    '--max-tasks',
+    String(clampMt5BackendTasks(params.get('maxTasks') || params.get('max_tasks'), 20)),
+  ];
+  const fromDate = cleanMt5ReadonlyParam(params.get('from') || params.get('fromDate') || '', 32);
+  const toDate = cleanMt5ReadonlyParam(params.get('to') || params.get('toDate') || '', 32);
+  const route = cleanMt5ReadonlyParam(params.get('route') || '', 80);
+  if (fromDate) args.push('--from-date', fromDate);
+  if (toDate) args.push('--to-date', toDate);
+  if (route) args.push('--route', route);
+  return args;
+}
+
+async function handleMt5BackendBacktest(req, res, forceRun = false) {
+  const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+  const refresh = forceRun || ['1', 'true', 'yes'].includes(String(parsed.searchParams.get('refresh') || parsed.searchParams.get('run') || '').toLowerCase());
+  const target = path.join(defaultRuntimeDir, mt5BackendBacktestName);
+  if (!refresh && fs.existsSync(target)) {
+    try {
+      const payload = JSON.parse(fs.readFileSync(target, 'utf8').replace(/^\uFEFF/, ''));
+      sendJson(res, 200, {
+        ...payload,
+        _api: {
+          service: 'quantgod_dashboard_mt5_backend_backtest',
+          endpoint: '/api/mt5-backtest-loop',
+          filePath: target,
+          readOnly: true,
+          pythonBacktestOnly: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          livePresetMutationAllowed: false,
+          mutatesMt5: false
+        }
+      });
+      return;
+    } catch (error) {
+      sendJson(res, 200, {
+        ok: false,
+        status: 'UNAVAILABLE',
+        error: `mt5_backend_backtest_artifact_unreadable: ${error.message}`,
+        safety: {
+          readOnly: true,
+          pythonBacktestOnly: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          livePresetMutationAllowed: false,
+          mutatesMt5: false
+        }
+      });
+      return;
+    }
+  }
+
+  const result = await runJsonPython(mt5BackendBacktestScript, buildMt5BackendBacktestArgs(parsed), 120000);
+  if (!result.ok) {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'UNAVAILABLE',
+      error: result.stderr || result.reason || 'mt5_backend_backtest_failed',
+      detail: result,
+      safety: {
+        readOnly: true,
+        pythonBacktestOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesMt5: false
+      }
+    });
+    return;
+  }
+  const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+  sendJson(res, 200, {
+    ...payload,
+    _api: {
+      service: 'quantgod_dashboard_mt5_backend_backtest',
+      endpoint: '/api/mt5-backtest-loop/run',
+      script: mt5BackendBacktestScript,
+      readOnly: true,
+      pythonBacktestOnly: true,
+      orderSendAllowed: false,
+      closeAllowed: false,
+      cancelAllowed: false,
+      livePresetMutationAllowed: false,
+      mutatesMt5: false
+    }
+  });
 }
 
 function firstDefined(...values) {
@@ -1131,6 +1245,14 @@ const server = http.createServer((req, res) => {
     const pathPart = requestUrl.split('?')[0];
     const endpoint = pathPart === '/api/mt5-symbol-registry' ? 'registry' : path.basename(pathPart);
     handleMt5SymbolRegistry(req, res, endpoint);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-backtest-loop') {
+    handleMt5BackendBacktest(req, res, false);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-backtest-loop/run') {
+    handleMt5BackendBacktest(req, res, true);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {

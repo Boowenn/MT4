@@ -22,6 +22,7 @@ Implemented:
 - Executor-level retry enforcement: AUTO_TESTER_WINDOW now reads Run Recovery drilldown before launching the runner, writes a filtered `QuantGod_AutoTesterWindowExecutorPlan.json`, and excludes red candidates so they do not consume automatic tester retries.
 - Backtest budget / experiment control: AUTO_TESTER_WINDOW enforces per-route, per-parameter-family, and per-failure-family budgets before the runner sees the queue. Optional overrides can be supplied with `QuantGod_ParamLabBacktestBudget.json`; defaults stay conservative.
 - Continuous watcher bridge: AUTO_TESTER_WINDOW can run Report Watcher in a bounded polling loop after a guarded Strategy Tester run, so reports can be parsed during the same authorized tester window.
+- MT5 Backend Backtest Loop: `tools/run_mt5_backend_backtest_loop.py` gives QuantGod a QuantDinger-style Python backend pre-screen that reads tester-only Scheduler/Optimizer tasks, loads MT5 rates read-only or offline bars fixtures, simulates MA/RSI/BB/MACD/SR routes, and writes `QuantGod_MT5BackendBacktest.json`, ledger CSV, and trade ledger CSV for Dashboard and Governance Advisor. It is Python-backtest-only and cannot place, close, cancel, select symbols, launch Strategy Tester, or mutate live presets.
 - Isolated tester terminal/profile support: AUTO_TESTER_WINDOW now defaults to `runtime/HFM_MT5_Tester_Isolated`, requires an isolated root unless `--allow-shared-tester` is explicit, and can be prepared by `tools/prepare_isolated_mt5_tester.py`; this lets future tester execution target an isolated terminal/profile instead of the live HFM installation.
 - No-open-position / live-session compatibility gate: AUTO_TESTER_WINDOW and the underlying ParamLab runner read the live `QuantGod_Dashboard.json` snapshot before any unattended `--run-terminal`; tester execution stays blocked while live open positions, margin usage, stale dashboard state, account/server mismatch, disconnected terminal state, or kill-switch state are detected.
 - Polymarket research bridge: `tools/build_polymarket_research_bridge.py` reads `D:\polymarket\copybot.db` in SQLite read-only/query-only mode, optionally reads redacted `.env` values only to fetch a read-only CLOB account-cash snapshot, writes `QuantGod_PolymarketResearch.json`, and keeps a separate dashboard workspace. It does not import Polymarket executors, place orders, or mutate MT5.
@@ -163,6 +164,7 @@ Reason:
 - QuantGod is currently a local MT5/HFM file-based system.
 - Live execution must stay inside the EA.
 - The useful QuantDinger concepts have already been migrated as file-based components: lifecycle view, strategy snapshots, version lineage, optimizer proposals, result scoring, and queue/status surfaces.
+- The backend task-service idea is now represented by the local JSON/CSV `MT5 Backend Backtest Loop`, without importing QuantDinger's trading adapter or database requirement.
 
 ## Can The Backtest Loop Be Fully Automatic?
 
