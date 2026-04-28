@@ -68,14 +68,18 @@ The MT5 work is intentionally split into phases:
 - includes a structured AI/Governance Feedback layer in `QuantGod_GovernanceAdvisor.json` plus a Dashboard panel that explains, per route, why the Advisor recommends keep/demote/iterate/promote, where the risks are, which parameter tests should run next, and the matching ParamLab candidate/task/report status plus one-click copy buttons for tester-only commands and report paths
 - includes a read-only MT5 Python bridge for the local dashboard: `/api/mt5-readonly/status`, `/account`, `/positions`, `/orders`, `/symbols`, `/quote`, and `/snapshot` call `tools/mt5_readonly_bridge.py` through the Node dashboard server. It can use `QG_MT5_TERMINAL_PATH` to target a specific terminal, stores no credentials, never calls order/close/cancel APIs, never selects symbols, and never mutates the HFM live preset.
 - includes a read-only MT5 Symbol Registry: `/api/mt5-symbol-registry` normalizes HFM broker symbols such as `EURUSDc`, `USDJPY.raw`, and `XAUUSDc` into canonical symbols, asset classes, suffixes, contract specs, and visibility state for Dashboard/research use. `/api/mt5-symbol-registry/resolve?symbol=EURUSD` resolves a canonical or broker symbol without selecting symbols or touching trade permissions.
+- includes the MT5 read-only API contract spec in `docs/MT5_ReadOnly_API_Contracts.md` plus fake-MT5 contract tests that lock the response shape and keep order/close/cancel/symbol-select mutations out of the read-only APIs.
+- includes Dashboard registry canonicalization for MT5 research rows, so `EURUSD`, `EURUSDc`, `USDJPY`, and `USDJPYc` are mapped through the Symbol Registry before Strategy Workspace, Regime research, TradeJournal, CloseHistory, OutcomeLabels, and EventLinks are aggregated.
+- includes an MT5 closed-loop research statistics artifact and panel: `tools/build_mt5_research_stats.py` writes `QuantGod_MT5ResearchStats.json` / `QuantGod_MT5ResearchStatsLedger.csv`, joining TradeJournal, CloseHistory, OutcomeLabels, EventLinks, and the Symbol Registry into read-only `route x canonical symbol x regime` slices with sample state, link coverage, labels, PF, win rate, and P&L. The Dashboard prefers this backend artifact and falls back to local in-browser aggregation only when the file is missing.
+- keeps the future MT5 pending-order worker as design-only in `docs/MT5_Pending_Order_Worker_Design.md`; no Python order worker or mutation endpoint is implemented in the read-only bridge.
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
 - includes Shadow Candidate Router V1, a research layer that records MA continuation/range-soft candidates plus RSI, Bollinger, MACD, and support/resistance route candidates without enabling new live routes by default
 - includes a Manual Alpha Ledger that turns manual trades such as XAUUSDc into learn-only route candidates without automatically expanding EA execution
 - Phase 2: not done yet
-- port the full adaptive controls and research statistics around the newly ported MT5 strategy routes
-- port adaptive controls and research statistics
-- port trade labeling, linkage, and regime reports
+- complete the full adaptive controls around the newly ported MT5 strategy routes
+- harden MT5 research statistics into reusable backend artifacts after the Dashboard-only closed-loop view has enough live samples
+- expand trade labeling, linkage, and regime reports only where it remains read-only or explicitly gated
 
 Important: the current MT5 implementation is still a partial port. In the shipped HFM live preset, real-money automation is limited to constrained `MA_Cross` plus `USDJPY RSI_Reversal H1`. `BB_Triple H1`, `MACD_Divergence H1`, and `SR_Breakout M15` are candidate/backtest iteration routes and cannot send live orders unless their explicit live switch is re-enabled after evidence improves.
 

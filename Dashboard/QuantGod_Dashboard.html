@@ -8301,6 +8301,44 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">M</div>
+                            MT5 闭环研究统计
+                        </div>
+                        <span class="eval-summary" id="mt5ResearchStatsSummary">等待 MT5 research stats</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="paramlab-batch-toolbar">
+                            <div class="paramlab-batch-meta" id="mt5ResearchStatsMeta">
+                                串联 TradeJournal、CloseHistory、OutcomeLabels、EventLinks 和 Symbol Registry，按 route x canonical symbol x regime 汇总；只读，不触发下单。
+                            </div>
+                            <div class="paramlab-batch-counters" id="mt5ResearchStatsCounters"></div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Route</th>
+                                        <th>Canonical</th>
+                                        <th>Regime</th>
+                                        <th>Samples</th>
+                                        <th>P&amp;L</th>
+                                        <th>PF / Win</th>
+                                        <th>Links</th>
+                                        <th>Labels</th>
+                                        <th>State</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mt5ResearchStatsBody">
+                                    <tr><td colspan="9" class="empty-state">等待 MT5 research stats</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">R</div>
                             Regime 研究热力图
                         </div>
@@ -8431,6 +8469,7 @@ const LOCAL_TRADE_JOURNAL_PATH = 'QuantGod_TradeJournal.csv';
 const LOCAL_CLOSE_HISTORY_PATH = 'QuantGod_CloseHistory.csv';
 const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
 const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
+const LOCAL_MT5_RESEARCH_STATS_PATH = 'QuantGod_MT5ResearchStats.json';
 const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
 const LOCAL_SHADOW_SIGNAL_LEDGER_PATH = 'QuantGod_ShadowSignalLedger.csv';
 const LOCAL_SHADOW_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowOutcomeLedger.csv';
@@ -8622,6 +8661,7 @@ function setRouteStrategyFilter(strategy) {
     updateGovernanceFeedback(dashboardData);
     updateStrategyCards(dashboardData);
     updateStrategyEvaluationTable(dashboardData);
+    updateMt5ResearchStatsPanel(dashboardData);
     updateResearchSuggestions(dashboardData);
     updateRegimeHeatmap(dashboardData);
     updateEquityChart(dashboardData);
@@ -9648,6 +9688,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
         mt5ReadOnlyBridge: baseData?.mt5ReadOnlyBridge || previousData?.mt5ReadOnlyBridge || null,
         mt5SymbolRegistry: baseData?.mt5SymbolRegistry || previousData?.mt5SymbolRegistry || null,
+        mt5ResearchStats: baseData?.mt5ResearchStats || previousData?.mt5ResearchStats || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
@@ -9722,6 +9763,16 @@ async function attachSupplementalData(baseData, previousData = null) {
     } catch (error) {
         data._tradeEventLinksError = true;
         console.warn('Trade event links load failed.', error);
+    }
+
+    try {
+        data.mt5ResearchStats = await loadLocalJsonSupplement(LOCAL_MT5_RESEARCH_STATS_PATH);
+        data._mt5ResearchStatsError = false;
+        data._mt5ResearchStatsSource = 'backend_artifact';
+    } catch (error) {
+        data._mt5ResearchStatsError = true;
+        data._mt5ResearchStatsSource = 'dashboard_fallback';
+        console.warn('MT5 research stats artifact load failed.', error);
     }
 
     try {
@@ -9989,6 +10040,14 @@ async function attachSupplementalData(baseData, previousData = null) {
             data._polymarketAiScoreSource = 'unavailable';
             console.warn('Polymarket AI score API/file load failed.', apiError, fileError);
         }
+    }
+
+    applyMt5SymbolRegistryToDashboardData(data);
+    if (!data.mt5ResearchStats || data.mt5ResearchStats.ok === false) {
+        data.mt5ResearchStats = buildMt5ResearchStats(data);
+        data._mt5ResearchStatsSource = 'dashboard_fallback';
+    } else {
+        data._mt5ResearchStatsSource = data._mt5ResearchStatsSource || 'backend_artifact';
     }
 
     return data;
@@ -12002,6 +12061,7 @@ function applyResearchFocusTarget(target) {
     }
     if (dashboardData) {
         updateSymbolOverview(dashboardData);
+        updateMt5ResearchStatsPanel(dashboardData);
         updateResearchSuggestions(dashboardData);
         updateRegimeHeatmap(dashboardData);
         updateSidebarSummary(dashboardData);
@@ -16280,6 +16340,7 @@ function updateDashboard() {
     updateQuantDingerInspiredHero(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
+    updateMt5ResearchStatsPanel(d);
     updateResearchSuggestions(d);
     updateRegimeHeatmap(d);
     updateSidebarSummary(d);
@@ -16467,6 +16528,368 @@ function getMt5SymbolRegistryMappings(registry) {
     return Array.isArray(registry?.mappings) ? registry.mappings : [];
 }
 
+function compactSymbolKey(value) {
+    return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function getMt5SymbolResolver(registry) {
+    const mappings = getMt5SymbolRegistryMappings(registry);
+    const byKey = new Map();
+    mappings.forEach((row) => {
+        const aliases = [
+            row.canonicalSymbol,
+            row.brokerSymbol,
+            ...(Array.isArray(row.aliases) ? row.aliases : [])
+        ];
+        aliases.forEach((alias) => {
+            const key = compactSymbolKey(alias);
+            if (key && !byKey.has(key)) byKey.set(key, row);
+        });
+    });
+    return byKey;
+}
+
+function fallbackCanonicalSymbol(symbol) {
+    const raw = String(symbol || '').trim();
+    if (!raw) return '';
+    const compact = compactSymbolKey(raw);
+    const forexOrMetal = compact.match(/^(XAU|XAG|XPT|XPD|AUD|CAD|CHF|CNH|CZK|DKK|EUR|GBP|HKD|HUF|JPY|MXN|NOK|NZD|PLN|RUB|SEK|SGD|THB|TRY|USD|USC|ZAR){2}/);
+    if (forexOrMetal) return compact.slice(0, 6);
+    return compact.replace(/(RAW|ECN|PRO|CASH|CFD|CENT|MICRO|MINI|C|M)$/i, '') || compact;
+}
+
+function resolveMt5Symbol(registryOrResolver, symbol) {
+    const raw = String(symbol || '').trim();
+    if (!raw) return null;
+    const resolver = registryOrResolver instanceof Map
+        ? registryOrResolver
+        : getMt5SymbolResolver(registryOrResolver);
+    const direct = resolver.get(compactSymbolKey(raw));
+    if (direct) return direct;
+    const fallback = fallbackCanonicalSymbol(raw);
+    return fallback
+        ? {
+            canonicalSymbol: fallback,
+            brokerSymbol: raw,
+            brokerSuffix: '',
+            assetClass: '',
+            marketCategory: '',
+            mappingReason: 'dashboard_fallback',
+            confidence: 0.35
+        }
+        : null;
+}
+
+function applyMt5SymbolToRow(row, resolver) {
+    if (!row || typeof row !== 'object' || !row.symbol) return row;
+    const originalSymbol = String(row.symbol || '').trim();
+    const mapping = resolveMt5Symbol(resolver, originalSymbol);
+    if (!mapping?.canonicalSymbol) return row;
+    return {
+        ...row,
+        symbol: mapping.canonicalSymbol,
+        canonicalSymbol: mapping.canonicalSymbol,
+        brokerSymbol: row.brokerSymbol || originalSymbol,
+        brokerSuffix: row.brokerSuffix || mapping.brokerSuffix || '',
+        assetClass: row.assetClass || mapping.assetClass || '',
+        symbolMappingReason: mapping.mappingReason || '',
+        symbolMappingConfidence: mapping.confidence ?? null
+    };
+}
+
+function applyMt5SymbolRegistryToDashboardData(data) {
+    const registry = data?.mt5SymbolRegistry;
+    if (!registry || registry.ok === false) return data;
+    const resolver = getMt5SymbolResolver(registry);
+    if (!resolver.size) return data;
+    const rowArrays = [
+        'strategyEvaluationRows',
+        'regimeEvaluationRows',
+        'opportunityLabelRows',
+        'tradeJournalRows',
+        'closeHistoryRows',
+        'tradeOutcomeRows',
+        'tradeEventLinkRows',
+        'shadowSignalLedgerRows',
+        'shadowOutcomeLedgerRows',
+        'shadowCandidateLedgerRows',
+        'shadowCandidateOutcomeLedgerRows',
+        'manualAlphaLedgerRows',
+        'openTrades',
+        'closedTrades',
+        'symbols'
+    ];
+    rowArrays.forEach((key) => {
+        if (Array.isArray(data[key])) {
+            data[key] = data[key].map((row) => applyMt5SymbolToRow(row, resolver));
+        }
+    });
+    if (data.market?.symbol) {
+        data.market = applyMt5SymbolToRow(data.market, resolver);
+    }
+    if (Array.isArray(data.mt5ResearchStats?.rows)) {
+        data.mt5ResearchStats = {
+            ...data.mt5ResearchStats,
+            rows: data.mt5ResearchStats.rows.map((row) => applyMt5SymbolToRow(row, resolver))
+        };
+    }
+    data._mt5SymbolResolverReady = true;
+    data._mt5SymbolResolverCount = resolver.size;
+    return data;
+}
+
+function getMt5ResearchStatsKey(route, symbol, regime, timeframe) {
+    return [route || 'UNKNOWN_ROUTE', symbol || 'UNKNOWN_SYMBOL', regime || 'UNKNOWN', timeframe || ''].join('|');
+}
+
+function normalizeMt5ResearchToken(value, fallback = 'UNKNOWN') {
+    const text = String(value || '').trim();
+    return text || fallback;
+}
+
+function createMt5ResearchBucket(route, symbol, regime, timeframe) {
+    return {
+        route,
+        strategy: route,
+        symbol,
+        canonicalSymbol: symbol,
+        regime,
+        entryRegime: regime,
+        timeframe,
+        brokerSymbols: new Set(),
+        sources: new Set(),
+        journalEvents: 0,
+        entryEvents: 0,
+        exitEvents: 0,
+        closedTrades: 0,
+        wins: 0,
+        losses: 0,
+        flats: 0,
+        netProfit: 0,
+        grossProfit: 0,
+        grossLoss: 0,
+        durationSum: 0,
+        durationCount: 0,
+        outcomeLabels: 0,
+        positiveOutcomes: 0,
+        negativeOutcomes: 0,
+        flatOutcomes: 0,
+        eventLinks: 0,
+        openLinks: 0,
+        closedLinks: 0,
+        latestEventTime: '',
+        latestCloseTime: '',
+        latestOutcomeTime: '',
+        latestLinkTime: '',
+        latestTime: ''
+    };
+}
+
+function updateMt5ResearchLatest(bucket, field, ...values) {
+    const latest = values
+        .filter(Boolean)
+        .map((value) => String(value))
+        .sort()
+        .pop();
+    if (!latest) return;
+    if (!bucket[field] || latest.localeCompare(bucket[field]) > 0) {
+        bucket[field] = latest;
+    }
+    if (!bucket.latestTime || latest.localeCompare(bucket.latestTime) > 0) {
+        bucket.latestTime = latest;
+    }
+}
+
+function ensureMt5ResearchBucket(buckets, row, regimeFallback = 'UNKNOWN') {
+    const route = normalizeMt5ResearchToken(row?.strategy || row?.route || row?.source, 'QuantGod/Other');
+    const symbol = normalizeMt5ResearchToken(row?.canonicalSymbol || row?.symbol || row?.brokerSymbol, '');
+    if (!symbol) return null;
+    const regime = normalizeMt5ResearchToken(row?.entryRegime || row?.regime || row?.exitRegime, regimeFallback);
+    const timeframe = normalizeMt5ResearchToken(row?.regimeTimeframe || row?.timeframe, '');
+    const key = getMt5ResearchStatsKey(route, symbol, regime, timeframe);
+    if (!buckets.has(key)) {
+        buckets.set(key, createMt5ResearchBucket(route, symbol, regime, timeframe));
+    }
+    const bucket = buckets.get(key);
+    const brokerSymbol = row?.brokerSymbol || row?.symbol || '';
+    if (brokerSymbol && brokerSymbol !== symbol) bucket.brokerSymbols.add(String(brokerSymbol));
+    if (row?.source) bucket.sources.add(String(row.source));
+    return bucket;
+}
+
+function getMt5ResearchSampleState(row) {
+    const closedTrades = Number(row.closedTrades || 0);
+    const linkCoverage = Number(row.linkCoverage || 0);
+    const outcomeLabels = Number(row.outcomeLabels || 0);
+    if (closedTrades >= 10 && linkCoverage >= 70 && outcomeLabels >= Math.min(10, closedTrades)) return 'READY';
+    if (closedTrades >= 5 && linkCoverage >= 50) return 'CANDIDATE';
+    if (closedTrades >= 2 || row.journalEvents > 0 || row.eventLinks > 0) return 'CAUTION';
+    return 'WARMUP';
+}
+
+function getMt5ResearchStateTone(state) {
+    if (state === 'READY') return 'status-live';
+    if (state === 'CANDIDATE') return 'status-info';
+    if (state === 'CAUTION') return 'status-warn';
+    return 'status-muted';
+}
+
+function buildMt5ResearchStats(data) {
+    const buckets = new Map();
+    const summary = {
+        journalEvents: 0,
+        closedTrades: 0,
+        outcomeLabels: 0,
+        eventLinks: 0,
+        canonicalSymbols: 0,
+        brokerSymbols: 0,
+        sliceCount: 0
+    };
+
+    getTradeJournalRows(data).forEach((row) => {
+        const bucket = ensureMt5ResearchBucket(buckets, row, row?.regime || 'UNKNOWN');
+        if (!bucket) return;
+        const eventType = String(row.eventType || '').toUpperCase();
+        bucket.journalEvents += 1;
+        if (eventType === 'ENTRY') bucket.entryEvents += 1;
+        if (eventType === 'EXIT') bucket.exitEvents += 1;
+        updateMt5ResearchLatest(bucket, 'latestEventTime', row.eventTime);
+        summary.journalEvents += 1;
+    });
+
+    getCloseHistoryRows(data).forEach((row) => {
+        const bucket = ensureMt5ResearchBucket(buckets, row, row?.entryRegime || 'UNKNOWN');
+        if (!bucket) return;
+        const net = Number(row.netProfit || 0);
+        const duration = Number(row.durationMinutes || 0);
+        bucket.closedTrades += 1;
+        bucket.netProfit += net;
+        if (net > 0) {
+            bucket.wins += 1;
+            bucket.grossProfit += net;
+        } else if (net < 0) {
+            bucket.losses += 1;
+            bucket.grossLoss += Math.abs(net);
+        } else {
+            bucket.flats += 1;
+        }
+        if (duration > 0) {
+            bucket.durationSum += duration;
+            bucket.durationCount += 1;
+        }
+        updateMt5ResearchLatest(bucket, 'latestCloseTime', row.closeTime, row.openTime);
+        summary.closedTrades += 1;
+    });
+
+    getTradeOutcomeRows(data).forEach((row) => {
+        const bucket = ensureMt5ResearchBucket(buckets, row, row?.entryRegime || 'UNKNOWN');
+        if (!bucket) return;
+        const label = String(row.outcomeLabel || '').toUpperCase();
+        bucket.outcomeLabels += 1;
+        if (label.includes('WIN') || label.includes('TP') || label.includes('POSITIVE')) {
+            bucket.positiveOutcomes += 1;
+        } else if (label.includes('LOSS') || label.includes('SL') || label.includes('NEGATIVE')) {
+            bucket.negativeOutcomes += 1;
+        } else {
+            bucket.flatOutcomes += 1;
+        }
+        updateMt5ResearchLatest(bucket, 'latestOutcomeTime', row.labelTimeServer, row.labelTimeLocal, row.closeTime);
+        summary.outcomeLabels += 1;
+    });
+
+    getTradeEventLinkRows(data).forEach((row) => {
+        const bucket = ensureMt5ResearchBucket(buckets, row, row?.entryRegime || 'UNKNOWN');
+        if (!bucket) return;
+        const status = String(row.status || '').toUpperCase();
+        const isClosed = status === 'CLOSED' || (row.exitDeal && row.exitDeal !== '0');
+        bucket.eventLinks += 1;
+        if (isClosed) bucket.closedLinks += 1;
+        else bucket.openLinks += 1;
+        updateMt5ResearchLatest(bucket, 'latestLinkTime', row.closeTime, row.openTime);
+        summary.eventLinks += 1;
+    });
+
+    const rows = Array.from(buckets.values()).map((bucket) => {
+        const closedTrades = Number(bucket.closedTrades || 0);
+        const winRate = closedTrades ? (bucket.wins / closedTrades * 100) : null;
+        const profitFactor = bucket.grossLoss > 0
+            ? bucket.grossProfit / bucket.grossLoss
+            : (bucket.grossProfit > 0 ? 999 : null);
+        const avgNet = closedTrades ? bucket.netProfit / closedTrades : 0;
+        const avgDurationMinutes = bucket.durationCount ? bucket.durationSum / bucket.durationCount : null;
+        const linkCoverage = closedTrades ? Math.min(100, bucket.closedLinks / closedTrades * 100) : (bucket.closedLinks ? 100 : 0);
+        const row = {
+            route: bucket.route,
+            strategy: bucket.strategy,
+            symbol: bucket.symbol,
+            canonicalSymbol: bucket.canonicalSymbol,
+            brokerSymbols: Array.from(bucket.brokerSymbols).sort(),
+            sources: Array.from(bucket.sources).sort(),
+            regime: bucket.regime,
+            entryRegime: bucket.entryRegime,
+            timeframe: bucket.timeframe,
+            journalEvents: bucket.journalEvents,
+            entryEvents: bucket.entryEvents,
+            exitEvents: bucket.exitEvents,
+            closedTrades,
+            wins: bucket.wins,
+            losses: bucket.losses,
+            flats: bucket.flats,
+            winRate,
+            profitFactor,
+            avgNet,
+            netProfit: bucket.netProfit,
+            grossProfit: bucket.grossProfit,
+            grossLoss: bucket.grossLoss,
+            avgDurationMinutes,
+            outcomeLabels: bucket.outcomeLabels,
+            positiveOutcomes: bucket.positiveOutcomes,
+            negativeOutcomes: bucket.negativeOutcomes,
+            flatOutcomes: bucket.flatOutcomes,
+            eventLinks: bucket.eventLinks,
+            openLinks: bucket.openLinks,
+            closedLinks: bucket.closedLinks,
+            linkCoverage,
+            latestEventTime: bucket.latestEventTime,
+            latestCloseTime: bucket.latestCloseTime,
+            latestOutcomeTime: bucket.latestOutcomeTime,
+            latestLinkTime: bucket.latestLinkTime,
+            latestTime: bucket.latestTime
+        };
+        row.sampleState = getMt5ResearchSampleState(row);
+        return row;
+    }).sort((a, b) => {
+        const closedCompare = Number(b.closedTrades || 0) - Number(a.closedTrades || 0);
+        if (closedCompare !== 0) return closedCompare;
+        const netCompare = Math.abs(Number(b.netProfit || 0)) - Math.abs(Number(a.netProfit || 0));
+        if (netCompare !== 0) return netCompare;
+        return getMt5ResearchStatsKey(a.route, a.symbol, a.regime, a.timeframe)
+            .localeCompare(getMt5ResearchStatsKey(b.route, b.symbol, b.regime, b.timeframe));
+    });
+
+    const canonicalSymbols = new Set(rows.map((row) => row.symbol).filter(Boolean));
+    const brokerSymbols = new Set(rows.flatMap((row) => row.brokerSymbols || []));
+    summary.sliceCount = rows.length;
+    summary.canonicalSymbols = canonicalSymbols.size;
+    summary.brokerSymbols = brokerSymbols.size;
+
+    return {
+        ok: true,
+        mode: 'MT5_RESEARCH_STATS_V1',
+        generatedAtIso: new Date().toISOString(),
+        source: data?._mt5SymbolResolverReady ? 'symbol_registry_canonical' : 'dashboard_rows',
+        safety: {
+            readOnly: true,
+            orderSendAllowed: false,
+            closeAllowed: false,
+            cancelAllowed: false,
+            mutatesMt5: false
+        },
+        summary,
+        rows
+    };
+}
+
 function formatMt5AssetClassCounts(counts = {}) {
     const entries = Object.entries(counts || {})
         .filter(([, value]) => Number(value) > 0)
@@ -16615,6 +17038,15 @@ function updateMt5SymbolRegistryPanel(d) {
 
 function getMt5ReadonlyItems(block) {
     return Array.isArray(block?.items) ? block.items : [];
+}
+
+function renderMt5CanonicalSymbolCell(row) {
+    const symbol = row?.canonicalSymbol || row?.symbol || '--';
+    const brokerSymbol = row?.brokerSymbol && row.brokerSymbol !== symbol ? row.brokerSymbol : '';
+    const brokerHtml = brokerSymbol
+        ? `<div style="margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: Inter, sans-serif;">broker ${escapeHtml(brokerSymbol)}</div>`
+        : '';
+    return `<strong>${escapeHtml(symbol)}</strong>${brokerHtml}`;
 }
 
 function formatMt5ReadonlyAmount(value, currency = '', digits = 2) {
@@ -16943,7 +17375,7 @@ function updateMt5ShadowJournalPanel(d) {
             const statusTone = String(row.status || '').toUpperCase() === 'OPEN' ? 'status-info' : 'status-live';
             return `<tr>
                 <td>${escapeHtml(row.positionId || '--')}</td>
-                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${renderMt5CanonicalSymbolCell(row)}</td>
                 <td><span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy || '--')}</span></td>
                 <td><span class="table-badge ${sourceToneClass(row.source)}">${escapeHtml(sourceLabel(row.source))}</span></td>
                 <td>${escapeHtml(row.entryRegime || '--')} <span style="color: var(--text-muted); font-family: Inter, sans-serif;">${escapeHtml(row.regimeTimeframe || '')}</span></td>
@@ -16962,7 +17394,7 @@ function updateMt5ShadowJournalPanel(d) {
             <tr>
                 <td>${escapeHtml(row.eventTime || '--')}</td>
                 <td><span class="table-badge ${row.eventType === 'ENTRY' ? 'status-info' : 'status-live'}">${escapeHtml(eventTypeLabel(row.eventType, row.side))}</span></td>
-                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${renderMt5CanonicalSymbolCell(row)}</td>
                 <td>${escapeHtml(formatLots(row.lots))}</td>
                 <td class="profit-cell ${row.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit, currency))}</td>
                 <td><span class="table-badge ${sourceToneClass(row.source)}">${escapeHtml(sourceLabel(row.source))}</span></td>
@@ -16977,7 +17409,7 @@ function updateMt5ShadowJournalPanel(d) {
         closeBody.innerHTML = closeRows.slice(0, 8).map((row) => `
             <tr>
                 <td>${escapeHtml(row.closeTime || '--')}</td>
-                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${renderMt5CanonicalSymbolCell(row)}</td>
                 <td class="${row.type === 'BUY' ? 'type-buy' : 'type-sell'}">${escapeHtml(tradeTypeLabel(row.type))}</td>
                 <td>${escapeHtml(row.durationMinutes > 0 ? `${row.durationMinutes} 分钟` : '--')}</td>
                 <td class="profit-cell ${row.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit, currency))}</td>
@@ -16994,7 +17426,7 @@ function updateMt5ShadowJournalPanel(d) {
             const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy || '未归类' };
             return `<tr>
                 <td>${escapeHtml(row.labelTimeServer || row.labelTimeLocal || '--')}</td>
-                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${renderMt5CanonicalSymbolCell(row)}</td>
                 <td><span class="strat-tag ${config.cssClass}">${escapeHtml(config.label || row.strategy || '--')}</span></td>
                 <td><span class="table-badge ${outcomeToneClass(row.outcomeLabel, row.netProfit)}">${escapeHtml(outcomeLabelText(row.outcomeLabel))}</span></td>
                 <td class="profit-cell ${row.netProfit >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit, currency))}</td>
@@ -17002,6 +17434,94 @@ function updateMt5ShadowJournalPanel(d) {
             </tr>`;
         }).join('');
     }
+}
+
+function formatNullablePercent(value, digits = 1) {
+    return value === null || value === undefined ? '--' : formatPercentValue(value, digits);
+}
+
+function formatNullableProfitFactor(value) {
+    return value === null || value === undefined ? '--' : formatProfitFactor(value);
+}
+
+function updateMt5ResearchStatsPanel(d) {
+    const summaryEl = document.getElementById('mt5ResearchStatsSummary');
+    const metaEl = document.getElementById('mt5ResearchStatsMeta');
+    const countersEl = document.getElementById('mt5ResearchStatsCounters');
+    const bodyEl = document.getElementById('mt5ResearchStatsBody');
+    if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
+
+    const stats = d?.mt5ResearchStats || buildMt5ResearchStats(d || {});
+    const allRows = Array.isArray(stats?.rows) ? stats.rows : [];
+    const scopedRows = allRows.filter((row) => {
+        if (isRouteStrategyFiltered() && row.route !== routeStrategyFilter && row.strategy !== routeStrategyFilter) return false;
+        if (regimeHeatmapSymbolFilter !== 'ALL' && row.symbol !== regimeHeatmapSymbolFilter) return false;
+        return true;
+    });
+    const currency = getDisplayAccount(d).currency || getBrokerAccount(d).currency || '';
+    const scopeText = regimeHeatmapSymbolFilter === 'ALL' ? '全部品种' : regimeHeatmapSymbolFilter;
+    const routeText = getRouteStrategyFilterLabel();
+    const totalNet = scopedRows.reduce((sum, row) => sum + Number(row.netProfit || 0), 0);
+    const closedTrades = scopedRows.reduce((sum, row) => sum + Number(row.closedTrades || 0), 0);
+    const journalEvents = scopedRows.reduce((sum, row) => sum + Number(row.journalEvents || 0), 0);
+    const outcomeLabels = scopedRows.reduce((sum, row) => sum + Number(row.outcomeLabels || 0), 0);
+    const eventLinks = scopedRows.reduce((sum, row) => sum + Number(row.eventLinks || 0), 0);
+    const readyCount = scopedRows.filter((row) => row.sampleState === 'READY').length;
+    const candidateCount = scopedRows.filter((row) => row.sampleState === 'CANDIDATE').length;
+
+    summaryEl.textContent = scopedRows.length
+        ? `${scopeText} | ${routeText} | ${scopedRows.length} 个切片 | 平仓 ${closedTrades} | ${formatMoneyWithCurrency(totalNet, currency)}`
+        : `${scopeText} | ${routeText} | 等待 MT5 research stats`;
+    metaEl.textContent = allRows.length
+        ? `source=${d?._mt5ResearchStatsSource || stats.source || 'dashboard_rows'} | generated=${stats.generatedAtIso || '--'} | registry=${d?._mt5SymbolResolverReady ? `${d._mt5SymbolResolverCount || 0} aliases` : 'unavailable'} | read-only/no order`
+        : '等待 TradeJournal、CloseHistory、OutcomeLabels、EventLinks 和 Symbol Registry 形成闭环样本。';
+
+    countersEl.innerHTML = [
+        `<span class="table-badge status-info">Journal ${journalEvents}</span>`,
+        `<span class="table-badge status-live">Close ${closedTrades}</span>`,
+        `<span class="table-badge status-muted">Labels ${outcomeLabels}</span>`,
+        `<span class="table-badge status-muted">Links ${eventLinks}</span>`,
+        `<span class="table-badge status-live">Ready ${readyCount}</span>`,
+        `<span class="table-badge status-info">Candidate ${candidateCount}</span>`
+    ].join(' ');
+
+    if (!scopedRows.length) {
+        bodyEl.innerHTML = '<tr><td colspan="9" class="empty-state">当前范围还没有 MT5 route x symbol x regime 研究统计</td></tr>';
+        return;
+    }
+
+    bodyEl.innerHTML = scopedRows.slice(0, 80).map((row) => {
+        const config = STRATEGY_CONFIG[row.route] || STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.route || row.strategy || '--' };
+        const brokerText = Array.isArray(row.brokerSymbols) && row.brokerSymbols.length ? row.brokerSymbols.join(' / ') : 'native';
+        const sampleText = `${Number(row.closedTrades || 0)} close / ${Number(row.journalEvents || 0)} journal`;
+        const pfText = formatNullableProfitFactor(row.profitFactor);
+        const winText = formatNullablePercent(row.winRate, 1);
+        const linkText = `${Number(row.closedLinks || 0)}/${Number(row.eventLinks || 0)} · ${Number(row.linkCoverage || 0).toFixed(0)}%`;
+        const labelText = `${Number(row.positiveOutcomes || 0)}+ / ${Number(row.negativeOutcomes || 0)}- / ${Number(row.flatOutcomes || 0)}=`;
+        const durationText = row.avgDurationMinutes === null || row.avgDurationMinutes === undefined
+            ? '--'
+            : `${Number(row.avgDurationMinutes || 0).toFixed(0)}m`;
+        const stateTone = getMt5ResearchStateTone(row.sampleState);
+        return `
+            <tr>
+                <td><span class="strat-tag ${config.cssClass || ''}">${escapeHtml(config.label || row.route || '--')}</span></td>
+                <td>
+                    <strong>${escapeHtml(row.symbol || '--')}</strong>
+                    <div style="margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: Inter, sans-serif;">broker ${escapeHtml(brokerText)}</div>
+                </td>
+                <td>${renderRegimeChip(row.regime, row.timeframe)}</td>
+                <td>${escapeHtml(sampleText)}</td>
+                <td class="profit-cell ${Number(row.netProfit || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.netProfit || 0, currency))}</td>
+                <td>${escapeHtml(pfText)} / ${escapeHtml(winText)}</td>
+                <td>${escapeHtml(linkText)}</td>
+                <td>${escapeHtml(labelText)}<div style="margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: Inter, sans-serif;">avg hold ${escapeHtml(durationText)}</div></td>
+                <td>
+                    <span class="table-badge ${stateTone}">${escapeHtml(row.sampleState || 'WARMUP')}</span>
+                    <div style="margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: Inter, sans-serif;">${escapeHtml(row.latestTime || '--')}</div>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function updateStrategyEvaluationTable(d) {
@@ -17337,6 +17857,7 @@ function updateRegimeHeatmap(d) {
             const symbol = button.dataset.symbol || 'ALL';
             if (regimeHeatmapSymbolFilter === symbol) return;
             regimeHeatmapSymbolFilter = symbol;
+            updateMt5ResearchStatsPanel(dashboardData);
             updateResearchSuggestions(dashboardData);
             updateRegimeHeatmap(dashboardData);
             updateSidebarSummary(dashboardData);
@@ -17471,7 +17992,9 @@ function updateSymbolOverview(d) {
         const winRate = Number(item.winRate ?? 0);
         const bid = Number(item.bid ?? 0);
         const ask = Number(item.ask ?? 0);
+        const brokerHint = item.brokerSymbol && item.brokerSymbol !== item.symbol ? `broker ${item.brokerSymbol}` : null;
         const noteParts = [
+            brokerHint,
             openPositions > 0 ? `当前 ${openPositions} 笔持仓` : '当前无持仓',
             researchMode ? `真实浮盈亏 ${formatMoney(actualFloatingProfit)}` : null,
             researchMode ? `真实历史收益 ${formatMoney(actualClosedProfit)}` : null,
