@@ -13,6 +13,7 @@ const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
 const polymarketRadarWorkerName = 'QuantGod_PolymarketRadarWorkerV2.json';
 const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
 const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
+const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
@@ -26,6 +27,7 @@ const polymarketHistoryTables = new Set([
   'worker-runs',
   'worker-trends',
   'worker-queue',
+  'cross-linkage',
 ]);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
@@ -33,7 +35,8 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
   polymarketRadarWorkerName,
   polymarketAiScoreName,
-  polymarketSingleMarketAnalysisName
+  polymarketSingleMarketAnalysisName,
+  polymarketCrossMarketLinkageName
 ]);
 
 const contentTypes = {
@@ -605,6 +608,37 @@ function compactAnalysisResult(row = {}) {
   };
 }
 
+function compactCrossLinkageResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'cross-linkage',
+    sourceLabel: '跨市场联动',
+    title: firstDefined(item.question, item.eventTitle, item.marketId, '--'),
+    subtitle: firstDefined(item.primaryRiskTag, item.macroRiskState, item.category),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, generatedAt),
+    risk: firstDefined(item.macroRiskState, item.sourceRisk),
+    recommendation: firstDefined(item.primaryRiskTag, item.macroRiskState, 'AWARENESS_ONLY'),
+    track: firstDefined(item.suggestedShadowTrack),
+    probability: firstDefined(item.probability),
+    divergence: firstDefined(item.divergence),
+    score: numericScore(item.confidence, item.sourceScore),
+    detail: {
+      historyType: 'cross-linkage',
+      rawType: 'cross-market-linkage',
+      primaryRiskTag: firstDefined(item.primaryRiskTag),
+      riskTags: firstDefined(item.riskTags),
+      matchedKeywords: firstDefined(item.matchedKeywords),
+      linkedMt5Symbols: firstDefined(item.linkedMt5Symbols),
+      macroRiskState: firstDefined(item.macroRiskState),
+      sourceTypes: firstDefined(item.sourceTypes),
+      mt5ExecutionAllowed: firstDefined(item.mt5ExecutionAllowed),
+      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.orderSendAllowed)
+    }
+  };
+}
+
 function isWorkerHistoryType(historyType = '') {
   return ['worker-runs', 'worker-trends', 'worker-queue'].includes(String(historyType || '').trim());
 }
@@ -613,11 +647,16 @@ function isWorkerHistoryRow(row = {}) {
   return isWorkerHistoryType(row.historyType);
 }
 
+function isCrossLinkageHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'cross-linkage';
+}
+
 function getHistorySourceLabel(historyType = '') {
   const normalized = String(historyType || '').trim();
   if (normalized === 'worker-runs') return 'Worker 批次';
   if (normalized === 'worker-trends') return '趋势缓存';
   if (normalized === 'worker-queue') return '雷达队列';
+  if (normalized === 'cross-linkage') return '跨市场联动';
   if (normalized === 'opportunities') return '机会历史';
   if (normalized === 'analyses') return '分析历史';
   if (normalized === 'simulations') return '模拟历史';
@@ -629,6 +668,7 @@ function getHistorySourceLabel(historyType = '') {
 function compactHistoryResult(row = {}) {
   const historyType = firstDefined(row.historyType, 'history');
   const workerRow = isWorkerHistoryType(historyType);
+  const crossRow = isCrossLinkageHistoryRow(row);
   const workerSubtitle = firstDefined(
     row.nextAction,
     row.queueState,
@@ -638,23 +678,27 @@ function compactHistoryResult(row = {}) {
     row.schemaVersion
   );
   return {
-    sourceType: workerRow ? historyType : firstDefined(row.historyType, 'history'),
+    sourceType: workerRow || crossRow ? historyType : firstDefined(row.historyType, 'history'),
     sourceLabel: getHistorySourceLabel(historyType),
     title: firstDefined(row.question, row.query, row.topMarket, row.marketId, row.runId, row.mode, '--'),
-    subtitle: workerRow
+    subtitle: crossRow
+      ? firstDefined(row.primaryRiskTag, row.macroRiskState, row.category)
+      : workerRow
       ? workerSubtitle
       : firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
     marketId: firstDefined(row.marketId),
     url: firstDefined(row.polymarketUrl, row.url),
     generatedAt: firstDefined(row.generatedAt, row.seenAt, row.lastSeenAt, row.firstSeenAt),
-    risk: firstDefined(row.risk, row.topRisk),
-    recommendation: workerRow
+    risk: firstDefined(row.risk, row.topRisk, row.macroRiskState),
+    recommendation: crossRow
+      ? firstDefined(row.primaryRiskTag, row.macroRiskState, 'AWARENESS_ONLY')
+      : workerRow
       ? firstDefined(row.nextAction, row.queueState, row.status, row.decision, 'WORKER_EVIDENCE')
       : firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
     track: firstDefined(row.suggestedShadowTrack, row.track, row.source),
     probability: firstDefined(row.probability, row.marketProbability, row.lastProbability),
     divergence: firstDefined(row.divergence, row.probabilityDelta),
-    score: numericScore(row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.executedPf),
+    score: numericScore(row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.executedPf),
     detail: {
       historyType,
       source: firstDefined(row.source),
@@ -673,7 +717,14 @@ function compactHistoryResult(row = {}) {
       candidateQueueSize: firstDefined(row.candidateQueueSize),
       uniqueMarkets: firstDefined(row.uniqueMarkets),
       recurringMarkets: firstDefined(row.recurringMarkets),
-      newMarkets: firstDefined(row.newMarkets)
+      newMarkets: firstDefined(row.newMarkets),
+      primaryRiskTag: firstDefined(row.primaryRiskTag),
+      riskTags: firstDefined(row.riskTagsJson),
+      matchedKeywords: firstDefined(row.matchedKeywordsJson),
+      linkedMt5Symbols: firstDefined(row.linkedMt5SymbolsJson),
+      macroRiskState: firstDefined(row.macroRiskState),
+      sourceTypes: firstDefined(row.sourceTypesJson),
+      mt5ExecutionAllowed: firstDefined(row.mt5ExecutionAllowed)
     }
   };
 }
@@ -979,6 +1030,16 @@ async function handlePolymarketSearch(req, res) {
       errors.push({ source: 'ai-score', error: error.message || String(error) });
     }
 
+    let crossLinkage = null;
+    let crossLinkagePath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketCrossMarketLinkageName);
+      crossLinkage = withServiceMeta(read.payload, '/api/polymarket/cross-linkage', read.filePath);
+      crossLinkagePath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'cross-linkage', error: error.message || String(error) });
+    }
+
     let latestAnalysis = null;
     let latestAnalysisPath = '';
     try {
@@ -1005,6 +1066,9 @@ async function handlePolymarketSearch(req, res) {
     const aiScoreItems = Array.isArray(aiScore?.scores)
       ? aiScore.scores.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
       : [];
+    const crossLinkageItems = Array.isArray(crossLinkage?.linkages)
+      ? crossLinkage.linkages.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : [];
 
     const historyPayload = historyResult.payload || {};
     const rawHistoryRows = query
@@ -1021,8 +1085,13 @@ async function handlePolymarketSearch(req, res) {
           ...(historyPayload.recent?.['worker-trends'] || historyPayload.recent?.workerTrends || []),
           ...(historyPayload.recent?.['worker-queue'] || historyPayload.recent?.workerQueue || []),
         ].slice(0, limit);
+    const crossRows = query
+      ? rawHistoryRows.filter(isCrossLinkageHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['cross-linkage'] || historyPayload.recent?.crossMarketLinkage || []),
+        ].slice(0, limit);
     const historyRows = query
-      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row)).slice(0, limit)
+      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row)).slice(0, limit)
       : rawHistoryRows;
     const analysisRows = normalizeAnalyzeHistoryRows(
       analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
@@ -1062,6 +1131,10 @@ async function handlePolymarketSearch(req, res) {
       aiScore: aiScoreItems.map((item) => compactAiScoreResult(item, aiScore?.generatedAt)),
       analyses: [...latestAnalysisRows, ...analysisRows].slice(0, limit).map(compactAnalysisResult),
       worker: workerRows.slice(0, limit).map(compactHistoryResult),
+      crossLinkage: [
+        ...crossLinkageItems.map((item) => compactCrossLinkageResult(item, crossLinkage?.generatedAt)),
+        ...crossRows.slice(0, limit).map(compactHistoryResult)
+      ].slice(0, limit),
       history: historyRows.slice(0, limit).map(compactHistoryResult)
     };
     const rawSearchResults = sortSearchResults([
@@ -1069,6 +1142,7 @@ async function handlePolymarketSearch(req, res) {
       ...sections.aiScore,
       ...sections.analyses,
       ...sections.worker,
+      ...sections.crossLinkage,
       ...sections.history
     ]);
     const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
@@ -1089,6 +1163,7 @@ async function handlePolymarketSearch(req, res) {
         aiScoreMatches: sections.aiScore.length,
         analysisMatches: sections.analyses.length,
         workerMatches: sections.worker.length,
+        crossLinkageMatches: sections.crossLinkage.length,
         historyMatches: sections.history.length,
         historyTotalRows: historyPayload.summary?.totalRows || 0
       },
@@ -1099,6 +1174,7 @@ async function handlePolymarketSearch(req, res) {
       sources: {
         radarPath,
         aiScorePath,
+        crossLinkagePath,
         latestAnalysisPath,
         historyDatabase: historyPayload.database || null
       },
@@ -1224,6 +1300,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar-worker') {
     handlePolymarketReadOnlyJson(req, res, polymarketRadarWorkerName, '/api/polymarket/radar-worker');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/cross-linkage') {
+    handlePolymarketReadOnlyJson(req, res, polymarketCrossMarketLinkageName, '/api/polymarket/cross-linkage');
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {

@@ -115,9 +115,27 @@ TABLES: Mapping[str, Dict[str, Any]] = {
             "next_action",
         ),
     },
+    "cross-linkage": {
+        "table": "qd_polymarket_cross_market_linkage",
+        "order": "generated_at",
+        "summary": "crossMarketLinkages",
+        "search": (
+            "market_id",
+            "event_id",
+            "question",
+            "event_title",
+            "category",
+            "primary_risk_tag",
+            "risk_tags_json",
+            "matched_keywords_json",
+            "linked_mt5_symbols_json",
+            "macro_risk_state",
+            "suggested_shadow_track",
+        ),
+    },
 }
 
-RECENT_TABLES = ("opportunities", "analyses", "simulations", "worker-runs", "worker-trends", "worker-queue")
+RECENT_TABLES = ("opportunities", "analyses", "simulations", "worker-runs", "worker-trends", "worker-queue", "cross-linkage")
 
 
 def utc_now() -> str:
@@ -254,7 +272,7 @@ def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offse
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),
         "source": "sqlite_api",
-        "schemaVersion": "POLYMARKET_HISTORY_DB_V2_WORKER_EVIDENCE",
+        "schemaVersion": "POLYMARKET_HISTORY_DB_V3_CROSS_MARKET_LINKAGE",
         "decision": "LOCAL_HISTORY_DB_READ_ONLY_NO_WALLET_WRITE",
         "api": {"table": table_key, "query": query, "limit": limit, "offset": offset},
         "database": {"path": str(db_path), "exists": db_path.exists(), "readOnly": True},

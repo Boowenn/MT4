@@ -56,9 +56,17 @@ Next item after this commit: `Cross-Market Linkage`.
 
 ## 5. Cross-Market Linkage
 
-Status: pending.
+Status: completed in this branch.
 
-Target: map Polymarket event categories and keywords to USD, JPY, XAU, rates, war/geopolitical, and macro risk tags for MT5-side awareness without changing MT5 execution.
+- Added `tools/build_polymarket_cross_market_linkage.py` and `.bat`.
+- The builder reads the current radar, Worker V2 queue/trend cache, single-market analysis, and AI score snapshots, then maps market text into `USD`, `JPY`, `XAU`, `RATES`, `WAR_GEOPOLITICS`, and `MACRO_RISK`.
+- It writes `QuantGod_PolymarketCrossMarketLinkage.json/csv` with matched keywords, linked MT5 symbols, confidence, macro risk state, source types, and explicit execution blockers.
+- Upgraded the SQLite history builder/API to `POLYMARKET_HISTORY_DB_V3_CROSS_MARKET_LINKAGE`, adding `qd_polymarket_cross_market_linkage`, `/api/polymarket/cross-linkage`, and `table=cross-linkage` history search.
+- `/api/polymarket/search` now folds cross-market linkage into the same comprehensive evidence cards, with raw evidence details showing risk tags, linked MT5 symbols, and `mt5ExecutionAllowed=false`.
+- Dashboard now shows a dedicated `跨市场联动` panel and includes linkage counts in the history library.
+- Safety remains research-only: no private-key read, no wallet write, no CLOB order call, no executor start, no MT5 mutation, and no MT5 permission change.
+
+Next item after this commit: `Canary / Wallet Executor`, but only as a separately promoted design/execution item after explicit user request.
 
 ## 6. Canary / Wallet Executor
 

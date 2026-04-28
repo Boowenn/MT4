@@ -38,6 +38,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketAiScoreV1.json`
 - `QuantGod_PolymarketAiScoreV1.csv`
 - `QuantGod_PolymarketAiSemanticReview.json`
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketCrossMarketLinkage.csv`
 
 ## Bridge
 
@@ -249,8 +251,9 @@ The V2 tables are:
 - `qd_polymarket_radar_worker_runs`
 - `qd_polymarket_radar_trends`
 - `qd_polymarket_radar_queue`
+- `qd_polymarket_cross_market_linkage`
 
-This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, Worker V2 batch runs, trend-cache rows, shadow queue rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring and governance.
+This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, Worker V2 batch runs, trend-cache rows, shadow queue rows, cross-market linkage rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring and governance.
 
 Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
 
@@ -273,6 +276,7 @@ Supported `table` values:
 - `worker-runs`
 - `worker-trends`
 - `worker-queue`
+- `cross-linkage`
 
 Implementation files:
 
@@ -295,6 +299,7 @@ The dashboard server also exposes the active Polymarket research artifacts throu
 
 ```text
 GET /api/polymarket/radar
+GET /api/polymarket/cross-linkage
 GET /api/polymarket/analyze/history?limit=80&q=keyword
 GET /api/polymarket/ai-score
 GET /api/polymarket/search?q=keyword&limit=36
@@ -303,13 +308,14 @@ GET /api/polymarket/search?q=keyword&limit=36
 These endpoints are API-first replacements for direct dashboard reads of:
 
 - `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketCrossMarketLinkage.json`
 - `QuantGod_PolymarketSingleMarketAnalysis.json`
 - `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
 - `QuantGod_PolymarketAiScoreV1.json`
 
 `/api/polymarket/analyze/history` combines the latest single-market analysis snapshot with historical rows from the read-only SQLite history helper. The Dashboard now prefers these endpoints and only falls back to local JSON/CSV files if the service is unavailable.
 
-`/api/polymarket/search` is a unified search facade over the history DB, current opportunity radar, latest single-market analysis/history, AI score snapshot, and persisted Worker V2 evidence. It returns `groupedResults`/`results` as market-level evidence groups, with duplicate radar/history/analysis/AI-score/worker rows folded into one comprehensive card per market. Worker run/trend/queue rows are a dedicated `worker` section with source labels, score, probability, trend direction, candidate id, queue state, next action, and run id carried into each compact evidence row. Each group keeps its complete compact `evidence` list, and the response also keeps `rawResults` plus per-source counts so the Dashboard can expand all source evidence without rendering the same market repeatedly. The Dashboard detail layer supports per-source filtering and a copyable audit summary, so folded cards remain traceable when one market has radar, history, analysis, AI-score, dry-run, and Worker V2 evidence at the same time.
+`/api/polymarket/search` is a unified search facade over the history DB, current opportunity radar, cross-market linkage, latest single-market analysis/history, AI score snapshot, and persisted Worker V2 evidence. It returns `groupedResults`/`results` as market-level evidence groups, with duplicate radar/history/analysis/AI-score/worker/linkage rows folded into one comprehensive card per market. Worker run/trend/queue rows are a dedicated `worker` section with source labels, score, probability, trend direction, candidate id, queue state, next action, and run id carried into each compact evidence row. Cross-market linkage rows are a dedicated `crossLinkage` section carrying risk tags, matched keywords, linked MT5 symbols, macro risk state, and explicit `mt5ExecutionAllowed=false`. Each group keeps its complete compact `evidence` list, and the response also keeps `rawResults` plus per-source counts so the Dashboard can expand all source evidence without rendering the same market repeatedly. The Dashboard detail layer supports per-source filtering and a copyable audit summary, so folded cards remain traceable when one market has radar, history, analysis, AI-score, dry-run, Worker V2, and linkage evidence at the same time.
 
 This layer is intentionally a facade, not an executor: it does not read private keys, does not write wallets, does not call CLOB order APIs, does not start betting workers, and does not mutate MT5.
 
@@ -350,6 +356,32 @@ Inputs:
 
 The output classifies markets as green/yellow/red for research priority only. Current decision remains `AI_SCORE_ONLY_NO_BETTING`: no private-key read, no wallet write, no CLOB order calls, no executor start, and no MT5 mutation. Green rows can only become higher-priority shadow/dry-run candidates until a separate execution gate, budget policy, stop-loss/take-profit manager, ledger audit, and kill switch are promoted.
 
+## Cross-Market Linkage V1
+
+Run:
+
+```bat
+tools\build_polymarket_cross_market_linkage.bat
+```
+
+The linkage builder consumes:
+
+- `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarTrendCache.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketSingleMarketAnalysis.json`
+- `QuantGod_PolymarketAiScoreV1.json`
+
+It writes:
+
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketCrossMarketLinkage.csv`
+
+Each linkage row maps Polymarket market text/category into awareness-only tags: `USD`, `JPY`, `XAU`, `RATES`, `WAR_GEOPOLITICS`, and `MACRO_RISK`. Rows include matched keywords, linked MT5 symbols such as `USDJPYc`, `EURUSDc`, and `XAUUSDc`, source types, confidence, macro risk state, and the safety fields `walletWriteAllowed=false`, `orderSendAllowed=false`, and `mt5ExecutionAllowed=false`.
+
+This is not an execution bridge. It can only explain why a Polymarket event may be relevant to USD/JPY/XAU/rates/geopolitical awareness. It must not open MT5 trades, change EA live switches, place Polymarket bets, or promote a strategy by itself.
+
 ## Retune Planner
 
 Run:
@@ -382,7 +414,8 @@ It displays:
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
 - Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent Worker V2 run/trend/queue rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
-- Unified Evidence Search: `/api/polymarket/search` aggregates history, radar, single-market analysis, AI score, and Worker V2 run/trend/queue evidence into one read-only Dashboard query box, then folds duplicate rows by market into comprehensive evidence cards. Each card previews the strongest evidence, expands all compact raw evidence rows, filters the expanded audit rows by source, copies a compact audit summary, carries Worker candidate/run/queue/trend details, and can jump to the single-market analysis/history workspace with the market query prefilled.
+- Cross-Market Linkage: awareness-only USD/JPY/XAU/rates/geopolitical/macroeconomic risk tags from Polymarket market wording, with linked MT5 symbols shown only as risk context and never as execution permission.
+- Unified Evidence Search: `/api/polymarket/search` aggregates history, radar, cross-market linkage, single-market analysis, AI score, and Worker V2 run/trend/queue evidence into one read-only Dashboard query box, then folds duplicate rows by market into comprehensive evidence cards. Each card previews the strongest evidence, expands all compact raw evidence rows, filters the expanded audit rows by source, copies a compact audit summary, carries Worker candidate/run/queue/trend details plus linkage risk tags/linked symbols, and can jump to the single-market analysis/history workspace with the market query prefilled.
 - Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, global quarantine evidence, and optional LLM semantic review. The Dashboard shows history score vs semantic score, reviewer confidence, and reviewer next-test reasoning; it remains `AI_SCORE_ONLY_NO_BETTING`.
 - Executed live evidence.
 - No-money shadow evidence.

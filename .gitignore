@@ -29,6 +29,8 @@ Dashboard/QuantGod_PolymarketHistoryDb.json
 Dashboard/QuantGod_PolymarketHistoryDb.csv
 Dashboard/QuantGod_PolymarketAiScoreV1.json
 Dashboard/QuantGod_PolymarketAiScoreV1.csv
+Dashboard/QuantGod_PolymarketCrossMarketLinkage.json
+Dashboard/QuantGod_PolymarketCrossMarketLinkage.csv
 archive/backtests/runs/
 archive/param-lab/runs/
 archive/polymarket/history/

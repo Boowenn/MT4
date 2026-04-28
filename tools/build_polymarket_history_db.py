@@ -35,8 +35,9 @@ RADAR_QUEUE_NAME = "QuantGod_PolymarketRadarCandidateQueue.json"
 SINGLE_NAME = "QuantGod_PolymarketSingleMarketAnalysis.json"
 DRY_RUN_NAME = "QuantGod_PolymarketDryRunOrders.json"
 OUTCOME_NAME = "QuantGod_PolymarketDryRunOutcomeWatcher.json"
+CROSS_LINKAGE_NAME = "QuantGod_PolymarketCrossMarketLinkage.json"
 
-SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V2_WORKER_EVIDENCE"
+SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V3_CROSS_MARKET_LINKAGE"
 
 
 def parse_args() -> argparse.Namespace:
@@ -142,6 +143,7 @@ def init_schema(con: sqlite3.Connection) -> None:
             worker_rows INTEGER NOT NULL DEFAULT 0,
             trend_rows INTEGER NOT NULL DEFAULT 0,
             queue_rows INTEGER NOT NULL DEFAULT 0,
+            cross_linkage_rows INTEGER NOT NULL DEFAULT 0,
             wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
             order_send_allowed INTEGER NOT NULL DEFAULT 0
         );
@@ -343,6 +345,32 @@ def init_schema(con: sqlite3.Connection) -> None:
             raw_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS qd_polymarket_cross_market_linkage (
+            id TEXT PRIMARY KEY,
+            generated_at TEXT NOT NULL,
+            market_id TEXT,
+            event_id TEXT,
+            question TEXT,
+            event_title TEXT,
+            polymarket_url TEXT,
+            category TEXT,
+            primary_risk_tag TEXT,
+            risk_tags_json TEXT,
+            matched_keywords_json TEXT,
+            linked_mt5_symbols_json TEXT,
+            macro_risk_state TEXT,
+            confidence REAL,
+            probability REAL,
+            source_score REAL,
+            source_risk TEXT,
+            source_types_json TEXT,
+            suggested_shadow_track TEXT,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            mt5_execution_allowed INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_poly_asset_market ON qd_polymarket_asset_opportunities(market_id, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_poly_asset_score ON qd_polymarket_asset_opportunities(ai_rule_score, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_analysis_market ON qd_polymarket_market_analysis(market_id, generated_at);
@@ -353,6 +381,8 @@ def init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_poly_trend_direction ON qd_polymarket_radar_trends(trend_direction, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_queue_priority ON qd_polymarket_radar_queue(priority_score, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_queue_market ON qd_polymarket_radar_queue(market_id, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_cross_market ON qd_polymarket_cross_market_linkage(market_id, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_cross_tag ON qd_polymarket_cross_market_linkage(primary_risk_tag, macro_risk_state);
         """
     )
     ensure_columns(
@@ -362,6 +392,7 @@ def init_schema(con: sqlite3.Connection) -> None:
             "worker_rows": "INTEGER NOT NULL DEFAULT 0",
             "trend_rows": "INTEGER NOT NULL DEFAULT 0",
             "queue_rows": "INTEGER NOT NULL DEFAULT 0",
+            "cross_linkage_rows": "INTEGER NOT NULL DEFAULT 0",
         },
     )
 
@@ -858,6 +889,62 @@ def upsert_radar_queue(
     return count
 
 
+def upsert_cross_market_linkage(con: sqlite3.Connection, cross_payload: dict[str, Any], now_iso: str) -> int:
+    rows = cross_payload.get("linkages") if isinstance(cross_payload.get("linkages"), list) else []
+    generated_default = str(cross_payload.get("generatedAt") or now_iso)
+    count = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        row_id = str(item.get("linkageId") or stable_id("cross", item.get("marketId"), item.get("question")))
+        con.execute(
+            """
+            INSERT OR REPLACE INTO qd_polymarket_cross_market_linkage (
+                id, generated_at, market_id, event_id, question, event_title,
+                polymarket_url, category, primary_risk_tag, risk_tags_json,
+                matched_keywords_json, linked_mt5_symbols_json, macro_risk_state,
+                confidence, probability, source_score, source_risk,
+                source_types_json, suggested_shadow_track, wallet_write_allowed,
+                order_send_allowed, mt5_execution_allowed, raw_json
+            ) VALUES (
+                :id, :generated_at, :market_id, :event_id, :question, :event_title,
+                :polymarket_url, :category, :primary_risk_tag, :risk_tags_json,
+                :matched_keywords_json, :linked_mt5_symbols_json, :macro_risk_state,
+                :confidence, :probability, :source_score, :source_risk,
+                :source_types_json, :suggested_shadow_track, :wallet_write_allowed,
+                :order_send_allowed, :mt5_execution_allowed, :raw_json
+            )
+            """,
+            {
+                "id": row_id,
+                "generated_at": str(item.get("generatedAt") or generated_default),
+                "market_id": str(item.get("marketId") or ""),
+                "event_id": str(item.get("eventId") or ""),
+                "question": str(item.get("question") or ""),
+                "event_title": str(item.get("eventTitle") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "category": str(item.get("category") or ""),
+                "primary_risk_tag": str(item.get("primaryRiskTag") or ""),
+                "risk_tags_json": compact_json(item.get("riskTags") if isinstance(item.get("riskTags"), list) else []),
+                "matched_keywords_json": compact_json(item.get("matchedKeywords") if isinstance(item.get("matchedKeywords"), dict) else {}),
+                "linked_mt5_symbols_json": compact_json(item.get("linkedMt5Symbols") if isinstance(item.get("linkedMt5Symbols"), list) else []),
+                "macro_risk_state": str(item.get("macroRiskState") or ""),
+                "confidence": safe_number(item.get("confidence")),
+                "probability": safe_number(item.get("probability")),
+                "source_score": safe_number(item.get("sourceScore")),
+                "source_risk": str(item.get("sourceRisk") or ""),
+                "source_types_json": compact_json(item.get("sourceTypes") if isinstance(item.get("sourceTypes"), list) else []),
+                "suggested_shadow_track": str(item.get("suggestedShadowTrack") or ""),
+                "wallet_write_allowed": as_bool_int(item.get("walletWriteAllowed")),
+                "order_send_allowed": as_bool_int(item.get("orderSendAllowed")),
+                "mt5_execution_allowed": as_bool_int(item.get("mt5ExecutionAllowed")),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
 def table_summary(con: sqlite3.Connection, table: str, latest_col: str = "generated_at") -> dict[str, Any]:
     row = con.execute(f"SELECT COUNT(*) AS rows, MAX({latest_col}) AS latest_at FROM {table}").fetchone()
     return {"rows": int(row["rows"] or 0), "latestAt": row["latest_at"] or ""}
@@ -877,6 +964,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         "qd_polymarket_radar_worker_runs": table_summary(con, "qd_polymarket_radar_worker_runs"),
         "qd_polymarket_radar_trends": table_summary(con, "qd_polymarket_radar_trends"),
         "qd_polymarket_radar_queue": table_summary(con, "qd_polymarket_radar_queue"),
+        "qd_polymarket_cross_market_linkage": table_summary(con, "qd_polymarket_cross_market_linkage"),
     }
     total_rows = sum(item["rows"] for item in tables.values())
     recent_opportunities = fetch_rows(
@@ -986,15 +1074,36 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         """,
         (recent_limit,),
     )
+    recent_cross_linkage = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, market_id AS marketId, event_id AS eventId,
+               question, event_title AS eventTitle, polymarket_url AS polymarketUrl,
+               category, primary_risk_tag AS primaryRiskTag, risk_tags_json AS riskTagsJson,
+               matched_keywords_json AS matchedKeywordsJson,
+               linked_mt5_symbols_json AS linkedMt5SymbolsJson,
+               macro_risk_state AS macroRiskState, confidence, probability,
+               source_score AS sourceScore, source_risk AS sourceRisk,
+               source_types_json AS sourceTypesJson,
+               suggested_shadow_track AS suggestedShadowTrack,
+               wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed,
+               mt5_execution_allowed AS mt5ExecutionAllowed
+        FROM qd_polymarket_cross_market_linkage
+        ORDER BY generated_at DESC, confidence DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
     return {
         "generatedAt": now_iso,
-        "mode": "POLYMARKET_HISTORY_DB_V2",
+        "mode": "POLYMARKET_HISTORY_DB_V3",
         "schemaVersion": SCHEMA_VERSION,
         "decision": "LOCAL_HISTORY_DB_NO_WALLET_WRITE",
         "database": {
             "path": str(db_path),
             "tables": list(tables.keys()),
-            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, analysis, dry-run, outcome, and bridge snapshots.",
+            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, cross-market linkage, analysis, dry-run, outcome, and bridge snapshots.",
         },
         "sourceFiles": source_files,
         "summary": {
@@ -1007,6 +1116,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "radarWorkerRuns": tables["qd_polymarket_radar_worker_runs"]["rows"],
             "radarTrendRows": tables["qd_polymarket_radar_trends"]["rows"],
             "radarQueueRows": tables["qd_polymarket_radar_queue"]["rows"],
+            "crossMarketLinkages": tables["qd_polymarket_cross_market_linkage"]["rows"],
             "latestAt": max((item["latestAt"] for item in tables.values() if item["latestAt"]), default=""),
         },
         "tables": tables,
@@ -1017,6 +1127,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "workerRuns": recent_worker_runs,
             "workerTrends": recent_worker_trends,
             "workerQueue": recent_worker_queue,
+            "crossMarketLinkage": recent_cross_linkage,
             "research": latest_research[0] if latest_research else {},
         },
         "safety": {
@@ -1029,6 +1140,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         },
         "nextActions": [
             "Use this DB as the source for Worker V2 trend and queue governance evidence.",
+            "Use cross-market linkage as awareness-only evidence for USD/JPY/XAU/rates/geopolitical risk.",
             "Add future promotion/demotion rules only after trend cache and queue rows have enough history.",
             "Do not promote Polymarket betting from history rows alone; route through Execution Gate and dry-run outcome evidence.",
         ],
@@ -1071,6 +1183,7 @@ def main() -> int:
     single, single_path = read_json_candidate(SINGLE_NAME, runtime_dir, dashboard_dir)
     dry_run, dry_run_path = read_json_candidate(DRY_RUN_NAME, runtime_dir, dashboard_dir)
     outcome, outcome_path = read_json_candidate(OUTCOME_NAME, runtime_dir, dashboard_dir)
+    cross_linkage, cross_linkage_path = read_json_candidate(CROSS_LINKAGE_NAME, runtime_dir, dashboard_dir)
     source_files = {
         RESEARCH_NAME: research_path,
         RADAR_NAME: radar_path,
@@ -1080,6 +1193,7 @@ def main() -> int:
         SINGLE_NAME: single_path,
         DRY_RUN_NAME: dry_run_path,
         OUTCOME_NAME: outcome_path,
+        CROSS_LINKAGE_NAME: cross_linkage_path,
     }
 
     con = connect_db(db_path)
@@ -1093,6 +1207,7 @@ def main() -> int:
         worker_rows = upsert_radar_worker_run(con, radar_worker, now_iso)
         trend_rows = upsert_radar_trends(con, radar_trend_cache, radar_worker, now_iso)
         queue_rows = upsert_radar_queue(con, radar_queue, radar_worker, now_iso)
+        cross_linkage_rows = upsert_cross_market_linkage(con, cross_linkage, now_iso)
         simulation_rows = dry_run_rows + outcome_rows
         run_id = "POLYHIST-" + utc_now().strftime("%Y%m%d-%H%M%S")
         con.execute(
@@ -1100,9 +1215,9 @@ def main() -> int:
             INSERT OR REPLACE INTO qd_polymarket_runs (
                 run_id, generated_at, schema_version, db_path, source_files_json,
                 radar_rows, analysis_rows, simulation_rows, research_rows,
-                worker_rows, trend_rows, queue_rows,
+                worker_rows, trend_rows, queue_rows, cross_linkage_rows,
                 wallet_write_allowed, order_send_allowed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 run_id,
@@ -1117,6 +1232,7 @@ def main() -> int:
                 worker_rows,
                 trend_rows,
                 queue_rows,
+                cross_linkage_rows,
             ),
         )
         con.commit()

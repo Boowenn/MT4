@@ -31,6 +31,7 @@ Implemented:
 - Polymarket Execution Gate V1: `tools/build_polymarket_execution_gate.py` consumes Research/Radar/Retune outputs and writes `QuantGod_PolymarketExecutionGate.json` plus ledger CSV. It defines allowed-bet conditions, reference stake, TP/SL, max daily loss, market blocklist, cancel/exit rules, and future audit ledgers, but keeps `walletWriteAllowed=false` and `canBet=false`.
 - Polymarket Dry-Run Order Simulator + Execution Ledger schema: `tools/build_polymarket_dry_run_orders.py` consumes the Execution Gate and Radar outputs, writes `QuantGod_PolymarketDryRunOrders.json` and `QuantGod_PolymarketExecutionLedger.csv`, and records hypothetical stake, entry price, TP/SL price, cancel timing, max-hold exit, exit-before-resolution timing, blockers, and audit fields while keeping `walletWrite=false` and `orderSend=false`.
 - Polymarket Dry-Run Outcome Watcher: `tools/watch_polymarket_dry_run_outcomes.py` consumes dry-run orders and the latest Radar prices, writes `QuantGod_PolymarketDryRunOutcomeWatcher.json` and `QuantGod_PolymarketDryRunOutcomeLedger.csv`, carries forward observed high/low prices by stable tracking key, and reports whether TP, SL, trailing exit, max-hold, or pre-resolution exits would have fired without placing or closing orders.
+- Polymarket Cross-Market Linkage V1: `tools/build_polymarket_cross_market_linkage.py` maps radar/worker/analysis/AI-score market text into USD, JPY, XAU, rates, war/geopolitical, and macro risk awareness tags, writes `QuantGod_PolymarketCrossMarketLinkage.json/csv`, and keeps `walletWriteAllowed=false`, `orderSendAllowed=false`, and `mt5ExecutionAllowed=false`.
 
 Current live-trading boundary:
 
@@ -38,7 +39,7 @@ Current live-trading boundary:
 - `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` remain candidate/backtest/simulation routes.
 - Research tools do not mutate `QuantGod_MT5_HFM_LivePilot.set`.
 - Research tools do not connect to HFM, store credentials, bypass EA `OrderSend`, or change lot size, account, server, SL/TP, position caps, kill switches, spread/session/news/cooldown/portfolio/order-send controls.
-- The Polymarket bridge/radar/single-market analyzer/planner/execution-gate/dry-run simulator/outcome watcher are external evidence and contract layers only. Future Polymarket execution is allowed only as a separate promoted module with wallet isolation, TP/SL, max-loss, order-send audit, and kill-switch checks; it must not share loops, wallets, canary switches, or order paths with MT5/HFM.
+- The Polymarket bridge/radar/single-market analyzer/planner/execution-gate/dry-run simulator/outcome watcher/cross-market linkage are external evidence and contract layers only. Future Polymarket execution is allowed only as a separate promoted module with wallet isolation, TP/SL, max-loss, order-send audit, and kill-switch checks; it must not share loops, wallets, canary switches, or order paths with MT5/HFM.
 
 ## Remaining Migration Work
 
