@@ -22,6 +22,7 @@ When project knowledge conflicts:
 5. Human-facing notes such as `README.md`
 
 Use HFM MT5 runtime files for live counts, recent trades, pilot telemetry, and latest execution states.
+Treat `QuantGod_GovernanceAdvisor.json` as a derived advisory snapshot from those files, not as a direct execution source.
 Do not assume the generic `C:\Program Files\MetaTrader 5\MQL5\Files\` directory is current for HFM live-account validation.
 Treat MT4 as archive-only. If you need old MT4 evidence later, preserve or inspect it through `tools/archive_mt4_runtime.ps1` and `archive/mt4-runtime-snapshots/`, not as the current live source.
 
@@ -37,6 +38,8 @@ Treat MT4 as archive-only. If you need old MT4 evidence later, preserve or inspe
 - `MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini`
 - `MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set`
 - `Start_QuantGod_MT5_HFM_LivePilot.bat`
+- `tools/build_governance_advisor.py`
+- `tools/build_governance_advisor.bat`
 
 Responsibilities:
 
@@ -57,6 +60,7 @@ Responsibilities:
 - Provide Shadow Outcome Ledger so range-blocked and no-trade M15 opportunities gain post-outcome labels before anyone considers a shadow-only route change
 - Provide Shadow Candidate Router V1 so candidate routes can be compared by post-outcome evidence before they are eligible for Backtest Lab review
 - Provide Manual Alpha Ledger as a separate learning surface for discretionary trades; promotion from manual alpha to EA automation requires a later shadow-only route plus backtest and live-forward validation
+- Provide a QuantDinger-inspired Governance Advisor as a local, file-only lifecycle snapshot. It combines Backtest Lab, live `0.01` forward results, Shadow Signal/Outcome, Shadow Candidate/Outcome, and Manual Alpha evidence into `QuantGod_GovernanceAdvisor.json`; it is advisory only and never connects to HFM, stores credentials, sends orders, or bypasses EA `OrderSend` gating
 - Surface the MT5 USD news filter state in `QuantGod_Dashboard.json` and the dashboard execution radar, including event code/kind/label, countdown, server event time, tracked-event count, block state, and bias state
 
 Non-responsibilities in phase 1:
@@ -91,6 +95,7 @@ Responsibilities:
 - Let operators jump from that provenance panel directly into the research suggestion panel or the regime heatmap, with symbol filter sync and visual focus on the matching slice when available
 - Let operators jump back from research suggestion cards and regime heatmap cells into the monitor section, where the corresponding symbol card and strategy chip are visually focused for fast cross-checking
 - Explain that monitor-section focus with a breadcrumb, so the operator can tell whether the current highlight came from a research suggestion card or from a heatmap cell
+- Render the Governance Advisor overview card from `QuantGod_GovernanceAdvisor.json`, showing route lifecycle actions, live-forward stats, candidate outcome evidence, open-position pressure, blockers, and guardrail reminders
 
 ### Data Layer
 
@@ -124,6 +129,7 @@ MT5 phase 1 exports only:
 - `QuantGod_ShadowCandidateLedger.csv`
 - `QuantGod_ShadowCandidateOutcomeLedger.csv`
 - `QuantGod_ManualAlphaLedger.csv`
+- `QuantGod_GovernanceAdvisor.json` (derived by `tools/build_governance_advisor.py`, not exported by the EA)
 
 HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 
@@ -144,6 +150,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 - Shadow Signal Ledger and Shadow Outcome Ledger are learning surfaces, not trading triggers: they can accelerate review of blocked/no-trade opportunities and their 15/30/60 minute post-outcomes, but cannot by themselves justify larger size, new symbols, new strategies, or relaxed guards.
 - Manual Alpha Ledger is also a learning surface, not a trading trigger: manual XAUUSDc or other discretionary wins can seed route hypotheses, but cannot directly authorize EA expansion without shadow, backtest, and live-forward evidence.
 - Route promotion and demotion are automation-governed: Codex may demote weak live routes back to simulation/backtest quickly, and may promote improved candidate routes only after old-history context, Backtest Lab, candidate/outcome ledgers, and fresh `0.01` forward-style evidence agree. These changes must keep the account, server, `0.01` lot, single-symbol cap, SL/TP, spread/session/news/cooldown/portfolio/order-send controls, and kill switches unchanged or stricter.
+- The Governance Advisor is the durable local implementation of that lifecycle view. It can recommend `KEEP_LIVE`, `KEEP_LIVE_WATCH`, `DEMOTE_REVIEW`, `KEEP_SIM_COLLECT`, `KEEP_SIM_ITERATE`, `RETUNE_SIM`, or `PROMOTION_REVIEW`, but any live-switch change still must pass the normal verification, compile/test, commit, and push workflow.
 
 ### Adaptive Control
 
@@ -189,6 +196,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
   - the focus-symbol adaptive summary in dashboard root `strategies`
   - per-symbol slices in `QuantGod_StrategyEvaluationReport.csv`
 - Use `QuantGod_RegimeEvaluationReport.csv` when the question is about which market regime a strategy is handling well or badly.
+- Use `QuantGod_GovernanceAdvisor.json` when the question is about promotion, demotion, or which route should stay live versus simulation; regenerate it first if the runtime evidence has changed.
 - If dashboard heatmap and raw CSV disagree, treat the CSV as the source of truth first and debug the frontend aggregation/filtering path.
 - If research suggestions and heatmap disagree, debug the recommendation-threshold layer separately from the raw regime aggregation layer.
 - Do not mix one symbol's adaptive state into another symbol's evaluation.

@@ -25,6 +25,12 @@ if exist "%REPO_ROOT%\archive\backtests\latest\QuantGod_BacktestSummary.json" (
 copy /Y "%REPO_ROOT%\archive\backtests\latest\QuantGod_BacktestSummary.json" "%QG_FILES%\QuantGod_BacktestSummary.json" >nul
 )
 
+echo 1b. Refreshing governance advisor snapshot...
+python "%REPO_ROOT%\tools\build_governance_advisor.py" --runtime-dir "%QG_FILES%" >nul 2>nul
+if errorlevel 1 (
+echo Governance advisor refresh skipped; dashboard will continue without it.
+)
+
 echo 2. Syncing MT5 EA source...
 copy /Y "%REPO_ROOT%\MQL5\Experts\QuantGod_MultiStrategy.mq5" "%QG_EXPERTS%\QuantGod_MultiStrategy.mq5" >nul
 if exist "%REPO_ROOT%\MQL5\Experts\QuantGod_MultiStrategy.ex5" (

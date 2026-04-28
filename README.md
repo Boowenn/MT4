@@ -67,6 +67,8 @@ Important: the current MT5 implementation is still a partial port. In the shippe
 
 Live route promotion and demotion are now evidence-driven automation decisions. A live route can be demoted quickly when its recent `0.01` forward results, order-send health, or shadow/candidate outcomes show weakness; it then stays in simulation/backtest and is iterated there. A candidate route can be promoted back to live only after old-history context, Backtest Lab, candidate/outcome ledgers, and fresh `0.01` forward-style evidence show a stable edge without obvious risk objections. Promotion never changes the lot size, account, server, single-symbol cap, hard SL/TP, spread/session/news/cooldown/portfolio/order-send controls, or kill switches.
 
+The repo also includes a QuantDinger-inspired local Governance Advisor. It borrows the useful product idea of a strategy lifecycle view, but keeps QuantGod's broker boundary intact: `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. It is read-only and never stores credentials, connects to HFM, opens positions, or bypasses the existing EA `OrderSend` guards.
+
 ## Strategies
 
 | # | Strategy | Description | Research Timeframe |
@@ -146,6 +148,7 @@ Phase 1 now exports runtime snapshots plus broker-history journaling files for t
 - `QuantGod_TradeEventLinks.csv`
 - `QuantGod_StrategyEvaluationReport.csv`
 - `QuantGod_RegimeEvaluationReport.csv`
+- `QuantGod_GovernanceAdvisor.json` when the local governance builder has been run
 
 It still does not port the full MT4 adaptive/research-statistics layer yet, but the legacy MT4 signal routes now exist in MT5 as candidate/backtest/live-gated evaluators.
 
@@ -212,6 +215,7 @@ Start_QuantGod_MT5_HFM_LivePilot.bat
 This will:
 
 - sync the dashboard assets into `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
+- refresh `QuantGod_GovernanceAdvisor.json` from the latest local HFM runtime evidence when possible
 - sync the MT5 EA source, compiled `ex5`, and live pilot preset into the HFM client
 - restart the official HFM MT5 client in live pilot mode
 - arm `MA_Cross` with `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback plus 24-bar pullback-continuation window, one-position caps, hard `SL/TP`, kill switches, USD high-impact news pre/post blocks, and post-release directional bias

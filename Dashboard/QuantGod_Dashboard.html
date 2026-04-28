@@ -3006,6 +3006,22 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(139,92,246,0.15); color: var(--accent-purple);">G</div>
+                            Governance Advisor
+                        </div>
+                        <span class="eval-summary" id="governanceAdvisorSummary">等待治理快照</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="governanceAdvisorMeta">借鉴 QuantDinger 的策略生命周期视图，把回测、实盘、Shadow、Candidate、Manual Alpha 合成升降级建议；只读证据，不发送订单。</div>
+                        <div class="backtest-compare-grid" id="governanceAdvisorBody">
+                            <div class="empty-state">等待 `QuantGod_GovernanceAdvisor.json`</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
@@ -3398,6 +3414,7 @@ const LOCAL_SHADOW_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowOutcomeLedger.csv';
 const LOCAL_SHADOW_CANDIDATE_LEDGER_PATH = 'QuantGod_ShadowCandidateLedger.csv';
 const LOCAL_SHADOW_CANDIDATE_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowCandidateOutcomeLedger.csv';
 const LOCAL_MANUAL_ALPHA_LEDGER_PATH = 'QuantGod_ManualAlphaLedger.csv';
+const LOCAL_GOVERNANCE_ADVISOR_PATH = 'QuantGod_GovernanceAdvisor.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -4041,7 +4058,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         manualAlphaLedgerRows: Array.isArray(baseData?.manualAlphaLedgerRows)
             ? baseData.manualAlphaLedgerRows
             : (previousData?.manualAlphaLedgerRows || []),
-        backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null
+        backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null,
+        governanceAdvisor: baseData?.governanceAdvisor || previousData?.governanceAdvisor || null
     };
 
     if (!isLocalRuntime()) {
@@ -4152,6 +4170,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Manual alpha ledger load failed.', error);
     }
 
+    try {
+        data.governanceAdvisor = await loadLocalJsonSupplement(LOCAL_GOVERNANCE_ADVISOR_PATH);
+        data._governanceAdvisorError = false;
+    } catch (error) {
+        data._governanceAdvisorError = true;
+        console.warn('Governance advisor load failed.', error);
+    }
+
     return data;
 }
 
@@ -4205,6 +4231,10 @@ function getShadowCandidateOutcomeLedgerRows(d) {
 
 function getManualAlphaLedgerRows(d) {
     return Array.isArray(d?.manualAlphaLedgerRows) ? d.manualAlphaLedgerRows : [];
+}
+
+function getGovernanceAdvisor(d) {
+    return d?.governanceAdvisor || null;
 }
 
 function getFocusSymbol(d) {
@@ -5676,6 +5706,83 @@ function updateManualAlphaLedger(d) {
     ].join('');
 }
 
+function governanceActionLabel(action) {
+    const labels = {
+        KEEP_LIVE: '保持实盘',
+        KEEP_LIVE_WATCH: '实盘观察',
+        DEMOTE_REVIEW: '降级复核',
+        KEEP_SIM_COLLECT: '模拟采样',
+        KEEP_SIM_ITERATE: '模拟迭代',
+        RETUNE_SIM: '模拟重调',
+        PROMOTION_REVIEW: '升实盘复核'
+    };
+    return labels[action] || action || '--';
+}
+
+function governanceToneForAction(action, fallback = 'waiting') {
+    if (action === 'KEEP_LIVE' || action === 'PROMOTION_REVIEW') return 'supported';
+    if (action === 'DEMOTE_REVIEW' || action === 'RETUNE_SIM') return 'conflict';
+    return fallback || 'waiting';
+}
+
+function renderGovernanceRouteCard(item) {
+    const action = item?.recommendedAction || 'KEEP_SIM_COLLECT';
+    const tone = governanceToneForAction(action, item?.tone);
+    const live = item?.liveForward || {};
+    const candidate = item?.candidateSamples || {};
+    const blockers = Array.isArray(item?.blockers) && item.blockers.length
+        ? item.blockers.join(' / ')
+        : '无硬性反证';
+    const modeText = item?.live ? 'LIVE 0.01' : 'SIM/CANDIDATE';
+    const liveText = item?.live
+        ? `实盘 ${live.closedTrades ?? 0} 笔 | 胜率 ${live.winRatePct ?? '--'}% | PF ${live.profitFactor ?? '--'} | 净值 ${formatMoney(live.netProfitUSC || 0, 2)}`
+        : `候选 60m ${candidate.horizonRows ?? 0} 条 | 胜率 ${candidate.winRatePct ?? '--'}% | 均值 ${candidate.avgSignedPips ?? '--'} pips | ledger ${candidate.ledgerRows ?? 0}`;
+    const openText = item?.openPosition?.openTrades
+        ? ` | 当前持仓 ${item.openPosition.openTrades}，浮动 ${formatMoney(item.openPosition.floatingProfitUSC || 0, 2)}`
+        : '';
+    return `
+        <div class="backtest-compare-card ${tone}">
+            <div class="backtest-compare-topline">
+                <div>
+                    <div class="research-window-kicker">${escapeHtml(modeText)}</div>
+                    <div class="backtest-symbol">${escapeHtml(item?.label || item?.key || '--')}</div>
+                </div>
+                <span class="backtest-status-pill ${tone}">${escapeHtml(governanceActionLabel(action))}</span>
+            </div>
+            <div class="backtest-note">${escapeHtml(liveText + openText)}</div>
+            <div class="backtest-note">blocker: ${escapeHtml(blockers)}</div>
+        </div>
+    `;
+}
+
+function updateGovernanceAdvisor(d) {
+    const summaryEl = document.getElementById('governanceAdvisorSummary');
+    const metaEl = document.getElementById('governanceAdvisorMeta');
+    const bodyEl = document.getElementById('governanceAdvisorBody');
+    if (!summaryEl || !metaEl || !bodyEl) return;
+
+    const advisor = getGovernanceAdvisor(d);
+    if (!advisor || !Array.isArray(advisor.routeDecisions)) {
+        summaryEl.textContent = '等待治理快照';
+        metaEl.textContent = d?._governanceAdvisorError
+            ? '本地还没有 `QuantGod_GovernanceAdvisor.json`；运行 `tools\\build_governance_advisor.py` 可生成。'
+            : 'Governance Advisor 暂无数据。';
+        bodyEl.innerHTML = '<div class="empty-state">等待 Governance Advisor 证据快照</div>';
+        return;
+    }
+
+    const actions = advisor.summary?.actions || {};
+    const actionText = Object.entries(actions)
+        .map(([key, value]) => `${governanceActionLabel(key)} ${value}`)
+        .join(' / ');
+    const shadowBlockers = Array.isArray(advisor.shadow?.dominantBlockers)
+        ? advisor.shadow.dominantBlockers.slice(0, 3).map(([key, value]) => `${key}:${value}`).join(' / ')
+        : '--';
+    summaryEl.textContent = `${advisor.summary?.routeCount || advisor.routeDecisions.length} 条路线 | ${actionText || '等待动作'}`;
+    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
+    bodyEl.innerHTML = advisor.routeDecisions.map(renderGovernanceRouteCard).join('');
+}
+
 function updateResearchWindowSummary(d) {
     const body = document.getElementById('researchWindowBody');
     const summaryEl = document.getElementById('researchWindowSummary');
@@ -6683,6 +6790,7 @@ function updateDashboard() {
     updateBacktestLiveComparison(d);
     updateShadowSignalLedger(d);
     updateManualAlphaLedger(d);
+    updateGovernanceAdvisor(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
     updateResearchSuggestions(d);
