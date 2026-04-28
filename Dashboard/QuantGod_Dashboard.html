@@ -7741,6 +7741,9 @@
                                     <option value="simulations">模拟执行</option>
                                     <option value="runs">构建批次</option>
                                     <option value="snapshots">研究快照</option>
+                                    <option value="worker-runs">Worker 批次</option>
+                                    <option value="worker-trends">趋势缓存</option>
+                                    <option value="worker-queue">雷达队列</option>
                                 </select>
                             </label>
                             <label class="polymarket-request-field polymarket-history-api-query-field">
@@ -9585,7 +9588,7 @@ async function loadPolymarketApiJson(path) {
 }
 
 function getPolymarketHistoryApiFilter() {
-    const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots'].includes(polymarketHistoryApiFilter.table)
+    const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue'].includes(polymarketHistoryApiFilter.table)
         ? polymarketHistoryApiFilter.table
         : 'all';
     return {
@@ -11393,7 +11396,7 @@ function getPolymarketHistoryRenderType(apiTable) {
     const normalized = String(apiTable || '').toLowerCase();
     if (normalized === 'analyses' || normalized === 'analysis') return 'analysis';
     if (normalized === 'simulations' || normalized === 'simulation') return 'simulation';
-    if (normalized === 'runs' || normalized === 'snapshots' || normalized === 'all' || normalized === 'mixed') return 'mixed';
+    if (normalized === 'runs' || normalized === 'snapshots' || normalized === 'worker-runs' || normalized === 'worker-trends' || normalized === 'worker-queue' || normalized === 'all' || normalized === 'mixed') return 'mixed';
     return 'opportunity';
 }
 
@@ -11404,6 +11407,9 @@ function getPolymarketHistoryTypeLabel(type) {
     if (normalized === 'simulations') return '模拟';
     if (normalized === 'runs') return '批次';
     if (normalized === 'snapshots') return '快照';
+    if (normalized === 'worker-runs') return 'Worker';
+    if (normalized === 'worker-trends') return '趋势';
+    if (normalized === 'worker-queue') return '队列';
     return normalized ? normalized.toUpperCase() : '--';
 }
 
@@ -11452,14 +11458,14 @@ function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') 
             `;
         }
         if (renderType === 'mixed') {
-            const status = row.recommendation || row.state || row.decision || row.schemaVersion || row.mode || '--';
-            const score = row.aiRuleScore ?? row.ruleScore ?? row.confidence ?? row.executedPf ?? '--';
-            const track = row.suggestedShadowTrack || row.track || row.source || row.authState || row.runId || '--';
+            const status = row.queueState || row.trendDirection || row.status || row.recommendation || row.state || row.decision || row.schemaVersion || row.mode || '--';
+            const score = row.priorityScore ?? row.aiRuleScore ?? row.ruleScore ?? row.confidence ?? row.executedPf ?? row.topScore ?? '--';
+            const track = row.suggestedShadowTrack || row.track || row.source || row.authState || row.candidateId || row.runId || '--';
             return `
                 <tr>
                     <td><span class="table-badge neutral">${escapeHtml(getPolymarketHistoryTypeLabel(row.historyType))}</span></td>
                     <td>${escapeHtml(formatPolymarketTime(row.generatedAt || row.seenAt || row.lastSeenAt || row.firstSeenAt))}</td>
-                    <td>${escapeHtml(row.question || row.query || row.marketId || row.runId || row.mode || '--')}</td>
+                    <td>${escapeHtml(row.question || row.query || row.marketId || row.candidateId || row.runId || row.mode || '--')}</td>
                     <td>${escapeHtml(translatePolymarketToken(status))}</td>
                     <td>${escapeHtml(row.risk ? translatePolymarketToken(row.risk) : score)}</td>
                     <td>${escapeHtml(track)}</td>
@@ -11510,7 +11516,7 @@ function updatePolymarketHistoryDb(d) {
     const sourceLabel = history.source === 'sqlite_api' ? 'API' : (d?._polymarketHistoryDbSource === 'api' ? 'API' : '文件');
     const hasActiveFilter = Boolean(String(apiState.query || search.query || '').trim()) || (apiState.table && apiState.table !== 'all');
     if (summaryEl) {
-        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0}`;
+        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0} | Worker ${summary.radarWorkerRuns || 0} | 趋势 ${summary.radarTrendRows || 0} | 队列 ${summary.radarQueueRows || 0}`;
     }
     const overviewCard = `
         <div class="polymarket-card good">
@@ -11518,9 +11524,13 @@ function updatePolymarketHistoryDb(d) {
             <div class="polymarket-title">${escapeHtml(sourceLabel)} 服务化历史库</div>
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('总行数', summary.totalRows || 0)}
+                ${renderPolymarketMetric('构建批次', summary.runs || 0)}
                 ${renderPolymarketMetric('机会市场', summary.assetOpportunities || 0)}
                 ${renderPolymarketMetric('单市场分析', summary.marketAnalyses || 0)}
                 ${renderPolymarketMetric('执行模拟', summary.executionSimulations || 0)}
+                ${renderPolymarketMetric('Worker 批次', summary.radarWorkerRuns || 0)}
+                ${renderPolymarketMetric('趋势缓存', summary.radarTrendRows || 0)}
+                ${renderPolymarketMetric('雷达队列', summary.radarQueueRows || 0)}
             </div>
             <div class="polymarket-note">${escapeHtml(database.path || 'archive/polymarket/history/QuantGod_PolymarketHistory.sqlite')}；当前筛选 ${escapeHtml(apiState.table || 'all')} / ${escapeHtml(apiState.query || '无关键词')}。</div>
         </div>
@@ -11563,6 +11573,9 @@ function updatePolymarketHistoryDb(d) {
         renderPolymarketHistoryDbTable('机会市场历史', recent.opportunities || [], 'opportunity'),
         renderPolymarketHistoryDbTable('单市场分析历史', recent.analyses || [], 'analysis'),
         renderPolymarketHistoryDbTable('模拟执行历史', recent.simulations || [], 'simulation'),
+        renderPolymarketHistoryDbTable('Worker 批次历史', recent['worker-runs'] || recent.workerRuns || [], 'worker-runs'),
+        renderPolymarketHistoryDbTable('趋势缓存历史', recent['worker-trends'] || recent.workerTrends || [], 'worker-trends'),
+        renderPolymarketHistoryDbTable('雷达队列历史', recent['worker-queue'] || recent.workerQueue || [], 'worker-queue'),
     ].filter(Boolean).join('');
 }
 

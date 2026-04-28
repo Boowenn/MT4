@@ -16,7 +16,17 @@ const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnaly
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
-const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
+const polymarketHistoryTables = new Set([
+  'all',
+  'opportunities',
+  'analyses',
+  'simulations',
+  'runs',
+  'snapshots',
+  'worker-runs',
+  'worker-trends',
+  'worker-queue',
+]);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
 const polymarketReadOnlyJsonFiles = new Set([

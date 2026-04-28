@@ -239,15 +239,18 @@ It writes dashboard/runtime summaries:
 - `QuantGod_PolymarketHistoryDb.json`
 - `QuantGod_PolymarketHistoryDb.csv`
 
-The V1 tables are:
+The V2 tables are:
 
 - `qd_polymarket_runs`
 - `qd_polymarket_asset_opportunities`
 - `qd_polymarket_market_analysis`
 - `qd_polymarket_execution_simulations`
 - `qd_polymarket_research_snapshots`
+- `qd_polymarket_radar_worker_runs`
+- `qd_polymarket_radar_trends`
+- `qd_polymarket_radar_queue`
 
-This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring.
+This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, Worker V2 batch runs, trend-cache rows, shadow queue rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring and governance.
 
 Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
 
@@ -267,6 +270,9 @@ Supported `table` values:
 - `simulations`
 - `runs`
 - `snapshots`
+- `worker-runs`
+- `worker-trends`
+- `worker-queue`
 
 Implementation files:
 
@@ -375,7 +381,7 @@ It displays:
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
-- Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
+- Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent Worker V2 run/trend/queue rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
 - Unified Evidence Search: `/api/polymarket/search` aggregates history, radar, single-market analysis, and AI score evidence into one read-only Dashboard query box, then folds duplicate rows by market into comprehensive evidence cards. Each card previews the strongest evidence, expands all compact raw evidence rows, filters the expanded audit rows by source, copies a compact audit summary, and can jump to the single-market analysis/history workspace with the market query prefilled.
 - Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, global quarantine evidence, and optional LLM semantic review. The Dashboard shows history score vs semantic score, reviewer confidence, and reviewer next-test reasoning; it remains `AI_SCORE_ONLY_NO_BETTING`.
 - Executed live evidence.

@@ -32,13 +32,19 @@ Next item after this commit: `Historical Analysis Library` polish for Worker V2 
 
 ## 3. Historical Analysis Library
 
-Status: mostly done, pending polish after worker.
+Status: completed in this branch.
 
-Target: keep SQLite as the durable source, add any tables required by worker trend cache and semantic-review audit history.
+- Upgraded the SQLite history builder to `POLYMARKET_HISTORY_DB_V2_WORKER_EVIDENCE`.
+- Persisted Worker V2 evidence into `qd_polymarket_radar_worker_runs`, `qd_polymarket_radar_trends`, and `qd_polymarket_radar_queue`.
+- Added run/trend/queue row counts and recent rows to `QuantGod_PolymarketHistoryDb.json/csv`.
+- Extended the read-only history helper, dashboard server, and Dashboard filter UI with `worker-runs`, `worker-trends`, and `worker-queue`.
+- Safety remains research-only: no private-key read, no wallet write, no CLOB order call, no executor start, no MT5 mutation.
+
+Next item after this commit: `Search / History API` facade polish over the now-persisted worker fields.
 
 ## 4. Search / History API
 
-Status: mostly done, pending worker/semantic fields.
+Status: mostly done, pending Worker V2 facade polish.
 
 Target: keep `history/radar/analyze/history/ai-score/search` read-only and extend facades only after new worker/history fields exist.
 

@@ -73,9 +73,51 @@ TABLES: Mapping[str, Dict[str, Any]] = {
         "summary": "researchSnapshots",
         "search": ("mode", "auth_state"),
     },
+    "worker-runs": {
+        "table": "qd_polymarket_radar_worker_runs",
+        "order": "generated_at",
+        "summary": "radarWorkerRuns",
+        "search": (
+            "run_id",
+            "status",
+            "decision",
+            "top_market",
+            "top_risk",
+        ),
+    },
+    "worker-trends": {
+        "table": "qd_polymarket_radar_trends",
+        "order": "generated_at",
+        "summary": "radarTrendRows",
+        "search": (
+            "run_id",
+            "market_id",
+            "question",
+            "category",
+            "risk",
+            "suggested_shadow_track",
+            "trend_direction",
+        ),
+    },
+    "worker-queue": {
+        "table": "qd_polymarket_radar_queue",
+        "order": "generated_at",
+        "summary": "radarQueueRows",
+        "search": (
+            "candidate_id",
+            "run_id",
+            "market_id",
+            "question",
+            "category",
+            "risk",
+            "suggested_shadow_track",
+            "queue_state",
+            "next_action",
+        ),
+    },
 }
 
-RECENT_TABLES = ("opportunities", "analyses", "simulations")
+RECENT_TABLES = ("opportunities", "analyses", "simulations", "worker-runs", "worker-trends", "worker-queue")
 
 
 def utc_now() -> str:
@@ -212,7 +254,7 @@ def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offse
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),
         "source": "sqlite_api",
-        "schemaVersion": "POLYMARKET_HISTORY_DB_V1",
+        "schemaVersion": "POLYMARKET_HISTORY_DB_V2_WORKER_EVIDENCE",
         "decision": "LOCAL_HISTORY_DB_READ_ONLY_NO_WALLET_WRITE",
         "api": {"table": table_key, "query": query, "limit": limit, "offset": offset},
         "database": {"path": str(db_path), "exists": db_path.exists(), "readOnly": True},

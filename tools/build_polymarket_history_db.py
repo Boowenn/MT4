@@ -29,11 +29,14 @@ CSV_NAME = "QuantGod_PolymarketHistoryDb.csv"
 
 RESEARCH_NAME = "QuantGod_PolymarketResearch.json"
 RADAR_NAME = "QuantGod_PolymarketMarketRadar.json"
+RADAR_WORKER_NAME = "QuantGod_PolymarketRadarWorkerV2.json"
+RADAR_TREND_CACHE_NAME = "QuantGod_PolymarketRadarTrendCache.json"
+RADAR_QUEUE_NAME = "QuantGod_PolymarketRadarCandidateQueue.json"
 SINGLE_NAME = "QuantGod_PolymarketSingleMarketAnalysis.json"
 DRY_RUN_NAME = "QuantGod_PolymarketDryRunOrders.json"
 OUTCOME_NAME = "QuantGod_PolymarketDryRunOutcomeWatcher.json"
 
-SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V1"
+SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V2_WORKER_EVIDENCE"
 
 
 def parse_args() -> argparse.Namespace:
@@ -115,6 +118,14 @@ def connect_db(path: Path) -> sqlite3.Connection:
     return con
 
 
+def ensure_columns(con: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row["name"] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
+    for column, ddl in columns.items():
+        if column in existing:
+            continue
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def init_schema(con: sqlite3.Connection) -> None:
     con.executescript(
         """
@@ -128,6 +139,9 @@ def init_schema(con: sqlite3.Connection) -> None:
             analysis_rows INTEGER NOT NULL DEFAULT 0,
             simulation_rows INTEGER NOT NULL DEFAULT 0,
             research_rows INTEGER NOT NULL DEFAULT 0,
+            worker_rows INTEGER NOT NULL DEFAULT 0,
+            trend_rows INTEGER NOT NULL DEFAULT 0,
+            queue_rows INTEGER NOT NULL DEFAULT 0,
             wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
             order_send_allowed INTEGER NOT NULL DEFAULT 0
         );
@@ -234,12 +248,121 @@ def init_schema(con: sqlite3.Connection) -> None:
             raw_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS qd_polymarket_radar_worker_runs (
+            run_id TEXT PRIMARY KEY,
+            generated_at TEXT NOT NULL,
+            status TEXT,
+            decision TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            cycles_requested INTEGER,
+            cycles_completed INTEGER,
+            interval_seconds REAL,
+            unique_markets INTEGER,
+            duplicate_markets INTEGER,
+            candidate_queue_size INTEGER,
+            new_markets INTEGER,
+            recurring_markets INTEGER,
+            score_improved INTEGER,
+            score_deteriorated INTEGER,
+            probability_moved_up INTEGER,
+            probability_moved_down INTEGER,
+            stale_tracked INTEGER,
+            top_market TEXT,
+            top_score REAL,
+            top_risk TEXT,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            can_start_executor INTEGER NOT NULL DEFAULT 0,
+            can_mutate_mt5 INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qd_polymarket_radar_trends (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            market_key TEXT NOT NULL,
+            market_id TEXT,
+            event_id TEXT,
+            question TEXT,
+            polymarket_url TEXT,
+            category TEXT,
+            suggested_shadow_track TEXT,
+            risk TEXT,
+            risk_flags_json TEXT,
+            first_seen_at TEXT,
+            last_seen_at TEXT,
+            seen_count INTEGER,
+            stale_cycles INTEGER,
+            last_probability REAL,
+            previous_probability REAL,
+            probability_delta REAL,
+            last_ai_rule_score REAL,
+            previous_ai_rule_score REAL,
+            ai_rule_score_delta REAL,
+            best_ai_rule_score REAL,
+            last_volume_24h REAL,
+            previous_volume_24h REAL,
+            volume_24h_delta REAL,
+            last_liquidity REAL,
+            trend_direction TEXT,
+            raw_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qd_polymarket_radar_queue (
+            id TEXT PRIMARY KEY,
+            candidate_id TEXT,
+            run_id TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            queue_state TEXT,
+            execution_mode TEXT,
+            market_id TEXT,
+            event_id TEXT,
+            question TEXT,
+            polymarket_url TEXT,
+            category TEXT,
+            probability REAL,
+            divergence REAL,
+            volume REAL,
+            volume_24h REAL,
+            liquidity REAL,
+            risk TEXT,
+            risk_flags_json TEXT,
+            ai_rule_score REAL,
+            rule_score REAL,
+            priority_score REAL,
+            suggested_shadow_track TEXT,
+            trend_direction TEXT,
+            seen_count INTEGER,
+            probability_delta REAL,
+            ai_rule_score_delta REAL,
+            next_action TEXT,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_poly_asset_market ON qd_polymarket_asset_opportunities(market_id, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_poly_asset_score ON qd_polymarket_asset_opportunities(ai_rule_score, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_analysis_market ON qd_polymarket_market_analysis(market_id, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_sim_tracking ON qd_polymarket_execution_simulations(tracking_key, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_research_generated ON qd_polymarket_research_snapshots(generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_worker_generated ON qd_polymarket_radar_worker_runs(generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_trend_market ON qd_polymarket_radar_trends(market_id, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_trend_direction ON qd_polymarket_radar_trends(trend_direction, risk);
+        CREATE INDEX IF NOT EXISTS idx_poly_queue_priority ON qd_polymarket_radar_queue(priority_score, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_queue_market ON qd_polymarket_radar_queue(market_id, generated_at);
         """
+    )
+    ensure_columns(
+        con,
+        "qd_polymarket_runs",
+        {
+            "worker_rows": "INTEGER NOT NULL DEFAULT 0",
+            "trend_rows": "INTEGER NOT NULL DEFAULT 0",
+            "queue_rows": "INTEGER NOT NULL DEFAULT 0",
+        },
     )
 
 
@@ -533,6 +656,208 @@ def upsert_research(con: sqlite3.Connection, research: dict[str, Any], now_iso: 
     return 1
 
 
+def upsert_radar_worker_run(con: sqlite3.Connection, worker_payload: dict[str, Any], now_iso: str) -> int:
+    if not worker_payload:
+        return 0
+    generated = str(worker_payload.get("generatedAt") or now_iso)
+    worker = worker_payload.get("worker") if isinstance(worker_payload.get("worker"), dict) else {}
+    summary = worker_payload.get("summary") if isinstance(worker_payload.get("summary"), dict) else {}
+    safety = worker_payload.get("safety") if isinstance(worker_payload.get("safety"), dict) else {}
+    run_id = str(worker_payload.get("runId") or stable_id("radar_worker", generated))
+    con.execute(
+        """
+        INSERT OR REPLACE INTO qd_polymarket_radar_worker_runs (
+            run_id, generated_at, status, decision, started_at, finished_at,
+            cycles_requested, cycles_completed, interval_seconds, unique_markets,
+            duplicate_markets, candidate_queue_size, new_markets, recurring_markets,
+            score_improved, score_deteriorated, probability_moved_up,
+            probability_moved_down, stale_tracked, top_market, top_score, top_risk,
+            wallet_write_allowed, order_send_allowed, can_start_executor,
+            can_mutate_mt5, raw_json
+        ) VALUES (
+            :run_id, :generated_at, :status, :decision, :started_at, :finished_at,
+            :cycles_requested, :cycles_completed, :interval_seconds, :unique_markets,
+            :duplicate_markets, :candidate_queue_size, :new_markets, :recurring_markets,
+            :score_improved, :score_deteriorated, :probability_moved_up,
+            :probability_moved_down, :stale_tracked, :top_market, :top_score, :top_risk,
+            :wallet_write_allowed, :order_send_allowed, :can_start_executor,
+            :can_mutate_mt5, :raw_json
+        )
+        """,
+        {
+            "run_id": run_id,
+            "generated_at": generated,
+            "status": str(worker_payload.get("status") or ""),
+            "decision": str(worker_payload.get("decision") or ""),
+            "started_at": str(worker.get("startedAt") or ""),
+            "finished_at": str(worker.get("finishedAt") or generated),
+            "cycles_requested": safe_int(worker.get("cyclesRequested"), 0),
+            "cycles_completed": safe_int(worker.get("cyclesCompleted"), 0),
+            "interval_seconds": safe_number(worker.get("intervalSeconds")),
+            "unique_markets": safe_int(summary.get("uniqueMarkets"), 0),
+            "duplicate_markets": safe_int(summary.get("duplicateMarkets"), 0),
+            "candidate_queue_size": safe_int(summary.get("candidateQueueSize"), 0),
+            "new_markets": safe_int(summary.get("newMarkets"), 0),
+            "recurring_markets": safe_int(summary.get("recurringMarkets"), 0),
+            "score_improved": safe_int(summary.get("scoreImproved"), 0),
+            "score_deteriorated": safe_int(summary.get("scoreDeteriorated"), 0),
+            "probability_moved_up": safe_int(summary.get("probabilityMovedUp"), 0),
+            "probability_moved_down": safe_int(summary.get("probabilityMovedDown"), 0),
+            "stale_tracked": safe_int(summary.get("staleTracked"), 0),
+            "top_market": str(summary.get("topMarket") or ""),
+            "top_score": safe_number(summary.get("topScore")),
+            "top_risk": str(summary.get("topRisk") or ""),
+            "wallet_write_allowed": as_bool_int(safety.get("walletWriteAllowed")),
+            "order_send_allowed": as_bool_int(safety.get("orderSendAllowed")),
+            "can_start_executor": as_bool_int(safety.get("canStartExecutor")),
+            "can_mutate_mt5": as_bool_int(safety.get("canMutateMt5")),
+            "raw_json": compact_json(worker_payload),
+        },
+    )
+    return 1
+
+
+def upsert_radar_trends(
+    con: sqlite3.Connection,
+    trend_cache: dict[str, Any],
+    worker_payload: dict[str, Any],
+    now_iso: str,
+) -> int:
+    markets = trend_cache.get("markets") if isinstance(trend_cache.get("markets"), dict) else {}
+    generated = str(trend_cache.get("updatedAt") or worker_payload.get("generatedAt") or now_iso)
+    run_id = str(trend_cache.get("runId") or worker_payload.get("runId") or stable_id("radar_trends", generated))
+    count = 0
+    for key, item in markets.items():
+        if not isinstance(item, dict):
+            continue
+        market_key = str(item.get("key") or key)
+        row_id = stable_id("trend", run_id, market_key)
+        con.execute(
+            """
+            INSERT OR REPLACE INTO qd_polymarket_radar_trends (
+                id, run_id, generated_at, market_key, market_id, event_id, question,
+                polymarket_url, category, suggested_shadow_track, risk, risk_flags_json,
+                first_seen_at, last_seen_at, seen_count, stale_cycles, last_probability,
+                previous_probability, probability_delta, last_ai_rule_score,
+                previous_ai_rule_score, ai_rule_score_delta, best_ai_rule_score,
+                last_volume_24h, previous_volume_24h, volume_24h_delta, last_liquidity,
+                trend_direction, raw_json
+            ) VALUES (
+                :id, :run_id, :generated_at, :market_key, :market_id, :event_id, :question,
+                :polymarket_url, :category, :suggested_shadow_track, :risk, :risk_flags_json,
+                :first_seen_at, :last_seen_at, :seen_count, :stale_cycles, :last_probability,
+                :previous_probability, :probability_delta, :last_ai_rule_score,
+                :previous_ai_rule_score, :ai_rule_score_delta, :best_ai_rule_score,
+                :last_volume_24h, :previous_volume_24h, :volume_24h_delta, :last_liquidity,
+                :trend_direction, :raw_json
+            )
+            """,
+            {
+                "id": row_id,
+                "run_id": run_id,
+                "generated_at": generated,
+                "market_key": market_key,
+                "market_id": str(item.get("marketId") or ""),
+                "event_id": str(item.get("eventId") or ""),
+                "question": str(item.get("question") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "category": str(item.get("category") or ""),
+                "suggested_shadow_track": str(item.get("suggestedShadowTrack") or ""),
+                "risk": str(item.get("risk") or ""),
+                "risk_flags_json": compact_json(item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else []),
+                "first_seen_at": str(item.get("firstSeenAt") or ""),
+                "last_seen_at": str(item.get("lastSeenAt") or generated),
+                "seen_count": safe_int(item.get("seenCount"), 0),
+                "stale_cycles": safe_int(item.get("staleCycles"), 0),
+                "last_probability": safe_number(item.get("lastProbability")),
+                "previous_probability": safe_number(item.get("previousProbability")),
+                "probability_delta": safe_number(item.get("probabilityDelta")),
+                "last_ai_rule_score": safe_number(item.get("lastAiRuleScore")),
+                "previous_ai_rule_score": safe_number(item.get("previousAiRuleScore")),
+                "ai_rule_score_delta": safe_number(item.get("aiRuleScoreDelta")),
+                "best_ai_rule_score": safe_number(item.get("bestAiRuleScore")),
+                "last_volume_24h": safe_number(item.get("lastVolume24h")),
+                "previous_volume_24h": safe_number(item.get("previousVolume24h")),
+                "volume_24h_delta": safe_number(item.get("volume24hDelta")),
+                "last_liquidity": safe_number(item.get("lastLiquidity")),
+                "trend_direction": str(item.get("trendDirection") or ""),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
+def upsert_radar_queue(
+    con: sqlite3.Connection,
+    queue_payload: dict[str, Any],
+    worker_payload: dict[str, Any],
+    now_iso: str,
+) -> int:
+    rows = queue_payload.get("candidates") if isinstance(queue_payload.get("candidates"), list) else []
+    generated = str(queue_payload.get("generatedAt") or worker_payload.get("generatedAt") or now_iso)
+    run_id = str(queue_payload.get("runId") or worker_payload.get("runId") or stable_id("radar_queue", generated))
+    count = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        candidate_id = str(item.get("candidateId") or "")
+        row_id = stable_id("queue", run_id, candidate_id or item.get("marketId") or item.get("question"))
+        con.execute(
+            """
+            INSERT OR REPLACE INTO qd_polymarket_radar_queue (
+                id, candidate_id, run_id, generated_at, queue_state, execution_mode,
+                market_id, event_id, question, polymarket_url, category, probability,
+                divergence, volume, volume_24h, liquidity, risk, risk_flags_json,
+                ai_rule_score, rule_score, priority_score, suggested_shadow_track,
+                trend_direction, seen_count, probability_delta, ai_rule_score_delta,
+                next_action, wallet_write_allowed, order_send_allowed, raw_json
+            ) VALUES (
+                :id, :candidate_id, :run_id, :generated_at, :queue_state, :execution_mode,
+                :market_id, :event_id, :question, :polymarket_url, :category, :probability,
+                :divergence, :volume, :volume_24h, :liquidity, :risk, :risk_flags_json,
+                :ai_rule_score, :rule_score, :priority_score, :suggested_shadow_track,
+                :trend_direction, :seen_count, :probability_delta, :ai_rule_score_delta,
+                :next_action, :wallet_write_allowed, :order_send_allowed, :raw_json
+            )
+            """,
+            {
+                "id": row_id,
+                "candidate_id": candidate_id,
+                "run_id": run_id,
+                "generated_at": str(item.get("generatedAt") or generated),
+                "queue_state": str(item.get("queueState") or ""),
+                "execution_mode": str(item.get("executionMode") or ""),
+                "market_id": str(item.get("marketId") or ""),
+                "event_id": str(item.get("eventId") or ""),
+                "question": str(item.get("question") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "category": str(item.get("category") or ""),
+                "probability": safe_number(item.get("probability")),
+                "divergence": safe_number(item.get("divergence")),
+                "volume": safe_number(item.get("volume")),
+                "volume_24h": safe_number(item.get("volume24h")),
+                "liquidity": safe_number(item.get("liquidity")),
+                "risk": str(item.get("risk") or ""),
+                "risk_flags_json": compact_json(item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else []),
+                "ai_rule_score": safe_number(item.get("aiRuleScore")),
+                "rule_score": safe_number(item.get("ruleScore")),
+                "priority_score": safe_number(item.get("priorityScore")),
+                "suggested_shadow_track": str(item.get("suggestedShadowTrack") or ""),
+                "trend_direction": str(item.get("trendDirection") or ""),
+                "seen_count": safe_int(item.get("seenCount"), 0),
+                "probability_delta": safe_number(item.get("probabilityDelta")),
+                "ai_rule_score_delta": safe_number(item.get("aiRuleScoreDelta")),
+                "next_action": str(item.get("nextAction") or ""),
+                "wallet_write_allowed": as_bool_int(item.get("walletWriteAllowed")),
+                "order_send_allowed": as_bool_int(item.get("orderSendAllowed")),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
 def table_summary(con: sqlite3.Connection, table: str, latest_col: str = "generated_at") -> dict[str, Any]:
     row = con.execute(f"SELECT COUNT(*) AS rows, MAX({latest_col}) AS latest_at FROM {table}").fetchone()
     return {"rows": int(row["rows"] or 0), "latestAt": row["latest_at"] or ""}
@@ -544,10 +869,14 @@ def fetch_rows(con: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) 
 
 def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str, str], now_iso: str, recent_limit: int) -> dict[str, Any]:
     tables = {
+        "qd_polymarket_runs": table_summary(con, "qd_polymarket_runs"),
         "qd_polymarket_asset_opportunities": table_summary(con, "qd_polymarket_asset_opportunities", "last_seen_at"),
         "qd_polymarket_market_analysis": table_summary(con, "qd_polymarket_market_analysis"),
         "qd_polymarket_execution_simulations": table_summary(con, "qd_polymarket_execution_simulations"),
         "qd_polymarket_research_snapshots": table_summary(con, "qd_polymarket_research_snapshots"),
+        "qd_polymarket_radar_worker_runs": table_summary(con, "qd_polymarket_radar_worker_runs"),
+        "qd_polymarket_radar_trends": table_summary(con, "qd_polymarket_radar_trends"),
+        "qd_polymarket_radar_queue": table_summary(con, "qd_polymarket_radar_queue"),
     }
     total_rows = sum(item["rows"] for item in tables.values())
     recent_opportunities = fetch_rows(
@@ -605,23 +934,79 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         LIMIT 1
         """
     )
+    recent_worker_runs = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, run_id AS runId, status, decision,
+               cycles_completed AS cyclesCompleted, unique_markets AS uniqueMarkets,
+               duplicate_markets AS duplicateMarkets, candidate_queue_size AS candidateQueueSize,
+               new_markets AS newMarkets, recurring_markets AS recurringMarkets,
+               score_improved AS scoreImproved, score_deteriorated AS scoreDeteriorated,
+               probability_moved_up AS probabilityMovedUp, probability_moved_down AS probabilityMovedDown,
+               stale_tracked AS staleTracked, top_market AS topMarket, top_score AS topScore,
+               top_risk AS topRisk, wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed, can_start_executor AS canStartExecutor
+        FROM qd_polymarket_radar_worker_runs
+        ORDER BY generated_at DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
+    recent_worker_trends = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, run_id AS runId, market_id AS marketId,
+               question, category, suggested_shadow_track AS suggestedShadowTrack,
+               risk, seen_count AS seenCount, stale_cycles AS staleCycles,
+               last_probability AS lastProbability, probability_delta AS probabilityDelta,
+               last_ai_rule_score AS lastAiRuleScore, ai_rule_score_delta AS aiRuleScoreDelta,
+               best_ai_rule_score AS bestAiRuleScore, last_volume_24h AS lastVolume24h,
+               volume_24h_delta AS volume24hDelta, last_liquidity AS lastLiquidity,
+               trend_direction AS trendDirection
+        FROM qd_polymarket_radar_trends
+        ORDER BY generated_at DESC, best_ai_rule_score DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
+    recent_worker_queue = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, candidate_id AS candidateId, run_id AS runId,
+               queue_state AS queueState, execution_mode AS executionMode, market_id AS marketId,
+               question, category, probability, divergence, volume_24h AS volume24h,
+               liquidity, risk, ai_rule_score AS aiRuleScore, priority_score AS priorityScore,
+               suggested_shadow_track AS suggestedShadowTrack, trend_direction AS trendDirection,
+               seen_count AS seenCount, probability_delta AS probabilityDelta,
+               ai_rule_score_delta AS aiRuleScoreDelta, next_action AS nextAction,
+               wallet_write_allowed AS walletWriteAllowed, order_send_allowed AS orderSendAllowed
+        FROM qd_polymarket_radar_queue
+        ORDER BY generated_at DESC, priority_score DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
     return {
         "generatedAt": now_iso,
-        "mode": "POLYMARKET_HISTORY_DB_V1",
+        "mode": "POLYMARKET_HISTORY_DB_V2",
         "schemaVersion": SCHEMA_VERSION,
         "decision": "LOCAL_HISTORY_DB_NO_WALLET_WRITE",
         "database": {
             "path": str(db_path),
             "tables": list(tables.keys()),
-            "purpose": "Long-lived local Polymarket research memory for radar, analysis, dry-run, outcome, and bridge snapshots.",
+            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, analysis, dry-run, outcome, and bridge snapshots.",
         },
         "sourceFiles": source_files,
         "summary": {
             "totalRows": total_rows,
+            "runs": tables["qd_polymarket_runs"]["rows"],
             "assetOpportunities": tables["qd_polymarket_asset_opportunities"]["rows"],
             "marketAnalyses": tables["qd_polymarket_market_analysis"]["rows"],
             "executionSimulations": tables["qd_polymarket_execution_simulations"]["rows"],
             "researchSnapshots": tables["qd_polymarket_research_snapshots"]["rows"],
+            "radarWorkerRuns": tables["qd_polymarket_radar_worker_runs"]["rows"],
+            "radarTrendRows": tables["qd_polymarket_radar_trends"]["rows"],
+            "radarQueueRows": tables["qd_polymarket_radar_queue"]["rows"],
             "latestAt": max((item["latestAt"] for item in tables.values() if item["latestAt"]), default=""),
         },
         "tables": tables,
@@ -629,6 +1014,9 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "opportunities": recent_opportunities,
             "analyses": recent_analyses,
             "simulations": recent_simulations,
+            "workerRuns": recent_worker_runs,
+            "workerTrends": recent_worker_trends,
+            "workerQueue": recent_worker_queue,
             "research": latest_research[0] if latest_research else {},
         },
         "safety": {
@@ -640,8 +1028,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "source": "Consumes QuantGod generated snapshots only.",
         },
         "nextActions": [
-            "Use this DB as the source for future search/history API.",
-            "Add real AI scoring only after historical rows are stable and queryable.",
+            "Use this DB as the source for Worker V2 trend and queue governance evidence.",
+            "Add future promotion/demotion rules only after trend cache and queue rows have enough history.",
             "Do not promote Polymarket betting from history rows alone; route through Execution Gate and dry-run outcome evidence.",
         ],
     }
@@ -677,12 +1065,18 @@ def main() -> int:
 
     research, research_path = read_json_candidate(RESEARCH_NAME, runtime_dir, dashboard_dir)
     radar, radar_path = read_json_candidate(RADAR_NAME, runtime_dir, dashboard_dir)
+    radar_worker, radar_worker_path = read_json_candidate(RADAR_WORKER_NAME, runtime_dir, dashboard_dir)
+    radar_trend_cache, radar_trend_cache_path = read_json_candidate(RADAR_TREND_CACHE_NAME, runtime_dir, dashboard_dir)
+    radar_queue, radar_queue_path = read_json_candidate(RADAR_QUEUE_NAME, runtime_dir, dashboard_dir)
     single, single_path = read_json_candidate(SINGLE_NAME, runtime_dir, dashboard_dir)
     dry_run, dry_run_path = read_json_candidate(DRY_RUN_NAME, runtime_dir, dashboard_dir)
     outcome, outcome_path = read_json_candidate(OUTCOME_NAME, runtime_dir, dashboard_dir)
     source_files = {
         RESEARCH_NAME: research_path,
         RADAR_NAME: radar_path,
+        RADAR_WORKER_NAME: radar_worker_path,
+        RADAR_TREND_CACHE_NAME: radar_trend_cache_path,
+        RADAR_QUEUE_NAME: radar_queue_path,
         SINGLE_NAME: single_path,
         DRY_RUN_NAME: dry_run_path,
         OUTCOME_NAME: outcome_path,
@@ -696,6 +1090,9 @@ def main() -> int:
         dry_run_rows = upsert_dry_runs(con, dry_run, now_iso)
         outcome_rows = upsert_outcomes(con, outcome, now_iso)
         research_rows = upsert_research(con, research, now_iso)
+        worker_rows = upsert_radar_worker_run(con, radar_worker, now_iso)
+        trend_rows = upsert_radar_trends(con, radar_trend_cache, radar_worker, now_iso)
+        queue_rows = upsert_radar_queue(con, radar_queue, radar_worker, now_iso)
         simulation_rows = dry_run_rows + outcome_rows
         run_id = "POLYHIST-" + utc_now().strftime("%Y%m%d-%H%M%S")
         con.execute(
@@ -703,8 +1100,9 @@ def main() -> int:
             INSERT OR REPLACE INTO qd_polymarket_runs (
                 run_id, generated_at, schema_version, db_path, source_files_json,
                 radar_rows, analysis_rows, simulation_rows, research_rows,
+                worker_rows, trend_rows, queue_rows,
                 wallet_write_allowed, order_send_allowed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 run_id,
@@ -716,6 +1114,9 @@ def main() -> int:
                 analysis_rows,
                 simulation_rows,
                 research_rows,
+                worker_rows,
+                trend_rows,
+                queue_rows,
             ),
         )
         con.commit()
