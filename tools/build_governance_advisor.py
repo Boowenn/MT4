@@ -23,6 +23,7 @@ DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 OUTPUT_NAME = "QuantGod_GovernanceAdvisor.json"
 PARAM_OPTIMIZATION_NAME = "QuantGod_ParamOptimizationPlan.json"
 PARAM_LAB_STATUS_NAME = "QuantGod_ParamLabStatus.json"
+PARAM_LAB_RESULTS_NAME = "QuantGod_ParamLabResults.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -35,6 +36,7 @@ RUNTIME_FILE_HEALTH = [
     ("manual_alpha", "QuantGod_ManualAlphaLedger.csv", 24 * 60 * 60),
     ("param_optimization", PARAM_OPTIMIZATION_NAME, 7 * 24 * 60 * 60),
     ("param_lab", PARAM_LAB_STATUS_NAME, 7 * 24 * 60 * 60),
+    ("param_lab_results", PARAM_LAB_RESULTS_NAME, 7 * 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -477,6 +479,54 @@ def summarize_param_lab(status: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_param_lab_results(results: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(results, dict) or not results:
+        return {
+            "status": "missing",
+            "resultCount": 0,
+            "parsedReportCount": 0,
+            "pendingReportCount": 0,
+            "promotionReadyCount": 0,
+            "topByRoute": {},
+        }
+    summary = results.get("summary") if isinstance(results.get("summary"), dict) else {}
+    top_by_route = {}
+    for route_key, result in (results.get("topByRoute") or {}).items():
+        if not isinstance(result, dict):
+            continue
+        metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+        top_by_route[str(route_key)] = {
+            "candidateId": result.get("candidateId", ""),
+            "variant": result.get("variant", ""),
+            "symbol": result.get("symbol", ""),
+            "timeframe": result.get("timeframe", ""),
+            "status": result.get("status", ""),
+            "resultScore": result.get("resultScore"),
+            "grade": result.get("grade", ""),
+            "promotionReadiness": result.get("promotionReadiness", ""),
+            "blockers": result.get("blockers") if isinstance(result.get("blockers"), list) else [],
+            "metrics": {
+                "closedTrades": metrics.get("closedTrades"),
+                "profitFactor": metrics.get("profitFactor"),
+                "winRate": metrics.get("winRate"),
+                "netProfit": metrics.get("netProfit"),
+                "maxDrawdown": metrics.get("maxDrawdown"),
+                "relativeDrawdownPct": metrics.get("relativeDrawdownPct"),
+                "reportExists": bool(metrics.get("reportExists")),
+            },
+        }
+    return {
+        "status": "ready",
+        "generatedAtIso": results.get("generatedAtIso", ""),
+        "mode": results.get("mode", "OFFLINE_RESULT_LEDGER_ONLY"),
+        "resultCount": int(summary.get("resultCount") or 0),
+        "parsedReportCount": int(summary.get("parsedReportCount") or 0),
+        "pendingReportCount": int(summary.get("pendingReportCount") or 0),
+        "promotionReadyCount": int(summary.get("promotionReadyCount") or 0),
+        "topByRoute": top_by_route,
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -534,6 +584,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     backtest = read_json(runtime_dir / "QuantGod_BacktestSummary.json")
     param_optimization_plan = read_json(runtime_dir / PARAM_OPTIMIZATION_NAME)
     param_lab_status = read_json(runtime_dir / PARAM_LAB_STATUS_NAME)
+    param_lab_results_doc = read_json(runtime_dir / PARAM_LAB_RESULTS_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -544,6 +595,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     backtest_summary = summarize_backtest(backtest)
     param_optimization = summarize_param_optimization(param_optimization_plan)
     param_lab = summarize_param_lab(param_lab_status)
+    param_lab_results = summarize_param_lab_results(param_lab_results_doc)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -569,6 +621,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             },
             "paramOptimization": param_optimization.get("topByRoute", {}).get(route["strategy"], {}),
             "paramLab": param_lab.get("topByRoute", {}).get(route["strategy"], {}),
+            "paramLabResult": param_lab_results.get("topByRoute", {}).get(route["strategy"], {}),
         })
 
     action_counts = Counter(item["recommendedAction"] for item in route_decisions)
@@ -604,6 +657,9 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramOptimizationBacktestTasks": param_optimization["backtestTaskCount"],
             "paramLabConfigReady": param_lab["configReadyCount"],
             "paramLabReportParsed": param_lab["reportParsedCount"],
+            "paramLabResultCount": param_lab_results["resultCount"],
+            "paramLabResultParsed": param_lab_results["parsedReportCount"],
+            "paramLabPromotionReady": param_lab_results["promotionReadyCount"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -615,12 +671,14 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "manualAlpha": manual,
         "paramOptimization": param_optimization,
         "paramLab": param_lab,
+        "paramLabResults": param_lab_results,
         "routeDecisions": route_decisions,
         "nextOperatorSteps": [
             "Keep MA_Cross and USDJPY RSI_Reversal at 0.01 live only while samples remain thin.",
             "Keep BB/MACD/SR in simulation and retune routes with weak 60m candidate outcomes.",
             "Use ParamOptimizationPlan candidates as offline tester tasks only; never overwrite the live preset automatically.",
             "Use ParamLabStatus as the controlled Strategy Tester task queue; CONFIG_READY tasks still require an authorized tester run before promotion review.",
+            "Use ParamLabResults as the parameter-version ranking source after Strategy Tester reports exist; pending reports are not promotion evidence.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }
