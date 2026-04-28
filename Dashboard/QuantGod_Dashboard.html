@@ -3750,8 +3750,61 @@
             overflow: auto;
         }
 
+        .table-wrapper.report-table-wrapper {
+            max-height: 420px;
+        }
+
+        .table-wrapper table {
+            min-width: 880px;
+            table-layout: fixed;
+        }
+
         table {
             color: #1f2937;
+        }
+
+        .table-wrapper th,
+        .table-wrapper td {
+            padding: 7px 10px;
+            line-height: 1.35;
+            vertical-align: middle;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .table-wrapper thead th {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            box-shadow: inset 0 -1px 0 #dfe7f2;
+        }
+
+        .table-wrapper th:nth-child(1),
+        .table-wrapper td:nth-child(1) {
+            width: 132px;
+        }
+
+        .table-wrapper th:nth-child(2),
+        .table-wrapper td:nth-child(2) {
+            width: 112px;
+        }
+
+        .table-wrapper th:nth-child(3),
+        .table-wrapper td:nth-child(3) {
+            width: 116px;
+        }
+
+        .table-wrapper th:nth-child(4),
+        .table-wrapper td:nth-child(4) {
+            width: 112px;
+        }
+
+        .table-wrapper td:nth-child(1),
+        .table-wrapper td:nth-child(2),
+        .table-wrapper td:nth-child(3),
+        .table-wrapper td:nth-child(5) {
+            font-weight: 700;
         }
 
         th {
@@ -3780,9 +3833,100 @@
             color: #64748b;
         }
 
+        .table-wrapper .empty-state,
+        .report-table-wrapper .empty-state {
+            padding: 1rem 0.8rem;
+            color: #7b8ba1;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .strat-tag {
+            border: 1px solid transparent;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .strat-manual {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            color: #334155;
+        }
+
+        .strat-quantgod {
+            background: #ecfdf5;
+            border-color: #bbf7d0;
+            color: #047857;
+        }
+
+        .table-badge {
+            border: 1px solid transparent;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .table-badge.status-muted,
+        .table-badge.runtime-off {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            color: #475569;
+        }
+
+        .table-badge.status-warn,
+        .table-badge.runtime-low {
+            background: #fff7ed;
+            border-color: #fed7aa;
+            color: #b45309;
+        }
+
+        .table-badge.status-info,
+        .table-badge.runtime-on {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: #0f5ed7;
+        }
+
+        .table-badge.status-live,
+        .table-badge.runtime-boost {
+            background: #ecfdf5;
+            border-color: #bbf7d0;
+            color: #047857;
+        }
+
+        .table-badge.status-danger,
+        .table-badge.runtime-paused {
+            background: #fff1f2;
+            border-color: #fecdd3;
+            color: #be123c;
+        }
+
+        .profit-cell.positive,
+        .type-buy {
+            color: #047857;
+            font-weight: 800;
+        }
+
+        .profit-cell.negative,
+        .type-sell {
+            color: #be123c;
+            font-weight: 800;
+        }
+
         .footer {
             background: #ffffff;
             border-top-color: #dfe7f2;
+        }
+
+        @media (max-width: 720px) {
+            .table-wrapper table {
+                min-width: 720px;
+            }
+
+            .table-wrapper th,
+            .table-wrapper td {
+                padding: 6px 8px;
+                font-size: 12px;
+            }
         }
 
         @media (max-width: 1100px) {
