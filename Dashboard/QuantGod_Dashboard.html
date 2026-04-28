@@ -6094,6 +6094,7 @@
 
         .polymarket-summary-grid,
         .polymarket-group-grid,
+        .polymarket-search-grid,
         .polymarket-radar-grid,
         .polymarket-ai-score-grid,
         .polymarket-single-grid,
@@ -6113,6 +6114,10 @@
         }
 
         .polymarket-radar-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-search-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6379,6 +6384,50 @@
         }
 
         .polymarket-history-api-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .polymarket-unified-search-controls {
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) auto;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 12px;
+            padding: 12px;
+            border: 1px solid #2a3442;
+            border-radius: 8px;
+            background: #111821;
+        }
+
+        .polymarket-unified-search-field {
+            min-width: 240px;
+        }
+
+        .polymarket-unified-search-input {
+            width: 100%;
+            min-height: 38px;
+            border: 1px solid #344154;
+            border-radius: 7px;
+            background: #0d131b;
+            color: #e5edf7;
+            padding: 9px 10px;
+            font: 700 12px/1.4 inherit;
+            outline: none;
+        }
+
+        .polymarket-unified-search-input::placeholder {
+            color: #64748b;
+        }
+
+        .polymarket-unified-search-input:focus {
+            border-color: rgba(59,130,246,0.78);
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.16);
+        }
+
+        .polymarket-unified-search-actions {
             display: flex;
             gap: 8px;
             align-items: center;
@@ -7320,6 +7369,31 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(14,165,233,0.16); color: var(--accent-cyan);">S</div>
+                            统一证据搜索
+                        </div>
+                        <span class="eval-summary" id="polymarketUnifiedSearchSummary">等待统一搜索 API</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-unified-search-controls">
+                            <label class="polymarket-request-field polymarket-unified-search-field">
+                                <span class="polymarket-request-label">关键词 / marketId / 标题 / 路线</span>
+                                <input class="polymarket-unified-search-input" id="polymarketUnifiedSearchQuery" placeholder="例如 England、558935、HIGH_PRIORITY、poly_single_market..." autocomplete="off">
+                            </label>
+                            <div class="polymarket-unified-search-actions">
+                                <button class="polymarket-request-button" type="button" data-polymarket-search-submit>搜索</button>
+                                <button class="polymarket-request-button ghost" type="button" data-polymarket-search-reset>重置</button>
+                            </div>
+                        </div>
+                        <div class="polymarket-search-grid" id="polymarketUnifiedSearchBody">
+                            <div class="empty-state">等待 `/api/polymarket/search`；统一读取 history / radar / analyze / ai-score。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">O</div>
                             机会雷达 / Gamma 扫描
                         </div>
@@ -7571,6 +7645,113 @@
                         <div class="section-desc">把当前持仓和最近历史交易分开放，避免分析时在一长页里来回找表格。</div>
                     </div>
                     <div class="section-meta">适合核对实际进场、出场、浮盈亏和成交节奏。</div>
+                </div>
+
+                <div class="panel" style="margin-bottom: 1rem;">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">RO</div>
+                            MT5 只读桥
+                        </div>
+                        <span class="eval-summary" id="mt5ReadonlySummary">等待 MT5 只读桥</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="mt5-shadow-panel">
+                            <div class="mt5-shadow-meta" id="mt5ReadonlyMeta">
+                                等待本地 dashboard server 返回 MT5 status/account/positions/orders/symbols/quote snapshot。
+                            </div>
+                            <div class="mt5-shadow-note" id="mt5ReadonlyPills">
+                                <span class="mt5-shadow-pill">read-only</span>
+                                <span class="mt5-shadow-pill">no order/close/cancel</span>
+                            </div>
+                            <div class="mt5-shadow-metrics" id="mt5ReadonlyMetrics">
+                                <div class="mt5-shadow-metric">
+                                    <div class="mt5-shadow-metric-label">连接</div>
+                                    <div class="mt5-shadow-metric-value">--</div>
+                                    <div class="mt5-shadow-metric-meta">等待 MT5 initialize</div>
+                                </div>
+                            </div>
+                            <div class="dashboard-grid mt5-shadow-grid">
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">Positions</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlyPositionsMeta">等待 positions</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="table-wrapper">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Ticket</th>
+                                                        <th>品种</th>
+                                                        <th>方向</th>
+                                                        <th>手数</th>
+                                                        <th>开仓价</th>
+                                                        <th>现价</th>
+                                                        <th>盈亏</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="mt5ReadonlyPositionsBody">
+                                                    <tr><td colspan="7" class="empty-state">等待 positions</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">Orders</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlyOrdersMeta">等待 pending orders</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="table-wrapper">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Ticket</th>
+                                                        <th>品种</th>
+                                                        <th>类型</th>
+                                                        <th>剩余</th>
+                                                        <th>价格</th>
+                                                        <th>SL</th>
+                                                        <th>TP</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="mt5ReadonlyOrdersBody">
+                                                    <tr><td colspan="7" class="empty-state">等待 orders</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt5-shadow-subpanel">
+                                <div class="mt5-shadow-subpanel-header">
+                                    <div class="mt5-shadow-subpanel-title">Symbol Discovery</div>
+                                    <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlySymbolsMeta">等待 symbols</div>
+                                </div>
+                                <div class="mt5-shadow-subpanel-body">
+                                    <div class="table-wrapper" style="max-height: 320px; overflow-y: auto;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>品种</th>
+                                                    <th>描述</th>
+                                                    <th>路径</th>
+                                                    <th>可见</th>
+                                                    <th>点差</th>
+                                                    <th>最小/步进</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="mt5ReadonlySymbolsBody">
+                                                <tr><td colspan="6" class="empty-state">等待 symbols</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="trades-grid">
@@ -8046,6 +8227,8 @@ const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
 const POLYMARKET_RADAR_API_PATH = '/api/polymarket/radar';
 const POLYMARKET_ANALYZE_HISTORY_API_PATH = '/api/polymarket/analyze/history';
 const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
+const POLYMARKET_SEARCH_API_PATH = '/api/polymarket/search';
+const MT5_READONLY_SNAPSHOT_API_PATH = '/api/mt5-readonly/snapshot';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -8059,6 +8242,7 @@ let paramLabBatchStatusFilter = 'ALL';
 let paramLabBatchRouteFilter = 'ALL';
 let paramLabBatchSortMode = 'priority';
 let polymarketHistoryApiFilter = { table: 'all', query: '' };
+let polymarketUnifiedSearchFilter = { query: '' };
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
 const TIMEFRAME_ORDER = {
@@ -8632,6 +8816,55 @@ function initPolymarketHistoryApiControls() {
     });
 }
 
+function syncPolymarketUnifiedSearchControls() {
+    const query = document.getElementById('polymarketUnifiedSearchQuery');
+    if (query && document.activeElement !== query) {
+        query.value = String(polymarketUnifiedSearchFilter.query || '');
+    }
+}
+
+async function refreshPolymarketUnifiedSearchFromControls() {
+    const query = document.getElementById('polymarketUnifiedSearchQuery');
+    polymarketUnifiedSearchFilter = {
+        query: String(query?.value || '').trim().slice(0, 240)
+    };
+    await loadData();
+    syncPolymarketUnifiedSearchControls();
+}
+
+function initPolymarketUnifiedSearchControls() {
+    syncPolymarketUnifiedSearchControls();
+    document.addEventListener('click', async (event) => {
+        const searchButton = event.target.closest('[data-polymarket-search-submit]');
+        const resetButton = event.target.closest('[data-polymarket-search-reset]');
+        if (!searchButton && !resetButton) return;
+        event.preventDefault();
+        if (resetButton) {
+            polymarketUnifiedSearchFilter = { query: '' };
+            syncPolymarketUnifiedSearchControls();
+        }
+        const activeButton = searchButton || resetButton;
+        activeButton.disabled = true;
+        const previousText = activeButton.textContent;
+        activeButton.textContent = resetButton ? '重置中...' : '搜索中...';
+        try {
+            await refreshPolymarketUnifiedSearchFromControls();
+        } finally {
+            if (activeButton.isConnected) {
+                activeButton.disabled = false;
+                activeButton.textContent = previousText;
+            }
+        }
+    });
+    document.addEventListener('keydown', async (event) => {
+        if (event.key !== 'Enter') return;
+        const input = event.target.closest('#polymarketUnifiedSearchQuery');
+        if (!input) return;
+        event.preventDefault();
+        await refreshPolymarketUnifiedSearchFromControls();
+    });
+}
+
 function parseCsvLine(line) {
     const values = [];
     let current = '';
@@ -9043,10 +9276,14 @@ async function loadLocalJsonSupplement(path) {
     return JSON.parse(text);
 }
 
-async function loadPolymarketApiJson(path) {
+async function loadDashboardApiJson(path) {
     const response = await fetch(appendCacheBust(path), { cache: 'no-store' });
     if (!response.ok) throw new Error('HTTP ' + response.status);
     return response.json();
+}
+
+async function loadPolymarketApiJson(path) {
+    return loadDashboardApiJson(path);
 }
 
 function getPolymarketHistoryApiFilter() {
@@ -9066,6 +9303,16 @@ async function loadPolymarketHistoryApiSupplement() {
     params.set('limit', filter.query || filter.table !== 'all' ? '80' : '50');
     if (filter.query) params.set('q', filter.query);
     const response = await fetch(appendCacheBust(`${POLYMARKET_HISTORY_API_PATH}?${params.toString()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+}
+
+async function loadPolymarketUnifiedSearchSupplement() {
+    const params = new URLSearchParams();
+    params.set('limit', '36');
+    const query = String(polymarketUnifiedSearchFilter.query || '').trim();
+    if (query) params.set('q', query);
+    const response = await fetch(appendCacheBust(`${POLYMARKET_SEARCH_API_PATH}?${params.toString()}`), { cache: 'no-store' });
     if (!response.ok) throw new Error('HTTP ' + response.status);
     return response.json();
 }
@@ -9118,6 +9365,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null,
         autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null,
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
+        mt5ReadOnlyBridge: baseData?.mt5ReadOnlyBridge || previousData?.mt5ReadOnlyBridge || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
@@ -9125,6 +9373,7 @@ async function attachSupplementalData(baseData, previousData = null) {
             ? baseData.polymarketSingleMarketAnalysisLedgerRows
             : (previousData?.polymarketSingleMarketAnalysisLedgerRows || []),
         polymarketAnalyzeHistoryApi: baseData?.polymarketAnalyzeHistoryApi || previousData?.polymarketAnalyzeHistoryApi || null,
+        polymarketUnifiedSearch: baseData?.polymarketUnifiedSearch || previousData?.polymarketUnifiedSearch || null,
         polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null,
         polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null,
         polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null,
@@ -9306,11 +9555,36 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        const mt5Params = new URLSearchParams();
+        const focusSymbol = String(data?.market?.symbol || '').trim();
+        if (focusSymbol && focusSymbol !== '--') {
+            mt5Params.set('symbol', focusSymbol);
+        }
+        mt5Params.set('group', '*');
+        mt5Params.set('symbolsLimit', '120');
+        data.mt5ReadOnlyBridge = await loadDashboardApiJson(`${MT5_READONLY_SNAPSHOT_API_PATH}?${mt5Params.toString()}`);
+        data._mt5ReadOnlyBridgeError = false;
+    } catch (error) {
+        data._mt5ReadOnlyBridgeError = true;
+        console.warn('MT5 read-only bridge load failed.', error);
+    }
+
+    try {
         data.polymarketResearch = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RESEARCH_PATH);
         data._polymarketResearchError = false;
     } catch (error) {
         data._polymarketResearchError = true;
         console.warn('Polymarket research bridge load failed.', error);
+    }
+
+    try {
+        data.polymarketUnifiedSearch = await loadPolymarketUnifiedSearchSupplement();
+        data._polymarketUnifiedSearchError = false;
+        data._polymarketUnifiedSearchSource = 'api';
+    } catch (error) {
+        data._polymarketUnifiedSearchError = true;
+        data._polymarketUnifiedSearchSource = 'unavailable';
+        console.warn('Polymarket unified search API load failed.', error);
     }
 
     try {
@@ -9519,6 +9793,10 @@ function getPolymarketMarketRadar(d) {
     return d?.polymarketMarketRadar || null;
 }
 
+function getPolymarketUnifiedSearch(d) {
+    return d?.polymarketUnifiedSearch || null;
+}
+
 function getPolymarketSingleMarketAnalysis(d) {
     return d?.polymarketSingleMarketAnalysis || null;
 }
@@ -9623,6 +9901,7 @@ function translatePolymarketToken(value) {
         SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
         AI_SCORE_ONLY_NO_BETTING: 'AI 评分只读：不下注',
         AI_SCORE_ONLY_NO_WALLET_WRITE: 'AI 评分只读：不写钱包',
+        READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE: '统一证据搜索只读：不写钱包',
         POLYMARKET_AI_SCORE_V1: '历史 AI 评分 V1',
         SHADOW_REVIEW_PRIORITY: '优先进入影子复核',
         WATCH_SHADOW_AND_COLLECT_OUTCOME: '继续影子观察并收集后验',
@@ -9711,6 +9990,83 @@ function renderPolymarketMetric(label, value) {
             <div class="polymarket-metric-value">${escapeHtml(value)}</div>
         </div>
     `;
+}
+
+function getPolymarketUnifiedSearchTone(item = {}) {
+    const risk = String(item.risk || '').toLowerCase();
+    const recommendation = String(item.recommendation || '').toUpperCase();
+    const score = Number(item.score);
+    if (risk === 'high' || risk === 'red' || recommendation.includes('AVOID') || recommendation.includes('NO_TRADE')) {
+        return 'danger';
+    }
+    if (risk === 'low' || risk === 'green' || (Number.isFinite(score) && score >= 60)) {
+        return 'good';
+    }
+    return 'watch';
+}
+
+function renderPolymarketUnifiedSearchCard(item = {}) {
+    const tone = getPolymarketUnifiedSearchTone(item);
+    const source = item.sourceLabel || item.sourceType || '证据';
+    const probability = formatPolymarketPercent(item.probability);
+    const divergence = formatPolymarketSignedPp(item.divergence);
+    const score = formatPolymarketScore(item.score);
+    const title = item.title || item.marketId || item.url || '--';
+    const subtitle = item.subtitle || item.url || '只读聚合结果';
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(source))}</div>
+            <div class="polymarket-title">${escapeHtml(title)}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('评分', score)}
+                ${renderPolymarketMetric('概率', probability)}
+                ${renderPolymarketMetric('偏离', divergence)}
+                ${renderPolymarketMetric('风险', translatePolymarketToken(item.risk || '--'))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">建议 ${escapeHtml(translatePolymarketToken(item.recommendation || '--'))}</div>
+                <div class="polymarket-action">路线 ${escapeHtml(item.track || '--')} · marketId ${escapeHtml(item.marketId || '--')}</div>
+                <div class="polymarket-action">时间 ${escapeHtml(formatPolymarketTime(item.generatedAt))}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(subtitle)} · 统一搜索只读，不生成新分析、不下注、不影响 MT5。</div>
+        </div>
+    `;
+}
+
+function updatePolymarketUnifiedSearch(d) {
+    const search = getPolymarketUnifiedSearch(d);
+    const summaryEl = document.getElementById('polymarketUnifiedSearchSummary');
+    const body = document.getElementById('polymarketUnifiedSearchBody');
+    if (!body) return;
+    if (!search || d?._polymarketUnifiedSearchError) {
+        if (summaryEl) summaryEl.textContent = '等待统一搜索 API';
+        body.innerHTML = '<div class="empty-state">等待 `/api/polymarket/search`；统一读取 history / radar / analyze / ai-score。</div>';
+        return;
+    }
+    const summary = search.summary || {};
+    const query = String(search.query || '').trim();
+    const results = Array.isArray(search.results) ? search.results : [];
+    if (summaryEl) {
+        const sourceLabel = d?._polymarketUnifiedSearchSource === 'api' || search.source === 'quantgod_dashboard_local_api' ? 'API' : '文件';
+        const activeQuery = query ? `关键词 ${query}` : '最近/高分证据';
+        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 总 ${summary.totalMatches || results.length || 0} | 雷达/分析/历史/AI ${summary.radarMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
+    }
+    const safety = search.safety || {};
+    const boundaryCard = `
+        <div class="polymarket-card ${search.status === 'PARTIAL' ? 'watch' : 'good'}">
+            <div class="polymarket-eyebrow">统一搜索边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(search.decision || 'READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('读私钥', safety.readsPrivateKey ? '是' : '否')}
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('下单', safety.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">同一入口聚合历史库、雷达、单市场分析和 AI 评分；仅用于找证据。</div>
+        </div>
+    `;
+    const cards = results.slice(0, 11).map(renderPolymarketUnifiedSearchCard);
+    body.innerHTML = [boundaryCard, ...cards].join('') || '<div class="empty-state">没有匹配证据；换一个关键词试试。</div>';
 }
 
 function renderPolymarketRadarCard(item = {}) {
@@ -15150,6 +15506,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCopyButtons();
     initPolymarketSingleMarketRequestForm();
     initPolymarketHistoryApiControls();
+    initPolymarketUnifiedSearchControls();
     initResearchJumpLinks();
     initMonitorJumpLinks();
     loadData();
@@ -15451,6 +15808,7 @@ function updateDashboard() {
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
+    updatePolymarketUnifiedSearch(d);
     updatePolymarketMarketRadar(d);
     updatePolymarketAiScore(d);
     updatePolymarketSingleMarketAnalysis(d);
@@ -15467,6 +15825,7 @@ function updateDashboard() {
     updateResearchSuggestions(d);
     updateRegimeHeatmap(d);
     updateSidebarSummary(d);
+    updateMt5ReadOnlyBridgePanel(d);
     updateMt5ShadowJournalPanel(d);
 
     const footer = document.querySelector('.footer');
@@ -15643,6 +16002,197 @@ function updateStrategyCards(d) {
             }
         });
     });
+}
+
+function getMt5ReadonlyItems(block) {
+    return Array.isArray(block?.items) ? block.items : [];
+}
+
+function formatMt5ReadonlyAmount(value, currency = '', digits = 2) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '--';
+    const suffix = currency ? ` ${currency}` : '';
+    return `${num.toFixed(digits)}${suffix}`;
+}
+
+function formatMt5ReadonlyCount(value, fallbackItems = []) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return String(num);
+    return String(Array.isArray(fallbackItems) ? fallbackItems.length : 0);
+}
+
+function updateMt5ReadOnlyBridgePanel(d) {
+    const summaryEl = document.getElementById('mt5ReadonlySummary');
+    const metaEl = document.getElementById('mt5ReadonlyMeta');
+    const pillsEl = document.getElementById('mt5ReadonlyPills');
+    const metricsEl = document.getElementById('mt5ReadonlyMetrics');
+    const positionsMetaEl = document.getElementById('mt5ReadonlyPositionsMeta');
+    const ordersMetaEl = document.getElementById('mt5ReadonlyOrdersMeta');
+    const symbolsMetaEl = document.getElementById('mt5ReadonlySymbolsMeta');
+    const positionsBody = document.getElementById('mt5ReadonlyPositionsBody');
+    const ordersBody = document.getElementById('mt5ReadonlyOrdersBody');
+    const symbolsBody = document.getElementById('mt5ReadonlySymbolsBody');
+
+    if (!summaryEl || !metaEl || !pillsEl || !metricsEl || !positionsMetaEl || !ordersMetaEl || !symbolsMetaEl || !positionsBody || !ordersBody || !symbolsBody) {
+        return;
+    }
+
+    const bridge = d?.mt5ReadOnlyBridge || null;
+    const unavailableText = bridge?.error || bridge?.detail?.error || (d?._mt5ReadOnlyBridgeError ? '本地 /api/mt5-readonly/snapshot 暂不可用' : '等待 /api/mt5-readonly/snapshot');
+    if (!bridge || bridge.ok === false) {
+        summaryEl.textContent = 'MT5 只读桥不可用';
+        metaEl.textContent = unavailableText;
+        pillsEl.innerHTML = [
+            '<span class="mt5-shadow-pill">read-only</span>',
+            '<span class="mt5-shadow-pill">no order/close/cancel</span>',
+            '<span class="mt5-shadow-pill">等待 MetaTrader5 Python bridge</span>'
+        ].join('');
+        metricsEl.innerHTML = `
+            <div class="mt5-shadow-metric">
+                <div class="mt5-shadow-metric-label">Bridge</div>
+                <div class="mt5-shadow-metric-value">UNAVAILABLE</div>
+                <div class="mt5-shadow-metric-meta">${escapeHtml(unavailableText)}</div>
+            </div>`;
+        positionsMetaEl.textContent = '等待 positions';
+        ordersMetaEl.textContent = '等待 orders';
+        symbolsMetaEl.textContent = '等待 symbols';
+        positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">MT5 只读桥暂不可用</td></tr>';
+        ordersBody.innerHTML = '<tr><td colspan="7" class="empty-state">MT5 只读桥暂不可用</td></tr>';
+        symbolsBody.innerHTML = '<tr><td colspan="6" class="empty-state">MT5 只读桥暂不可用</td></tr>';
+        return;
+    }
+
+    const terminal = bridge.terminal || {};
+    const account = bridge.account || {};
+    const positionsBlock = bridge.positions || {};
+    const ordersBlock = bridge.orders || {};
+    const symbolsBlock = bridge.symbols || {};
+    const positions = getMt5ReadonlyItems(positionsBlock);
+    const orders = getMt5ReadonlyItems(ordersBlock);
+    const symbols = getMt5ReadonlyItems(symbolsBlock);
+    const quote = bridge.quote || null;
+    const currency = account.currency || '';
+    const positionCount = formatMt5ReadonlyCount(positionsBlock.count, positions);
+    const orderCount = formatMt5ReadonlyCount(ordersBlock.count, orders);
+    const symbolsReturned = formatMt5ReadonlyCount(symbolsBlock.returned, symbols);
+    const symbolsTotal = formatMt5ReadonlyCount(symbolsBlock.count, symbols);
+
+    summaryEl.textContent = `Bridge ${bridge.status || 'READY'} | positions ${positionCount} | orders ${orderCount} | symbols ${symbolsReturned}/${symbolsTotal}`;
+    metaEl.textContent = [
+        `terminal=${terminal.name || '--'}`,
+        `server=${account.server || '--'}`,
+        `login=${account.login || '--'}`,
+        `generated=${bridge.generatedAtIso || '--'}`
+    ].join(' | ');
+
+    pillsEl.innerHTML = [
+        '<span class="mt5-shadow-pill">READ_ONLY</span>',
+        '<span class="mt5-shadow-pill">no order</span>',
+        '<span class="mt5-shadow-pill">no close</span>',
+        '<span class="mt5-shadow-pill">no cancel</span>',
+        `<span class="mt5-shadow-pill">账户 ${escapeHtml(String(account.login || '--'))}</span>`,
+        `<span class="mt5-shadow-pill">服务器 ${escapeHtml(String(account.server || '--'))}</span>`
+    ].join('');
+
+    const quoteValue = quote?.ok
+        ? `${formatTradePrice(quote.bid, quote.symbol)} / ${formatTradePrice(quote.ask, quote.symbol)}`
+        : '--';
+    const quoteMeta = quote?.ok
+        ? `${quote.symbol || '--'} spread ${Number(quote.spreadPoints || 0).toFixed(1)} points`
+        : (quote?.error || 'focus symbol quote unavailable');
+    const metrics = [
+        {
+            label: 'Account',
+            value: String(account.login || '--'),
+            meta: account.company || account.server || 'MT5 initialized'
+        },
+        {
+            label: 'Balance / Equity',
+            value: formatMt5ReadonlyAmount(account.balance, currency),
+            meta: `Equity ${formatMt5ReadonlyAmount(account.equity, currency)}`
+        },
+        {
+            label: 'Floating P&L',
+            value: formatMoneyWithCurrency(account.profit || 0, currency),
+            meta: `Margin ${formatMt5ReadonlyAmount(account.margin, currency)}`
+        },
+        {
+            label: 'Positions',
+            value: positionCount,
+            meta: positionsBlock.symbol ? `filtered ${positionsBlock.symbol}` : 'all open positions'
+        },
+        {
+            label: 'Pending Orders',
+            value: orderCount,
+            meta: ordersBlock.symbol ? `filtered ${ordersBlock.symbol}` : 'read-only list only'
+        },
+        {
+            label: 'Quote',
+            value: quoteValue,
+            meta: quoteMeta
+        }
+    ];
+
+    metricsEl.innerHTML = metrics.map((item) => `
+        <div class="mt5-shadow-metric">
+            <div class="mt5-shadow-metric-label">${escapeHtml(item.label)}</div>
+            <div class="mt5-shadow-metric-value">${escapeHtml(item.value)}</div>
+            <div class="mt5-shadow-metric-meta">${escapeHtml(item.meta)}</div>
+        </div>
+    `).join('');
+
+    positionsMetaEl.textContent = positions.length ? `显示 ${positions.length} / ${positionCount}` : '当前没有 open positions';
+    ordersMetaEl.textContent = orders.length ? `显示 ${orders.length} / ${orderCount}` : '当前没有 pending orders';
+    symbolsMetaEl.textContent = symbols.length
+        ? `显示 ${symbols.length} / ${symbolsTotal}${symbolsBlock.truncated ? '，已截断' : ''}`
+        : '没有发现 symbols';
+
+    if (!positions.length) {
+        positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">当前没有 MT5 open positions</td></tr>';
+    } else {
+        positionsBody.innerHTML = positions.slice(0, 12).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.ticket || '--')}</td>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td><span class="table-badge ${row.type === 'buy' ? 'status-live' : 'status-info'}">${escapeHtml(row.type || '--')}</span></td>
+                <td>${escapeHtml(formatLots(row.volume))}</td>
+                <td>${escapeHtml(formatTradePrice(row.priceOpen, row.symbol))}</td>
+                <td>${escapeHtml(formatTradePrice(row.priceCurrent, row.symbol))}</td>
+                <td class="profit-cell ${Number(row.profit || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.profit || 0, currency))}</td>
+            </tr>
+        `).join('');
+    }
+
+    if (!orders.length) {
+        ordersBody.innerHTML = '<tr><td colspan="7" class="empty-state">当前没有 MT5 pending orders</td></tr>';
+    } else {
+        ordersBody.innerHTML = orders.slice(0, 12).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.ticket || '--')}</td>
+                <td>${escapeHtml(row.symbol || '--')}</td>
+                <td>${escapeHtml(row.type || '--')}</td>
+                <td>${escapeHtml(formatLots(row.volumeCurrent || row.volumeInitial))}</td>
+                <td>${escapeHtml(formatTradePrice(row.priceOpen, row.symbol))}</td>
+                <td>${escapeHtml(formatTradePrice(row.sl, row.symbol))}</td>
+                <td>${escapeHtml(formatTradePrice(row.tp, row.symbol))}</td>
+            </tr>
+        `).join('');
+    }
+
+    if (!symbols.length) {
+        symbolsBody.innerHTML = '<tr><td colspan="6" class="empty-state">MT5 没有返回 symbols</td></tr>';
+    } else {
+        symbolsBody.innerHTML = symbols.slice(0, 120).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.name || '--')}</td>
+                <td>${escapeHtml(row.description || '--')}</td>
+                <td>${escapeHtml(row.path || '--')}</td>
+                <td><span class="table-badge ${row.visible ? 'status-live' : 'status-warn'}">${row.visible ? 'yes' : 'no'}</span></td>
+                <td>${escapeHtml(String(row.spread ?? '--'))}</td>
+                <td>${escapeHtml(`${formatLots(row.volumeMin)} / ${formatLots(row.volumeStep)}`)}</td>
+            </tr>
+        `).join('');
+    }
 }
 
 function updateMt5ShadowJournalPanel(d) {

@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const host = '127.0.0.1';
-const port = 8080;
+const host = process.env.QG_DASHBOARD_HOST || '127.0.0.1';
+const port = Number.parseInt(process.env.QG_DASHBOARD_PORT || '8080', 10) || 8080;
 const rootDir = __dirname;
 const repoRoot = path.resolve(rootDir, '..');
 const defaultRuntimeDir = 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
@@ -13,7 +13,9 @@ const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
 const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
 const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
+const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
+const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
   polymarketAiScoreName,
@@ -248,6 +250,109 @@ async function queryPolymarketHistory(table, query = '', limit = '50', offset = 
   ], 15000);
 }
 
+function cleanMt5ReadonlyParam(value, maxLength = 160) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function clampMt5ReadonlyLimit(value, fallback = 120, max = 2000) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(parsed, max));
+}
+
+function buildMt5ReadonlyArgs(endpoint, parsedUrl) {
+  const params = parsedUrl.searchParams;
+  const args = ['--endpoint', endpoint];
+  const symbol = cleanMt5ReadonlyParam(params.get('symbol') || params.get('focusSymbol') || '');
+  const group = cleanMt5ReadonlyParam(params.get('group') || '*', 120) || '*';
+  const query = cleanMt5ReadonlyParam(params.get('q') || params.get('query') || '', 120);
+  const limit = clampMt5ReadonlyLimit(params.get('limit'), 120);
+  const symbolsLimit = clampMt5ReadonlyLimit(params.get('symbolsLimit') || params.get('symbols_limit'), 120);
+
+  if (symbol) args.push('--symbol', symbol);
+  args.push('--group', group);
+  if (query) args.push('--query', query);
+  args.push('--limit', String(limit));
+  args.push('--symbols-limit', String(symbolsLimit));
+  return args;
+}
+
+async function handleMt5Readonly(req, res, endpoint) {
+  if (!mt5ReadonlyEndpoints.has(endpoint)) {
+    sendJson(res, 404, {
+      ok: false,
+      status: 'NOT_FOUND',
+      endpoint,
+      error: 'unsupported_mt5_readonly_endpoint',
+      supportedEndpoints: Array.from(mt5ReadonlyEndpoints).sort(),
+      safety: {
+        readOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesMt5: false
+      }
+    });
+    return;
+  }
+  const normalizedEndpoint = endpoint;
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const result = await runJsonPython(mt5ReadonlyBridgeScript, buildMt5ReadonlyArgs(normalizedEndpoint, parsed), 12000);
+    if (!result.ok) {
+      sendJson(res, 200, {
+        ok: false,
+        status: 'UNAVAILABLE',
+        endpoint: normalizedEndpoint,
+        error: result.stderr || result.reason || 'mt5_readonly_bridge_failed',
+        detail: result,
+        safety: {
+          readOnly: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          credentialStorageAllowed: false,
+          livePresetMutationAllowed: false,
+          mutatesMt5: false
+        }
+      });
+      return;
+    }
+    const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    sendJson(res, 200, {
+      ...payload,
+      _api: {
+        service: 'quantgod_dashboard_mt5_readonly_bridge',
+        endpoint: `/api/mt5-readonly/${normalizedEndpoint}`,
+        script: mt5ReadonlyBridgeScript,
+        readOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        mutatesMt5: false
+      }
+    });
+  } catch (error) {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'UNAVAILABLE',
+      endpoint: normalizedEndpoint,
+      error: error.message || String(error),
+      safety: {
+        readOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesMt5: false
+      }
+    });
+  }
+}
+
 function firstDefined(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== '') return value;
@@ -285,6 +390,140 @@ function normalizeAnalyzeHistoryRows(rows = []) {
     historyType: firstDefined(row.historyType, 'analyses'),
     source: 'sqlite_history_api'
   }));
+}
+
+function clampSearchLimit(value, fallback = 36) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(8, Math.min(120, parsed));
+}
+
+function searchHaystack(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return value.map(searchHaystack).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value).map(searchHaystack).join(' ');
+  }
+  return String(value);
+}
+
+function matchesSearchQuery(value, query) {
+  const normalized = String(query || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return searchHaystack(value).toLowerCase().includes(normalized);
+}
+
+function numericScore(...values) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function compactRadarResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'radar',
+    sourceLabel: '机会雷达',
+    title: firstDefined(item.question, item.slug, item.marketId, '--'),
+    subtitle: firstDefined(item.eventTitle, item.category, item.slug),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, item.seenAt, generatedAt),
+    risk: firstDefined(item.risk),
+    recommendation: firstDefined(item.recommendedAction, 'SHADOW_REVIEW'),
+    track: firstDefined(item.suggestedShadowTrack),
+    probability: firstDefined(item.probability),
+    divergence: firstDefined(item.divergence),
+    score: numericScore(item.aiRuleScore, item.ruleScore),
+    detail: {
+      rank: item.rank,
+      volume: item.volume,
+      liquidity: item.liquidity,
+      riskFlags: item.riskFlags || []
+    }
+  };
+}
+
+function compactAiScoreResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'ai-score',
+    sourceLabel: 'AI 评分',
+    title: firstDefined(item.question, item.eventTitle, item.marketId, '--'),
+    subtitle: firstDefined(item.action, item.nextStep, item.executionMode),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, item.seenAt, generatedAt),
+    risk: firstDefined(item.color, item.risk),
+    recommendation: firstDefined(item.action, item.recommendedAction),
+    track: firstDefined(item.track, item.suggestedShadowTrack),
+    probability: firstDefined(item.probability),
+    divergence: firstDefined(item.divergence),
+    score: numericScore(item.score, item.aiRuleScore),
+    detail: {
+      reasons: item.reasons || [],
+      components: item.components || {},
+      nextStep: item.nextStep || ''
+    }
+  };
+}
+
+function compactAnalysisResult(row = {}) {
+  return {
+    sourceType: 'analysis',
+    sourceLabel: '单市场分析',
+    title: firstDefined(row.question, row.query, row.marketId, '--'),
+    subtitle: firstDefined(row.recommendation, row.status, row.decision),
+    marketId: firstDefined(row.marketId),
+    url: firstDefined(row.url, row.polymarketUrl),
+    generatedAt: firstDefined(row.generatedAt, row.seenAt),
+    risk: firstDefined(row.risk),
+    recommendation: firstDefined(row.recommendation, row.decision, row.status),
+    track: firstDefined(row.shadowTrack, row.suggestedShadowTrack),
+    probability: firstDefined(row.marketProbability, row.marketProbabilityPct),
+    divergence: firstDefined(row.divergence, row.divergencePct),
+    score: numericScore(row.confidence, row.confidencePct),
+    detail: {
+      aiProbability: firstDefined(row.aiProbability, row.aiProbabilityPct),
+      confidence: firstDefined(row.confidence, row.confidencePct),
+      historyType: firstDefined(row.historyType, 'analyses')
+    }
+  };
+}
+
+function compactHistoryResult(row = {}) {
+  return {
+    sourceType: firstDefined(row.historyType, 'history'),
+    sourceLabel: '历史库',
+    title: firstDefined(row.question, row.query, row.marketId, row.runId, row.mode, '--'),
+    subtitle: firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
+    marketId: firstDefined(row.marketId),
+    url: firstDefined(row.polymarketUrl, row.url),
+    generatedAt: firstDefined(row.generatedAt, row.seenAt, row.lastSeenAt, row.firstSeenAt),
+    risk: firstDefined(row.risk),
+    recommendation: firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
+    track: firstDefined(row.suggestedShadowTrack, row.track, row.source),
+    probability: firstDefined(row.probability, row.marketProbability),
+    divergence: firstDefined(row.divergence),
+    score: numericScore(row.aiRuleScore, row.ruleScore, row.confidence, row.executedPf),
+    detail: {
+      historyType: firstDefined(row.historyType),
+      source: firstDefined(row.source),
+      rawType: 'history'
+    }
+  };
+}
+
+function sortSearchResults(results = []) {
+  return results
+    .slice()
+    .sort((a, b) => {
+      const scoreDelta = numericScore(b.score) - numericScore(a.score);
+      if (scoreDelta) return scoreDelta;
+      const rightTime = Date.parse(b.generatedAt || '') || 0;
+      const leftTime = Date.parse(a.generatedAt || '') || 0;
+      return rightTime - leftTime;
+    });
 }
 
 async function handleSingleMarketRequest(req, res) {
@@ -404,6 +643,153 @@ async function handlePolymarketAnalyzeHistory(req, res) {
   }
 }
 
+async function handlePolymarketSearch(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const query = String(parsed.searchParams.get('q') || '').trim().slice(0, 240);
+    const limit = clampSearchLimit(parsed.searchParams.get('limit'), 36);
+    const errors = [];
+
+    let radar = null;
+    let radarPath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketRadarName);
+      radar = withServiceMeta(read.payload, '/api/polymarket/radar', read.filePath);
+      radarPath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'radar', error: error.message || String(error) });
+    }
+
+    let aiScore = null;
+    let aiScorePath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketAiScoreName);
+      aiScore = withServiceMeta(read.payload, '/api/polymarket/ai-score', read.filePath);
+      aiScorePath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'ai-score', error: error.message || String(error) });
+    }
+
+    let latestAnalysis = null;
+    let latestAnalysisPath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketSingleMarketAnalysisName);
+      latestAnalysis = withServiceMeta(read.payload, '/api/polymarket/analyze/history', read.filePath);
+      latestAnalysisPath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'single-analysis-latest', error: error.message || String(error) });
+    }
+
+    const historyResult = await queryPolymarketHistory('all', query, String(limit), '0');
+    if (!historyResult.ok) {
+      errors.push({ source: 'history', error: historyResult.stderr || historyResult.reason || 'history_query_failed' });
+    }
+
+    const analysisResult = await queryPolymarketHistory('analyses', query, String(limit), '0');
+    if (!analysisResult.ok) {
+      errors.push({ source: 'analysis-history', error: analysisResult.stderr || analysisResult.reason || 'analysis_query_failed' });
+    }
+
+    const radarItems = Array.isArray(radar?.radar)
+      ? radar.radar.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : [];
+    const aiScoreItems = Array.isArray(aiScore?.scores)
+      ? aiScore.scores.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : [];
+
+    const historyPayload = historyResult.payload || {};
+    const historyRows = query
+      ? (historyPayload.search?.rows || [])
+      : [
+          ...(historyPayload.recent?.opportunities || []),
+          ...(historyPayload.recent?.analyses || []),
+          ...(historyPayload.recent?.simulations || []),
+        ].slice(0, limit);
+    const analysisRows = normalizeAnalyzeHistoryRows(
+      analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
+    );
+
+    const latestAnalysisRows = [];
+    if (latestAnalysis && matchesSearchQuery(latestAnalysis, query)) {
+      const latestMarket = latestAnalysis.market || {};
+      const latestAnalysisBody = latestAnalysis.analysis || {};
+      latestAnalysisRows.push({
+        rowId: 0,
+        generatedAt: firstDefined(latestAnalysis.generatedAt, latestAnalysisBody.generatedAt),
+        status: firstDefined(latestAnalysis.status, 'OK'),
+        decision: firstDefined(latestAnalysis.decision, 'RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING'),
+        query: firstDefined(latestAnalysis.request?.query, latestMarket.question, latestMarket.marketId),
+        querySource: firstDefined(latestAnalysis.request?.source, 'latest_snapshot'),
+        marketId: firstDefined(latestMarket.marketId),
+        question: firstDefined(latestMarket.question, latestMarket.slug),
+        category: firstDefined(latestMarket.category),
+        marketProbability: firstDefined(latestAnalysisBody.marketProbabilityPct, latestMarket.probability),
+        aiProbability: firstDefined(latestAnalysisBody.aiProbabilityPct),
+        divergence: firstDefined(latestAnalysisBody.divergencePct),
+        confidence: firstDefined(latestAnalysisBody.confidencePct),
+        recommendation: firstDefined(latestAnalysisBody.recommendation, latestAnalysis.summary?.recommendation),
+        risk: firstDefined(latestAnalysisBody.riskLevel, latestAnalysis.summary?.risk),
+        shadowTrack: firstDefined(latestAnalysisBody.suggestedShadowTrack),
+        url: firstDefined(latestMarket.polymarketUrl),
+        walletWrite: toBoolean(latestAnalysis.safety?.walletWriteAllowed),
+        orderSend: toBoolean(latestAnalysis.safety?.orderSendAllowed),
+        historyType: 'latest_analysis',
+        source: 'latest_json_api'
+      });
+    }
+
+    const sections = {
+      radar: radarItems.map((item) => compactRadarResult(item, radar?.generatedAt)),
+      aiScore: aiScoreItems.map((item) => compactAiScoreResult(item, aiScore?.generatedAt)),
+      analyses: [...latestAnalysisRows, ...analysisRows].slice(0, limit).map(compactAnalysisResult),
+      history: historyRows.slice(0, limit).map(compactHistoryResult)
+    };
+    const allResults = sortSearchResults([
+      ...sections.radar,
+      ...sections.aiScore,
+      ...sections.analyses,
+      ...sections.history
+    ]).slice(0, limit);
+
+    sendJson(res, 200, {
+      mode: 'POLYMARKET_SEARCH_API_V1',
+      status: errors.length ? 'PARTIAL' : 'OK',
+      generatedAt: new Date().toISOString(),
+      source: 'quantgod_dashboard_local_api',
+      decision: 'READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE',
+      query,
+      limit,
+      summary: {
+        totalMatches: allResults.length,
+        radarMatches: sections.radar.length,
+        aiScoreMatches: sections.aiScore.length,
+        analysisMatches: sections.analyses.length,
+        historyMatches: sections.history.length,
+        historyTotalRows: historyPayload.summary?.totalRows || 0
+      },
+      results: allResults,
+      sections,
+      sources: {
+        radarPath,
+        aiScorePath,
+        latestAnalysisPath,
+        historyDatabase: historyPayload.database || null
+      },
+      errors,
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
+        mutatesMt5: false,
+        readOnly: true
+      }
+    });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error.message || String(error) });
+  }
+}
+
 function maybeTranscodeRuntimeText(target, ext, data) {
   const base = path.basename(target);
   if (!runtimeTextExtensions.has(ext) || !base.startsWith('QuantGod_')) {
@@ -489,6 +875,12 @@ const server = http.createServer((req, res) => {
     send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
     return;
   }
+  if (req.method === 'GET' && (requestUrl.split('?')[0] === '/api/mt5-readonly' || requestUrl.split('?')[0].startsWith('/api/mt5-readonly/'))) {
+    const pathPart = requestUrl.split('?')[0];
+    const endpoint = pathPart === '/api/mt5-readonly' ? 'snapshot' : path.basename(pathPart);
+    handleMt5Readonly(req, res, endpoint);
+    return;
+  }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {
     handlePolymarketHistory(req, res);
     return;
@@ -503,6 +895,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/analyze/history') {
     handlePolymarketAnalyzeHistory(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/search') {
+    handlePolymarketSearch(req, res);
     return;
   }
   if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/single-market-request') {
