@@ -21,6 +21,7 @@ from typing import Any
 
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 OUTPUT_NAME = "QuantGod_GovernanceAdvisor.json"
+PARAM_OPTIMIZATION_NAME = "QuantGod_ParamOptimizationPlan.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -31,6 +32,7 @@ RUNTIME_FILE_HEALTH = [
     ("candidate_signal", "QuantGod_ShadowCandidateLedger.csv", 24 * 60 * 60),
     ("candidate_outcome", "QuantGod_ShadowCandidateOutcomeLedger.csv", 24 * 60 * 60),
     ("manual_alpha", "QuantGod_ManualAlphaLedger.csv", 24 * 60 * 60),
+    ("param_optimization", PARAM_OPTIMIZATION_NAME, 7 * 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -388,6 +390,46 @@ def summarize_backtest(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_param_optimization(plan: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(plan, dict) or not plan:
+        return {
+            "status": "missing",
+            "candidateCount": 0,
+            "backtestTaskCount": 0,
+            "topCandidateId": "",
+            "livePresetMutation": False,
+        }
+    summary = plan.get("summary") if isinstance(plan.get("summary"), dict) else {}
+    route_plans = plan.get("routePlans") if isinstance(plan.get("routePlans"), list) else []
+    top_by_route = {}
+    for route in route_plans:
+        if not isinstance(route, dict):
+            continue
+        route_key = str(route.get("routeKey") or route.get("strategy") or "")
+        top = route.get("topCandidate")
+        if route_key and isinstance(top, dict):
+            top_by_route[route_key] = {
+                "candidateId": top.get("candidateId", ""),
+                "variant": top.get("variant", ""),
+                "symbol": top.get("symbol", ""),
+                "score": top.get("score"),
+                "parameterSummary": top.get("parameterSummary", ""),
+                "intent": top.get("intent", ""),
+                "testerOnly": bool(top.get("testerOnly", True)),
+                "livePresetMutation": bool(top.get("livePresetMutation", False)),
+            }
+    return {
+        "status": "ready",
+        "generatedAtIso": plan.get("generatedAtIso", ""),
+        "mode": plan.get("mode", "OFFLINE_PARAM_CANDIDATE_ONLY"),
+        "candidateCount": int(summary.get("candidateCount") or 0),
+        "backtestTaskCount": int(summary.get("backtestTaskCount") or 0),
+        "topCandidateId": str(summary.get("topCandidateId") or ""),
+        "livePresetMutation": bool(summary.get("livePresetMutation", False)),
+        "topByRoute": top_by_route,
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -443,6 +485,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     candidate_outcome_rows = read_csv(runtime_dir / "QuantGod_ShadowCandidateOutcomeLedger.csv")
     manual_rows = read_csv(runtime_dir / "QuantGod_ManualAlphaLedger.csv")
     backtest = read_json(runtime_dir / "QuantGod_BacktestSummary.json")
+    param_optimization_plan = read_json(runtime_dir / PARAM_OPTIMIZATION_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -451,6 +494,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     candidate_outcomes = summarize_candidate_outcomes(candidate_outcome_rows)
     manual = summarize_manual(manual_rows)
     backtest_summary = summarize_backtest(backtest)
+    param_optimization = summarize_param_optimization(param_optimization_plan)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -474,6 +518,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
                 "ledgerRows": candidate_routes.get(route["candidateRoute"], 0),
                 **candidate,
             },
+            "paramOptimization": param_optimization.get("topByRoute", {}).get(route["strategy"], {}),
         })
 
     action_counts = Counter(item["recommendedAction"] for item in route_decisions)
@@ -505,6 +550,8 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "candidateRows": len(candidate_rows),
             "candidateOutcomeRows": len(candidate_outcome_rows),
             "manualAlphaRows": manual["rows"],
+            "paramOptimizationCandidates": param_optimization["candidateCount"],
+            "paramOptimizationBacktestTasks": param_optimization["backtestTaskCount"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -514,10 +561,12 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "candidateRouteCounts": candidate_routes.most_common(),
         "candidateOutcomes": candidate_outcomes,
         "manualAlpha": manual,
+        "paramOptimization": param_optimization,
         "routeDecisions": route_decisions,
         "nextOperatorSteps": [
             "Keep MA_Cross and USDJPY RSI_Reversal at 0.01 live only while samples remain thin.",
             "Keep BB/MACD/SR in simulation and retune routes with weak 60m candidate outcomes.",
+            "Use ParamOptimizationPlan candidates as offline tester tasks only; never overwrite the live preset automatically.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }

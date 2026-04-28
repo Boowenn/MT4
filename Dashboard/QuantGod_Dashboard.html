@@ -803,6 +803,19 @@
             line-height: 1.5;
         }
 
+        .param-plan-note {
+            margin-top: 0.25rem;
+            padding: 0.45rem 0.55rem;
+            border: 1px solid #dbeafe;
+            border-radius: 6px;
+            background: #f8fbff;
+            color: #334155;
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .radar-label {
             color: var(--text-muted);
             font-size: 11px;
@@ -7384,6 +7397,10 @@ function renderGovernanceRouteCard(item) {
     const openText = item?.openPosition?.openTrades
         ? ` | 当前持仓 ${item.openPosition.openTrades}，浮动 ${formatMoney(item.openPosition.floatingProfitUSC || 0, 2)}`
         : '';
+    const param = item?.paramOptimization || {};
+    const paramText = param?.candidateId
+        ? `参数候选 ${param.variant || '--'} @ ${param.symbol || '--'} | score ${param.score ?? '--'} | ${param.parameterSummary || '--'}`
+        : '参数候选等待 QuantGod_ParamOptimizationPlan.json；不会自动写入实盘 preset';
     return `
         <div class="backtest-compare-card ${tone}">
             <div class="backtest-compare-topline">
@@ -7394,6 +7411,7 @@ function renderGovernanceRouteCard(item) {
                 <span class="backtest-status-pill ${tone}">${escapeHtml(governanceActionLabel(action))}</span>
             </div>
             <div class="backtest-note">${escapeHtml(liveText + openText)}</div>
+            <div class="backtest-note param-plan-note">${escapeHtml(paramText)}</div>
             <div class="backtest-note">blocker: ${escapeHtml(blockers)}</div>
         </div>
     `;
@@ -7453,9 +7471,13 @@ function updateGovernanceAdvisor(d) {
     const healthText = health.status
         ? `runtime health ${health.status}`
         : 'runtime health --';
+    const paramOpt = advisor.paramOptimization || {};
+    const paramText = paramOpt.status === 'ready'
+        ? `参数候选 ${paramOpt.candidateCount || 0} / 回测任务 ${paramOpt.backtestTaskCount || 0}`
+        : '参数候选等待';
     const visibleDecisions = getRouteFilteredDecisions(advisor.routeDecisions);
     summaryEl.textContent = `${getRouteStrategyFilterLabel()} | ${visibleDecisions.length}/${advisor.routeDecisions.length} 条路线 | ${actionText || '等待动作'}`;
-    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；${healthText}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
+    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；${healthText}；${paramText}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
     bodyEl.innerHTML = visibleDecisions.length
         ? visibleDecisions.map(renderGovernanceRouteCard).join('')
         : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Governance Advisor 路线卡</div>`;
