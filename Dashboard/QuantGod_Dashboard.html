@@ -10619,6 +10619,8 @@ function renderPolymarketAiScoreCard(item = {}) {
     const tone = getPolymarketAiScoreTone(item.color);
     const components = item.components || {};
     const componentLine = [
+        `历史 ${formatPolymarketScore(components.historyFeatureScore ?? item.historyFeatureScore ?? item.score)}`,
+        `语义 ${formatPolymarketScore(components.semanticScore ?? item.semanticScore)}`,
         `雷达 ${formatPolymarketScore(components.radarScore)}`,
         `流动性 ${formatPolymarketScore(components.liquidityScore)}`,
         `偏离 ${formatPolymarketScore(components.divergenceScore)}`,
@@ -10629,6 +10631,10 @@ function renderPolymarketAiScoreCard(item = {}) {
         ? '--'
         : `${Number(item.probability).toFixed(1)}%`;
     const reasons = translatePolymarketList(item.reasons, 6);
+    const llmReview = item.llmReview || {};
+    const llmLine = item.llmReviewed || llmReview.reason
+        ? `LLM 语义 ${formatPolymarketScore(item.semanticScore ?? components.semanticScore)} / 信心 ${formatPolymarketScore(item.semanticConfidence ?? components.semanticConfidence)} · ${escapeHtml(translatePolymarketToken(item.semanticRecommendation || llmReview.recommendation || '--'))} · ${escapeHtml(llmReview.reason || '已完成语义复核')}`
+        : 'LLM 语义 未运行；使用历史特征模型兜底。';
     return `
         <div class="polymarket-card ${escapeHtml(tone)}">
             <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(item.executionMode || 'AI_SCORE_ONLY_NO_WALLET_WRITE'))}</div>
@@ -10641,6 +10647,7 @@ function renderPolymarketAiScoreCard(item = {}) {
             </div>
             <div class="polymarket-action-list">
                 <div class="polymarket-action">${escapeHtml(translatePolymarketToken(item.action || '--'))}</div>
+                <div class="polymarket-action">${llmLine}</div>
                 <div class="polymarket-action">${escapeHtml(componentLine)}</div>
                 <div class="polymarket-action">原因 ${escapeHtml(reasons)}</div>
                 <div class="polymarket-action">下一步 ${escapeHtml(item.nextStep || '继续只读观察，不下注。')}</div>
@@ -10664,7 +10671,7 @@ function updatePolymarketAiScore(d) {
     const scores = Array.isArray(score.scores) ? score.scores : [];
     if (summaryEl) {
         const sourceLabel = d?._polymarketAiScoreSource === 'api' || score._api?.endpoint ? 'API' : '文件';
-        summaryEl.textContent = `${sourceLabel} | ${translatePolymarketToken(score.decision || 'AI_SCORE_ONLY_NO_BETTING')} | 候选 ${summary.candidates || scores.length || 0} | 绿/黄/红 ${summary.green || 0}/${summary.yellow || 0}/${summary.red || 0} | 最高 ${formatPolymarketScore(summary.topScore)}`;
+        summaryEl.textContent = `${sourceLabel} | ${translatePolymarketToken(score.decision || 'AI_SCORE_ONLY_NO_BETTING')} | 候选 ${summary.candidates || scores.length || 0} | LLM ${summary.llmStatus || score.semanticReview?.status || 'unknown'} ${summary.llmReviewed || 0} | 绿/黄/红 ${summary.green || 0}/${summary.yellow || 0}/${summary.red || 0} | 最高 ${formatPolymarketScore(summary.topScore)}`;
     }
     const boundaryCard = `
         <div class="polymarket-card danger">
@@ -10676,7 +10683,7 @@ function updatePolymarketAiScore(d) {
                 ${renderPolymarketMetric('启动执行器', score.safety?.startsExecutor ? '是' : '否')}
                 ${renderPolymarketMetric('影响 MT5', score.safety?.mutatesMt5 ? '是' : '否')}
             </div>
-            <div class="polymarket-note">历史 AI 评分只用于 shadow/dry-run 排序；真正 executor 仍需单独 Gate、预算、止盈止损、审计和 kill switch。</div>
+            <div class="polymarket-note">历史 AI 评分现在支持 LLM 语义复核；无 API key 或失败时自动退回历史特征模型。它仍只用于 shadow/dry-run 排序；真正 executor 仍需单独 Gate、预算、止盈止损、审计和 kill switch。</div>
         </div>
     `;
     if (!scores.length) {

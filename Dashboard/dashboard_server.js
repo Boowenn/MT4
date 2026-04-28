@@ -559,7 +559,13 @@ function compactAiScoreResult(item = {}, generatedAt = '') {
     detail: {
       reasons: item.reasons || [],
       components: item.components || {},
-      nextStep: item.nextStep || ''
+      nextStep: item.nextStep || '',
+      semanticScore: item.semanticScore,
+      semanticConfidence: item.semanticConfidence,
+      semanticRecommendation: item.semanticRecommendation,
+      semanticRisk: item.semanticRisk,
+      llmReviewed: item.llmReviewed,
+      llmReason: item.llmReview?.reason || ''
     }
   };
 }

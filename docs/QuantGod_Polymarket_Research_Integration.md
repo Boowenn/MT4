@@ -32,6 +32,7 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketHistoryDb.csv`
 - `QuantGod_PolymarketAiScoreV1.json`
 - `QuantGod_PolymarketAiScoreV1.csv`
+- `QuantGod_PolymarketAiSemanticReview.json`
 
 ## Bridge
 
@@ -262,7 +263,7 @@ These endpoints are API-first replacements for direct dashboard reads of:
 
 This layer is intentionally a facade, not an executor: it does not read private keys, does not write wallets, does not call CLOB order APIs, does not start betting workers, and does not mutate MT5.
 
-## History-Aware AI Score V1
+## History-Aware AI Score V1 + Semantic Reviewer
 
 Run:
 
@@ -274,13 +275,28 @@ The scorer consumes `archive\polymarket\history\QuantGod_PolymarketHistory.sqlit
 
 - `QuantGod_PolymarketAiScoreV1.json`
 - `QuantGod_PolymarketAiScoreV1.csv`
+- `QuantGod_PolymarketAiSemanticReview.json`
 
-V1 is a transparent, history-aware scoring layer over:
+V1 is a transparent, history-aware scoring layer plus an optional LLM semantic reviewer. It always runs the deterministic history feature model, then, when an OpenAI-compatible API key is available through `OPENAI_API_KEY` or `QG_POLYMARKET_OPENAI_API_KEY`, it asks the reviewer to inspect market wording, event ambiguity, tail risk, history score, dry-run outcome, and next-test direction.
+
+Control knobs:
+
+```bat
+set QG_POLYMARKET_AI_LLM_MODE=auto
+set QG_POLYMARKET_AI_LLM_MAX_CANDIDATES=8
+set QG_POLYMARKET_AI_LLM_MODEL=gpt-4o-mini
+tools\score_polymarket_ai_v1.bat
+```
+
+`QG_POLYMARKET_AI_LLM_MODE=off` keeps the deterministic path. `required` fails fast if the semantic reviewer cannot run. The default batch file may read `D:\polymarket\.env`, but only for LLM-related keys; wallet/private-key values are ignored and never written to output.
+
+Inputs:
 
 - Gamma opportunity radar score, probability divergence, volume, and liquidity;
 - single-market analysis recommendation, confidence, and risk;
 - dry-run/outcome MFE, MAE, TP/SL/trailing evidence, and gate blockers;
-- global executed/shadow/account quarantine evidence.
+- global executed/shadow/account quarantine evidence;
+- optional LLM semantic assessment, risk factors, and next-test suggestion.
 
 The output classifies markets as green/yellow/red for research priority only. Current decision remains `AI_SCORE_ONLY_NO_BETTING`: no private-key read, no wallet write, no CLOB order calls, no executor start, and no MT5 mutation. Green rows can only become higher-priority shadow/dry-run candidates until a separate execution gate, budget policy, stop-loss/take-profit manager, ledger audit, and kill switch are promoted.
 
@@ -317,7 +333,7 @@ It displays:
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
 - Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
 - Unified Evidence Search: `/api/polymarket/search` aggregates history, radar, single-market analysis, and AI score evidence into one read-only Dashboard query box, then folds duplicate rows by market into comprehensive evidence cards. Each card previews the strongest evidence, expands all compact raw evidence rows, filters the expanded audit rows by source, copies a compact audit summary, and can jump to the single-market analysis/history workspace with the market query prefilled.
-- Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, and global quarantine evidence; it remains `AI_SCORE_ONLY_NO_BETTING`.
+- Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, global quarantine evidence, and optional LLM semantic review. The Dashboard shows history score vs semantic score, reviewer confidence, and reviewer next-test reasoning; it remains `AI_SCORE_ONLY_NO_BETTING`.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.
