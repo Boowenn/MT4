@@ -6091,6 +6091,140 @@
         .eval-card-header {
             border-color: #303744 !important;
         }
+
+        .polymarket-summary-grid,
+        .polymarket-group-grid,
+        .polymarket-risk-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .polymarket-group-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-risk-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .polymarket-card {
+            min-width: 0;
+            border: 1px solid #2a3442;
+            background: linear-gradient(180deg, #1b222c 0%, #151a22 100%);
+            border-radius: 7px;
+            padding: 14px 15px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+
+        .polymarket-card.danger {
+            border-color: rgba(244, 63, 94, 0.42);
+            background: linear-gradient(180deg, rgba(44, 24, 31, 0.98) 0%, #151a22 100%);
+        }
+
+        .polymarket-card.watch {
+            border-color: rgba(245, 158, 11, 0.42);
+            background: linear-gradient(180deg, rgba(39, 31, 18, 0.98) 0%, #151a22 100%);
+        }
+
+        .polymarket-card.good {
+            border-color: rgba(16, 185, 129, 0.35);
+            background: linear-gradient(180deg, rgba(18, 38, 31, 0.98) 0%, #151a22 100%);
+        }
+
+        .polymarket-eyebrow {
+            color: #38bdf8;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .polymarket-title {
+            margin-top: 4px;
+            color: #f8fafc;
+            font-size: 16px;
+            font-weight: 800;
+            overflow-wrap: anywhere;
+        }
+
+        .polymarket-metric {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .polymarket-metric-item {
+            min-width: 0;
+            border: 1px solid #303a49;
+            background: #111720;
+            border-radius: 6px;
+            padding: 9px 10px;
+        }
+
+        .polymarket-metric-label {
+            color: #91a0b4;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .polymarket-metric-value {
+            margin-top: 4px;
+            color: #e5edf7;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 15px;
+            font-weight: 900;
+            overflow-wrap: anywhere;
+        }
+
+        .polymarket-note {
+            margin-top: 10px;
+            color: #a8b5c7;
+            font-size: 12px;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+        }
+
+        .polymarket-action-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .polymarket-action {
+            border: 1px solid #303a49;
+            background: #10161f;
+            border-radius: 6px;
+            padding: 9px 10px;
+            color: #d6e1ee;
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .polymarket-ledger-table {
+            min-width: 920px;
+        }
+
+        .polymarket-ledger-table td,
+        .polymarket-ledger-table th {
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .qd-command-center.is-detail-section .qd-command-grid {
+            display: none;
+        }
+
+        @media (max-width: 1100px) {
+            .polymarket-summary-grid,
+            .polymarket-group-grid,
+            .polymarket-risk-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -6151,6 +6285,7 @@
             <div class="qd-menu-label">Command</div>
             <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span><span><strong>AI Evidence</strong><em>总览雷达</em></span></a>
             <a class="qd-menu-item" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span><span><strong>Strategy & Live</strong><em>策略工作台</em></span></a>
+            <a class="qd-menu-item" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>Polymarket</strong><em>外部研究</em></span></a>
             <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span><span><strong>Indicator Market</strong><em>品种监控</em></span></a>
             <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span><span><strong>ParamLab</strong><em>回测闭环</em></span></a>
             <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>Trading Bot</strong><em>EA 只读</em></span></a>
@@ -6663,6 +6798,65 @@
                 </div>
             </section>
 
+            <section class="content-section fade-in" id="section-polymarket" data-nav-section="polymarket">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Polymarket Research</div>
+                        <div class="section-title">Polymarket 外部研究工作台</div>
+                        <div class="section-desc">只读接入 D:\polymarket 的执行、shadow、experiment 和风险日志证据；不加载钱包、不启动执行器、不改变 MT5 EA/订单/配置。</div>
+                    </div>
+                    <div class="section-meta" id="polymarketSourceMeta">等待 QuantGod_PolymarketResearch.json</div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(56,189,248,0.16); color: var(--accent-cyan);">P</div>
+                            Polymarket Boundary / Governance
+                        </div>
+                        <span class="eval-summary" id="polymarketSummary">等待 Polymarket 研究快照</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-summary-grid" id="polymarketSummaryBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketResearch.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.16); color: var(--accent-orange);">E</div>
+                            Executed / Shadow / Experiment Buckets
+                        </div>
+                        <span class="eval-summary" id="polymarketBucketSummary">执行与影子样本分桶</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-group-grid" id="polymarketGroupBody">
+                            <div class="empty-state">等待 Polymarket 分桶统计</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(244,63,94,0.16); color: var(--accent-red);">R</div>
+                            Risk / Recent Journal
+                        </div>
+                        <span class="eval-summary" id="polymarketRiskSummary">风险日志与最近样本</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-risk-grid" id="polymarketRiskBody">
+                            <div class="empty-state">等待 Polymarket 风险日志</div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper" id="polymarketJournalBody" style="margin-top: 14px;">
+                            <div class="empty-state">等待最近 Polymarket 样本</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
                 <div class="section-heading">
                     <div class="section-heading-copy">
@@ -7169,6 +7363,7 @@ const LOCAL_PARAM_LAB_AUTO_SCHEDULER_PATH = 'QuantGod_ParamLabAutoScheduler.json
 const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json';
 const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
+const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -7974,7 +8169,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         paramLabAutoScheduler: baseData?.paramLabAutoScheduler || previousData?.paramLabAutoScheduler || null,
         paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null,
         autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null,
-        paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null
+        paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
+        polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null
     };
 
     if (!isLocalRuntime()) {
@@ -8149,6 +8345,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('ParamLab run recovery load failed.', error);
     }
 
+    try {
+        data.polymarketResearch = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RESEARCH_PATH);
+        data._polymarketResearchError = false;
+    } catch (error) {
+        data._polymarketResearchError = true;
+        console.warn('Polymarket research bridge load failed.', error);
+    }
+
     return data;
 }
 
@@ -8234,6 +8438,216 @@ function getAutoTesterWindow(d) {
 
 function getParamLabRunRecovery(d) {
     return d?.paramLabRunRecovery || d?.governanceAdvisor?.paramLabRunRecovery || null;
+}
+
+function getPolymarketResearch(d) {
+    return d?.polymarketResearch || null;
+}
+
+function getPolymarketTone(stats = {}) {
+    const pnl = Number(stats.realizedPnl || 0);
+    const pf = stats.profitFactor === null || stats.profitFactor === undefined ? null : Number(stats.profitFactor);
+    const winRate = stats.winRatePct === null || stats.winRatePct === undefined ? null : Number(stats.winRatePct);
+    const closed = Number(stats.closed || 0);
+    if (closed > 0 && (pnl < 0 || (pf !== null && pf < 1) || (winRate !== null && winRate < 45))) return 'danger';
+    if (closed > 0 && pnl > 0 && (pf === null || pf >= 1) && (winRate === null || winRate >= 50)) return 'good';
+    return 'watch';
+}
+
+function formatPolymarketPf(value) {
+    if (value === null || value === undefined || value === '') return '--';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '--';
+    if (num >= 999) return '999+';
+    return num.toFixed(2);
+}
+
+function formatPolymarketPercent(value) {
+    if (value === null || value === undefined || value === '') return '--';
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num.toFixed(1)}%` : '--';
+}
+
+function renderPolymarketMetric(label, value) {
+    return `
+        <div class="polymarket-metric-item">
+            <div class="polymarket-metric-label">${escapeHtml(label)}</div>
+            <div class="polymarket-metric-value">${escapeHtml(value)}</div>
+        </div>
+    `;
+}
+
+function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraClass = '') {
+    const tone = extraClass || getPolymarketTone(stats);
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(eyebrow)}</div>
+            <div class="polymarket-title">${escapeHtml(title)}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('entries / closed', `${Number(stats.entries || 0)} / ${Number(stats.closed || 0)}`)}
+                ${renderPolymarketMetric('win rate', formatPolymarketPercent(stats.winRatePct))}
+                ${renderPolymarketMetric('PF', formatPolymarketPf(stats.profitFactor))}
+                ${renderPolymarketMetric('realized', formatMoney(stats.realizedPnl || 0))}
+            </div>
+            <div class="polymarket-note">${escapeHtml(note || `Open ${Number(stats.open || 0)} · Avg ${stats.avgPnl === null || stats.avgPnl === undefined ? '--' : formatMoney(stats.avgPnl)}`)}</div>
+        </div>
+    `;
+}
+
+function updatePolymarketWorkspace(d) {
+    const research = getPolymarketResearch(d);
+    const summaryEl = document.getElementById('polymarketSummary');
+    const sourceMetaEl = document.getElementById('polymarketSourceMeta');
+    const summaryBody = document.getElementById('polymarketSummaryBody');
+    const bucketSummaryEl = document.getElementById('polymarketBucketSummary');
+    const groupBody = document.getElementById('polymarketGroupBody');
+    const riskSummaryEl = document.getElementById('polymarketRiskSummary');
+    const riskBody = document.getElementById('polymarketRiskBody');
+    const journalBody = document.getElementById('polymarketJournalBody');
+    if (!summaryBody || !groupBody || !riskBody || !journalBody) return;
+
+    if (!research || d?._polymarketResearchError) {
+        if (summaryEl) summaryEl.textContent = '等待 Polymarket 研究桥接';
+        if (sourceMetaEl) sourceMetaEl.textContent = '运行 tools/build_polymarket_research_bridge.bat 后显示';
+        summaryBody.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketResearch.json`；不会影响 MT5。</div>';
+        groupBody.innerHTML = '<div class="empty-state">暂无 Polymarket 分桶统计</div>';
+        riskBody.innerHTML = '<div class="empty-state">暂无 Polymarket 风险日志</div>';
+        journalBody.innerHTML = '<div class="empty-state">暂无 Polymarket 最近样本</div>';
+        return;
+    }
+
+    const status = research.status || 'UNKNOWN';
+    const governance = research.governance || {};
+    const summary = research.summary || {};
+    const safety = research.safety || {};
+    const source = research.source || {};
+    const executed = summary.executed || {};
+    const shadow = summary.shadow || {};
+    const recentShadow = summary.recentShadow || {};
+    const latestPnl = research.latestPnl || {};
+    const decision = governance.decision || 'RESEARCH_ONLY';
+    const blockers = Array.isArray(governance.blockers) ? governance.blockers : [];
+    const actionList = Array.isArray(governance.nextActions) ? governance.nextActions : [];
+    const generated = research.generatedAtIso ? new Date(research.generatedAtIso).toLocaleString('zh-CN', { hour12: false }) : '--';
+
+    if (summaryEl) {
+        summaryEl.textContent = `${status} | ${decision} | blockers ${blockers.length}`;
+    }
+    if (sourceMetaEl) {
+        sourceMetaEl.textContent = `${source.repoRoot || 'D:\\polymarket'} | generated ${generated}`;
+    }
+    if (bucketSummaryEl) {
+        bucketSummaryEl.textContent = `executed ${Number(executed.closed || 0)} closed / shadow ${Number(shadow.closed || 0)} closed`;
+    }
+    if (riskSummaryEl) {
+        riskSummaryEl.textContent = `MT5 isolated | Polymarket live resume: ${governance.resumePolymarketExecution ? 'review' : 'no'}`;
+    }
+
+    summaryBody.innerHTML = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">Boundary</div>
+            <div class="polymarket-title">Research Only</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('read only', safety.readOnly ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('loads .env', safety.loadsEnv ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('starts executor', safety.startsExecutor ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('mutates MT5', safety.mutatesMt5 ? 'YES' : 'NO')}
+            </div>
+            <div class="polymarket-note">${escapeHtml(safety.boundary || 'Dashboard evidence only.')}</div>
+        </div>
+        ${renderPolymarketStatsCard('Executed Live Evidence', 'Polymarket executed', executed, '真实执行样本只用于风险判断；当前不会恢复下注。')}
+        ${renderPolymarketStatsCard('Shadow Recovery', 'No-money shadow', shadow, 'Shadow 与 experiment 必须和 executed 分开，不能单独触发实盘。')}
+        <div class="polymarket-card ${Number(latestPnl.realizedPnl || 0) < 0 ? 'danger' : 'watch'}">
+            <div class="polymarket-eyebrow">Latest PnL</div>
+            <div class="polymarket-title">${escapeHtml(formatMoney(latestPnl.realizedPnl || 0))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('unrealized', formatMoney(latestPnl.unrealizedPnl || 0))}
+                ${renderPolymarketMetric('trades', latestPnl.totalTrades ?? '--')}
+                ${renderPolymarketMetric('wins / losses', `${latestPnl.winCount ?? '--'} / ${latestPnl.lossCount ?? '--'}`)}
+                ${renderPolymarketMetric('win rate', formatPolymarketPercent(latestPnl.winRatePct))}
+            </div>
+            <div class="polymarket-note">钱包/执行层亏损状态会让 Governance 保持 research-only。</div>
+        </div>
+    `;
+
+    const groups = Array.isArray(research.experimentGroups) ? research.experimentGroups : [];
+    groupBody.innerHTML = groups.length
+        ? groups.slice(0, 9).map((item) => {
+            const key = item.experimentKey || 'baseline';
+            const retune = (governance.retuneExperimentKeys || []).includes(key);
+            return renderPolymarketStatsCard(
+                key,
+                retune ? 'retune' : 'shadow experiment',
+                item,
+                `Scope ${item.marketScope || 'mixed'} · ${retune ? '需要重调，不进入 live canary' : '继续观察，不自动放权'}`
+            );
+        }).join('')
+        : '<div class="empty-state">暂无 shadow/experiment 分桶</div>';
+
+    const topEvents = research.risk?.topEvents || [];
+    const recentEvents = research.risk?.recentEvents || [];
+    const actionsHtml = actionList.length
+        ? actionList.map((action) => `<div class="polymarket-action">${escapeHtml(action)}</div>`).join('')
+        : '<div class="polymarket-action">保持只读，等待更多证据。</div>';
+    const blockersHtml = blockers.length
+        ? blockers.map((blocker) => `<div class="polymarket-action">${escapeHtml(blocker)}</div>`).join('')
+        : '<div class="polymarket-action">暂无明确 blocker，但仍不自动恢复执行。</div>';
+    riskBody.innerHTML = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">Governance Blockers</div>
+            <div class="polymarket-title">${escapeHtml(decision)}</div>
+            <div class="polymarket-action-list">${blockersHtml}</div>
+        </div>
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">Next Actions</div>
+            <div class="polymarket-title">Safe merge path</div>
+            <div class="polymarket-action-list">${actionsHtml}</div>
+        </div>
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">Top Risk Events</div>
+            <div class="polymarket-title">${topEvents.length ? `${topEvents.length} event families` : 'No risk log'}</div>
+            <div class="polymarket-action-list">
+                ${topEvents.slice(0, 8).map((event) => `<div class="polymarket-action">${escapeHtml(event.event)} · ${Number(event.entries || 0)} · ${escapeHtml(event.latestIso || '--')}</div>`).join('') || '<div class="polymarket-action">暂无 risk_log</div>'}
+            </div>
+        </div>
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">Recent Runtime Events</div>
+            <div class="polymarket-title">${recentEvents.length ? 'Last risk rows' : 'No recent rows'}</div>
+            <div class="polymarket-action-list">
+                ${recentEvents.slice(0, 6).map((event) => `<div class="polymarket-action">${escapeHtml(event.event)} · ${escapeHtml(event.actionTaken || '--')} · ${escapeHtml(event.timestampIso || '--')}</div>`).join('') || '<div class="polymarket-action">暂无 recent risk rows</div>'}
+            </div>
+        </div>
+    `;
+
+    const recentJournal = Array.isArray(research.recentJournal) ? research.recentJournal : [];
+    journalBody.innerHTML = recentJournal.length
+        ? `
+            <table class="report-table compact-report-table polymarket-ledger-table">
+                <thead>
+                    <tr>
+                        <th>类型</th>
+                        <th>实验</th>
+                        <th>市场</th>
+                        <th>状态</th>
+                        <th>净收益</th>
+                        <th>入场时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${recentJournal.map((row) => `
+                        <tr>
+                            <td>${escapeHtml(row.sampleType || '--')}</td>
+                            <td>${escapeHtml(row.experimentKey || '--')}</td>
+                            <td>${escapeHtml(row.marketSlug || '--')}</td>
+                            <td>${escapeHtml(row.entryStatus || '--')}</td>
+                            <td class="${Number(row.realizedPnl || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoney(row.realizedPnl || 0))}</td>
+                            <td>${escapeHtml(row.entryIso || '--')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `
+        : '<div class="empty-state">暂无最近 Polymarket 样本</div>';
 }
 
 function getFocusSymbol(d) {
@@ -12336,6 +12750,11 @@ const DASHBOARD_SECTION_META = {
         title: '策略路线工作台',
         desc: 'MA/RSI/BB/MACD/SR 每条路线独立看 live/candidate 状态、参数版本、升降级 Gate 与下一轮测试。'
     },
+    polymarket: {
+        eyebrow: 'Polymarket Research',
+        title: 'Polymarket 外部研究',
+        desc: '只读合并 D:\\polymarket 的 executed、shadow、experiment、PnL 和 risk_log 证据；不加载钱包、不启动执行器、不影响 MT5。'
+    },
     monitor: {
         eyebrow: 'Indicator Market',
         title: '品种与指标监控',
@@ -12384,6 +12803,8 @@ function setDashboardSection(sectionKey = '', options = {}) {
 
     const mainEl = document.querySelector('.main');
     if (mainEl) mainEl.classList.add('workspace-mode');
+    const commandCenter = document.querySelector('.qd-command-center');
+    if (commandCenter) commandCenter.classList.toggle('is-detail-section', activeSection !== 'overview');
     sections.forEach((section) => {
         const key = section.dataset.navSection || normalizeSectionKey(section.id);
         const active = key === activeSection;
@@ -12747,6 +13168,7 @@ function updateDashboard() {
     updateParamLabRunRecoveryPanel(d);
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
+    updatePolymarketWorkspace(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
     updateQuantDingerInspiredHero(d);
