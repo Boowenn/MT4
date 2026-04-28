@@ -3484,6 +3484,305 @@
                 font-size: 28px;
             }
         }
+
+        /* Final visual repair: keep the QuantDinger-style shell visible and remove old dark-card residue. */
+        body {
+            background: #f5f7fb;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.98);
+            border-bottom: 1px solid #dde7f3;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.055);
+        }
+
+        .market-bar {
+            background: #ffffff;
+            border-bottom: 1px solid #e1e9f4;
+            color: #334155;
+        }
+
+        .qd-platform-shell {
+            align-items: start;
+        }
+
+        .qd-app-menu {
+            position: sticky;
+            top: 94px;
+            z-index: 60;
+            background: #ffffff;
+            border-color: #dfe7f2;
+            scrollbar-width: none;
+        }
+
+        .qd-app-menu::-webkit-scrollbar,
+        .market-bar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .qd-brand-mark,
+        .logo-icon {
+            background: #101828;
+        }
+
+        .qd-command-header,
+        .qd-analysis-engine,
+        .qd-market-pulse,
+        .qd-route-watchlist,
+        .qd-main-panel,
+        .panel,
+        .stat-card,
+        .radar-item,
+        .trade-section,
+        .route-card,
+        .symbol-card,
+        .strategy-card,
+        .filter-panel,
+        .suggestion-card,
+        .journal-card,
+        .chart-container,
+        .research-window-card,
+        .backtest-compare-card,
+        .mt5-shadow-subpanel {
+            background: #ffffff;
+            border-color: #dfe7f2;
+            color: #1f2937;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+        }
+
+        .panel-header,
+        .trade-header {
+            background: #fbfdff;
+            border-color: #e4ebf5;
+        }
+
+        .qd-action-stat,
+        .qd-main-metric,
+        .qd-pulse-item,
+        .qd-evidence-item,
+        .sidebar-summary-item,
+        .symbol-strategy-action-detail,
+        .strategy-opportunity-stat,
+        .mt5-shadow-metric,
+        .research-window-metric,
+        .backtest-metric,
+        .research-suggestion-metric,
+        .regime-heatmap-metric {
+            background: #f8fbff;
+            border: 1px solid #e5edf7;
+            color: #1f2937;
+            box-shadow: none;
+        }
+
+        .qd-action-label,
+        .qd-main-metric-label,
+        .qd-pulse-label,
+        .mt5-shadow-metric-label,
+        .research-suggestion-metric-label,
+        .regime-heatmap-metric-label {
+            color: #718096;
+        }
+
+        .qd-action-value,
+        .qd-main-metric-value,
+        .qd-pulse-value,
+        .mt5-shadow-metric-value,
+        .research-suggestion-metric-value,
+        .regime-heatmap-metric-value,
+        .regime-heatmap-winrate,
+        .regime-heatmap-pf {
+            color: #111827;
+        }
+
+        .mt5-shadow-metric-meta,
+        .regime-heatmap-summary,
+        .regime-heatmap-head-sub,
+        .regime-heatmap-row-sub,
+        .regime-heatmap-footer,
+        .research-suggestion-reason,
+        .research-suggestion-next {
+            color: #64748b;
+        }
+
+        .regime-filter-chip,
+        .mt5-shadow-pill {
+            background: #f8fbff;
+            border-color: #dbeafe;
+            color: #334155;
+        }
+
+        .regime-filter-chip.active,
+        .mt5-shadow-pill.good {
+            background: #eef6ff;
+            border-color: #b9d7ff;
+            color: #0f5ed7;
+        }
+
+        .regime-heatmap-head-cell,
+        .regime-heatmap-row-label,
+        .regime-heatmap-cell {
+            background: #ffffff;
+            border-color: #dfe7f2;
+            color: #1f2937;
+            box-shadow: none;
+        }
+
+        .regime-heatmap-head-cell.corner {
+            background: #fbfdff;
+        }
+
+        .regime-heatmap-head-main,
+        .regime-heatmap-row-main {
+            color: #111827;
+        }
+
+        .regime-heatmap-cell.empty {
+            background: #f8fbff;
+            color: #94a3b8;
+        }
+
+        .regime-heatmap-cell.positive {
+            background: #f0fdf4 !important;
+            border-color: #bbf7d0;
+        }
+
+        .regime-heatmap-cell.negative {
+            background: #fff7f7 !important;
+            border-color: #fecaca;
+        }
+
+        .regime-heatmap-cell.neutral {
+            background: #f8fbff !important;
+            border-color: #dbeafe;
+        }
+
+        @media (max-width: 1100px) {
+            .qd-app-menu {
+                top: 103px;
+                min-height: 0;
+                flex-direction: row;
+                align-items: center;
+                gap: 10px;
+                overflow-x: auto;
+                padding: 11px 12px;
+                border-radius: 8px;
+            }
+
+            .qd-app-brand {
+                flex: 0 0 auto;
+                min-width: auto;
+                border-bottom: 0;
+                border-right: 1px solid #e5edf7;
+                padding: 0 12px 0 2px;
+            }
+
+            .qd-menu-group {
+                display: flex;
+                flex: 1 0 auto;
+                gap: 8px;
+                min-width: max-content;
+                overflow: visible;
+            }
+
+            .qd-menu-item {
+                flex: 0 0 auto;
+                min-height: 34px;
+                padding: 8px 11px;
+                white-space: nowrap;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .market-bar {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 8px 10px;
+                padding: 8px 12px;
+                overflow: visible;
+            }
+
+            .market-item {
+                min-width: 0;
+                gap: 4px;
+            }
+
+            .market-value {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .qd-platform-shell {
+                margin-top: 10px;
+            }
+
+            .qd-app-menu {
+                display: flex;
+                position: sticky;
+                top: 104px;
+                margin-left: -12px;
+                margin-right: -12px;
+                padding: 10px 12px;
+                border-left: 0;
+                border-right: 0;
+                border-radius: 0;
+                box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+            }
+
+            .qd-app-brand {
+                display: none;
+            }
+
+            .qd-brand-sub {
+                display: none;
+            }
+
+            .qd-brand-name {
+                font-size: 13px;
+            }
+
+            .qd-brand-mark {
+                width: 30px;
+                height: 30px;
+            }
+
+            .qd-menu-group {
+                padding-bottom: 0;
+            }
+
+            .qd-menu-item {
+                min-width: auto;
+                font-size: 12px;
+            }
+
+            .qd-menu-icon {
+                width: auto;
+            }
+
+            .qd-command-actions,
+            .qd-main-metrics,
+            .qd-evidence-strip {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .qd-action-stat,
+            .qd-main-metric {
+                min-height: 70px;
+            }
+        }
+
+        @media (max-width: 520px) {
+            .qd-command-actions,
+            .qd-main-metrics,
+            .qd-evidence-strip,
+            .qd-pulse-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .qd-app-brand {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
@@ -3542,11 +3841,11 @@
         </div>
         <div class="qd-menu-group">
             <div class="qd-menu-label">Workspace</div>
-            <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span>AI Asset Analysis</a>
-            <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span>Indicator Market</a>
-            <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span>Strategy Lab</a>
-            <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span>Trading Bot</a>
-            <a class="qd-menu-item" href="#section-reports"><span class="qd-menu-icon">◫</span>Reports</a>
+            <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span>总览分析</a>
+            <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span>指标行情</a>
+            <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span>策略实验室</a>
+            <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span>交易机器人</a>
+            <a class="qd-menu-item" href="#section-reports"><span class="qd-menu-icon">◫</span>报表证据</a>
         </div>
         <div class="qd-menu-footer">
             <strong>Guardrail:</strong><br>
@@ -3558,8 +3857,8 @@
         <div class="qd-command-header">
             <div>
                 <div class="qd-panel-eyebrow">Instant Analysis</div>
-                <div class="qd-command-title">AI Asset Analysis</div>
-                <div class="qd-command-desc">QuantDinger-style operator workspace for QuantGod: first decide whether the system can act, then inspect route evidence, then drill into the original ledgers below.</div>
+                <div class="qd-command-title">总览分析</div>
+                <div class="qd-command-desc">先判断系统能否行动，再查看 Route Watchlist、证据卡和底层 ledger；页面保持只读，不改变 EA 风控与实盘权限。</div>
             </div>
             <div class="qd-command-actions">
                 <div class="qd-action-stat">
