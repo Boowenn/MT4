@@ -459,8 +459,10 @@ def summarize_param_optimization(plan: dict[str, Any]) -> dict[str, Any]:
         if route_key and isinstance(top, dict):
             top_by_route[route_key] = {
                 "candidateId": top.get("candidateId", ""),
+                "routeKey": top.get("routeKey", route_key),
                 "variant": top.get("variant", ""),
                 "symbol": top.get("symbol", ""),
+                "timeframe": top.get("timeframe", ""),
                 "score": top.get("score"),
                 "parameterSummary": top.get("parameterSummary", ""),
                 "intent": top.get("intent", ""),
@@ -546,6 +548,7 @@ def summarize_param_lab_results(results: dict[str, Any]) -> dict[str, Any]:
         metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
         top_by_route[str(route_key)] = {
             "candidateId": result.get("candidateId", ""),
+            "routeKey": result.get("routeKey", route_key),
             "variant": result.get("variant", ""),
             "symbol": result.get("symbol", ""),
             "timeframe": result.get("timeframe", ""),
@@ -554,6 +557,9 @@ def summarize_param_lab_results(results: dict[str, Any]) -> dict[str, Any]:
             "grade": result.get("grade", ""),
             "promotionReadiness": result.get("promotionReadiness", ""),
             "blockers": result.get("blockers") if isinstance(result.get("blockers"), list) else [],
+            "configPath": result.get("configPath", ""),
+            "reportPath": result.get("reportPath", ""),
+            "presetPath": result.get("presetPath", ""),
             "metrics": {
                 "closedTrades": metrics.get("closedTrades"),
                 "profitFactor": metrics.get("profitFactor"),
@@ -635,6 +641,90 @@ def fmt_metric(value: Any, digits: int = 2, suffix: str = "") -> str:
     return "--"
 
 
+def param_lab_tester_command(candidate_id: str = "", route_key: str = "") -> str:
+    parts = [r"tools\run_param_lab.bat"]
+    if candidate_id:
+        parts.extend(["--candidate-id", candidate_id])
+    elif route_key:
+        parts.extend(["--route", route_key, "--max-tasks", "1"])
+    parts.extend(["--run-terminal", "--authorized-strategy-tester"])
+    return " ".join(parts)
+
+
+def build_param_task_link(
+    *,
+    text: str,
+    route_decision: dict[str, Any],
+    source: str,
+    candidate: dict[str, Any] | None = None,
+    task: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidate = candidate or {}
+    task = task or {}
+    result = result or {}
+    route_key = str(
+        candidate.get("routeKey")
+        or task.get("routeKey")
+        or result.get("routeKey")
+        or route_decision.get("strategy")
+        or route_decision.get("key")
+        or ""
+    )
+    candidate_id = str(candidate.get("candidateId") or task.get("candidateId") or result.get("candidateId") or "")
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    if not metrics and isinstance(task.get("metrics"), dict):
+        metrics = task.get("metrics") or {}
+    report_exists = bool(metrics.get("reportExists"))
+    task_status = str(task.get("status") or ("QUEUE_PENDING" if candidate_id else "ROUTE_IDEA"))
+    result_status = str(result.get("status") or metrics.get("parseStatus") or ("REPORT_READY" if report_exists else "PENDING_REPORT"))
+    command_scope = "candidate" if candidate_id else "route"
+    has_task_context = bool(candidate_id or task.get("configPath") or task.get("presetPath") or result.get("reportPath"))
+    return {
+        "text": text,
+        "source": source,
+        "routeKey": route_key,
+        "candidateId": candidate_id,
+        "variant": candidate.get("variant") or task.get("variant") or result.get("variant") or "",
+        "symbol": candidate.get("symbol") or task.get("symbol") or result.get("symbol") or "",
+        "timeframe": candidate.get("timeframe") or task.get("timeframe") or result.get("timeframe") or "",
+        "candidateScore": candidate.get("score") or task.get("score"),
+        "taskStatus": task_status,
+        "resultStatus": result_status,
+        "resultScore": result.get("resultScore"),
+        "grade": result.get("grade", ""),
+        "promotionReadiness": result.get("promotionReadiness", ""),
+        "reportExists": report_exists,
+        "configPath": task.get("configPath") or result.get("configPath") or "",
+        "reportPath": task.get("reportPath") or result.get("reportPath") or "",
+        "presetPath": task.get("presetPath") or result.get("presetPath") or "",
+        "testerProfileSynced": bool(task.get("testerProfileSynced", False)),
+        "terminalExitCode": task.get("terminalExitCode"),
+        "testerOnlyCommand": param_lab_tester_command(candidate_id, route_key) if has_task_context else "",
+        "testerOnly": True,
+        "commandScope": command_scope,
+        "livePresetMutation": bool(
+            candidate.get("livePresetMutation")
+            or task.get("livePresetMutation")
+            or result.get("livePresetMutation")
+            or False
+        ),
+        "metrics": {
+            "closedTrades": metrics.get("closedTrades"),
+            "profitFactor": metrics.get("profitFactor"),
+            "winRate": metrics.get("winRate"),
+            "netProfit": metrics.get("netProfit"),
+            "maxDrawdown": metrics.get("maxDrawdown"),
+            "relativeDrawdownPct": metrics.get("relativeDrawdownPct"),
+        },
+        "note": (
+            "授权 Strategy Tester 窗口内可按 candidateId 精确运行。"
+            if candidate_id
+            else "这是路线级参数方向，先按 route 生成/运行 top tester-only 任务。"
+        ),
+    }
+
+
 def feedback_risk_item(blocker: str) -> dict[str, str]:
     label, severity, detail = BLOCKER_FEEDBACK.get(
         blocker,
@@ -703,23 +793,60 @@ def build_route_feedback(route_decision: dict[str, Any]) -> dict[str, Any]:
         })
 
     next_parameter_tests: list[str] = []
+    next_parameter_task_links: list[dict[str, Any]] = []
     if param.get("candidateId"):
-        next_parameter_tests.append(
+        text = (
             f"优先复核候选 `{param.get('candidateId')}` ({param.get('variant') or '--'}): "
             f"{param.get('parameterSummary') or '等待参数摘要'}。"
         )
+        next_parameter_tests.append(text)
+        next_parameter_task_links.append(build_param_task_link(
+            text=text,
+            route_decision=route_decision,
+            source="param_optimization",
+            candidate=param,
+            task=lab if lab.get("candidateId") == param.get("candidateId") else {},
+            result=lab_result if lab_result.get("candidateId") == param.get("candidateId") else {},
+        ))
     if lab.get("candidateId"):
-        next_parameter_tests.append(
+        text = (
             f"ParamLab 队列已有 `{lab.get('candidateId')}`，状态 {lab.get('status') or '--'}；授权 Strategy Tester 窗口内运行后再解析报告。"
         )
+        next_parameter_tests.append(text)
+        next_parameter_task_links.append(build_param_task_link(
+            text=text,
+            route_decision=route_decision,
+            source="param_lab_task",
+            candidate=param if param.get("candidateId") == lab.get("candidateId") else {},
+            task=lab,
+            result=lab_result if lab_result.get("candidateId") == lab.get("candidateId") else {},
+        ))
     if lab_result.get("candidateId"):
         grade = lab_result.get("grade") or "--"
         score = lab_result.get("resultScore")
-        next_parameter_tests.append(
+        text = (
             f"已评分 `{lab_result.get('candidateId')}`: grade {grade}, score {fmt_metric(score, 1)}, "
             f"PF {fmt_metric(result_metrics.get('profitFactor'), 2)}, 胜率 {fmt_metric(result_metrics.get('winRate'), 1, '%')}。"
         )
-    next_parameter_tests.extend(ROUTE_PARAMETER_TEST_IDEAS.get(strategy, []))
+        next_parameter_tests.append(text)
+        next_parameter_task_links.append(build_param_task_link(
+            text=text,
+            route_decision=route_decision,
+            source="param_lab_result",
+            candidate=param if param.get("candidateId") == lab_result.get("candidateId") else {},
+            task=lab if lab.get("candidateId") == lab_result.get("candidateId") else {},
+            result=lab_result,
+        ))
+    for idea in ROUTE_PARAMETER_TEST_IDEAS.get(strategy, []):
+        next_parameter_tests.append(idea)
+        next_parameter_task_links.append(build_param_task_link(
+            text=idea,
+            route_decision=route_decision,
+            source="route_idea",
+            candidate={},
+            task=lab,
+            result=lab_result if lab_result.get("candidateId") == lab.get("candidateId") else {},
+        ))
 
     if action in {"DEMOTE_REVIEW", "RETUNE_SIM"}:
         next_step = "先降级或保持模拟，优先跑参数重调和候选后验，不要开新 live switch。"
@@ -743,6 +870,7 @@ def build_route_feedback(route_decision: dict[str, Any]) -> dict[str, Any]:
         "why": why,
         "riskAreas": risk_areas,
         "nextParameterTests": next_parameter_tests[:5],
+        "nextParameterTaskLinks": next_parameter_task_links[:5],
         "nextStep": next_step,
         "evidence": {
             "liveClosedTrades": live_trades,

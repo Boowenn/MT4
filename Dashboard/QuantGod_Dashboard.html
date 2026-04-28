@@ -1193,6 +1193,11 @@
             align-items: flex-start;
             justify-content: space-between;
             gap: 0.75rem;
+            min-width: 0;
+        }
+
+        .governance-feedback-top > div {
+            min-width: 0;
         }
 
         .governance-feedback-title {
@@ -1216,9 +1221,10 @@
 
         .governance-feedback-columns {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: minmax(0, 0.95fr) minmax(0, 0.95fr) minmax(0, 1.15fr);
             gap: 0.65rem;
             margin-top: 0.9rem;
+            min-width: 0;
         }
 
         .governance-feedback-column {
@@ -1247,6 +1253,8 @@
             color: var(--text-secondary);
             font-size: 12px;
             line-height: 1.45;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .governance-feedback-risk {
@@ -1255,6 +1263,8 @@
             color: var(--text-secondary);
             font-size: 12px;
             line-height: 1.42;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .governance-feedback-risk strong {
@@ -1269,6 +1279,75 @@
             font-size: 12px;
             font-weight: 800;
             line-height: 1.5;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .governance-feedback-param-list {
+            display: grid;
+            gap: 0.55rem;
+            margin-top: 0.55rem;
+            min-width: 0;
+        }
+
+        .governance-feedback-param {
+            display: grid;
+            gap: 0.45rem;
+            min-width: 0;
+            border: 1px solid #e8eef7;
+            border-radius: 7px;
+            background: #ffffff;
+            padding: 0.55rem;
+        }
+
+        .governance-feedback-param-text {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .governance-feedback-param-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            min-width: 0;
+        }
+
+        .governance-feedback-param .table-badge {
+            max-width: 100%;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            text-align: left;
+        }
+
+        .governance-feedback-command,
+        .governance-feedback-path {
+            display: block;
+            min-width: 0;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.4;
+        }
+
+        .governance-feedback-command {
+            border-radius: 6px;
+            border: 1px solid #dbeafe;
+            background: #eff6ff;
+            color: #1d4ed8;
+            padding: 0.42rem 0.5rem;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .governance-feedback-path {
+            color: var(--text-muted);
+            font-size: 11px;
         }
 
         .radar-label {
@@ -8565,6 +8644,70 @@ function renderGovernanceFeedbackRisk(riskAreas) {
     `).join('');
 }
 
+function governanceFeedbackTaskTone(link) {
+    const grade = String(link?.grade || '').toUpperCase();
+    const taskStatus = String(link?.taskStatus || '').toUpperCase();
+    const resultStatus = String(link?.resultStatus || '').toUpperCase();
+    if (grade && grade !== 'PENDING_REPORT') return 'status-live';
+    if (link?.reportExists || resultStatus.includes('PARSED')) return 'status-info';
+    if (resultStatus === 'PENDING_REPORT' || resultStatus === 'REPORT_MISSING' || resultStatus === 'REPORT_MISSING_AFTER_RUN') return 'status-warn';
+    if (taskStatus === 'CONFIG_READY') return 'status-info';
+    return 'status-muted';
+}
+
+function governanceFeedbackTaskLabel(link) {
+    const grade = String(link?.grade || '').toUpperCase();
+    const taskStatus = String(link?.taskStatus || '').toUpperCase();
+    const resultStatus = String(link?.resultStatus || '').toUpperCase();
+    if (grade && grade !== 'PENDING_REPORT') return `已评分 ${grade}`;
+    if (link?.reportExists || resultStatus.includes('PARSED')) return '报告已回灌';
+    if (resultStatus === 'PENDING_REPORT' || resultStatus === 'REPORT_MISSING' || resultStatus === 'REPORT_MISSING_AFTER_RUN') return '等待报告';
+    if (taskStatus === 'CONFIG_READY') return '可运行';
+    if (link?.candidateId) return '候选待配置';
+    return '路线级建议';
+}
+
+function renderGovernanceFeedbackParamLink(link) {
+    const metrics = link?.metrics || {};
+    const candidateId = link?.candidateId || '';
+    const candidateLabel = candidateId || `${link?.routeKey || '--'} route`;
+    const scoreText = link?.grade && String(link.grade).toUpperCase() !== 'PENDING_REPORT'
+        ? `Score ${formatParamLabNumber(link.resultScore, 1)} / ${link.grade}`
+        : (hasParamLabNumber(link?.candidateScore) ? `Plan ${formatParamLabNumber(link.candidateScore, 1)}` : 'Score --');
+    const metricText = [
+        `PF ${formatParamLabNumber(metrics.profitFactor, 2)}`,
+        `Win ${hasParamLabNumber(metrics.winRate) ? formatPercentValue(metrics.winRate, 1) : '--'}`,
+        `Trades ${hasParamLabNumber(metrics.closedTrades) ? metrics.closedTrades : '--'}`
+    ].join(' · ');
+    const reportPath = link?.reportPath || '';
+    const configPath = link?.configPath || '';
+    const pathText = [
+        reportPath ? `report: ${reportPath}` : 'report: 等待生成',
+        configPath ? `config: ${configPath}` : 'config: 等待生成'
+    ].join(' | ');
+    return `
+        <div class="governance-feedback-param">
+            <div class="governance-feedback-param-text">${escapeHtml(link?.text || '等待参数建议')}</div>
+            <div class="governance-feedback-param-row">
+                <span class="table-badge status-muted">${escapeHtml(candidateLabel)}</span>
+                <span class="table-badge ${governanceFeedbackTaskTone(link)}">${escapeHtml(governanceFeedbackTaskLabel(link))}</span>
+                <span class="table-badge status-info">${escapeHtml(scoreText)}</span>
+            </div>
+            <div class="governance-feedback-path">${escapeHtml(metricText)}</div>
+            <code class="governance-feedback-command">${escapeHtml(link?.testerOnlyCommand || '等待 tester-only 命令')}</code>
+            <div class="governance-feedback-path">${escapeHtml(pathText)}</div>
+        </div>
+    `;
+}
+
+function renderGovernanceFeedbackParamLinks(row) {
+    const links = Array.isArray(row?.nextParameterTaskLinks) ? row.nextParameterTaskLinks.filter(Boolean) : [];
+    if (!links.length) {
+        return `<ul class="governance-feedback-list">${renderGovernanceFeedbackList(row?.nextParameterTests, '等待 ParamLab 候选或路线调参建议。')}</ul>`;
+    }
+    return `<div class="governance-feedback-param-list">${links.map(renderGovernanceFeedbackParamLink).join('')}</div>`;
+}
+
 function renderGovernanceFeedbackCard(row) {
     const strategyKey = row?.strategy || row?.key || '';
     const config = STRATEGY_CONFIG[strategyKey] || { label: row?.label || strategyKey, shortLabel: strategyKey, color: '#64748b' };
@@ -8604,9 +8747,7 @@ function renderGovernanceFeedbackCard(row) {
                 </div>
                 <div class="governance-feedback-column">
                     <div class="governance-feedback-column-title">下一轮测什么参数</div>
-                    <ul class="governance-feedback-list">
-                        ${renderGovernanceFeedbackList(row?.nextParameterTests, '等待 ParamLab 候选或路线调参建议。')}
-                    </ul>
+                    ${renderGovernanceFeedbackParamLinks(row)}
                 </div>
             </div>
             <div class="governance-feedback-next">${escapeHtml(row?.nextStep || '保持只读观察，等待更多证据。')}</div>
