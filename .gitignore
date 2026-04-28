@@ -8,4 +8,5 @@ Dashboard/quantgod_cloud_sync.json
 archive/mt4-runtime-snapshots/
 archive/backtests/runs/
 archive/param-lab/runs/
+runtime/
 archive/backtests/latest/QuantGod_BacktestSummary.json

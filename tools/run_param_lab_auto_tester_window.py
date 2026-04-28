@@ -33,6 +33,7 @@ from auto_tester_window_guard import (
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HFM_ROOT = Path(r"C:\Program Files\HFM Metatrader 5")
 DEFAULT_RUNTIME_DIR = DEFAULT_HFM_ROOT / "MQL5" / "Files"
+DEFAULT_TESTER_ROOT = DEFAULT_REPO_ROOT / "runtime" / "HFM_MT5_Tester_Isolated"
 SCHEDULER_NAME = "QuantGod_ParamLabAutoScheduler.json"
 STATUS_NAME = "QuantGod_ParamLabStatus.json"
 RUN_RECOVERY_NAME = "QuantGod_ParamLabRunRecovery.json"
@@ -74,11 +75,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-recovery", default="")
     parser.add_argument("--budget-policy", default="")
     parser.add_argument("--executor-plan", default="")
-    parser.add_argument("--tester-root", default="", help="Optional isolated tester terminal root. Defaults to --hfm-root.")
+    parser.add_argument(
+        "--tester-root",
+        default=str(DEFAULT_TESTER_ROOT),
+        help="Isolated tester terminal root. Defaults to repo runtime/HFM_MT5_Tester_Isolated.",
+    )
     parser.add_argument(
         "--require-isolated-tester",
+        dest="require_isolated_tester",
         action="store_true",
-        help="Block run-terminal execution unless --tester-root differs from --hfm-root.",
+        default=True,
+        help="Block run-terminal execution unless --tester-root differs from --hfm-root. Enabled by default.",
+    )
+    parser.add_argument(
+        "--allow-shared-tester",
+        dest="require_isolated_tester",
+        action="store_false",
+        help="Explicitly allow shared HFM root for evaluation or manual diagnostics.",
     )
     parser.add_argument("--max-tasks", type=int, default=4)
     parser.add_argument("--route", action="append", default=[])
@@ -513,7 +526,7 @@ def run_continuous_watcher(args: argparse.Namespace, *, enabled: bool) -> dict[s
 def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     repo_root = Path(args.repo_root)
     hfm_root = Path(args.hfm_root)
-    tester_root = Path(args.tester_root) if args.tester_root else hfm_root
+    tester_root = Path(args.tester_root) if args.tester_root else DEFAULT_TESTER_ROOT
     runtime_dir = Path(args.runtime_dir)
     scheduler_path = Path(args.scheduler) if args.scheduler else runtime_dir / SCHEDULER_NAME
     output_path = Path(args.output) if args.output else runtime_dir / AUTO_TESTER_WINDOW_NAME
@@ -670,7 +683,7 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "Use guardedRunCommand only when canRunTerminal=true and executorControls.allowedCount is positive.",
             "Red Run Recovery drilldown candidates are excluded before runner launch and do not consume automatic retries.",
             "Continuous watcher can poll reports during an authorized tester window after a guarded run.",
-            "Use --tester-root with --require-isolated-tester when an isolated terminal/profile is prepared.",
+            "Default tester root is repo/runtime/HFM_MT5_Tester_Isolated and shared live HFM root is blocked unless --allow-shared-tester is explicit.",
         ],
     }
     write_json(output_path, status)

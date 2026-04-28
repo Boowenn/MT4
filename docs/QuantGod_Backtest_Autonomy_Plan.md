@@ -22,7 +22,7 @@ Implemented:
 - Executor-level retry enforcement: AUTO_TESTER_WINDOW now reads Run Recovery drilldown before launching the runner, writes a filtered `QuantGod_AutoTesterWindowExecutorPlan.json`, and excludes red candidates so they do not consume automatic tester retries.
 - Backtest budget / experiment control: AUTO_TESTER_WINDOW enforces per-route, per-parameter-family, and per-failure-family budgets before the runner sees the queue. Optional overrides can be supplied with `QuantGod_ParamLabBacktestBudget.json`; defaults stay conservative.
 - Continuous watcher bridge: AUTO_TESTER_WINDOW can run Report Watcher in a bounded polling loop after a guarded Strategy Tester run, so reports can be parsed during the same authorized tester window.
-- Isolated tester terminal/profile support: AUTO_TESTER_WINDOW accepts a separate `--tester-root` and can require it with `--require-isolated-tester`; this lets future tester execution target an isolated terminal/profile instead of the live HFM installation.
+- Isolated tester terminal/profile support: AUTO_TESTER_WINDOW now defaults to `runtime/HFM_MT5_Tester_Isolated`, requires an isolated root unless `--allow-shared-tester` is explicit, and can be prepared by `tools/prepare_isolated_mt5_tester.py`; this lets future tester execution target an isolated terminal/profile instead of the live HFM installation.
 
 Current live-trading boundary:
 
@@ -64,7 +64,7 @@ Remaining runner work:
 
 - Add no-open-position policy before unattended weekday or live-session tester automation.
 - Add stronger terminal timeout vs tester-failure classification after real guarded runs exist.
-- Prepare and validate a physical isolated tester terminal directory before enabling `--require-isolated-tester` for unattended runs.
+- Keep the physical isolated tester directory refreshed with `tools/prepare_isolated_mt5_tester.py` after EA/source/preset updates.
 
 Proposed mode names:
 
@@ -192,4 +192,4 @@ The recommended target is:
 
 ## Immediate Next Step
 
-Use the new executor plan in `QuantGod_AutoTesterWindowExecutorPlan.json` as the safe runner input. Auto Scheduler chooses the next tester-only batch, Run Recovery marks red/yellow/green risk, AUTO_TESTER_WINDOW removes red and over-budget candidates before runner launch, and Report Watcher can poll continuously during an authorized tester window. The next safety step before unattended weekday-style use is a no-open-position policy plus a prepared isolated tester terminal/profile.
+Use the isolated tester root in `runtime/HFM_MT5_Tester_Isolated` as the guarded runner target. Auto Scheduler chooses the next tester-only batch, Run Recovery marks red/yellow/green risk, AUTO_TESTER_WINDOW removes red and over-budget candidates before runner launch, and Report Watcher can poll continuously during an authorized tester window. The next safety step before unattended weekday-style use is a no-open-position policy.

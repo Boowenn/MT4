@@ -4618,6 +4618,25 @@
             width: 112px;
         }
 
+        .trade-history-table {
+            min-width: 1040px;
+        }
+
+        .trade-history-table th:last-child,
+        .trade-history-table td:last-child {
+            width: 174px;
+            min-width: 174px;
+        }
+
+        .trade-time-cell {
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: visible;
+            text-overflow: clip;
+        }
+
         .table-wrapper td:nth-child(1),
         .table-wrapper td:nth-child(2),
         .table-wrapper td:nth-child(3),
@@ -6663,7 +6682,7 @@
                         </div>
                         <div class="panel-body" style="padding: 0;">
                             <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
-                                <table>
+                                <table class="trade-history-table">
                                     <thead>
                                         <tr>
                                             <th>订单号</th>
@@ -13624,7 +13643,7 @@ function updateClosedTrades(trades) {
                 <td>${t.closePrice}</td>
                 <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
                 <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
-                <td style="font-size:11px; color: var(--text-muted);">${t.closeTime}</td>
+                <td class="trade-time-cell">${t.closeTime}</td>
             </tr>`;
         });
     });
