@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.12"
+#property version   "3.13"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.12-mt5-live-pilot-trailing";
+input string DashboardBuild      = "QuantGod-v3.13-mt5-rsi-fast-exit";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -27,6 +27,13 @@ input int    PilotRsiOverbought       = 80;
 input int    PilotRsiOversold         = 20;
 input double PilotRsiBandTolerancePct = 0.008;
 input double PilotRsiATRMultiplierSL  = 1.5;
+input bool   EnablePilotRsiFastExitProtect = true;
+input int    PilotRsiProtectMinAgeMinutes = 10;
+input double PilotRsiBreakevenTriggerPips = 5.0;
+input double PilotRsiBreakevenLockPips    = 1.0;
+input double PilotRsiTrailingStartPips    = 8.0;
+input double PilotRsiTrailingDistancePips = 3.5;
+input double PilotRsiTrailingStepPips     = 0.5;
 input bool   EnablePilotBBH1Candidate = true;
 input bool   EnablePilotBBH1Live      = false;
 input ENUM_TIMEFRAMES PilotBBTimeframe = PERIOD_H1;
@@ -1247,6 +1254,11 @@ bool IsPilotStrategyComment(string comment)
            StringFind(upper, "QG_BB_TRIPLE") >= 0 ||
            StringFind(upper, "QG_MACD_DIV") >= 0 ||
            StringFind(upper, "QG_SR_BREAK") >= 0);
+}
+
+bool IsPilotRsiPositionComment(string comment)
+{
+   return (StringFind(ToUpperString(comment), "QG_RSI_REV") >= 0);
 }
 
 string PilotTradeComment(string strategyKey, int direction)
@@ -3566,11 +3578,15 @@ void ManageDemotedPilotRouteExits()
 
 void ManagePilotBreakevenStops()
 {
-   bool breakevenOn = (EnablePilotBreakevenProtect && PilotBreakevenTriggerPips > 0.0);
-   bool trailingOn = (EnablePilotTrailingStop &&
-                      PilotTrailingStartPips > 0.0 &&
-                      PilotTrailingDistancePips > 0.0);
-   if(!breakevenOn && !trailingOn)
+   bool baseBreakevenOn = (EnablePilotBreakevenProtect && PilotBreakevenTriggerPips > 0.0);
+   bool baseTrailingOn = (EnablePilotTrailingStop &&
+                          PilotTrailingStartPips > 0.0 &&
+                          PilotTrailingDistancePips > 0.0);
+   bool rsiBreakevenOn = (EnablePilotRsiFastExitProtect && PilotRsiBreakevenTriggerPips > 0.0);
+   bool rsiTrailingOn = (EnablePilotRsiFastExitProtect &&
+                         PilotRsiTrailingStartPips > 0.0 &&
+                         PilotRsiTrailingDistancePips > 0.0);
+   if(!baseBreakevenOn && !baseTrailingOn && !rsiBreakevenOn && !rsiTrailingOn)
       return;
 
    int total = PositionsTotal();
@@ -3586,9 +3602,16 @@ void ManagePilotBreakevenStops()
       if(!IsPilotManagedPosition(comment, magic))
          continue;
 
+      bool isRsiPosition = IsPilotRsiPositionComment(comment);
+      bool breakevenOn = isRsiPosition ? rsiBreakevenOn : baseBreakevenOn;
+      bool trailingOn = isRsiPosition ? rsiTrailingOn : baseTrailingOn;
+      if(!breakevenOn && !trailingOn)
+         continue;
+
       datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
       int ageMinutes = (int)MathMax(0, (long)(CurrentServerTime() - openTime) / 60);
-      if(ageMinutes < PilotBreakevenMinAgeMinutes)
+      int minAgeMinutes = isRsiPosition ? MathMax(0, PilotRsiProtectMinAgeMinutes) : MathMax(0, PilotBreakevenMinAgeMinutes);
+      if(ageMinutes < minAgeMinutes)
          continue;
 
       double pip = PipSize(symbol);
@@ -3606,7 +3629,11 @@ void ManagePilotBreakevenStops()
       double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double currentSL = PositionGetDouble(POSITION_SL);
       double currentTP = PositionGetDouble(POSITION_TP);
-      double lockPips = MathMax(0.0, PilotBreakevenLockPips);
+      double breakevenTriggerPips = isRsiPosition ? MathMax(0.0, PilotRsiBreakevenTriggerPips) : MathMax(0.0, PilotBreakevenTriggerPips);
+      double lockPips = isRsiPosition ? MathMax(0.0, PilotRsiBreakevenLockPips) : MathMax(0.0, PilotBreakevenLockPips);
+      double trailingStartPips = isRsiPosition ? MathMax(0.0, PilotRsiTrailingStartPips) : MathMax(0.0, PilotTrailingStartPips);
+      double trailingDistancePips = isRsiPosition ? MathMax(0.0, PilotRsiTrailingDistancePips) : MathMax(0.0, PilotTrailingDistancePips);
+      double trailingStepPips = isRsiPosition ? MathMax(0.1, PilotRsiTrailingStepPips) : MathMax(0.1, PilotTrailingStepPips);
       double favorablePips = 0.0;
       double targetSL = 0.0;
       bool shouldModify = false;
@@ -3614,16 +3641,16 @@ void ManagePilotBreakevenStops()
       int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
       int freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
       double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point + point;
-      double stepDistance = MathMax(0.1, PilotTrailingStepPips) * pip;
+      double stepDistance = trailingStepPips * pip;
 
       if(positionType == POSITION_TYPE_BUY)
       {
          favorablePips = (tick.bid - openPrice) / pip;
-         if(breakevenOn && favorablePips >= PilotBreakevenTriggerPips)
+         if(breakevenOn && favorablePips >= breakevenTriggerPips)
             targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
-         if(trailingOn && favorablePips >= PilotTrailingStartPips)
+         if(trailingOn && favorablePips >= trailingStartPips)
          {
-            double trailingSL = NormalizeDouble(tick.bid - PilotTrailingDistancePips * pip, digits);
+            double trailingSL = NormalizeDouble(tick.bid - trailingDistancePips * pip, digits);
             if(targetSL <= 0.0 || trailingSL > targetSL)
                targetSL = trailingSL;
          }
@@ -3639,11 +3666,11 @@ void ManagePilotBreakevenStops()
       else if(positionType == POSITION_TYPE_SELL)
       {
          favorablePips = (openPrice - tick.ask) / pip;
-         if(breakevenOn && favorablePips >= PilotBreakevenTriggerPips)
+         if(breakevenOn && favorablePips >= breakevenTriggerPips)
             targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
-         if(trailingOn && favorablePips >= PilotTrailingStartPips)
+         if(trailingOn && favorablePips >= trailingStartPips)
          {
-            double trailingSL = NormalizeDouble(tick.ask + PilotTrailingDistancePips * pip, digits);
+            double trailingSL = NormalizeDouble(tick.ask + trailingDistancePips * pip, digits);
             if(targetSL <= 0.0 || trailingSL < targetSL)
                targetSL = trailingSL;
          }
@@ -3665,6 +3692,7 @@ void ManagePilotBreakevenStops()
                " symbol=", symbol,
                " age=", ageMinutes, "m",
                " favorablePips=", DoubleToString(favorablePips, 1),
+               " routeProtect=", (isRsiPosition ? "RSI_FAST" : "BASE"),
                " newSL=", DoubleToString(targetSL, digits));
       }
    }
