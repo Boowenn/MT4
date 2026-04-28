@@ -20,8 +20,11 @@ Dashboard/QuantGod_PolymarketDryRunOrders.json
 Dashboard/QuantGod_PolymarketExecutionLedger.csv
 Dashboard/QuantGod_PolymarketDryRunOutcomeWatcher.json
 Dashboard/QuantGod_PolymarketDryRunOutcomeLedger.csv
+Dashboard/QuantGod_PolymarketHistoryDb.json
+Dashboard/QuantGod_PolymarketHistoryDb.csv
 archive/mt4-runtime-snapshots/
 archive/backtests/runs/
 archive/param-lab/runs/
+archive/polymarket/history/
 runtime/
 archive/backtests/latest/QuantGod_BacktestSummary.json

@@ -6100,6 +6100,7 @@
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
         .polymarket-retune-grid,
+        .polymarket-historydb-grid,
         .polymarket-risk-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -6131,6 +6132,10 @@
         }
 
         .polymarket-retune-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .polymarket-historydb-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
@@ -6563,6 +6568,7 @@
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
         .polymarket-retune-grid,
+        .polymarket-historydb-grid,
         .polymarket-risk-grid {
             grid-template-columns: 1fr;
         }
@@ -7379,6 +7385,21 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">H</div>
+                            历史分析库 / SQLite
+                        </div>
+                        <span class="eval-summary" id="polymarketHistoryDbSummary">等待历史库</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-historydb-grid" id="polymarketHistoryDbBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketHistoryDb.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(245,158,11,0.16); color: var(--accent-orange);">E</div>
                             实盘 / 影子 / 实验分桶
                         </div>
@@ -7925,6 +7946,7 @@ const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.j
 const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.json';
 const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
 const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
+const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -8922,7 +8944,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null,
         polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null,
         polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null,
-        polymarketDryRunOutcomeWatcher: baseData?.polymarketDryRunOutcomeWatcher || previousData?.polymarketDryRunOutcomeWatcher || null
+        polymarketDryRunOutcomeWatcher: baseData?.polymarketDryRunOutcomeWatcher || previousData?.polymarketDryRunOutcomeWatcher || null,
+        polymarketHistoryDb: baseData?.polymarketHistoryDb || previousData?.polymarketHistoryDb || null
     };
 
     if (!isLocalRuntime()) {
@@ -9162,6 +9185,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Polymarket dry-run outcome watcher load failed.', error);
     }
 
+    try {
+        data.polymarketHistoryDb = await loadLocalJsonSupplement(LOCAL_POLYMARKET_HISTORY_DB_PATH);
+        data._polymarketHistoryDbError = false;
+    } catch (error) {
+        data._polymarketHistoryDbError = true;
+        console.warn('Polymarket history DB summary load failed.', error);
+    }
+
     return data;
 }
 
@@ -9279,6 +9310,10 @@ function getPolymarketDryRunOrders(d) {
 
 function getPolymarketDryRunOutcomeWatcher(d) {
     return d?.polymarketDryRunOutcomeWatcher || null;
+}
+
+function getPolymarketHistoryDb(d) {
+    return d?.polymarketHistoryDb || null;
 }
 
 function getPolymarketTone(stats = {}) {
@@ -10039,6 +10074,139 @@ function updatePolymarketRetunePlanner(d) {
         blockerCard,
         ...recommendations.slice(0, 7).map(renderPolymarketRetuneCard),
     ].join('') || '<div class="empty-state">暂无重调建议。</div>';
+}
+
+function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') {
+    const visible = Array.isArray(rows) ? rows.slice(0, 8) : [];
+    if (!visible.length) {
+        return `
+            <div class="polymarket-card watch">
+                <div class="polymarket-eyebrow">${escapeHtml(title)}</div>
+                <div class="polymarket-title">暂无历史行</div>
+                <div class="polymarket-note">等待历史库下一轮灌入。</div>
+            </div>
+        `;
+    }
+    const headers = type === 'analysis'
+        ? ['时间', '市场', '推荐', '风险', '偏离', '信心']
+        : type === 'simulation'
+            ? ['时间', '市场', '状态', '价格', 'MFE/MAE', '退出']
+            : ['时间', '市场', '风险', '概率', '评分', '路线'];
+    const rowHtml = visible.map((row) => {
+        if (type === 'analysis') {
+            return `
+                <tr>
+                    <td>${escapeHtml(formatPolymarketTime(row.generatedAt))}</td>
+                    <td>${escapeHtml(row.question || row.query || row.marketId || '--')}</td>
+                    <td><span class="table-badge ${getPolymarketRecommendationBadgeClass(row.recommendation)}">${escapeHtml(translatePolymarketToken(row.recommendation || '--'))}</span></td>
+                    <td><span class="table-badge ${getPolymarketRiskBadgeClass(row.risk)}">${escapeHtml(translatePolymarketToken(row.risk || '--'))}</span></td>
+                    <td class="${Number(row.divergence || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatPolymarketSignedPp(row.divergence))}</td>
+                    <td>${escapeHtml(formatPolymarketPercent(row.confidence))}</td>
+                </tr>
+            `;
+        }
+        if (type === 'simulation') {
+            return `
+                <tr>
+                    <td>${escapeHtml(formatPolymarketTime(row.generatedAt))}</td>
+                    <td>${escapeHtml(row.question || row.marketId || '--')}</td>
+                    <td>${escapeHtml(translatePolymarketToken(row.state || row.decision || '--'))}</td>
+                    <td>${escapeHtml(row.currentPrice ?? row.entryPrice ?? '--')}</td>
+                    <td>${escapeHtml(`${formatPolymarketSignedPct(row.mfePct)} / ${formatPolymarketSignedPct(row.maePct)}`)}</td>
+                    <td>${escapeHtml(translatePolymarketToken(row.wouldExitReason || '--'))}</td>
+                </tr>
+            `;
+        }
+        return `
+            <tr>
+                <td>${escapeHtml(formatPolymarketTime(row.seenAt))}</td>
+                <td>${escapeHtml(row.question || row.marketId || '--')}</td>
+                <td><span class="table-badge ${getPolymarketRiskBadgeClass(row.risk)}">${escapeHtml(translatePolymarketToken(row.risk || '--'))}</span></td>
+                <td>${escapeHtml(formatPolymarketPercent(row.probability))}</td>
+                <td>${escapeHtml(row.aiRuleScore ?? '--')}</td>
+                <td>${escapeHtml(row.suggestedShadowTrack || '--')}</td>
+            </tr>
+        `;
+    }).join('');
+    return `
+        <div class="polymarket-card polymarket-history-card">
+            <div class="polymarket-eyebrow">${escapeHtml(title)}</div>
+            <div class="polymarket-title">最近 ${escapeHtml(String(visible.length))} 条</div>
+            <div class="polymarket-history-table-wrap">
+                <table class="report-table compact-report-table polymarket-ledger-table polymarket-history-table">
+                    <thead><tr>${headers.map((item) => `<th>${escapeHtml(item)}</th>`).join('')}</tr></thead>
+                    <tbody>${rowHtml}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function updatePolymarketHistoryDb(d) {
+    const history = getPolymarketHistoryDb(d);
+    const summaryEl = document.getElementById('polymarketHistoryDbSummary');
+    const body = document.getElementById('polymarketHistoryDbBody');
+    if (!body) return;
+    if (!history || d?._polymarketHistoryDbError) {
+        if (summaryEl) summaryEl.textContent = '等待历史库';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketHistoryDb.json`；运行 `tools\\build_polymarket_history_db.bat` 后显示。</div>';
+        return;
+    }
+    const summary = history.summary || {};
+    const database = history.database || {};
+    const safety = history.safety || {};
+    const recent = history.recent || {};
+    if (summaryEl) {
+        summaryEl.textContent = `${history.mode || 'HISTORY_DB'} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0}`;
+    }
+    const overviewCard = `
+        <div class="polymarket-card good">
+            <div class="polymarket-eyebrow">历史库状态</div>
+            <div class="polymarket-title">${escapeHtml(history.schemaVersion || 'POLYMARKET_HISTORY_DB_V1')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('总行数', summary.totalRows || 0)}
+                ${renderPolymarketMetric('机会市场', summary.assetOpportunities || 0)}
+                ${renderPolymarketMetric('单市场分析', summary.marketAnalyses || 0)}
+                ${renderPolymarketMetric('执行模拟', summary.executionSimulations || 0)}
+            </div>
+            <div class="polymarket-note">${escapeHtml(database.path || 'archive/polymarket/history/QuantGod_PolymarketHistory.sqlite')}</div>
+        </div>
+    `;
+    const safetyCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">安全边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(history.decision || 'LOCAL_HISTORY_DB_NO_WALLET_WRITE'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('读私钥', safety.readsPrivateKey ? '是' : '否')}
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('下单', safety.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">历史库只能给搜索、回看和未来 AI 评分做输入；不能单独触发真钱执行。</div>
+        </div>
+    `;
+    const research = recent.research || {};
+    const researchCard = `
+        <div class="polymarket-card ${Number(research.executedPnl || 0) < 0 ? 'danger' : 'watch'}">
+            <div class="polymarket-eyebrow">最近研究快照</div>
+            <div class="polymarket-title">实盘 ${escapeHtml(String(research.executedClosed || 0))} / 影子 ${escapeHtml(String(research.shadowClosed || 0))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('实盘 PF', formatPolymarketPf(research.executedPf))}
+                ${renderPolymarketMetric('实盘收益', formatMoney(research.executedPnl || 0))}
+                ${renderPolymarketMetric('影子 PF', formatPolymarketPf(research.shadowPf))}
+                ${renderPolymarketMetric('影子收益', formatMoney(research.shadowPnl || 0))}
+            </div>
+            <div class="polymarket-note">账户现金 ${escapeHtml(formatPlainUsd(research.accountCash))}；这是 Polymarket 口径，不和 MT5 净值混合。</div>
+        </div>
+    `;
+    body.innerHTML = [
+        overviewCard,
+        safetyCard,
+        researchCard,
+        renderPolymarketHistoryDbTable('机会市场历史', recent.opportunities || [], 'opportunity'),
+        renderPolymarketHistoryDbTable('单市场分析历史', recent.analyses || [], 'analysis'),
+        renderPolymarketHistoryDbTable('模拟执行历史', recent.simulations || [], 'simulation'),
+    ].join('');
 }
 
 function updatePolymarketWorkspace(d) {
@@ -13500,7 +13668,13 @@ function formatPlainUsd(value, digits = 2) {
 function getPolymarketAccountSnapshot(d) {
     const planner = getPolymarketRetunePlanner(d);
     const research = getPolymarketResearch(d);
-    return planner?.account || research?.accountSnapshot || {};
+    const plannerAccount = planner?.account || {};
+    const researchAccount = research?.accountSnapshot || {};
+    const hasPlannerAccount = plannerAccount.accountCash !== undefined
+        || plannerAccount.bankroll !== undefined
+        || plannerAccount.authState !== undefined
+        || plannerAccount.openOrderCount !== undefined;
+    return hasPlannerAccount ? plannerAccount : researchAccount;
 }
 
 function getPolymarketPlannerCounts(d) {
@@ -13614,7 +13788,7 @@ function updateQuantDingerInspiredHero(d) {
         return;
     }
 
-    if (activeDashboardSection === 'polymarket') {
+    if (String(activeDashboardSection || '').startsWith('polymarket')) {
         const research = getPolymarketResearch(d);
         const planner = getPolymarketRetunePlanner(d);
         const polyAccount = getPolymarketAccountSnapshot(d);
@@ -13622,22 +13796,22 @@ function updateQuantDingerInspiredHero(d) {
         const latestPnl = research?.latestPnl || {};
         const authState = polyAccount.authState || 'read_only_unknown';
         const blockers = Array.isArray(planner?.globalBlockers) ? planner.globalBlockers.slice(0, 2).join(' / ') : '';
-        setLabel('qdHeroModeLabel', 'Mode');
-        setLabel('qdHeroServerLabel', 'Account Cash');
-        setLabel('qdHeroEquityLabel', 'Bankroll');
-        setLabel('qdHeroOpenLabel', 'Open Orders');
-        setLabel('qdHeroPriceLabel', 'Local PnL');
-        setLabel('qdHeroSpreadLabel', 'Retune Risk');
-        setLabel('qdHeroRoutesLabel', 'Planner Items');
-        setLabel('qdHeroShadowRowsLabel', 'Safety');
-        setText('qdHeroMode', 'Shadow only');
+        setLabel('qdHeroModeLabel', '模式');
+        setLabel('qdHeroServerLabel', '账户现金');
+        setLabel('qdHeroEquityLabel', '资金预算');
+        setLabel('qdHeroOpenLabel', '开放订单');
+        setLabel('qdHeroPriceLabel', '本地盈亏');
+        setLabel('qdHeroSpreadLabel', '重调风险');
+        setLabel('qdHeroRoutesLabel', '建议数量');
+        setLabel('qdHeroShadowRowsLabel', '安全边界');
+        setText('qdHeroMode', '只读研究');
         setText('qdHeroServer', formatPlainUsd(polyAccount.accountCash));
         setText('qdHeroEquity', formatPlainUsd(polyAccount.bankroll));
         setText('qdHeroOpen', String(polyAccount.openOrderCount ?? '--'));
-        setText('qdHeroSymbol', 'Polymarket Research');
-        setText('qdHeroBlocker', `Decision: ${planner?.decision || research?.governance?.decision || 'RESEARCH_ONLY'}${blockers ? ` | ${blockers}` : ''}`);
+        setText('qdHeroSymbol', 'Polymarket 研究');
+        setText('qdHeroBlocker', `决策: ${planner?.decision || research?.governance?.decision || 'RESEARCH_ONLY'}${blockers ? ` | ${blockers}` : ''}`);
         setText('qdHeroHealth', authState === 'read_only_ok' ? 'Read-only OK' : authState);
-        setText('qdHeroRisk', 'No CLOB orders · no MT5 mutation');
+        setText('qdHeroRisk', '不下单 · 不影响 MT5');
         setText('qdHeroPrice', formatMoney(latestPnl.realizedPnl || 0));
         setText('qdHeroSpread', `${counts.red ?? 0}R / ${counts.yellow ?? 0}Y`);
         setText('qdHeroRoutes', String(counts.total ?? '--'));
@@ -14882,6 +15056,7 @@ function updateDashboard() {
     updatePolymarketDryRunOrders(d);
     updatePolymarketDryRunOutcomeWatcher(d);
     updatePolymarketRetunePlanner(d);
+    updatePolymarketHistoryDb(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
     updateQuantDingerInspiredHero(d);

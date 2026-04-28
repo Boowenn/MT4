@@ -28,6 +28,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketExecutionLedger.csv`
 - `QuantGod_PolymarketDryRunOutcomeWatcher.json`
 - `QuantGod_PolymarketDryRunOutcomeLedger.csv`
+- `QuantGod_PolymarketHistoryDb.json`
+- `QuantGod_PolymarketHistoryDb.csv`
 
 ## Bridge
 
@@ -171,6 +173,37 @@ It keeps a stable tracking key per `market + track + side` and carries forward o
 
 This is still an observation layer. It does not place, cancel, or close any order.
 
+## Historical Analysis DB V1
+
+Run:
+
+```bat
+tools\build_polymarket_history_db.bat
+```
+
+The history builder consumes the already-generated Polymarket research files and stores them in a local SQLite database under:
+
+```text
+archive\polymarket\history\QuantGod_PolymarketHistory.sqlite
+```
+
+It writes dashboard/runtime summaries:
+
+- `QuantGod_PolymarketHistoryDb.json`
+- `QuantGod_PolymarketHistoryDb.csv`
+
+The V1 tables are:
+
+- `qd_polymarket_runs`
+- `qd_polymarket_asset_opportunities`
+- `qd_polymarket_market_analysis`
+- `qd_polymarket_execution_simulations`
+- `qd_polymarket_research_snapshots`
+
+This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring.
+
+Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
+
 ## Retune Planner
 
 Run:
@@ -202,6 +235,7 @@ It displays:
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
+- Historical Analysis DB: SQLite-backed research history with row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.
