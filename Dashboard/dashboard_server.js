@@ -672,6 +672,8 @@ function toSearchEvidenceItem(item = {}) {
     sourceLabel: firstDefined(item.sourceLabel, item.sourceType),
     title: firstDefined(item.title),
     subtitle: firstDefined(item.subtitle),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.url),
     generatedAt: firstDefined(item.generatedAt),
     risk: firstDefined(item.risk),
     recommendation: firstDefined(item.recommendation),
@@ -716,7 +718,7 @@ function mergeMarketSearchGroup(group, item = {}) {
   if (sourceLabel && !group.sourceLabels.includes(sourceLabel)) group.sourceLabels.push(sourceLabel);
 
   group.evidence.push(toSearchEvidenceItem(item));
-  group.evidence = sortSearchResults(group.evidence).slice(0, 8);
+  group.evidence = sortSearchResults(group.evidence);
   group.evidenceCount += 1;
   group.summaryLine = `${group.evidenceCount} 条证据 · ${group.sourceLabels.join(' / ') || '未分类来源'}`;
   return group;
@@ -1011,7 +1013,7 @@ async function handlePolymarketSearch(req, res) {
       },
       results: groupedResults,
       groupedResults,
-      rawResults: rawSearchResults.slice(0, limit),
+      rawResults: rawSearchResults,
       sections,
       sources: {
         radarPath,
