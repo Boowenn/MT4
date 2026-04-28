@@ -6295,6 +6295,12 @@
             background: rgba(59,130,246,0.25);
         }
 
+        .polymarket-request-button.ghost {
+            border-color: #344154;
+            background: #10161f;
+            color: #cbd5e1;
+        }
+
         .polymarket-request-button:disabled {
             cursor: not-allowed;
             opacity: 0.55;
@@ -6331,6 +6337,52 @@
             font-size: 12px;
             line-height: 1.45;
             overflow-wrap: anywhere;
+        }
+
+        .polymarket-history-api-controls {
+            display: grid;
+            grid-template-columns: minmax(150px, 210px) minmax(240px, 1fr) auto;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 12px;
+            padding: 12px;
+            border: 1px solid #2a3442;
+            border-radius: 8px;
+            background: #111821;
+        }
+
+        .polymarket-history-api-query-field {
+            min-width: 240px;
+        }
+
+        .polymarket-history-api-select,
+        .polymarket-history-api-input {
+            width: 100%;
+            min-height: 38px;
+            border: 1px solid #344154;
+            border-radius: 7px;
+            background: #0d131b;
+            color: #e5edf7;
+            padding: 9px 10px;
+            font: 700 12px/1.4 inherit;
+            outline: none;
+        }
+
+        .polymarket-history-api-input::placeholder {
+            color: #64748b;
+        }
+
+        .polymarket-history-api-select:focus,
+        .polymarket-history-api-input:focus {
+            border-color: rgba(59,130,246,0.78);
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.16);
+        }
+
+        .polymarket-history-api-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
         }
 
         .polymarket-ledger-table {
@@ -7412,8 +7464,29 @@
                         <span class="eval-summary" id="polymarketHistoryDbSummary">等待历史库</span>
                     </div>
                     <div class="panel-body">
+                        <div class="polymarket-history-api-controls">
+                            <label class="polymarket-request-field">
+                                <span class="polymarket-request-label">历史类型</span>
+                                <select class="polymarket-history-api-select" id="polymarketHistoryApiTable">
+                                    <option value="all">全部历史</option>
+                                    <option value="opportunities">机会市场</option>
+                                    <option value="analyses">单市场分析</option>
+                                    <option value="simulations">模拟执行</option>
+                                    <option value="runs">构建批次</option>
+                                    <option value="snapshots">研究快照</option>
+                                </select>
+                            </label>
+                            <label class="polymarket-request-field polymarket-history-api-query-field">
+                                <span class="polymarket-request-label">关键词搜索</span>
+                                <input class="polymarket-history-api-input" id="polymarketHistoryApiQuery" type="search" placeholder="搜索 market / question / track / risk">
+                            </label>
+                            <div class="polymarket-history-api-actions">
+                                <button class="polymarket-request-button" type="button" data-polymarket-history-search>搜索历史</button>
+                                <button class="polymarket-request-button ghost" type="button" data-polymarket-history-reset>重置</button>
+                            </div>
+                        </div>
                         <div class="polymarket-historydb-grid" id="polymarketHistoryDbBody">
-                            <div class="empty-state">等待 `QuantGod_PolymarketHistoryDb.json`</div>
+                            <div class="empty-state">等待历史 API 或 `QuantGod_PolymarketHistoryDb.json`</div>
                         </div>
                     </div>
                 </div>
@@ -7969,6 +8042,7 @@ const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.js
 const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
 const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
+const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -7981,6 +8055,7 @@ let routeStrategyFilter = 'ALL';
 let paramLabBatchStatusFilter = 'ALL';
 let paramLabBatchRouteFilter = 'ALL';
 let paramLabBatchSortMode = 'priority';
+let polymarketHistoryApiFilter = { table: 'all', query: '' };
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
 const TIMEFRAME_ORDER = {
@@ -8502,6 +8577,58 @@ function initPolymarketSingleMarketRequestForm() {
     });
 }
 
+function syncPolymarketHistoryApiControls() {
+    const table = document.getElementById('polymarketHistoryApiTable');
+    const query = document.getElementById('polymarketHistoryApiQuery');
+    const filter = getPolymarketHistoryApiFilter();
+    if (table) table.value = filter.table;
+    if (query && document.activeElement !== query) query.value = filter.query;
+}
+
+async function refreshPolymarketHistoryFromControls() {
+    const table = document.getElementById('polymarketHistoryApiTable');
+    const query = document.getElementById('polymarketHistoryApiQuery');
+    polymarketHistoryApiFilter = {
+        table: table?.value || 'all',
+        query: query?.value || ''
+    };
+    await loadData();
+    syncPolymarketHistoryApiControls();
+}
+
+function initPolymarketHistoryApiControls() {
+    syncPolymarketHistoryApiControls();
+    document.addEventListener('click', async (event) => {
+        const searchButton = event.target.closest('[data-polymarket-history-search]');
+        const resetButton = event.target.closest('[data-polymarket-history-reset]');
+        if (!searchButton && !resetButton) return;
+        event.preventDefault();
+        if (resetButton) {
+            polymarketHistoryApiFilter = { table: 'all', query: '' };
+            syncPolymarketHistoryApiControls();
+        }
+        const activeButton = searchButton || resetButton;
+        activeButton.disabled = true;
+        const previousText = activeButton.textContent;
+        activeButton.textContent = resetButton ? '重置中...' : '搜索中...';
+        try {
+            await refreshPolymarketHistoryFromControls();
+        } finally {
+            if (activeButton.isConnected) {
+                activeButton.disabled = false;
+                activeButton.textContent = previousText;
+            }
+        }
+    });
+    document.addEventListener('keydown', async (event) => {
+        if (event.key !== 'Enter') return;
+        const input = event.target.closest('#polymarketHistoryApiQuery');
+        if (!input) return;
+        event.preventDefault();
+        await refreshPolymarketHistoryFromControls();
+    });
+}
+
 function parseCsvLine(line) {
     const values = [];
     let current = '';
@@ -8913,6 +9040,27 @@ async function loadLocalJsonSupplement(path) {
     return JSON.parse(text);
 }
 
+function getPolymarketHistoryApiFilter() {
+    const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots'].includes(polymarketHistoryApiFilter.table)
+        ? polymarketHistoryApiFilter.table
+        : 'all';
+    return {
+        table,
+        query: String(polymarketHistoryApiFilter.query || '').trim().slice(0, 240)
+    };
+}
+
+async function loadPolymarketHistoryApiSupplement() {
+    const filter = getPolymarketHistoryApiFilter();
+    const params = new URLSearchParams();
+    params.set('table', filter.table);
+    params.set('limit', filter.query || filter.table !== 'all' ? '80' : '50');
+    if (filter.query) params.set('q', filter.query);
+    const response = await fetch(appendCacheBust(`${POLYMARKET_HISTORY_API_PATH}?${params.toString()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+}
+
 async function attachSupplementalData(baseData, previousData = null) {
     const data = {
         ...baseData,
@@ -9209,11 +9357,19 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
-        data.polymarketHistoryDb = await loadLocalJsonSupplement(LOCAL_POLYMARKET_HISTORY_DB_PATH);
+        data.polymarketHistoryDb = await loadPolymarketHistoryApiSupplement();
         data._polymarketHistoryDbError = false;
-    } catch (error) {
-        data._polymarketHistoryDbError = true;
-        console.warn('Polymarket history DB summary load failed.', error);
+        data._polymarketHistoryDbSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketHistoryDb = await loadLocalJsonSupplement(LOCAL_POLYMARKET_HISTORY_DB_PATH);
+            data._polymarketHistoryDbError = false;
+            data._polymarketHistoryDbSource = 'file';
+        } catch (fileError) {
+            data._polymarketHistoryDbError = true;
+            data._polymarketHistoryDbSource = 'unavailable';
+            console.warn('Polymarket history DB API/file load failed.', apiError, fileError);
+        }
     }
 
     try {
@@ -10226,6 +10382,24 @@ function updatePolymarketRetunePlanner(d) {
     ].join('') || '<div class="empty-state">暂无重调建议。</div>';
 }
 
+function getPolymarketHistoryRenderType(apiTable) {
+    const normalized = String(apiTable || '').toLowerCase();
+    if (normalized === 'analyses' || normalized === 'analysis') return 'analysis';
+    if (normalized === 'simulations' || normalized === 'simulation') return 'simulation';
+    if (normalized === 'runs' || normalized === 'snapshots' || normalized === 'all' || normalized === 'mixed') return 'mixed';
+    return 'opportunity';
+}
+
+function getPolymarketHistoryTypeLabel(type) {
+    const normalized = String(type || '').toLowerCase();
+    if (normalized === 'opportunities') return '机会';
+    if (normalized === 'analyses') return '分析';
+    if (normalized === 'simulations') return '模拟';
+    if (normalized === 'runs') return '批次';
+    if (normalized === 'snapshots') return '快照';
+    return normalized ? normalized.toUpperCase() : '--';
+}
+
 function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') {
     const visible = Array.isArray(rows) ? rows.slice(0, 8) : [];
     if (!visible.length) {
@@ -10237,13 +10411,16 @@ function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') 
             </div>
         `;
     }
-    const headers = type === 'analysis'
+    const renderType = getPolymarketHistoryRenderType(type);
+    const headers = renderType === 'analysis'
         ? ['时间', '市场', '推荐', '风险', '偏离', '信心']
-        : type === 'simulation'
+        : renderType === 'simulation'
             ? ['时间', '市场', '状态', '价格', 'MFE/MAE', '退出']
-            : ['时间', '市场', '风险', '概率', '评分', '路线'];
+            : renderType === 'mixed'
+                ? ['类型', '时间', '市场/记录', '状态/推荐', '风险/评分', '路线/来源']
+                : ['时间', '市场', '风险', '概率', '评分', '路线'];
     const rowHtml = visible.map((row) => {
-        if (type === 'analysis') {
+        if (renderType === 'analysis') {
             return `
                 <tr>
                     <td>${escapeHtml(formatPolymarketTime(row.generatedAt))}</td>
@@ -10255,7 +10432,7 @@ function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') 
                 </tr>
             `;
         }
-        if (type === 'simulation') {
+        if (renderType === 'simulation') {
             return `
                 <tr>
                     <td>${escapeHtml(formatPolymarketTime(row.generatedAt))}</td>
@@ -10264,6 +10441,21 @@ function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') 
                     <td>${escapeHtml(row.currentPrice ?? row.entryPrice ?? '--')}</td>
                     <td>${escapeHtml(`${formatPolymarketSignedPct(row.mfePct)} / ${formatPolymarketSignedPct(row.maePct)}`)}</td>
                     <td>${escapeHtml(translatePolymarketToken(row.wouldExitReason || '--'))}</td>
+                </tr>
+            `;
+        }
+        if (renderType === 'mixed') {
+            const status = row.recommendation || row.state || row.decision || row.schemaVersion || row.mode || '--';
+            const score = row.aiRuleScore ?? row.ruleScore ?? row.confidence ?? row.executedPf ?? '--';
+            const track = row.suggestedShadowTrack || row.track || row.source || row.authState || row.runId || '--';
+            return `
+                <tr>
+                    <td><span class="table-badge neutral">${escapeHtml(getPolymarketHistoryTypeLabel(row.historyType))}</span></td>
+                    <td>${escapeHtml(formatPolymarketTime(row.generatedAt || row.seenAt || row.lastSeenAt || row.firstSeenAt))}</td>
+                    <td>${escapeHtml(row.question || row.query || row.marketId || row.runId || row.mode || '--')}</td>
+                    <td>${escapeHtml(translatePolymarketToken(status))}</td>
+                    <td>${escapeHtml(row.risk ? translatePolymarketToken(row.risk) : score)}</td>
+                    <td>${escapeHtml(track)}</td>
                 </tr>
             `;
         }
@@ -10299,27 +10491,31 @@ function updatePolymarketHistoryDb(d) {
     if (!body) return;
     if (!history || d?._polymarketHistoryDbError) {
         if (summaryEl) summaryEl.textContent = '等待历史库';
-        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketHistoryDb.json`；运行 `tools\\build_polymarket_history_db.bat` 后显示。</div>';
+        body.innerHTML = '<div class="empty-state">等待历史 API 或 `QuantGod_PolymarketHistoryDb.json`；运行 `tools\\build_polymarket_history_db.bat` 后显示。</div>';
         return;
     }
     const summary = history.summary || {};
     const database = history.database || {};
     const safety = history.safety || {};
     const recent = history.recent || {};
+    const apiState = history.api || {};
+    const search = history.search || {};
+    const sourceLabel = history.source === 'sqlite_api' ? 'API' : (d?._polymarketHistoryDbSource === 'api' ? 'API' : '文件');
+    const hasActiveFilter = Boolean(String(apiState.query || search.query || '').trim()) || (apiState.table && apiState.table !== 'all');
     if (summaryEl) {
-        summaryEl.textContent = `${history.mode || 'HISTORY_DB'} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0}`;
+        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0}`;
     }
     const overviewCard = `
         <div class="polymarket-card good">
             <div class="polymarket-eyebrow">历史库状态</div>
-            <div class="polymarket-title">${escapeHtml(history.schemaVersion || 'POLYMARKET_HISTORY_DB_V1')}</div>
+            <div class="polymarket-title">${escapeHtml(sourceLabel)} 服务化历史库</div>
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('总行数', summary.totalRows || 0)}
                 ${renderPolymarketMetric('机会市场', summary.assetOpportunities || 0)}
                 ${renderPolymarketMetric('单市场分析', summary.marketAnalyses || 0)}
                 ${renderPolymarketMetric('执行模拟', summary.executionSimulations || 0)}
             </div>
-            <div class="polymarket-note">${escapeHtml(database.path || 'archive/polymarket/history/QuantGod_PolymarketHistory.sqlite')}</div>
+            <div class="polymarket-note">${escapeHtml(database.path || 'archive/polymarket/history/QuantGod_PolymarketHistory.sqlite')}；当前筛选 ${escapeHtml(apiState.table || 'all')} / ${escapeHtml(apiState.query || '无关键词')}。</div>
         </div>
     `;
     const safetyCard = `
@@ -10349,14 +10545,18 @@ function updatePolymarketHistoryDb(d) {
             <div class="polymarket-note">账户现金 ${escapeHtml(formatPlainUsd(research.accountCash))}；这是 Polymarket 口径，不和 MT5 净值混合。</div>
         </div>
     `;
+    const searchCard = hasActiveFilter
+        ? renderPolymarketHistoryDbTable(`API 筛选结果 · ${search.count ?? 0} 条`, search.rows || [], getPolymarketHistoryRenderType(search.table || apiState.table || 'all'))
+        : '';
     body.innerHTML = [
         overviewCard,
         safetyCard,
         researchCard,
+        searchCard,
         renderPolymarketHistoryDbTable('机会市场历史', recent.opportunities || [], 'opportunity'),
         renderPolymarketHistoryDbTable('单市场分析历史', recent.analyses || [], 'analysis'),
         renderPolymarketHistoryDbTable('模拟执行历史', recent.simulations || [], 'simulation'),
-    ].join('');
+    ].filter(Boolean).join('');
 }
 
 function updatePolymarketWorkspace(d) {
@@ -14899,6 +15099,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSidebarNavigation();
     initCopyButtons();
     initPolymarketSingleMarketRequestForm();
+    initPolymarketHistoryApiControls();
     initResearchJumpLinks();
     initMonitorJumpLinks();
     loadData();

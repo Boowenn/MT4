@@ -206,6 +206,38 @@ This closes the first persistence gap from the QuantDinger-style workflow: oppor
 
 Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
 
+## Search / History API V1
+
+The local dashboard server now exposes the history DB through a read-only API:
+
+```text
+GET /api/polymarket/history?table=all&q=keyword&limit=50
+```
+
+Supported `table` values:
+
+- `all`
+- `opportunities`
+- `analyses`
+- `simulations`
+- `runs`
+- `snapshots`
+
+Implementation files:
+
+- `Dashboard\dashboard_server.js`
+- `tools\query_polymarket_history_api.py`
+
+The server spawns the Python helper instead of adding a native Node sqlite dependency. The helper opens `archive\polymarket\history\QuantGod_PolymarketHistory.sqlite` with SQLite `mode=ro` and `PRAGMA query_only=ON`, returns JSON, and never writes to the database.
+
+Dashboard behavior is now API-first:
+
+- `Historical Analysis DB` calls `/api/polymarket/history` for row counts, recent rows, and keyword search.
+- The panel has a local search control for history type and query text.
+- If the local API is unavailable, the dashboard falls back to `QuantGod_PolymarketHistoryDb.json`.
+
+The endpoint is still research-only: no private-key read, no wallet write, no CLOB order call, no executor start, and no MT5 mutation.
+
 ## History-Aware AI Score V1
 
 Run:
@@ -259,7 +291,7 @@ It displays:
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
-- Historical Analysis DB: SQLite-backed research history with row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary.
+- Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
 - Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, and global quarantine evidence; it remains `AI_SCORE_ONLY_NO_BETTING`.
 - Executed live evidence.
 - No-money shadow evidence.

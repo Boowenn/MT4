@@ -9,6 +9,8 @@ const rootDir = __dirname;
 const repoRoot = path.resolve(rootDir, '..');
 const defaultRuntimeDir = 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
 const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
+const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
+const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -141,6 +143,55 @@ function runSingleMarketAnalyzer() {
   });
 }
 
+function runJsonPython(script, args = [], timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(script)) {
+      resolve({ ok: false, skipped: true, reason: 'script_not_found', script });
+      return;
+    }
+    const child = spawn('python', [script, ...args], {
+      cwd: repoRoot,
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve({ ok: false, skipped: false, exitCode: -1, stdout, stderr: 'timeout' });
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, skipped: false, exitCode: -1, stdout, stderr: error.message });
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code !== 0) {
+        resolve({ ok: false, skipped: false, exitCode: code, stdout, stderr: stderr.trim() });
+        return;
+      }
+      try {
+        resolve({ ok: true, skipped: false, exitCode: code, payload: JSON.parse(stdout) });
+      } catch (error) {
+        resolve({ ok: false, skipped: false, exitCode: code, stdout, stderr: `json_parse_failed: ${error.message}` });
+      }
+    });
+  });
+}
+
 async function handleSingleMarketRequest(req, res) {
   try {
     const text = await readRequestBody(req);
@@ -153,6 +204,39 @@ async function handleSingleMarketRequest(req, res) {
       request: saved.request,
       analyzer
     });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error.message || String(error) });
+  }
+}
+
+async function handlePolymarketHistory(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const table = parsed.searchParams.get('table') || 'all';
+    if (!polymarketHistoryTables.has(table)) {
+      sendJson(res, 400, { ok: false, error: `unsupported table: ${table}` });
+      return;
+    }
+    const query = parsed.searchParams.get('q') || '';
+    const limit = parsed.searchParams.get('limit') || '50';
+    const offset = parsed.searchParams.get('offset') || '0';
+    const result = await runJsonPython(polymarketHistoryApiScript, [
+      '--repo-root',
+      repoRoot,
+      '--table',
+      table,
+      '--q',
+      query,
+      '--limit',
+      limit,
+      '--offset',
+      offset
+    ], 15000);
+    if (!result.ok) {
+      sendJson(res, 500, { ok: false, error: result.stderr || result.reason || 'history_query_failed', detail: result });
+      return;
+    }
+    sendJson(res, 200, result.payload);
   } catch (error) {
     sendJson(res, 400, { ok: false, error: error.message || String(error) });
   }
@@ -243,7 +327,15 @@ const server = http.createServer((req, res) => {
     send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
     return;
   }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {
+    handlePolymarketHistory(req, res);
+    return;
+  }
   if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/single-market-request') {
+    handleSingleMarketRequest(req, res);
+    return;
+  }
+  if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/analyze') {
     handleSingleMarketRequest(req, res);
     return;
   }
