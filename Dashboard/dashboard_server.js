@@ -1,10 +1,14 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const host = '127.0.0.1';
 const port = 8080;
 const rootDir = __dirname;
+const repoRoot = path.resolve(rootDir, '..');
+const defaultRuntimeDir = 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
+const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -26,6 +30,132 @@ const shiftJisDecoder = new TextDecoder('shift_jis');
 function send(res, statusCode, headers, body) {
   res.writeHead(statusCode, headers);
   res.end(body);
+}
+
+function sendJson(res, statusCode, payload) {
+  send(res, statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    Pragma: 'no-cache',
+    Expires: '0',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  }, JSON.stringify(payload, null, 2));
+}
+
+function readRequestBody(req, maxBytes = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on('data', (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error('Request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function safeJsonPayload(text) {
+  try {
+    const payload = JSON.parse(String(text || '{}').replace(/^\uFEFF/, ''));
+    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function cleanSingleMarketQuery(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 800);
+}
+
+function writeSingleMarketRequest(payload) {
+  const query = cleanSingleMarketQuery(
+    payload.query || payload.url || payload.marketUrl || payload.marketId || payload.title || payload.question
+  );
+  if (!query) {
+    throw new Error('query is required');
+  }
+
+  const request = {
+    mode: 'POLYMARKET_SINGLE_MARKET_REQUEST_V1',
+    generatedAt: new Date().toISOString(),
+    source: 'dashboard_local_input',
+    query,
+    url: cleanSingleMarketQuery(payload.url || ''),
+    marketId: cleanSingleMarketQuery(payload.marketId || ''),
+    title: cleanSingleMarketQuery(payload.title || ''),
+    note: 'Research-only request. The analyzer may read Gamma API but cannot write wallet orders or mutate MT5.'
+  };
+  const text = JSON.stringify(request, null, 2);
+  const targets = [path.join(rootDir, singleMarketRequestName)];
+  if (fs.existsSync(defaultRuntimeDir)) {
+    targets.push(path.join(defaultRuntimeDir, singleMarketRequestName));
+  }
+  const written = [];
+  for (const target of targets) {
+    fs.writeFileSync(target, text, 'utf8');
+    written.push(target);
+  }
+  return { request, written };
+}
+
+function runSingleMarketAnalyzer() {
+  return new Promise((resolve) => {
+    const script = path.join(repoRoot, 'tools', 'analyze_polymarket_single_market.py');
+    if (!fs.existsSync(script)) {
+      resolve({ skipped: true, reason: 'analyzer_not_found' });
+      return;
+    }
+    const child = spawn('python', [
+      script,
+      '--runtime-dir',
+      defaultRuntimeDir,
+      '--dashboard-dir',
+      rootDir
+    ], {
+      cwd: repoRoot,
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      resolve({ skipped: false, exitCode: -1, stdout, stderr: error.message });
+    });
+    child.on('close', (code) => {
+      resolve({ skipped: false, exitCode: code, stdout: stdout.trim(), stderr: stderr.trim() });
+    });
+  });
+}
+
+async function handleSingleMarketRequest(req, res) {
+  try {
+    const text = await readRequestBody(req);
+    const payload = safeJsonPayload(text);
+    const saved = writeSingleMarketRequest(payload);
+    const analyzer = await runSingleMarketAnalyzer();
+    sendJson(res, 200, {
+      ok: analyzer.skipped || analyzer.exitCode === 0,
+      written: saved.written,
+      request: saved.request,
+      analyzer
+    });
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error.message || String(error) });
+  }
 }
 
 function maybeTranscodeRuntimeText(target, ext, data) {
@@ -62,6 +192,15 @@ function safeResolve(urlPath) {
 }
 
 const server = http.createServer((req, res) => {
+  const requestUrl = req.url || '/';
+  if (req.method === 'OPTIONS') {
+    sendJson(res, 204, {});
+    return;
+  }
+  if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/single-market-request') {
+    handleSingleMarketRequest(req, res);
+    return;
+  }
   const target = safeResolve(req.url || '/');
   if (!target) {
     send(res, 403, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Forbidden');

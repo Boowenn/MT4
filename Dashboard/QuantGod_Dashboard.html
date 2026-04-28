@@ -6217,6 +6217,95 @@
             overflow-wrap: anywhere;
         }
 
+        .polymarket-request-form {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) auto;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 12px;
+            padding: 12px;
+            border: 1px solid #2a3442;
+            border-radius: 8px;
+            background: #111821;
+        }
+
+        .polymarket-request-field {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .polymarket-request-label {
+            color: #91a0b4;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .polymarket-request-input {
+            width: 100%;
+            min-height: 42px;
+            resize: vertical;
+            border: 1px solid #344154;
+            border-radius: 7px;
+            background: #0d131b;
+            color: #e5edf7;
+            padding: 10px 11px;
+            font: 600 13px/1.5 inherit;
+            outline: none;
+        }
+
+        .polymarket-request-input:focus {
+            border-color: rgba(59,130,246,0.78);
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.16);
+        }
+
+        .polymarket-request-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .polymarket-request-button {
+            border: 1px solid rgba(59,130,246,0.55);
+            border-radius: 7px;
+            background: rgba(59,130,246,0.16);
+            color: #bfdbfe;
+            font-weight: 800;
+            font-size: 12px;
+            padding: 9px 12px;
+            cursor: pointer;
+        }
+
+        .polymarket-request-button:hover:not(:disabled) {
+            background: rgba(59,130,246,0.25);
+        }
+
+        .polymarket-request-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .polymarket-request-status {
+            flex-basis: 100%;
+            min-height: 16px;
+            color: #91a0b4;
+            font-size: 12px;
+            text-align: right;
+        }
+
+        .polymarket-request-status.good {
+            color: #34d399;
+        }
+
+        .polymarket-request-status.danger {
+            color: #fb7185;
+        }
+
         .polymarket-action-list {
             display: grid;
             gap: 8px;
@@ -6410,6 +6499,14 @@
         .polymarket-risk-grid {
             grid-template-columns: 1fr;
         }
+
+            .polymarket-request-form {
+                grid-template-columns: 1fr;
+            }
+
+            .polymarket-request-actions {
+                justify-content: flex-start;
+            }
         }
     </style>
 </head>
@@ -7714,6 +7811,7 @@ const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.js
 const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
+const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
 const OPPORTUNITY_RECENT_WINDOW = 20;
 const RESEARCH_SUGGESTION_LIMIT = 8;
 const OVERNIGHT_RESEARCH_START_HOUR = 20;
@@ -8085,6 +8183,161 @@ function initCopyButtons() {
             window.setTimeout(() => {
                 if (button.isConnected) setCopyButtonState(button, 'idle', label);
             }, 1500);
+        }
+    });
+}
+
+function getStoredPolymarketSingleMarketInput() {
+    try {
+        return window.localStorage.getItem(POLYMARKET_SINGLE_MARKET_INPUT_KEY) || '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function setStoredPolymarketSingleMarketInput(value) {
+    try {
+        window.localStorage.setItem(POLYMARKET_SINGLE_MARKET_INPUT_KEY, String(value || ''));
+    } catch (_) {
+        // Local storage can be unavailable in some file:// contexts; the form still works for copy/download.
+    }
+}
+
+function buildPolymarketSingleMarketRequest(query) {
+    const cleaned = String(query || '').replace(/\s+/g, ' ').trim();
+    return {
+        mode: 'POLYMARKET_SINGLE_MARKET_REQUEST_V1',
+        generatedAt: new Date().toISOString(),
+        source: 'dashboard_local_input',
+        query: cleaned,
+        note: 'Research-only request. Analyzer may read Gamma API but cannot write wallet orders or mutate MT5.'
+    };
+}
+
+function getPolymarketSingleMarketRequestText(query) {
+    const cleaned = String(query || '').trim();
+    return cleaned ? JSON.stringify(buildPolymarketSingleMarketRequest(cleaned), null, 2) : '';
+}
+
+function downloadLocalTextFile(filename, text) {
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setPolymarketRequestStatus(message, tone = '') {
+    const status = document.getElementById('polymarketSingleMarketRequestStatus');
+    if (!status) return;
+    status.classList.remove('good', 'danger');
+    if (tone) status.classList.add(tone);
+    status.textContent = message || '';
+}
+
+async function savePolymarketSingleMarketRequest(query) {
+    const request = buildPolymarketSingleMarketRequest(query);
+    const response = await fetch('/api/polymarket/single-market-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request)
+    });
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch (_) {
+        payload = null;
+    }
+    if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || `HTTP ${response.status}`);
+    }
+    return payload;
+}
+
+function renderPolymarketSingleMarketRequestForm(single = null) {
+    const requestQuery = single?.request?.query || '';
+    const value = getStoredPolymarketSingleMarketInput() || requestQuery || '';
+    const requestText = getPolymarketSingleMarketRequestText(value);
+    return `
+        <form class="polymarket-request-form" id="polymarketSingleMarketRequestForm">
+            <label class="polymarket-request-field">
+                <span class="polymarket-request-label">输入 Polymarket URL / 标题 / marketId</span>
+                <textarea class="polymarket-request-input" id="polymarketSingleMarketInput" rows="2" placeholder="例如：https://polymarket.com/event/... 或直接粘贴市场标题">${escapeHtml(value)}</textarea>
+            </label>
+            <div class="polymarket-request-actions">
+                <button type="button" class="polymarket-request-button" data-polymarket-single-request-save>生成 request 并分析</button>
+                <button type="button" class="polymarket-request-button" data-polymarket-single-request-download${requestText ? '' : ' disabled'}>下载 request</button>
+                ${renderCopyButton(requestText, '复制 request', '无 request')}
+                <div class="polymarket-request-status" id="polymarketSingleMarketRequestStatus">${requestQuery ? `当前请求：${escapeHtml(requestQuery)}` : '保存后会写入 QuantGod_PolymarketSingleMarketRequest.json；不触发下注。'}</div>
+            </div>
+        </form>
+    `;
+}
+
+function initPolymarketSingleMarketRequestForm() {
+    document.addEventListener('input', (event) => {
+        const input = event.target.closest('#polymarketSingleMarketInput');
+        if (!input) return;
+        setStoredPolymarketSingleMarketInput(input.value);
+        const form = input.closest('#polymarketSingleMarketRequestForm');
+        const downloadButton = form?.querySelector('[data-polymarket-single-request-download]');
+        const copyButton = form?.querySelector('[data-copy-label="复制 request"]');
+        const requestText = getPolymarketSingleMarketRequestText(input.value);
+        if (downloadButton) {
+            downloadButton.disabled = !String(input.value || '').trim();
+        }
+        if (copyButton) {
+            copyButton.dataset.copyValue = requestText;
+            copyButton.disabled = !requestText;
+            copyButton.setAttribute('aria-disabled', requestText ? 'false' : 'true');
+            copyButton.textContent = requestText ? '复制 request' : '无 request';
+        }
+    });
+
+    document.addEventListener('click', async (event) => {
+        const saveButton = event.target.closest('[data-polymarket-single-request-save]');
+        const downloadButton = event.target.closest('[data-polymarket-single-request-download]');
+        if (!saveButton && !downloadButton) return;
+        event.preventDefault();
+
+        const input = document.getElementById('polymarketSingleMarketInput');
+        const query = String(input?.value || '').trim();
+        if (!query) {
+            setPolymarketRequestStatus('先输入 URL、标题或 marketId。', 'danger');
+            return;
+        }
+        setStoredPolymarketSingleMarketInput(query);
+        const requestText = getPolymarketSingleMarketRequestText(query);
+
+        if (downloadButton) {
+            downloadLocalTextFile('QuantGod_PolymarketSingleMarketRequest.json', requestText);
+            setPolymarketRequestStatus('已生成下载文件；如果要自动写入，请用 Dashboard/start_dashboard.bat 启动本地服务。', 'good');
+            return;
+        }
+
+        saveButton.disabled = true;
+        saveButton.textContent = '写入中...';
+        setPolymarketRequestStatus('正在写入 request，并运行只读单市场分析...', '');
+        try {
+            const result = await savePolymarketSingleMarketRequest(query);
+            const analyzerText = result.analyzer?.stdout || '分析已触发';
+            const successMessage = `已写入 ${result.written?.length || 0} 个 request 文件；${analyzerText}`;
+            setPolymarketRequestStatus(successMessage, 'good');
+            await loadData();
+            setPolymarketRequestStatus(successMessage, 'good');
+        } catch (error) {
+            console.warn('Polymarket request save failed; falling back to download.', error);
+            downloadLocalTextFile('QuantGod_PolymarketSingleMarketRequest.json', requestText);
+            setPolymarketRequestStatus('本地写入接口不可用，已改为下载 request 文件。', 'danger');
+        } finally {
+            if (saveButton.isConnected) {
+                saveButton.disabled = false;
+                saveButton.textContent = '生成 request 并分析';
+            }
         }
     });
 }
@@ -9081,9 +9334,10 @@ function updatePolymarketSingleMarketAnalysis(d) {
     const summaryEl = document.getElementById('polymarketSingleMarketSummary');
     const body = document.getElementById('polymarketSingleMarketBody');
     if (!body) return;
+    const requestForm = renderPolymarketSingleMarketRequestForm(single);
     if (!single || d?._polymarketSingleMarketAnalysisError) {
         if (summaryEl) summaryEl.textContent = '等待单市场分析';
-        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketSingleMarketAnalysis.json`；可用 URL/标题/marketId 生成，不触发下注。</div>';
+        body.innerHTML = `${requestForm}<div class="empty-state">等待 \`QuantGod_PolymarketSingleMarketAnalysis.json\`；可用 URL/标题/marketId 生成，不触发下注。</div>`;
         return;
     }
     const request = single.request || {};
@@ -9098,6 +9352,7 @@ function updatePolymarketSingleMarketAnalysis(d) {
     }
     if (single.status === 'ERROR') {
         body.innerHTML = `
+            ${requestForm}
             <div class="polymarket-card danger">
                 <div class="polymarket-eyebrow">单市场分析</div>
                 <div class="polymarket-title">分析失败，保持不下注</div>
@@ -9166,7 +9421,7 @@ function updatePolymarketSingleMarketAnalysis(d) {
             <div class="polymarket-note">单市场分析只能补研究能力，不能绕过 Execution Gate / dry-run / 钱包守卫。</div>
         </div>
     `;
-    body.innerHTML = [requestCard, analysisCard, riskCard, safetyCard].join('');
+    body.innerHTML = [requestForm, requestCard, analysisCard, riskCard, safetyCard].join('');
 }
 
 function renderPolymarketExecutionGateDecision(row = {}) {
@@ -14040,6 +14295,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     initSidebarNavigation();
     initCopyButtons();
+    initPolymarketSingleMarketRequestForm();
     initResearchJumpLinks();
     initMonitorJumpLinks();
     loadData();

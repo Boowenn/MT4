@@ -84,6 +84,14 @@ tools\analyze_polymarket_single_market.bat "C:\Program Files\HFM Metatrader 5\MQ
 
 If no CLI query is supplied, the analyzer first looks for `QuantGod_PolymarketSingleMarketRequest.json` in `Dashboard\` or the HFM runtime files directory. The request can contain `query`, `url`, `marketUrl`, `polymarketUrl`, `marketId`, `slug`, `title`, or `question`. If no request exists, it falls back to the top `QuantGod_PolymarketMarketRadar.json` candidate.
 
+The Dashboard Polymarket workspace also has a local input control. When the dashboard is served through `Dashboard\start_dashboard.bat`, the button posts to:
+
+```text
+POST /api/polymarket/single-market-request
+```
+
+That endpoint writes `QuantGod_PolymarketSingleMarketRequest.json` into `Dashboard\` and the HFM runtime files directory, then runs the same read-only analyzer. If the page is opened through `file://` or another static server without the endpoint, the button falls back to downloading the request JSON so it can still be generated without hand-writing it.
+
 The analyzer writes:
 
 - `QuantGod_PolymarketSingleMarketAnalysis.json`
