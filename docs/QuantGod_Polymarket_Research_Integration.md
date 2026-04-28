@@ -20,6 +20,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketMarketRadar.csv`
 - `QuantGod_PolymarketRetunePlanner.json`
 - `QuantGod_PolymarketRetunePlanner.csv`
+- `QuantGod_PolymarketExecutionGate.json`
+- `QuantGod_PolymarketExecutionGateLedger.csv`
 
 ## Bridge
 
@@ -60,6 +62,25 @@ Current radar behavior is deliberately `SHADOW_ONLY_MARKET_RADAR_NO_BETTING`:
 
 If Polymarket execution is added later, it should be a separate promoted module gated by Strategy Version Registry, Governance Advisor, bankroll isolation, position sizing, per-market max loss, take-profit/stop-loss exit rules, order-send audit, and a kill switch. The radar is the discovery layer, not the execution layer.
 
+## Execution Gate V1
+
+Run:
+
+```bat
+tools\build_polymarket_execution_gate.bat
+```
+
+The gate consumes the research bridge, Gamma radar, and retune planner outputs. V1 is intentionally a contract shell:
+
+- defines when betting could be allowed;
+- defines reference single-bet size, max single-market exposure, max daily loss, max open positions;
+- defines TP/SL, trailing-profit, max-hold, cancel-unfilled, and exit-before-resolution rules;
+- defines blocklisted market risk flags and route conditions;
+- defines required future order, position, and exit ledgers;
+- writes per-market `canBet=false` decisions and blockers.
+
+It still does not load private keys, write wallets, call CLOB order APIs, start an executor, or mutate MT5. The current decision remains `BLOCKED_CONTRACT_ONLY_NO_WALLET_WRITE` until a separate execution module is explicitly promoted and wired through this gate.
+
 ## Retune Planner
 
 Run:
@@ -87,6 +108,7 @@ It displays:
 - Safety boundary: DB is read-only, `.env` secret values are redacted, no executor, no MT5 mutation.
 - Account snapshot: separate Polymarket cash and configured bankroll, never mixed with MT5 equity.
 - Opportunity Radar: public Gamma scan with probability, liquidity, divergence, score, risk, and suggested shadow track.
+- Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.
@@ -126,7 +148,7 @@ Worth keeping from Polymarket:
 
 Not merged in this research slice:
 
-- Wallet/executor/live canary modules. They are allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, and kill-switch wiring.
+- Wallet/executor/live canary modules. They are allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, and kill-switch wiring. `Execution Gate V1` is the prerequisite contract, not the executor.
 - Auth/user/product modules.
 - Long-running Flask/Socket.IO service.
 - Database-backed strategy CRUD.

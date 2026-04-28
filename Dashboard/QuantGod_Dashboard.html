@@ -6095,6 +6095,7 @@
         .polymarket-summary-grid,
         .polymarket-group-grid,
         .polymarket-radar-grid,
+        .polymarket-gate-grid,
         .polymarket-retune-grid,
         .polymarket-risk-grid {
             display: grid;
@@ -6107,6 +6108,10 @@
         }
 
         .polymarket-radar-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-gate-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6382,6 +6387,7 @@
             .polymarket-summary-grid,
             .polymarket-group-grid,
             .polymarket-radar-grid,
+            .polymarket-gate-grid,
             .polymarket-retune-grid,
             .polymarket-risk-grid {
                 grid-template-columns: 1fr;
@@ -7028,7 +7034,7 @@
             <section class="content-section fade-in" id="section-polymarket" data-nav-section="polymarket">
                 <div class="section-heading">
                     <div class="section-heading-copy">
-                        <div class="section-kicker">Polymarket Research</div>
+                        <div class="section-kicker">Polymarket 研究</div>
                         <div class="section-title">Polymarket 外部研究工作台</div>
                         <div class="section-desc">只读接入 D:\polymarket 的执行、shadow、experiment、账号现金和风险日志证据；不恢复下注、不启动执行器、不改变 MT5 EA/订单/配置。</div>
                     </div>
@@ -7039,7 +7045,7 @@
                     <div class="panel-header">
                         <div class="panel-title">
                             <div class="icon" style="background: rgba(56,189,248,0.16); color: var(--accent-cyan);">P</div>
-                            Polymarket Boundary / Governance
+                            边界 / 治理
                         </div>
                         <span class="eval-summary" id="polymarketSummary">等待 Polymarket 研究快照</span>
                     </div>
@@ -7054,7 +7060,7 @@
                     <div class="panel-header">
                         <div class="panel-title">
                             <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">O</div>
-                            Opportunity Radar / Gamma Scan
+                            机会雷达 / Gamma 扫描
                         </div>
                         <span class="eval-summary" id="polymarketRadarSummary">等待 Polymarket Market Radar</span>
                     </div>
@@ -7068,8 +7074,23 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(244,63,94,0.16); color: var(--accent-red);">G</div>
+                            执行闸门 / 空壳契约
+                        </div>
+                        <span class="eval-summary" id="polymarketExecutionGateSummary">等待 Polymarket 执行闸门</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-gate-grid" id="polymarketExecutionGateBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketExecutionGate.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-green);">T</div>
-                            Retune Planner / Shadow-only Queue
+                            重调计划 / 只影子队列
                         </div>
                         <span class="eval-summary" id="polymarketRetuneSummary">等待 Polymarket 重调建议</span>
                     </div>
@@ -7084,7 +7105,7 @@
                     <div class="panel-header">
                         <div class="panel-title">
                             <div class="icon" style="background: rgba(245,158,11,0.16); color: var(--accent-orange);">E</div>
-                            Executed / Shadow / Experiment Buckets
+                            实盘 / 影子 / 实验分桶
                         </div>
                         <span class="eval-summary" id="polymarketBucketSummary">执行与影子样本分桶</span>
                     </div>
@@ -7099,7 +7120,7 @@
                     <div class="panel-header">
                         <div class="panel-title">
                             <div class="icon" style="background: rgba(244,63,94,0.16); color: var(--accent-red);">R</div>
-                            Risk / Recent Journal
+                            风险 / 最近日志
                         </div>
                         <span class="eval-summary" id="polymarketRiskSummary">风险日志与最近样本</span>
                     </div>
@@ -7624,6 +7645,7 @@ const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
 const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
+const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -8432,7 +8454,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
-        polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null
+        polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null,
+        polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null
     };
 
     if (!isLocalRuntime()) {
@@ -8631,6 +8654,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Polymarket retune planner load failed.', error);
     }
 
+    try {
+        data.polymarketExecutionGate = await loadLocalJsonSupplement(LOCAL_POLYMARKET_EXECUTION_GATE_PATH);
+        data._polymarketExecutionGateError = false;
+    } catch (error) {
+        data._polymarketExecutionGateError = true;
+        console.warn('Polymarket execution gate load failed.', error);
+    }
+
     return data;
 }
 
@@ -8730,6 +8761,10 @@ function getPolymarketRetunePlanner(d) {
     return d?.polymarketRetunePlanner || null;
 }
 
+function getPolymarketExecutionGate(d) {
+    return d?.polymarketExecutionGate || null;
+}
+
 function getPolymarketTone(stats = {}) {
     const pnl = Number(stats.realizedPnl || 0);
     const pf = stats.profitFactor === null || stats.profitFactor === undefined ? null : Number(stats.profitFactor);
@@ -8764,6 +8799,64 @@ function formatPolymarketCompactNumber(value, digits = 1) {
     return num.toFixed(abs >= 100 ? 0 : digits);
 }
 
+function translatePolymarketToken(value) {
+    const text = String(value ?? '').trim();
+    const map = {
+        CONTRACT_ONLY_NO_WALLET_WRITE: '仅契约模式：未接钱包写操作',
+        LIVE_BETTING_SWITCH_FALSE: '实盘下注开关关闭',
+        OPERATOR_PROMOTION_REQUIRED: '需要人工明确提升到执行层',
+        RESEARCH_GOVERNANCE_BLOCKS_LIVE: '研究治理仍阻止实盘',
+        ACCOUNT_SNAPSHOT_NOT_READY: '账户只读快照未就绪',
+        POLYMARKET_CASH_NOT_AVAILABLE: 'Polymarket 现金不可用',
+        LOCAL_PNL_NEGATIVE_QUARANTINE: '本地收益仍处亏损隔离',
+        RETUNE_RED_ROUTES_PRESENT: '存在红灯重调路线',
+        RETUNE_YELLOW_ROUTES_PRESENT: '存在黄灯观察路线',
+        RADAR_RISK_NOT_LOW: '雷达风险不是低风险',
+        RADAR_SCORE_BELOW_MIN: '雷达评分低于阈值',
+        OBSERVATION_ONLY_TRACK: '只允许观察，不允许下注',
+        BLOCKED_CONTRACT_ONLY: '已阻断：只定义契约',
+        BLOCKED_CONTRACT_ONLY_NO_WALLET_WRITE: '已阻断：契约模式且未写钱包',
+        SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
+        SHADOW_REVIEW: '进入影子观察',
+        OBSERVE_ONLY: '只观察',
+        low: '低',
+        medium: '中',
+        high: '高',
+        probability_missing: '缺少概率',
+        price_extreme: '赔率过极端',
+        volume_below_floor: '成交量不足',
+        liquidity_low: '流动性低',
+        thin_book_or_unknown_liquidity: '盘口薄或流动性未知',
+        near_resolution_lt_24h: '临近结算不足 24 小时',
+        end_date_passed_or_stale: '结算日期已过或数据陈旧',
+        accepting_orders_false: '市场不接收订单',
+        wide_spread: '价差过宽',
+        MARKET_FLAG_PROBABILITY_MISSING: '市场标记：缺少概率',
+        MARKET_FLAG_PRICE_EXTREME: '市场标记：赔率过极端',
+        MARKET_FLAG_VOLUME_BELOW_FLOOR: '市场标记：成交量不足',
+        MARKET_FLAG_LIQUIDITY_LOW: '市场标记：流动性低',
+        MARKET_FLAG_THIN_BOOK_OR_UNKNOWN_LIQUIDITY: '市场标记：盘口薄或流动性未知',
+        MARKET_FLAG_NEAR_RESOLUTION_LT_24H: '市场标记：临近结算',
+        MARKET_FLAG_END_DATE_PASSED_OR_STALE: '市场标记：结算日期异常',
+        MARKET_FLAG_ACCEPTING_ORDERS_FALSE: '市场标记：不接收订单',
+        MARKET_FLAG_WIDE_SPREAD: '市场标记：价差过宽',
+        no_live_restore_from_planner: '重调计划不允许恢复实盘',
+        executed_realized_pnl_negative: '历史实盘收益为负',
+        executed_win_rate_low: '历史实盘胜率过低',
+        executed_profit_factor_below_1: '历史实盘 PF 小于 1',
+        shadow_recovery_negative: '影子恢复样本仍为负',
+        shadow_profit_factor_below_1: '影子 PF 小于 1',
+        account_cash_below_bankroll: '账户现金低于预算',
+        live_canary_disabled: 'live canary 仍关闭',
+    };
+    return map[text] || text || '--';
+}
+
+function translatePolymarketList(items, limit = 4) {
+    const values = Array.isArray(items) ? items : [];
+    return values.slice(0, limit).map(translatePolymarketToken).join(' / ') || '无';
+}
+
 function renderPolymarketMetric(label, value) {
     return `
         <div class="polymarket-metric-item">
@@ -8788,17 +8881,17 @@ function renderPolymarketRadarCard(item = {}) {
             <div class="polymarket-eyebrow">${escapeHtml(item.suggestedShadowTrack || 'shadow radar')}</div>
             <div class="polymarket-title">#${escapeHtml(item.rank || '--')} ${escapeHtml(item.question || item.slug || '--')}</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('probability', probability)}
-                ${renderPolymarketMetric('divergence', divergence)}
-                ${renderPolymarketMetric('volume', formatPolymarketCompactNumber(item.volume))}
-                ${renderPolymarketMetric('liquidity', formatPolymarketCompactNumber(item.liquidity))}
+                ${renderPolymarketMetric('概率', probability)}
+                ${renderPolymarketMetric('偏离', divergence)}
+                ${renderPolymarketMetric('成交量', formatPolymarketCompactNumber(item.volume))}
+                ${renderPolymarketMetric('流动性', formatPolymarketCompactNumber(item.liquidity))}
             </div>
             <div class="polymarket-action-list">
-                <div class="polymarket-action">AI/rule ${escapeHtml(item.aiRuleScore ?? '--')} · rule ${escapeHtml(item.ruleScore ?? '--')} · risk ${escapeHtml(risk)}</div>
-                <div class="polymarket-action">category ${escapeHtml(item.category || '--')} · action ${escapeHtml(item.recommendedAction || 'SHADOW_REVIEW')}</div>
-                <div class="polymarket-action">flags ${escapeHtml(flags.slice(0, 4).join(' / ') || 'clear')}</div>
+                <div class="polymarket-action">AI/规则评分 ${escapeHtml(item.aiRuleScore ?? '--')} · 规则分 ${escapeHtml(item.ruleScore ?? '--')} · 风险 ${escapeHtml(translatePolymarketToken(risk))}</div>
+                <div class="polymarket-action">分类 ${escapeHtml(item.category || '--')} · 动作 ${escapeHtml(translatePolymarketToken(item.recommendedAction || 'SHADOW_REVIEW'))}</div>
+                <div class="polymarket-action">风险标记 ${escapeHtml(translatePolymarketList(flags))}</div>
             </div>
-            <div class="polymarket-note">${escapeHtml(item.polymarketUrl || 'Gamma public market')} · no betting from Radar output</div>
+            <div class="polymarket-note">${escapeHtml(item.polymarketUrl || 'Gamma public market')} · 雷达只排 shadow，不触发下注。</div>
         </div>
     `;
 }
@@ -8815,13 +8908,13 @@ function updatePolymarketMarketRadar(d) {
     }
     const summary = radar.summary || {};
     if (summaryEl) {
-        summaryEl.textContent = `${radar.status || 'UNKNOWN'} | ranked ${summary.rankedMarkets || 0} | low ${summary.lowRisk || 0} / mid ${summary.mediumRisk || 0} / high ${summary.highRisk || 0}`;
+        summaryEl.textContent = `${radar.status || 'UNKNOWN'} | 候选 ${summary.rankedMarkets || 0} | 低/中/高风险 ${summary.lowRisk || 0}/${summary.mediumRisk || 0}/${summary.highRisk || 0}`;
     }
     if (radar.status === 'ERROR') {
         body.innerHTML = `
             <div class="polymarket-card danger">
                 <div class="polymarket-eyebrow">Gamma API</div>
-                <div class="polymarket-title">Radar unavailable</div>
+                <div class="polymarket-title">雷达暂不可用</div>
                 <div class="polymarket-note">${escapeHtml(radar.error || 'Public API scan failed; keep execution disabled.')}</div>
             </div>
         `;
@@ -8831,12 +8924,12 @@ function updatePolymarketMarketRadar(d) {
     const boundaryCard = `
         <div class="polymarket-card danger">
             <div class="polymarket-eyebrow">Boundary</div>
-            <div class="polymarket-title">${escapeHtml(radar.decision || 'SHADOW_ONLY_MARKET_RADAR_NO_BETTING')}</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(radar.decision || 'SHADOW_ONLY_MARKET_RADAR_NO_BETTING'))}</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('public read', radar.source?.publicReadOnly ? 'YES' : 'NO')}
-                ${renderPolymarketMetric('wallet write', radar.source?.walletWrite ? 'YES' : 'NO')}
-                ${renderPolymarketMetric('orders', radar.source?.orderExecution ? 'YES' : 'NO')}
-                ${renderPolymarketMetric('AI mode', radar.scoring?.aiScoringMode || 'RULE_PROXY')}
+                ${renderPolymarketMetric('公共读取', radar.source?.publicReadOnly ? '是' : '否')}
+                ${renderPolymarketMetric('写钱包', radar.source?.walletWrite ? '是' : '否')}
+                ${renderPolymarketMetric('下单', radar.source?.orderExecution ? '是' : '否')}
+                ${renderPolymarketMetric('评分模式', radar.scoring?.aiScoringMode || 'RULE_PROXY')}
             </div>
             <div class="polymarket-note">这一步只给 shadow track 排队，未来执行层必须另走钱包、仓位、SL/TP 和 kill switch Gate。</div>
         </div>
@@ -8847,6 +8940,90 @@ function updatePolymarketMarketRadar(d) {
     ].join('') || '<div class="empty-state">Gamma scan 暂无可展示市场。</div>';
 }
 
+function renderPolymarketExecutionGateDecision(row = {}) {
+    const blockers = Array.isArray(row.blockers) ? row.blockers : [];
+    return `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">${escapeHtml(row.suggestedShadowTrack || '候选市场')}</div>
+            <div class="polymarket-title">${escapeHtml(row.question || row.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('可下注', row.canBet ? '是' : '否')}
+                ${renderPolymarketMetric('参考单笔', `${formatMoney(row.referenceStakeUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('止盈', `${row.takeProfitPct ?? '--'}%`)}
+                ${renderPolymarketMetric('止损', `${row.stopLossPct ?? '--'}%`)}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">闸门结论 ${escapeHtml(translatePolymarketToken(row.gateDecision || 'BLOCKED'))}</div>
+                <div class="polymarket-action">雷达分 ${escapeHtml(row.aiRuleScore ?? '--')} · 风险 ${escapeHtml(translatePolymarketToken(row.risk || '--'))} · 下单金额 ${escapeHtml(row.orderStakeUSDC ?? 0)} USDC</div>
+                <div class="polymarket-action">主要阻断 ${escapeHtml(translatePolymarketList(blockers))}</div>
+            </div>
+            <div class="polymarket-note">审计账本 ${escapeHtml(row.auditLedger || 'QuantGod_PolymarketExecutionGateLedger.csv')}</div>
+        </div>
+    `;
+}
+
+function updatePolymarketExecutionGate(d) {
+    const gate = getPolymarketExecutionGate(d);
+    const summaryEl = document.getElementById('polymarketExecutionGateSummary');
+    const body = document.getElementById('polymarketExecutionGateBody');
+    if (!body) return;
+    if (!gate || d?._polymarketExecutionGateError) {
+        if (summaryEl) summaryEl.textContent = '等待执行闸门';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketExecutionGate.json`；当前不会接入真实钱包写操作。</div>';
+        return;
+    }
+    const summary = gate.summary || {};
+    const contract = gate.executionContract || {};
+    const stakePolicy = contract.stakePolicy || {};
+    const exitPolicy = contract.takeProfitStopLoss || {};
+    const blockers = Array.isArray(gate.globalBlockers) ? gate.globalBlockers : [];
+    if (summaryEl) {
+        summaryEl.textContent = `${translatePolymarketToken(gate.decision || 'BLOCKED')} | 可下注 ${summary.canBet || 0}/${summary.candidateMarkets || 0} | 阻断 ${summary.globalBlockers || 0}`;
+    }
+    const contractCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">执行边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(contract.executionMode || 'CONTRACT_ONLY_NO_WALLET_WRITE'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('写钱包', contract.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('允许下单', contract.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('启动执行器', gate.safety?.startsExecutor ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', gate.safety?.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">现在只定义规则和审计，不做真钱下注；未来接 order executor 必须先通过这里。</div>
+        </div>
+    `;
+    const sizingCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">资金和止盈止损</div>
+            <div class="polymarket-title">单笔参考 ${escapeHtml(formatMoney(stakePolicy.referenceSingleBetUSDC || 0))} USDC</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('最大单笔', `${formatMoney(stakePolicy.maxSingleBetUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('日亏上限', `${formatMoney(stakePolicy.maxDailyLossUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('止盈', `${exitPolicy.takeProfitPct ?? '--'}%`)}
+                ${renderPolymarketMetric('止损', `${exitPolicy.stopLossPct ?? '--'}%`)}
+            </div>
+            <div class="polymarket-note">资金只看 Polymarket 账户快照，不和 MT5 净值混用。</div>
+        </div>
+    `;
+    const blockerCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">全局阻断</div>
+            <div class="polymarket-title">${escapeHtml(blockers.length ? `${blockers.length} 个阻断` : '无阻断')}</div>
+            <div class="polymarket-action-list">
+                ${(blockers.length ? blockers : ['当前仍保持禁止下注']).slice(0, 8).map((blocker) => `<div class="polymarket-action">${escapeHtml(translatePolymarketToken(blocker))}</div>`).join('')}
+            </div>
+        </div>
+    `;
+    const decisions = Array.isArray(gate.marketDecisions) ? gate.marketDecisions : [];
+    body.innerHTML = [
+        contractCard,
+        sizingCard,
+        blockerCard,
+        ...decisions.slice(0, 6).map(renderPolymarketExecutionGateDecision),
+    ].join('') || '<div class="empty-state">暂无执行闸门候选。</div>';
+}
+
 function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraClass = '') {
     const tone = extraClass || getPolymarketTone(stats);
     return `
@@ -8854,12 +9031,12 @@ function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraC
             <div class="polymarket-eyebrow">${escapeHtml(eyebrow)}</div>
             <div class="polymarket-title">${escapeHtml(title)}</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('entries / closed', `${Number(stats.entries || 0)} / ${Number(stats.closed || 0)}`)}
-                ${renderPolymarketMetric('win rate', formatPolymarketPercent(stats.winRatePct))}
+                ${renderPolymarketMetric('样本/已结', `${Number(stats.entries || 0)} / ${Number(stats.closed || 0)}`)}
+                ${renderPolymarketMetric('胜率', formatPolymarketPercent(stats.winRatePct))}
                 ${renderPolymarketMetric('PF', formatPolymarketPf(stats.profitFactor))}
-                ${renderPolymarketMetric('realized', formatMoney(stats.realizedPnl || 0))}
+                ${renderPolymarketMetric('已实现', formatMoney(stats.realizedPnl || 0))}
             </div>
-            <div class="polymarket-note">${escapeHtml(note || `Open ${Number(stats.open || 0)} · Avg ${stats.avgPnl === null || stats.avgPnl === undefined ? '--' : formatMoney(stats.avgPnl)}`)}</div>
+            <div class="polymarket-note">${escapeHtml(note || `未结 ${Number(stats.open || 0)} · 平均 ${stats.avgPnl === null || stats.avgPnl === undefined ? '--' : formatMoney(stats.avgPnl)}`)}</div>
         </div>
     `;
 }
@@ -8871,13 +9048,13 @@ function renderPolymarketAccountCard(account = {}) {
     const delta = account.cashVsBankroll === null || account.cashVsBankroll === undefined ? '--' : formatMoney(account.cashVsBankroll);
     return `
         <div class="polymarket-card ${ok ? 'watch' : 'danger'}">
-            <div class="polymarket-eyebrow">Account Snapshot</div>
-            <div class="polymarket-title">Polymarket Cash ${escapeHtml(cash)}</div>
+            <div class="polymarket-eyebrow">账户快照</div>
+            <div class="polymarket-title">Polymarket 现金 ${escapeHtml(cash)}</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('bankroll', bankroll)}
-                ${renderPolymarketMetric('cash - bankroll', delta)}
-                ${renderPolymarketMetric('open orders', account.openOrderCount ?? '--')}
-                ${renderPolymarketMetric('auth', account.authState || '--')}
+                ${renderPolymarketMetric('资金预算', bankroll)}
+                ${renderPolymarketMetric('现金差额', delta)}
+                ${renderPolymarketMetric('开放订单', account.openOrderCount ?? '--')}
+                ${renderPolymarketMetric('只读状态', account.authState || '--')}
             </div>
             <div class="polymarket-note">独立于 MT5 净值；funder ${escapeHtml(account.funderMasked || '--')}；只读余额/订单计数。</div>
         </div>
@@ -8894,18 +9071,18 @@ function renderPolymarketRetuneCard(item = {}) {
             <div class="polymarket-eyebrow">${escapeHtml(item.primaryAction || 'RETUNE')}</div>
             <div class="polymarket-title">${escapeHtml(item.experimentKey || 'unknown')}</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('score', item.score ?? '--')}
+                ${renderPolymarketMetric('评分', item.score ?? '--')}
                 ${renderPolymarketMetric('PF', formatPolymarketPf(metrics.profitFactor))}
-                ${renderPolymarketMetric('win rate', formatPolymarketPercent(metrics.winRatePct))}
-                ${renderPolymarketMetric('realized', formatMoney(metrics.realizedPnl || 0))}
+                ${renderPolymarketMetric('胜率', formatPolymarketPercent(metrics.winRatePct))}
+                ${renderPolymarketMetric('收益', formatMoney(metrics.realizedPnl || 0))}
             </div>
             <div class="polymarket-action-list">
-                <div class="polymarket-action">route ${escapeHtml(item.routeFamily || '--')} · scope ${escapeHtml(item.marketScope || '--')} · closed ${Number(metrics.closed || 0)}</div>
-                <div class="polymarket-action">issues ${escapeHtml(issueTags.slice(0, 4).join(' / ') || '--')}</div>
-                ${suggestions.slice(0, 2).map((text) => `<div class="polymarket-action">${escapeHtml(text)}</div>`).join('')}
-                ${tests.slice(0, 2).map((test) => `<div class="polymarket-action">next ${escapeHtml(test.name || '--')}: ${escapeHtml(test.goal || '')}</div>`).join('')}
+                <div class="polymarket-action">路线 ${escapeHtml(item.routeFamily || '--')} · 范围 ${escapeHtml(item.marketScope || '--')} · 已结 ${Number(metrics.closed || 0)}</div>
+                <div class="polymarket-action">问题 ${escapeHtml(issueTags.slice(0, 4).join(' / ') || '--')}</div>
+                ${suggestions.slice(0, 2).map((text) => `<div class="polymarket-action">建议 ${escapeHtml(text)}</div>`).join('')}
+                ${tests.slice(0, 2).map((test) => `<div class="polymarket-action">下一轮 ${escapeHtml(test.name || '--')}: ${escapeHtml(test.goal || '')}</div>`).join('')}
             </div>
-            <div class="polymarket-note">shadowOnly=${item.shadowOnly ? 'true' : 'false'} · liveExecutionAllowed=${item.liveExecutionAllowed ? 'true' : 'false'}</div>
+            <div class="polymarket-note">只影子=${item.shadowOnly ? '是' : '否'} · 允许实盘=${item.liveExecutionAllowed ? '是' : '否'}</div>
         </div>
     `;
 }
@@ -8922,17 +9099,17 @@ function updatePolymarketRetunePlanner(d) {
     }
     const counts = planner.recommendationCounts || {};
     if (summaryEl) {
-        summaryEl.textContent = `${planner.decision || 'SHADOW_ONLY'} | red ${counts.red || 0} / yellow ${counts.yellow || 0} / total ${counts.total || 0}`;
+        summaryEl.textContent = `${planner.decision || 'SHADOW_ONLY'} | 红 ${counts.red || 0} / 黄 ${counts.yellow || 0} / 总 ${counts.total || 0}`;
     }
     const blockers = planner.globalBlockers || [];
     const account = planner.account || {};
     const recommendations = planner.recommendations || [];
     const blockerCard = `
         <div class="polymarket-card danger">
-            <div class="polymarket-eyebrow">Global Guard</div>
+            <div class="polymarket-eyebrow">全局防线</div>
             <div class="polymarket-title">${escapeHtml(planner.decision || 'SHADOW_ONLY_RETUNE_NO_BETTING')}</div>
             <div class="polymarket-action-list">
-                ${(blockers.length ? blockers : ['no_live_restore_from_planner']).slice(0, 8).map((blocker) => `<div class="polymarket-action">${escapeHtml(blocker)}</div>`).join('')}
+                ${(blockers.length ? blockers : ['no_live_restore_from_planner']).slice(0, 8).map((blocker) => `<div class="polymarket-action">${escapeHtml(translatePolymarketToken(blocker))}</div>`).join('')}
             </div>
             <div class="polymarket-note">账号现金 ${escapeHtml(account.accountCash === null || account.accountCash === undefined ? '--' : formatMoney(account.accountCash))}，MT5 资金不参与此计算。</div>
         </div>
@@ -8995,27 +9172,27 @@ function updatePolymarketWorkspace(d) {
 
     summaryBody.innerHTML = `
         <div class="polymarket-card danger">
-            <div class="polymarket-eyebrow">Boundary</div>
-            <div class="polymarket-title">Research Only</div>
+            <div class="polymarket-eyebrow">边界</div>
+            <div class="polymarket-title">只研究</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('read only', safety.readOnly ? 'YES' : 'NO')}
-                ${renderPolymarketMetric('loads .env', safety.loadsEnv ? 'YES' : 'NO')}
-                ${renderPolymarketMetric('starts executor', safety.startsExecutor ? 'YES' : 'NO')}
-                ${renderPolymarketMetric('mutates MT5', safety.mutatesMt5 ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('只读', safety.readOnly ? '是' : '否')}
+                ${renderPolymarketMetric('读取 .env', safety.loadsEnv ? '是' : '否')}
+                ${renderPolymarketMetric('启动执行器', safety.startsExecutor ? '是' : '否')}
+                ${renderPolymarketMetric('改 MT5', safety.mutatesMt5 ? '是' : '否')}
             </div>
             <div class="polymarket-note">${escapeHtml(safety.boundary || 'Dashboard evidence only.')}</div>
         </div>
         ${renderPolymarketAccountCard(account)}
-        ${renderPolymarketStatsCard('Executed Live Evidence', 'Polymarket executed', executed, '真实执行样本只用于风险判断；当前不会恢复下注。')}
-        ${renderPolymarketStatsCard('Shadow Recovery', 'No-money shadow', shadow, 'Shadow 与 experiment 必须和 executed 分开，不能单独触发实盘。')}
+        ${renderPolymarketStatsCard('历史实盘证据', 'Polymarket 实盘', executed, '真实执行样本只用于风险判断；当前不会恢复下注。')}
+        ${renderPolymarketStatsCard('影子恢复样本', '无资金影子', shadow, 'Shadow 与 experiment 必须和 executed 分开，不能单独触发实盘。')}
         <div class="polymarket-card ${Number(latestPnl.realizedPnl || 0) < 0 ? 'danger' : 'watch'}">
-            <div class="polymarket-eyebrow">Local PnL Ledger</div>
+            <div class="polymarket-eyebrow">本地收益账本</div>
             <div class="polymarket-title">${escapeHtml(formatMoney(latestPnl.realizedPnl || 0))}</div>
             <div class="polymarket-metric">
-                ${renderPolymarketMetric('unrealized', formatMoney(latestPnl.unrealizedPnl || 0))}
-                ${renderPolymarketMetric('trades', latestPnl.totalTrades ?? '--')}
-                ${renderPolymarketMetric('wins / losses', `${latestPnl.winCount ?? '--'} / ${latestPnl.lossCount ?? '--'}`)}
-                ${renderPolymarketMetric('win rate', formatPolymarketPercent(latestPnl.winRatePct))}
+                ${renderPolymarketMetric('浮动', formatMoney(latestPnl.unrealizedPnl || 0))}
+                ${renderPolymarketMetric('交易数', latestPnl.totalTrades ?? '--')}
+                ${renderPolymarketMetric('胜/负', `${latestPnl.winCount ?? '--'} / ${latestPnl.lossCount ?? '--'}`)}
+                ${renderPolymarketMetric('胜率', formatPolymarketPercent(latestPnl.winRatePct))}
             </div>
             <div class="polymarket-note">这是 D 盘本地 pnl_log，不是 MT5 净值，也不是 Polymarket 账户现金。</div>
         </div>
@@ -9028,9 +9205,9 @@ function updatePolymarketWorkspace(d) {
             const retune = (governance.retuneExperimentKeys || []).includes(key);
             return renderPolymarketStatsCard(
                 key,
-                retune ? 'retune' : 'shadow experiment',
+                retune ? '需要重调' : '影子实验',
                 item,
-                `Scope ${item.marketScope || 'mixed'} · ${retune ? '需要重调，不进入 live canary' : '继续观察，不自动放权'}`
+                `范围 ${item.marketScope || 'mixed'} · ${retune ? '需要重调，不进入 live canary' : '继续观察，不自动放权'}`
             );
         }).join('')
         : '<div class="empty-state">暂无 shadow/experiment 分桶</div>';
@@ -9041,29 +9218,29 @@ function updatePolymarketWorkspace(d) {
         ? actionList.map((action) => `<div class="polymarket-action">${escapeHtml(action)}</div>`).join('')
         : '<div class="polymarket-action">保持只读，等待更多证据。</div>';
     const blockersHtml = blockers.length
-        ? blockers.map((blocker) => `<div class="polymarket-action">${escapeHtml(blocker)}</div>`).join('')
+        ? blockers.map((blocker) => `<div class="polymarket-action">${escapeHtml(translatePolymarketToken(blocker))}</div>`).join('')
         : '<div class="polymarket-action">暂无明确 blocker，但仍不自动恢复执行。</div>';
     riskBody.innerHTML = `
         <div class="polymarket-card danger">
-            <div class="polymarket-eyebrow">Governance Blockers</div>
+            <div class="polymarket-eyebrow">治理阻断</div>
             <div class="polymarket-title">${escapeHtml(decision)}</div>
             <div class="polymarket-action-list">${blockersHtml}</div>
         </div>
         <div class="polymarket-card watch">
-            <div class="polymarket-eyebrow">Next Actions</div>
-            <div class="polymarket-title">Safe merge path</div>
+            <div class="polymarket-eyebrow">下一步</div>
+            <div class="polymarket-title">安全接入路径</div>
             <div class="polymarket-action-list">${actionsHtml}</div>
         </div>
         <div class="polymarket-card watch">
-            <div class="polymarket-eyebrow">Top Risk Events</div>
-            <div class="polymarket-title">${topEvents.length ? `${topEvents.length} event families` : 'No risk log'}</div>
+            <div class="polymarket-eyebrow">主要风险事件</div>
+            <div class="polymarket-title">${topEvents.length ? `${topEvents.length} 类事件` : '暂无风险日志'}</div>
             <div class="polymarket-action-list">
                 ${topEvents.slice(0, 8).map((event) => `<div class="polymarket-action">${escapeHtml(event.event)} · ${Number(event.entries || 0)} · ${escapeHtml(event.latestIso || '--')}</div>`).join('') || '<div class="polymarket-action">暂无 risk_log</div>'}
             </div>
         </div>
         <div class="polymarket-card watch">
-            <div class="polymarket-eyebrow">Recent Runtime Events</div>
-            <div class="polymarket-title">${recentEvents.length ? 'Last risk rows' : 'No recent rows'}</div>
+            <div class="polymarket-eyebrow">最近运行事件</div>
+            <div class="polymarket-title">${recentEvents.length ? '最新风险行' : '暂无最近行'}</div>
             <div class="polymarket-action-list">
                 ${recentEvents.slice(0, 6).map((event) => `<div class="polymarket-action">${escapeHtml(event.event)} · ${escapeHtml(event.actionTaken || '--')} · ${escapeHtml(event.timestampIso || '--')}</div>`).join('') || '<div class="polymarket-action">暂无 recent risk rows</div>'}
             </div>
@@ -13757,6 +13934,7 @@ function updateDashboard() {
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
     updatePolymarketMarketRadar(d);
+    updatePolymarketExecutionGate(d);
     updatePolymarketRetunePlanner(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
