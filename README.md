@@ -55,6 +55,7 @@ The MT5 work is intentionally split into phases:
 - ports the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` signal routes into MT5 as candidate/backtest/live-gated routes; the shipped HFM live preset enables `USDJPY RSI_Reversal H1` only among legacy routes, while `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` stay candidate/backtest-only for iteration
 - includes HFM MT5 Backtest Lab V1 for `MA_Cross` plus tester presets that can validate the legacy routes on `EURUSDc` / `USDJPYc`, so strategy changes can be checked against both backtest evidence and live forward samples
 - includes an offline Param Optimization Plan for `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout`; it proposes candidate parameter sets and Strategy Tester tasks, then feeds the top candidate back into Governance Advisor for ranking without mutating the live preset
+- includes a controlled ParamLab Runner that materializes the ranked candidates into tester-only `.set` and `.ini` files, records `QuantGod_ParamLabStatus.json`, and only launches MT5 Strategy Tester when explicitly run with the Strategy Tester authorization flags
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
 - includes Shadow Candidate Router V1, a research layer that records MA continuation/range-soft candidates plus RSI, Bollinger, MACD, and support/resistance route candidates without enabling new live routes by default
@@ -68,7 +69,7 @@ Important: the current MT5 implementation is still a partial port. In the shippe
 
 Live route promotion and demotion are now evidence-driven automation decisions. A live route can be demoted quickly when its recent `0.01` forward results, order-send health, or shadow/candidate outcomes show weakness; it then stays in simulation/backtest and is iterated there. A candidate route can be promoted back to live only after old-history context, Backtest Lab, candidate/outcome ledgers, and fresh `0.01` forward-style evidence show a stable edge without obvious risk objections. Promotion never changes the lot size, account, server, single-symbol cap, hard SL/TP, spread/session/news/cooldown/portfolio/order-send controls, or kill switches.
 
-The repo also includes a QuantDinger-inspired local Governance Advisor and light dashboard shell. It borrows the useful product ideas of a strategy lifecycle view, a clean app-style sidebar/header, a health snapshot with file freshness/circuit-style evidence states, and an offline parameter-candidate loop. QuantGod's broker boundary stays intact: `tools/build_param_optimization_plan.py` writes `QuantGod_ParamOptimizationPlan.json`, then `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. Both tools are read-only with respect to live trading: they never store credentials, connect to HFM, open positions, overwrite the live preset, or bypass the existing EA `OrderSend` guards.
+The repo also includes a QuantDinger-inspired local Governance Advisor and light dashboard shell. It borrows the useful product ideas of a strategy lifecycle view, a clean app-style sidebar/header, a health snapshot with file freshness/circuit-style evidence states, and an offline parameter-candidate loop. QuantGod's broker boundary stays intact: `tools/build_param_optimization_plan.py` writes `QuantGod_ParamOptimizationPlan.json`, `tools/run_param_lab.py` prepares tester-only ParamLab tasks and writes `QuantGod_ParamLabStatus.json`, then `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. These tools are read-only with respect to live trading: they never store credentials, open live positions, overwrite the live preset, or bypass the existing EA `OrderSend` guards. ParamLab can launch Strategy Tester only when explicitly called with `--run-terminal --authorized-strategy-tester`, and the default path is config-only.
 
 The dashboard home Route Watchlist is also the main strategy focus control. Clicking `MA`, `RSI`, `BB`, `MACD`, or `SR` filters the evidence cards, strategy cards, regime research, and charts to that route; clicking `All routes` returns to the full-system view. This is a read-only review filter and does not change live switches or EA execution permissions.
 
@@ -261,6 +262,14 @@ tools\build_governance_advisor.bat
 ```
 
 This first writes `QuantGod_ParamOptimizationPlan.json` under HFM Files, then rebuilds `QuantGod_GovernanceAdvisor.json`. The plan ranks `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` parameter candidates and emits pending Strategy Tester tasks. It does not launch MT5, copy anything into the live preset, or change real order permissions.
+
+To materialize the ranked candidates into tester-only presets/configs without launching MT5:
+
+```bat
+tools\run_param_lab.bat --max-tasks 4
+```
+
+This writes `QuantGod_ParamLabStatus.json` under HFM Files and archives generated tester configs under `archive\param-lab\runs\`. The default selection is route-balanced, so RSI/BB/MACD/SR each get a top candidate before extra slots are filled by score. It may copy ParamLab candidate presets into the HFM `MQL5\Presets` folder for Strategy Tester use, but it does not overwrite `QuantGod_MT5_HFM_LivePilot.set`. To actually launch Strategy Tester, use the same command with `--run-terminal --authorized-strategy-tester` only in the authorized tester window or explicitly authorized session.
 
 and copies that summary to the HFM Files folder so the dashboard can render the `回测 vs 实盘` comparison card. A no-terminal config-only run archives its own `CONFIG_READY` summary under `archive/backtests/runs/`, but it does not overwrite the latest effective tester result already published to HFM Files.
 

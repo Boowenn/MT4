@@ -464,8 +464,23 @@ def build_plan(repo_root: Path, runtime_dir: Path, max_tasks: int) -> dict[str, 
         })
 
     all_candidates.sort(key=lambda item: item["score"], reverse=True)
+    selected_candidates: list[dict[str, Any]] = []
+    selected_ids: set[str] = set()
+    for route_plan in route_plans:
+        top = route_plan.get("topCandidate")
+        if isinstance(top, dict) and top.get("candidateId") and top["candidateId"] not in selected_ids:
+            selected_candidates.append(top)
+            selected_ids.add(top["candidateId"])
+    for candidate in all_candidates:
+        if len(selected_candidates) >= max_tasks:
+            break
+        if candidate["candidateId"] not in selected_ids:
+            selected_candidates.append(candidate)
+            selected_ids.add(candidate["candidateId"])
+    selected_candidates.sort(key=lambda item: item["score"], reverse=True)
+
     backtest_tasks = []
-    for task_rank, candidate in enumerate(all_candidates[:max_tasks], start=1):
+    for task_rank, candidate in enumerate(selected_candidates[:max_tasks], start=1):
         backtest_tasks.append({
             "rank": task_rank,
             "candidateId": candidate["candidateId"],

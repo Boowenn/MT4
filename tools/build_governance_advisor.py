@@ -22,6 +22,7 @@ from typing import Any
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 OUTPUT_NAME = "QuantGod_GovernanceAdvisor.json"
 PARAM_OPTIMIZATION_NAME = "QuantGod_ParamOptimizationPlan.json"
+PARAM_LAB_STATUS_NAME = "QuantGod_ParamLabStatus.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -33,6 +34,7 @@ RUNTIME_FILE_HEALTH = [
     ("candidate_outcome", "QuantGod_ShadowCandidateOutcomeLedger.csv", 24 * 60 * 60),
     ("manual_alpha", "QuantGod_ManualAlphaLedger.csv", 24 * 60 * 60),
     ("param_optimization", PARAM_OPTIMIZATION_NAME, 7 * 24 * 60 * 60),
+    ("param_lab", PARAM_LAB_STATUS_NAME, 7 * 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -430,6 +432,51 @@ def summarize_param_optimization(plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_param_lab(status: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(status, dict) or not status:
+        return {
+            "status": "missing",
+            "mode": "",
+            "runId": "",
+            "selectedTaskCount": 0,
+            "configReadyCount": 0,
+            "runAttemptedCount": 0,
+            "reportParsedCount": 0,
+            "topByRoute": {},
+        }
+    summary = status.get("summary") if isinstance(status.get("summary"), dict) else {}
+    top_by_route = {}
+    for route_key, task in (status.get("topByRoute") or {}).items():
+        if not isinstance(task, dict):
+            continue
+        top_by_route[str(route_key)] = {
+            "candidateId": task.get("candidateId", ""),
+            "variant": task.get("variant", ""),
+            "symbol": task.get("symbol", ""),
+            "timeframe": task.get("timeframe", ""),
+            "status": task.get("status", ""),
+            "configPath": task.get("configPath", ""),
+            "reportPath": task.get("reportPath", ""),
+            "presetPath": task.get("presetPath", ""),
+            "hfmPresetPath": task.get("hfmPresetPath", ""),
+            "metrics": task.get("metrics") if isinstance(task.get("metrics"), dict) else {},
+            "livePresetMutation": bool(task.get("livePresetMutation", False)),
+        }
+    return {
+        "status": "ready",
+        "generatedAtIso": status.get("generatedAtIso", ""),
+        "runId": status.get("runId", ""),
+        "mode": status.get("mode", ""),
+        "runTerminal": bool(status.get("runTerminal", False)),
+        "archiveDir": status.get("archiveDir", ""),
+        "selectedTaskCount": int(status.get("selectedTaskCount") or 0),
+        "configReadyCount": int(summary.get("configReadyCount") or 0),
+        "runAttemptedCount": int(summary.get("runAttemptedCount") or 0),
+        "reportParsedCount": int(summary.get("reportParsedCount") or 0),
+        "topByRoute": top_by_route,
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -486,6 +533,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     manual_rows = read_csv(runtime_dir / "QuantGod_ManualAlphaLedger.csv")
     backtest = read_json(runtime_dir / "QuantGod_BacktestSummary.json")
     param_optimization_plan = read_json(runtime_dir / PARAM_OPTIMIZATION_NAME)
+    param_lab_status = read_json(runtime_dir / PARAM_LAB_STATUS_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -495,6 +543,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     manual = summarize_manual(manual_rows)
     backtest_summary = summarize_backtest(backtest)
     param_optimization = summarize_param_optimization(param_optimization_plan)
+    param_lab = summarize_param_lab(param_lab_status)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -519,6 +568,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
                 **candidate,
             },
             "paramOptimization": param_optimization.get("topByRoute", {}).get(route["strategy"], {}),
+            "paramLab": param_lab.get("topByRoute", {}).get(route["strategy"], {}),
         })
 
     action_counts = Counter(item["recommendedAction"] for item in route_decisions)
@@ -552,6 +602,8 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "manualAlphaRows": manual["rows"],
             "paramOptimizationCandidates": param_optimization["candidateCount"],
             "paramOptimizationBacktestTasks": param_optimization["backtestTaskCount"],
+            "paramLabConfigReady": param_lab["configReadyCount"],
+            "paramLabReportParsed": param_lab["reportParsedCount"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -562,11 +614,13 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "candidateOutcomes": candidate_outcomes,
         "manualAlpha": manual,
         "paramOptimization": param_optimization,
+        "paramLab": param_lab,
         "routeDecisions": route_decisions,
         "nextOperatorSteps": [
             "Keep MA_Cross and USDJPY RSI_Reversal at 0.01 live only while samples remain thin.",
             "Keep BB/MACD/SR in simulation and retune routes with weak 60m candidate outcomes.",
             "Use ParamOptimizationPlan candidates as offline tester tasks only; never overwrite the live preset automatically.",
+            "Use ParamLabStatus as the controlled Strategy Tester task queue; CONFIG_READY tasks still require an authorized tester run before promotion review.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }
