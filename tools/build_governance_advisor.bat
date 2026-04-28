@@ -10,5 +10,6 @@ python "%REPO_ROOT%\tools\build_governance_advisor.py" --runtime-dir "%RUNTIME_D
 python "%REPO_ROOT%\tools\build_strategy_version_registry.py" --runtime-dir "%RUNTIME_DIR%"
 python "%REPO_ROOT%\tools\build_optimizer_v2_plan.py" --runtime-dir "%RUNTIME_DIR%"
 python "%REPO_ROOT%\tools\build_version_promotion_gate.py" --runtime-dir "%RUNTIME_DIR%"
+python "%REPO_ROOT%\tools\build_param_lab_auto_scheduler.py" --runtime-dir "%RUNTIME_DIR%"
 python "%REPO_ROOT%\tools\build_governance_advisor.py" --runtime-dir "%RUNTIME_DIR%"
 endlocal

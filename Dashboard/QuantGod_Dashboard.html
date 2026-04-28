@@ -5747,6 +5747,27 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">S</div>
+                            Auto Scheduler 安全队列
+                        </div>
+                        <span class="eval-summary" id="paramLabAutoSchedulerSummary">等待 Auto Scheduler</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="paramlab-batch-toolbar">
+                            <div class="paramlab-batch-meta" id="paramLabAutoSchedulerMeta">
+                                根据 Version Gate 的 WAIT_REPORT / RETUNE / WAIT_FORWARD 生成下一批 tester-only 队列；默认不加 -RunTerminal。
+                            </div>
+                            <div class="paramlab-batch-counters" id="paramLabAutoSchedulerCounters"></div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper paramlab-batch-table" id="paramLabAutoSchedulerBody">
+                            <div class="empty-state">等待 QuantGod_ParamLabAutoScheduler.json</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">A</div>
                             切片研究建议
                         </div>
@@ -5880,6 +5901,7 @@ const LOCAL_GOVERNANCE_ADVISOR_PATH = 'QuantGod_GovernanceAdvisor.json';
 const LOCAL_STRATEGY_VERSION_REGISTRY_PATH = 'QuantGod_StrategyVersionRegistry.json';
 const LOCAL_OPTIMIZER_V2_PATH = 'QuantGod_OptimizerV2Plan.json';
 const LOCAL_VERSION_PROMOTION_GATE_PATH = 'QuantGod_VersionPromotionGate.json';
+const LOCAL_PARAM_LAB_AUTO_SCHEDULER_PATH = 'QuantGod_ParamLabAutoScheduler.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -6027,6 +6049,7 @@ function setRouteStrategyFilter(strategy) {
     updateManualAlphaLedger(dashboardData);
     updateGovernanceAdvisor(dashboardData);
     updateParamLabBatchPanel(dashboardData);
+    updateParamLabAutoSchedulerPanel(dashboardData);
     updateStrategyWorkspace(dashboardData);
     updateStrategyVersionOptimizerPanel(dashboardData);
     updateGovernanceFeedback(dashboardData);
@@ -6676,7 +6699,9 @@ async function attachSupplementalData(baseData, previousData = null) {
         backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null,
         governanceAdvisor: baseData?.governanceAdvisor || previousData?.governanceAdvisor || null,
         strategyVersionRegistry: baseData?.strategyVersionRegistry || previousData?.strategyVersionRegistry || null,
-        optimizerV2: baseData?.optimizerV2 || previousData?.optimizerV2 || null
+        optimizerV2: baseData?.optimizerV2 || previousData?.optimizerV2 || null,
+        versionPromotionGate: baseData?.versionPromotionGate || previousData?.versionPromotionGate || null,
+        paramLabAutoScheduler: baseData?.paramLabAutoScheduler || previousData?.paramLabAutoScheduler || null
     };
 
     if (!isLocalRuntime()) {
@@ -6819,6 +6844,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Version promotion gate load failed.', error);
     }
 
+    try {
+        data.paramLabAutoScheduler = await loadLocalJsonSupplement(LOCAL_PARAM_LAB_AUTO_SCHEDULER_PATH);
+        data._paramLabAutoSchedulerError = false;
+    } catch (error) {
+        data._paramLabAutoSchedulerError = true;
+        console.warn('ParamLab auto scheduler load failed.', error);
+    }
+
     return data;
 }
 
@@ -6888,6 +6921,10 @@ function getOptimizerV2(d) {
 
 function getVersionPromotionGate(d) {
     return d?.versionPromotionGate || d?.governanceAdvisor?.versionPromotionGate || null;
+}
+
+function getParamLabAutoScheduler(d) {
+    return d?.paramLabAutoScheduler || d?.governanceAdvisor?.paramLabAutoScheduler || null;
 }
 
 function getFocusSymbol(d) {
@@ -8775,8 +8812,8 @@ function renderParamLabBatchRow(row) {
         ? formatPercentValue(metrics.relativeDrawdownPct, 1)
         : formatParamLabNumber(metrics.maxDrawdown, 2);
     const command = candidateId !== '--'
-        ? `tools\\run_param_lab.bat --candidate-id ${candidateId} --run-terminal --authorized-strategy-tester`
-        : 'tools\\run_param_lab.bat --run-terminal --authorized-strategy-tester';
+        ? `tools\\run_param_lab.bat --candidate-id ${candidateId}`
+        : 'tools\\run_param_lab.bat';
     const reportPath = task.reportPath || result.reportPath || '';
     const configPath = task.configPath || result.configPath || '';
     const blockers = Array.isArray(result.blockers) && result.blockers.length
@@ -8808,7 +8845,7 @@ function renderParamLabBatchRow(row) {
         </td>
         <td>
             <span class="paramlab-command">${escapeHtml(command)}</span>
-            <span class="paramlab-path">仅限授权 Strategy Tester 窗口；不改 live preset。</span>
+            <span class="paramlab-path">默认 config-only；授权窗口内才可手动追加 run-terminal 参数。</span>
         </td>
         <td>
             <span class="paramlab-path">report: ${escapeHtml(reportPath || '--')}</span>
@@ -8877,11 +8914,130 @@ function updateParamLabBatchPanel(d) {
                 <th>参数候选</th>
                 <th>批次状态</th>
                 <th>结果/评分</th>
-                <th>授权窗口命令</th>
+                <th>config-only 命令</th>
                 <th>报告与配置</th>
             </tr>
         </thead>
         <tbody>${rows.map(renderParamLabBatchRow).join('')}</tbody>
+    </table>`;
+}
+
+function getParamLabAutoSchedulerRows(d) {
+    const scheduler = getParamLabAutoScheduler(d);
+    const rows = Array.isArray(scheduler?.selectedTasks) ? scheduler.selectedTasks : [];
+    return isRouteStrategyFiltered()
+        ? rows.filter((task) => (task?.routeKey || task?.strategy) === routeStrategyFilter)
+        : rows;
+}
+
+function schedulerActionLabel(action) {
+    const value = String(action || '').toUpperCase();
+    if (value.includes('RETUNE')) return '迭代参数';
+    if (value.includes('WAIT_REPORT')) return '补报告';
+    if (value.includes('WAIT_FORWARD')) return '观察 forward';
+    return value || '安全排队';
+}
+
+function renderParamLabAutoSchedulerRow(task) {
+    const routeKey = task?.routeKey || task?.strategy || 'UNKNOWN';
+    const candidateId = task?.candidateId || '--';
+    const symbol = task?.symbol || '--';
+    const timeframe = task?.timeframe || '--';
+    const action = schedulerActionLabel(task?.scheduleAction || task?.sourceDecision);
+    const sourceDecision = task?.sourceDecision || '--';
+    const priority = hasParamLabNumber(task?.priorityScore) ? Number(task.priorityScore).toFixed(1) : '--';
+    const command = task?.configOnlyCommand || task?.testerOnlyCommand || '';
+    const reason = task?.reason || 'Gate evidence selected this tester-only candidate.';
+    const blockers = Array.isArray(task?.blockers) && task.blockers.length ? task.blockers.join(' / ') : '--';
+    const existingStatus = task?.existingTaskStatus || task?.existingGrade || 'NEW_QUEUE';
+    const reportPath = task?.existingReportPath || task?.reportPathHint || '';
+    const parameterSummary = task?.parameterSummary || '--';
+
+    return `<tr>
+        <td class="paramlab-route-cell">
+            <div class="paramlab-route-name">${escapeHtml(strategyShortLabel(routeKey))} · ${escapeHtml(strategyLabel(routeKey))}</div>
+            <div class="paramlab-route-sub">${escapeHtml(symbol)} / ${escapeHtml(timeframe)} · priority ${escapeHtml(priority)}</div>
+        </td>
+        <td>
+            <span class="table-badge status-info">${escapeHtml(action)}</span>
+            <span class="table-badge status-muted">${escapeHtml(sourceDecision)}</span>
+            <div class="paramlab-path">${escapeHtml(candidateId)}</div>
+        </td>
+        <td>
+            <span class="paramlab-path">${escapeHtml(parameterSummary)}</span>
+            <span class="paramlab-path">blocker: ${escapeHtml(blockers)}</span>
+        </td>
+        <td>
+            <span class="paramlab-path">${escapeHtml(reason)}</span>
+            <span class="paramlab-path">existing: ${escapeHtml(existingStatus)}</span>
+        </td>
+        <td>
+            <span class="paramlab-command">${escapeHtml(command || '--')}</span>
+            <div class="governance-feedback-actions">${renderCopyButton(command, '复制命令', '无命令')}</div>
+        </td>
+        <td>
+            <span class="paramlab-path">report: ${escapeHtml(reportPath || '--')}</span>
+            <span class="paramlab-path">default: config-only / no -RunTerminal</span>
+        </td>
+    </tr>`;
+}
+
+function updateParamLabAutoSchedulerPanel(d) {
+    const summaryEl = document.getElementById('paramLabAutoSchedulerSummary');
+    const metaEl = document.getElementById('paramLabAutoSchedulerMeta');
+    const countersEl = document.getElementById('paramLabAutoSchedulerCounters');
+    const bodyEl = document.getElementById('paramLabAutoSchedulerBody');
+    if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
+
+    const scheduler = getParamLabAutoScheduler(d);
+    const rows = getParamLabAutoSchedulerRows(d);
+    if (!scheduler || scheduler.status === 'missing') {
+        summaryEl.textContent = '等待 Auto Scheduler';
+        metaEl.textContent = '等待 QuantGod_ParamLabAutoScheduler.json；不会启动 MT5，也不会修改 live preset。';
+        countersEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="empty-state">等待 Auto Scheduler 安全队列</div>';
+        return;
+    }
+
+    const summary = scheduler.summary || scheduler;
+    const routeLabel = isRouteStrategyFiltered() ? strategyLabel(routeStrategyFilter) : '全部路线';
+    const waitReport = summary.waitReportQueueCount || 0;
+    const retune = summary.retuneQueueCount || 0;
+    const observe = summary.waitForwardObserveCount || 0;
+    summaryEl.textContent = `${routeLabel} | 队列 ${rows.length}/${summary.queueCount || rows.length || 0} | report ${waitReport} / retune ${retune}`;
+    metaEl.textContent = `Mode ${scheduler.mode || summary.mode || 'CONFIG_ONLY_AUTO_SCHEDULER'} · 生成 ${scheduler.generatedAtIso || summary.generatedAtIso || '--'}；默认 runTerminal=false，只输出 tester-only 安全队列。`;
+    countersEl.innerHTML = [
+        `<span class="table-badge status-info">WAIT_REPORT ${waitReport}</span>`,
+        `<span class="table-badge status-warn">RETUNE ${retune}</span>`,
+        `<span class="table-badge status-muted">WAIT_FORWARD ${observe}</span>`,
+        `<span class="table-badge status-live">no -RunTerminal</span>`
+    ].join('');
+
+    if (!rows.length) {
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(routeLabel)} 当前没有 Auto Scheduler 队列任务；WAIT_FORWARD 路线只观察 forward，不主动加测试负担。</div>`;
+        return;
+    }
+
+    bodyEl.innerHTML = `<table>
+        <colgroup>
+            <col style="width: 15%;">
+            <col style="width: 15%;">
+            <col style="width: 22%;">
+            <col style="width: 18%;">
+            <col style="width: 18%;">
+            <col style="width: 12%;">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>路线</th>
+                <th>调度动作</th>
+                <th>参数版本</th>
+                <th>Gate 理由</th>
+                <th>config-only 命令</th>
+                <th>报告</th>
+            </tr>
+        </thead>
+        <tbody>${rows.map(renderParamLabAutoSchedulerRow).join('')}</tbody>
     </table>`;
 }
 
@@ -10692,6 +10848,7 @@ function updateDashboard() {
     updateManualAlphaLedger(d);
     updateGovernanceAdvisor(d);
     updateParamLabBatchPanel(d);
+    updateParamLabAutoSchedulerPanel(d);
     updateStrategyWorkspace(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);

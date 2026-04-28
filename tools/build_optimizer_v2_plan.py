@@ -357,8 +357,9 @@ def score_proposal(
 
 
 def tester_command(repo_root: Path, proposal_id: str) -> str:
-    script = repo_root / "tools" / "run_mt5_backtest_lab.ps1"
-    return f'powershell -NoProfile -ExecutionPolicy Bypass -File "{script}" -ParamLabCandidateId "{proposal_id}"'
+    runner = repo_root / "tools" / "run_param_lab.py"
+    scheduler_plan = DEFAULT_RUNTIME_DIR / "QuantGod_ParamLabAutoScheduler.json"
+    return f'python "{runner}" --plan "{scheduler_plan}" --candidate-id "{proposal_id}"'
 
 
 def build_proposal(

@@ -16,6 +16,7 @@ Implemented:
 - Strategy Version Registry: records current route versions, parameter hashes, live/candidate status, evidence, and tester-only child lineage.
 - Optimizer V2: proposes next-generation tester-only parameters linked to parent strategy versions.
 - Version Promotion Gate dry-run: writes `QuantGod_VersionPromotionGate.json` and `QuantGod_VersionPromotionGateLedger.csv`, judging each current route version and optimizer proposal by `versionId` without changing live switches.
+- ParamLab Auto Scheduler config-only: writes `QuantGod_ParamLabAutoScheduler.json` and `QuantGod_ParamLabAutoSchedulerLedger.csv`, translating Gate `WAIT_REPORT`, `RETUNE`, and `WAIT_FORWARD` evidence into the next route-balanced tester-only queue without adding `-RunTerminal`.
 
 Current live-trading boundary:
 
@@ -52,7 +53,7 @@ Required safety gates before `-RunTerminal`:
 
 Proposed mode names:
 
-- `AUTOPLAN_ONLY`: current default; generates candidates and configs, no tester launch.
+- `AUTOPLAN_ONLY`: current default; generates candidates, scheduler queue, and configs, no tester launch.
 - `AUTO_TESTER_WINDOW`: automatic Strategy Tester run, but only during allowed backtest window or explicit authorization.
 - `AUTO_TESTER_ISOLATED`: future stronger mode that runs against an isolated tester terminal/profile so live pilot remains untouched.
 - `AUTO_PROMOTION_DRY_RUN`: creates version promotion recommendations only.
@@ -156,13 +157,12 @@ The recommended target is:
 
 ## Suggested Implementation Order
 
-1. Implement `ParamLab Auto Scheduler` without `-RunTerminal`.
-2. Implement `Report Watcher` and run-state ledger.
-3. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
-4. Add Dashboard run-history panel.
-5. Add retry/budget controls.
-6. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
+1. Implement `Report Watcher` and run-state ledger.
+2. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
+3. Add Dashboard run-history panel.
+4. Add retry/budget controls.
+5. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
 
 ## Immediate Next Step
 
-Build `ParamLab Auto Scheduler` in config-only mode next. The Version Promotion Gate now tells the system which `versionId` is blocked by missing reports, weak PF, low trade count, high drawdown, weak candidate outcomes, or insufficient live forward samples; the scheduler should use that dry-run evidence to choose the next tester-only batch without launching MT5 by default.
+Build `Report Watcher` next. ParamLab Auto Scheduler now chooses the next tester-only batch without launching MT5 by default; the remaining gap is watching the expected report paths after an authorized tester run, marking each queued item as parsed, missing, malformed, retryable, or failed, and feeding that state back into the unified results ledger.

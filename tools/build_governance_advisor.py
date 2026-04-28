@@ -27,6 +27,7 @@ PARAM_LAB_RESULTS_NAME = "QuantGod_ParamLabResults.json"
 STRATEGY_VERSION_REGISTRY_NAME = "QuantGod_StrategyVersionRegistry.json"
 OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
 VERSION_PROMOTION_GATE_NAME = "QuantGod_VersionPromotionGate.json"
+PARAM_LAB_AUTO_SCHEDULER_NAME = "QuantGod_ParamLabAutoScheduler.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -43,6 +44,7 @@ RUNTIME_FILE_HEALTH = [
     ("strategy_version_registry", STRATEGY_VERSION_REGISTRY_NAME, 7 * 24 * 60 * 60),
     ("optimizer_v2", OPTIMIZER_V2_NAME, 7 * 24 * 60 * 60),
     ("version_promotion_gate", VERSION_PROMOTION_GATE_NAME, 7 * 24 * 60 * 60),
+    ("param_lab_auto_scheduler", PARAM_LAB_AUTO_SCHEDULER_NAME, 7 * 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -726,6 +728,54 @@ def summarize_version_promotion_gate(gate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_param_lab_auto_scheduler(scheduler: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(scheduler, dict) or not scheduler:
+        return {
+            "status": "missing",
+            "queueCount": 0,
+            "waitReportQueueCount": 0,
+            "retuneQueueCount": 0,
+            "waitForwardObserveCount": 0,
+            "topByRoute": {},
+        }
+    summary = scheduler.get("summary") if isinstance(scheduler.get("summary"), dict) else {}
+    top_by_route = {}
+    for route in scheduler.get("routePlans") or []:
+        if not isinstance(route, dict):
+            continue
+        route_key = str(route.get("routeKey") or "")
+        candidates = route.get("candidates") if isinstance(route.get("candidates"), list) else []
+        top = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+        if route_key:
+            top_by_route[route_key] = {
+                "currentDecision": route.get("currentDecision", ""),
+                "queueMode": route.get("queueMode", ""),
+                "scheduledTaskCount": int(route.get("scheduledTaskCount") or 0),
+                "topCandidateId": top.get("candidateId", ""),
+                "topAction": top.get("scheduleAction", ""),
+                "topPriorityScore": top.get("priorityScore", ""),
+                "topParameterSummary": top.get("parameterSummary", ""),
+                "configOnlyCommand": top.get("configOnlyCommand", ""),
+                "livePresetMutation": False,
+                "runTerminalDefault": False,
+            }
+    return {
+        "status": "ready",
+        "generatedAtIso": scheduler.get("generatedAtIso", ""),
+        "mode": scheduler.get("mode", "CONFIG_ONLY_AUTO_SCHEDULER"),
+        "queueCount": int(summary.get("queueCount") or 0),
+        "waitReportQueueCount": int(summary.get("waitReportQueueCount") or 0),
+        "retuneQueueCount": int(summary.get("retuneQueueCount") or 0),
+        "waitForwardObserveCount": int(summary.get("waitForwardObserveCount") or 0),
+        "routeCount": int(summary.get("routeCount") or len(top_by_route)),
+        "topCandidateId": str(summary.get("topCandidateId") or ""),
+        "configOnly": True,
+        "runTerminal": False,
+        "livePresetMutation": False,
+        "topByRoute": top_by_route,
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -791,7 +841,6 @@ def param_lab_tester_command(candidate_id: str = "", route_key: str = "") -> str
         parts.extend(["--candidate-id", candidate_id])
     elif route_key:
         parts.extend(["--route", route_key, "--max-tasks", "1"])
-    parts.extend(["--run-terminal", "--authorized-strategy-tester"])
     return " ".join(parts)
 
 
@@ -1045,6 +1094,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     strategy_version_registry_doc = read_json(runtime_dir / STRATEGY_VERSION_REGISTRY_NAME)
     optimizer_v2_doc = read_json(runtime_dir / OPTIMIZER_V2_NAME)
     version_promotion_gate_doc = read_json(runtime_dir / VERSION_PROMOTION_GATE_NAME)
+    param_lab_auto_scheduler_doc = read_json(runtime_dir / PARAM_LAB_AUTO_SCHEDULER_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -1059,6 +1109,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     strategy_version_registry = summarize_strategy_version_registry(strategy_version_registry_doc)
     optimizer_v2 = summarize_optimizer_v2(optimizer_v2_doc)
     version_promotion_gate = summarize_version_promotion_gate(version_promotion_gate_doc)
+    param_lab_auto_scheduler = summarize_param_lab_auto_scheduler(param_lab_auto_scheduler_doc)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -1133,6 +1184,9 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "versionGatePromoteCandidates": version_promotion_gate["promoteCandidateCount"],
             "versionGateDemoteLive": version_promotion_gate["demoteLiveCount"],
             "versionGateRetune": version_promotion_gate["retuneCount"],
+            "paramLabAutoSchedulerQueue": param_lab_auto_scheduler["queueCount"],
+            "paramLabAutoSchedulerWaitReport": param_lab_auto_scheduler["waitReportQueueCount"],
+            "paramLabAutoSchedulerRetune": param_lab_auto_scheduler["retuneQueueCount"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -1148,6 +1202,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "strategyVersionRegistry": strategy_version_registry,
         "optimizerV2": optimizer_v2,
         "versionPromotionGate": version_promotion_gate,
+        "paramLabAutoScheduler": param_lab_auto_scheduler,
         "routeDecisions": route_decisions,
         "governanceFeedback": governance_feedback,
         "nextOperatorSteps": [
@@ -1157,6 +1212,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "Use ParamLabStatus as the controlled Strategy Tester task queue; CONFIG_READY tasks still require an authorized tester run before promotion review.",
             "Use ParamLabResults as the parameter-version ranking source after Strategy Tester reports exist; pending reports are not promotion evidence.",
             "Use VersionPromotionGate as dry-run promotion/demotion review; it never mutates live switches by itself.",
+            "Use ParamLabAutoScheduler as the config-only queue for the next tester-only batch; it never adds -RunTerminal.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }
