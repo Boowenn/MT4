@@ -79,6 +79,8 @@ The repo also includes a QuantDinger-inspired local Governance Advisor and light
 
 The dashboard home Route Watchlist and the Strategy Workspace tabs are the main strategy focus controls. Clicking `MA`, `RSI`, `BB`, `MACD`, or `SR` filters the evidence cards, strategy workspace, strategy cards, regime research, and charts to that route; clicking `All routes` returns to the full-system view. This is a read-only review filter and does not change live switches or EA execution permissions.
 
+Backtest-loop autonomy planning lives in `docs/QuantGod_Backtest_Autonomy_Plan.md`. It tracks the remaining QuantDinger-inspired pieces, explains which parts of the backtest loop can become fully automatic, and keeps live-preset mutation outside the default automation boundary.
+
 ## Strategies
 
 | # | Strategy | Description | Research Timeframe |
