@@ -820,6 +820,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
             gap: 0.75rem;
             padding: 0.75rem 1rem;
             border-bottom: 1px solid var(--border);
@@ -827,6 +828,8 @@
         }
 
         .paramlab-batch-meta {
+            flex: 1 1 360px;
+            min-width: 0;
             color: var(--text-secondary);
             font-size: 12px;
             line-height: 1.5;
@@ -838,6 +841,71 @@
             flex-wrap: wrap;
             gap: 0.45rem;
             justify-content: flex-end;
+        }
+
+        .paramlab-batch-filters {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex: 1 0 100%;
+            gap: 0.65rem;
+            min-width: 0;
+            padding-top: 0.15rem;
+        }
+
+        .paramlab-filter-group {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            min-width: 0;
+        }
+
+        .paramlab-filter-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0;
+            line-height: 1;
+            text-transform: uppercase;
+        }
+
+        .paramlab-filter-chip {
+            appearance: none;
+            border: 1px solid #dbe4ef;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #475569;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 850;
+            line-height: 1;
+            padding: 0.36rem 0.58rem;
+            white-space: nowrap;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+
+        .paramlab-filter-chip:hover {
+            border-color: #bfdbfe;
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+
+        .paramlab-filter-chip.active {
+            border-color: #93c5fd;
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .paramlab-sort-select {
+            max-width: 170px;
+            border: 1px solid #dbe4ef;
+            border-radius: 7px;
+            background: #ffffff;
+            color: var(--text-primary);
+            font-size: 11px;
+            font-weight: 850;
+            padding: 0.34rem 0.55rem;
         }
 
         .paramlab-batch-table {
@@ -5539,6 +5607,7 @@
                                 显示 tester-only 参数任务的执行状态；页面只读，不启动 Strategy Tester，也不改 live preset。
                             </div>
                             <div class="paramlab-batch-counters" id="paramLabBatchCounters"></div>
+                            <div class="paramlab-batch-filters" id="paramLabBatchFilters"></div>
                         </div>
                         <div class="table-wrapper report-table-wrapper paramlab-batch-table" id="paramLabBatchBody">
                             <div class="empty-state">等待 ParamLab 队列</div>
@@ -5687,6 +5756,9 @@ const OVERNIGHT_RESEARCH_START_HOUR = 20;
 const RESEARCH_DAY_START_HOUR = 8;
 let regimeHeatmapSymbolFilter = 'ALL';
 let routeStrategyFilter = 'ALL';
+let paramLabBatchStatusFilter = 'ALL';
+let paramLabBatchRouteFilter = 'ALL';
+let paramLabBatchSortMode = 'priority';
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
 const TIMEFRAME_ORDER = {
@@ -8280,12 +8352,11 @@ function getParamLabBatchRows(advisor) {
     const pushRoute = (key) => {
         const normalized = String(key || '').trim();
         if (!normalized || routeKeys.includes(normalized)) return;
-        if (isRouteStrategyFiltered() && normalized !== routeStrategyFilter) return;
         if (!labTop[normalized] && !resultTop[normalized]) return;
         routeKeys.push(normalized);
     };
 
-    getRouteFilteredDecisions(advisor.routeDecisions).forEach((route) => {
+    (Array.isArray(advisor.routeDecisions) ? advisor.routeDecisions : []).forEach((route) => {
         pushRoute(route?.strategy || route?.key);
     });
     Object.keys(labTop).forEach(pushRoute);
@@ -8351,12 +8422,165 @@ function formatParamLabNumber(value, digits = 2) {
     return hasParamLabNumber(value) ? Number(value).toFixed(digits) : '--';
 }
 
+function getParamLabBatchRouteLabel() {
+    return paramLabBatchRouteFilter === 'ALL'
+        ? '全部路线'
+        : `${strategyShortLabel(paramLabBatchRouteFilter)} · ${strategyLabel(paramLabBatchRouteFilter)}`;
+}
+
+function getParamLabBatchStatusLabel(status = paramLabBatchStatusFilter) {
+    const labels = {
+        ALL: '全部状态',
+        ready: '可运行',
+        waiting_report: '等待报告',
+        ran: '已运行',
+        scored: '已评分',
+        queued: '等待配置'
+    };
+    return labels[status] || labels.ALL;
+}
+
+function getParamLabBatchSortLabel(mode = paramLabBatchSortMode) {
+    const labels = {
+        priority: '执行优先',
+        route: '路线顺序',
+        score: '分数优先',
+        rank: 'ParamLab rank'
+    };
+    return labels[mode] || labels.priority;
+}
+
+function getParamLabBatchSortRank(row) {
+    const state = getParamLabBatchState(row.task || {}, row.result || {}).key;
+    const order = { ready: 1, waiting_report: 2, ran: 3, scored: 4, queued: 5 };
+    return order[state] || 9;
+}
+
+function getParamLabBatchScore(row) {
+    const result = row.result || {};
+    const task = row.task || {};
+    if (hasParamLabNumber(result.resultScore) && String(result.grade || '').toUpperCase() !== 'PENDING_REPORT') {
+        return Number(result.resultScore);
+    }
+    if (hasParamLabNumber(task.score)) return Number(task.score);
+    return -Infinity;
+}
+
+function getParamLabBatchRank(row) {
+    const rank = Number(row?.task?.rank);
+    return Number.isFinite(rank) && rank > 0 ? rank : 9999;
+}
+
+function sortParamLabBatchRows(rows) {
+    const routeIndex = (route) => {
+        const index = CORE_ROUTE_KEYS.indexOf(route);
+        return index >= 0 ? index : CORE_ROUTE_KEYS.length + 1;
+    };
+    return rows.slice().sort((a, b) => {
+        if (paramLabBatchSortMode === 'score') {
+            const scoreDiff = getParamLabBatchScore(b) - getParamLabBatchScore(a);
+            if (scoreDiff !== 0) return scoreDiff;
+        } else if (paramLabBatchSortMode === 'rank') {
+            const rankDiff = getParamLabBatchRank(a) - getParamLabBatchRank(b);
+            if (rankDiff !== 0) return rankDiff;
+        } else if (paramLabBatchSortMode === 'route') {
+            const routeDiff = routeIndex(a.routeKey) - routeIndex(b.routeKey);
+            if (routeDiff !== 0) return routeDiff;
+        } else {
+            const stateDiff = getParamLabBatchSortRank(a) - getParamLabBatchSortRank(b);
+            if (stateDiff !== 0) return stateDiff;
+        }
+
+        const routeDiff = routeIndex(a.routeKey) - routeIndex(b.routeKey);
+        if (routeDiff !== 0) return routeDiff;
+        return getParamLabBatchRank(a) - getParamLabBatchRank(b);
+    });
+}
+
+function applyParamLabBatchFilters(rows) {
+    let filtered = rows.slice();
+    if (paramLabBatchRouteFilter !== 'ALL') {
+        filtered = filtered.filter((row) => row.routeKey === paramLabBatchRouteFilter);
+    }
+    if (paramLabBatchStatusFilter !== 'ALL') {
+        filtered = filtered.filter((row) => getParamLabBatchState(row.task || {}, row.result || {}).key === paramLabBatchStatusFilter);
+    }
+    return sortParamLabBatchRows(filtered);
+}
+
+function setParamLabBatchStatusFilter(status) {
+    const allowed = new Set(['ALL', 'ready', 'waiting_report', 'ran', 'scored', 'queued']);
+    paramLabBatchStatusFilter = allowed.has(status) ? status : 'ALL';
+    if (dashboardData) updateParamLabBatchPanel(dashboardData);
+}
+
+function setParamLabBatchRouteFilter(route) {
+    const normalized = normalizeRouteStrategy(route);
+    paramLabBatchRouteFilter = normalized === 'ALL' || CORE_ROUTE_KEYS.includes(normalized) ? normalized : 'ALL';
+    if (dashboardData) updateParamLabBatchPanel(dashboardData);
+}
+
+function setParamLabBatchSortMode(mode) {
+    const allowed = new Set(['priority', 'route', 'score', 'rank']);
+    paramLabBatchSortMode = allowed.has(mode) ? mode : 'priority';
+    if (dashboardData) updateParamLabBatchPanel(dashboardData);
+}
+
+window.setParamLabBatchStatusFilter = setParamLabBatchStatusFilter;
+window.setParamLabBatchRouteFilter = setParamLabBatchRouteFilter;
+window.setParamLabBatchSortMode = setParamLabBatchSortMode;
+
 function renderParamLabMetricChip(label, value) {
     return `
         <span class="paramlab-metric-chip">
             <span class="paramlab-metric-label">${escapeHtml(label)}</span>
             <span class="paramlab-metric-value">${escapeHtml(value)}</span>
         </span>
+    `;
+}
+
+function renderParamLabFilterChip(label, value, activeValue, handlerName) {
+    const active = value === activeValue ? ' active' : '';
+    return `<button type="button" class="paramlab-filter-chip${active}" onclick="${handlerName}('${escapeHtml(value)}')">${escapeHtml(label)}</button>`;
+}
+
+function renderParamLabBatchFilters(allRows) {
+    const counts = countParamLabBatchStates(allRows);
+    const routeCounts = allRows.reduce((acc, row) => {
+        acc[row.routeKey] = (acc[row.routeKey] || 0) + 1;
+        return acc;
+    }, {});
+    const statusChips = [
+        renderParamLabFilterChip(`全部 ${allRows.length}`, 'ALL', paramLabBatchStatusFilter, 'setParamLabBatchStatusFilter'),
+        renderParamLabFilterChip(`可运行 ${counts.ready}`, 'ready', paramLabBatchStatusFilter, 'setParamLabBatchStatusFilter'),
+        renderParamLabFilterChip(`等待报告 ${counts.waiting}`, 'waiting_report', paramLabBatchStatusFilter, 'setParamLabBatchStatusFilter'),
+        renderParamLabFilterChip(`已运行 ${Math.max(0, counts.ran - counts.scored)}`, 'ran', paramLabBatchStatusFilter, 'setParamLabBatchStatusFilter'),
+        renderParamLabFilterChip(`已评分 ${counts.scored}`, 'scored', paramLabBatchStatusFilter, 'setParamLabBatchStatusFilter')
+    ].join('');
+    const routeChips = [
+        renderParamLabFilterChip('全部路线', 'ALL', paramLabBatchRouteFilter, 'setParamLabBatchRouteFilter'),
+        ...CORE_ROUTE_KEYS.map((key) => renderParamLabFilterChip(`${strategyShortLabel(key)} ${routeCounts[key] || 0}`, key, paramLabBatchRouteFilter, 'setParamLabBatchRouteFilter'))
+    ].join('');
+    const sortOptions = [
+        ['priority', '执行优先'],
+        ['route', '路线顺序'],
+        ['score', '分数优先'],
+        ['rank', 'ParamLab rank']
+    ].map(([value, label]) => `<option value="${escapeHtml(value)}"${paramLabBatchSortMode === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+
+    return `
+        <div class="paramlab-filter-group">
+            <span class="paramlab-filter-label">状态</span>
+            ${statusChips}
+        </div>
+        <div class="paramlab-filter-group">
+            <span class="paramlab-filter-label">路线</span>
+            ${routeChips}
+        </div>
+        <div class="paramlab-filter-group">
+            <span class="paramlab-filter-label">排序</span>
+            <select class="paramlab-sort-select" onchange="setParamLabBatchSortMode(this.value)" title="ParamLab 执行清单排序">${sortOptions}</select>
+        </div>
     `;
 }
 
@@ -8427,32 +8651,46 @@ function updateParamLabBatchPanel(d) {
     const summaryEl = document.getElementById('paramLabBatchSummary');
     const metaEl = document.getElementById('paramLabBatchMeta');
     const countersEl = document.getElementById('paramLabBatchCounters');
+    const filtersEl = document.getElementById('paramLabBatchFilters');
     const bodyEl = document.getElementById('paramLabBatchBody');
     if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
 
     const advisor = getGovernanceAdvisor(d);
-    const rows = getParamLabBatchRows(advisor);
-    if (!advisor || !rows.length) {
-        summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 等待 ParamLab 队列`;
+    const allRows = getParamLabBatchRows(advisor);
+    if (!advisor || !allRows.length) {
+        summaryEl.textContent = '全部路线 | 等待 ParamLab 队列';
         metaEl.textContent = advisor
-            ? `${getRouteStrategyFilterLabel()} 当前没有 tester-only 参数批次；不会触发 MT5 或实盘配置。`
+            ? '当前没有 tester-only 参数批次；不会触发 MT5 或实盘配置。'
             : '等待 QuantGod_GovernanceAdvisor.json 汇总 ParamLabStatus / ParamLabResults。';
         countersEl.innerHTML = '';
-        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 ParamLab 批次任务</div>`;
+        if (filtersEl) filtersEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="empty-state">当前没有 ParamLab 批次任务</div>';
         return;
     }
 
-    const counts = countParamLabBatchStates(rows);
+    const rows = applyParamLabBatchFilters(allRows);
+    const counts = countParamLabBatchStates(allRows);
+    const visibleCounts = countParamLabBatchStates(rows);
     const paramLab = advisor.paramLab || {};
     const results = advisor.paramLabResults || {};
-    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 可运行 ${counts.ready} / 已运行 ${counts.ran} / 等待报告 ${counts.waiting} / 已评分 ${counts.scored}`;
-    metaEl.textContent = `Run ${paramLab.runId || '--'} · ${paramLab.mode || '--'} · 任务 ${rows.length}/${paramLab.selectedTaskCount || rows.length}；结果账本 ${results.parsedReportCount || 0}/${results.resultCount || 0} 已评分。`;
+    const routeLabel = getParamLabBatchRouteLabel();
+    const statusLabel = getParamLabBatchStatusLabel();
+    const sortLabel = getParamLabBatchSortLabel();
+    summaryEl.textContent = `${routeLabel} / ${statusLabel} | 显示 ${rows.length}/${allRows.length} | 可运行 ${visibleCounts.ready} / 等待报告 ${visibleCounts.waiting} / 已评分 ${visibleCounts.scored}`;
+    metaEl.textContent = `Run ${paramLab.runId || '--'} · ${paramLab.mode || '--'} · 排序 ${sortLabel} · 任务 ${rows.length}/${paramLab.selectedTaskCount || allRows.length}；结果账本 ${results.parsedReportCount || 0}/${results.resultCount || 0} 已评分。`;
     countersEl.innerHTML = [
         `<span class="table-badge status-info">可运行 ${counts.ready}</span>`,
         `<span class="table-badge status-muted">已运行 ${counts.ran}</span>`,
         `<span class="table-badge status-warn">等待报告 ${counts.waiting}</span>`,
         `<span class="table-badge status-live">已评分 ${counts.scored}</span>`
     ].join('');
+    if (filtersEl) filtersEl.innerHTML = renderParamLabBatchFilters(allRows);
+
+    if (!rows.length) {
+        bodyEl.innerHTML = `<div class="empty-state" id="paramLabBatchEmpty">${escapeHtml(routeLabel)} / ${escapeHtml(statusLabel)} 当前没有匹配的 ParamLab 批次任务</div>`;
+        return;
+    }
+
     bodyEl.innerHTML = `<table>
         <colgroup>
             <col style="width: 15%;">
