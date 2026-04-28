@@ -1157,6 +1157,120 @@
             padding: 0.38rem 0.62rem;
         }
 
+        .governance-feedback-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .governance-feedback-card {
+            min-width: 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 1rem;
+            box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
+        }
+
+        .governance-feedback-card.supported {
+            border-color: rgba(16, 185, 129, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #fbfffd 100%);
+        }
+
+        .governance-feedback-card.waiting {
+            border-color: rgba(245, 158, 11, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #fffdf7 100%);
+        }
+
+        .governance-feedback-card.conflict {
+            border-color: rgba(239, 68, 68, 0.24);
+            background: linear-gradient(180deg, #ffffff 0%, #fffafa 100%);
+        }
+
+        .governance-feedback-top,
+        .governance-feedback-badges {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .governance-feedback-title {
+            color: var(--text-primary);
+            font-size: 15px;
+            font-weight: 900;
+            line-height: 1.2;
+        }
+
+        .governance-feedback-sub {
+            margin-top: 0.25rem;
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .governance-feedback-badges {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .governance-feedback-columns {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.65rem;
+            margin-top: 0.9rem;
+        }
+
+        .governance-feedback-column {
+            min-width: 0;
+            border: 1px solid #e8eef7;
+            border-radius: 8px;
+            background: #fbfdff;
+            padding: 0.75rem;
+        }
+
+        .governance-feedback-column-title {
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .governance-feedback-list {
+            display: grid;
+            gap: 0.45rem;
+            margin: 0.55rem 0 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .governance-feedback-item {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .governance-feedback-risk {
+            display: grid;
+            gap: 0.35rem;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.42;
+        }
+
+        .governance-feedback-risk strong {
+            color: var(--text-primary);
+        }
+
+        .governance-feedback-next {
+            margin-top: 0.9rem;
+            border-top: 1px solid #edf2f7;
+            padding-top: 0.75rem;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1.5;
+        }
+
         .radar-label {
             color: var(--text-muted);
             font-size: 11px;
@@ -2961,6 +3075,8 @@
             .strategy-workspace-tabs { justify-content: flex-start; }
             .strategy-workspace-metrics,
             .strategy-workspace-lanes { grid-template-columns: 1fr; }
+            .governance-feedback-grid,
+            .governance-feedback-columns { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 768px) {
@@ -4983,6 +5099,24 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(139,92,246,0.15); color: var(--accent-purple);">AI</div>
+                            AI / Governance Feedback
+                        </div>
+                        <span class="eval-summary" id="governanceFeedbackSummary">等待反馈解释</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="governanceFeedbackMeta">
+                            Advisor 按路线解释为什么升/降级、风险在哪里、下一轮该测什么参数；只读，不改配置。
+                        </div>
+                        <div class="governance-feedback-grid" id="governanceFeedbackBody">
+                            <div class="empty-state">等待 Governance Feedback</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-monitor" data-nav-section="monitor">
@@ -5542,6 +5676,7 @@ function setRouteStrategyFilter(strategy) {
     updateGovernanceAdvisor(dashboardData);
     updateParamLabBatchPanel(dashboardData);
     updateStrategyWorkspace(dashboardData);
+    updateGovernanceFeedback(dashboardData);
     updateStrategyCards(dashboardData);
     updateStrategyEvaluationTable(dashboardData);
     updateResearchSuggestions(dashboardData);
@@ -6068,7 +6203,8 @@ async function loadLocalCsvSupplement(path, parser) {
 async function loadLocalJsonSupplement(path) {
     const response = await fetch(appendCacheBust(path), { cache: 'no-store' });
     if (!response.ok) throw new Error('HTTP ' + response.status);
-    return response.json();
+    const text = new TextDecoder('utf-8').decode(await response.arrayBuffer());
+    return JSON.parse(text);
 }
 
 async function attachSupplementalData(baseData, previousData = null) {
@@ -8389,6 +8525,119 @@ function updateStrategyWorkspace(d) {
         : `<div class="empty-state">${escapeHtml(scopedLabel)} 当前没有策略路线工作台数据</div>`;
 }
 
+function getGovernanceFeedbackRows(advisor) {
+    const rows = Array.isArray(advisor?.governanceFeedback) && advisor.governanceFeedback.length
+        ? advisor.governanceFeedback
+        : (Array.isArray(advisor?.routeDecisions)
+            ? advisor.routeDecisions.map((route) => route.feedback).filter(Boolean)
+            : []);
+    return isRouteStrategyFiltered()
+        ? rows.filter((row) => (row?.strategy || row?.key) === routeStrategyFilter)
+        : rows.filter((row) => CORE_ROUTE_KEYS.includes(row?.strategy || row?.key));
+}
+
+function governanceFeedbackRiskTone(severity) {
+    const normalized = String(severity || '').toLowerCase();
+    if (normalized === 'high') return 'status-danger';
+    if (normalized === 'medium') return 'status-warn';
+    if (normalized === 'low') return 'status-live';
+    return 'status-muted';
+}
+
+function renderGovernanceFeedbackList(items, emptyText) {
+    const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!safeItems.length) {
+        return `<li class="governance-feedback-item">${escapeHtml(emptyText)}</li>`;
+    }
+    return safeItems.map((item) => `<li class="governance-feedback-item">${escapeHtml(item)}</li>`).join('');
+}
+
+function renderGovernanceFeedbackRisk(riskAreas) {
+    const risks = Array.isArray(riskAreas) ? riskAreas : [];
+    if (!risks.length) {
+        return `<div class="governance-feedback-risk"><span class="table-badge status-live">无硬风险</span><span>当前没有结构化风险项，但仍需样本验证。</span></div>`;
+    }
+    return risks.slice(0, 4).map((risk) => `
+        <div class="governance-feedback-risk">
+            <span class="table-badge ${governanceFeedbackRiskTone(risk?.severity)}">${escapeHtml(risk?.label || risk?.code || '风险')}</span>
+            <span><strong>${escapeHtml(risk?.code || '--')}</strong> · ${escapeHtml(risk?.detail || '--')}</span>
+        </div>
+    `).join('');
+}
+
+function renderGovernanceFeedbackCard(row) {
+    const strategyKey = row?.strategy || row?.key || '';
+    const config = STRATEGY_CONFIG[strategyKey] || { label: row?.label || strategyKey, shortLabel: strategyKey, color: '#64748b' };
+    const action = row?.recommendedAction || 'KEEP_SIM_COLLECT';
+    const tone = governanceToneForAction(action, row?.tone);
+    const evidence = row?.evidence || {};
+    const liveText = Number.isFinite(Number(evidence.liveClosedTrades))
+        ? `${evidence.liveClosedTrades} trades / PF ${formatProfitFactor(evidence.liveProfitFactor)} / ${formatPercentValue(evidence.liveWinRatePct, 1)}`
+        : '--';
+    const candidateText = Number.isFinite(Number(evidence.candidateHorizonRows))
+        ? `${evidence.candidateHorizonRows} rows / ${formatPercentValue(evidence.candidateWinRatePct, 1)} / ${formatSignedPips(evidence.candidateAvgSignedPips)}`
+        : '--';
+    return `
+        <article class="governance-feedback-card ${tone}">
+            <div class="governance-feedback-top">
+                <div>
+                    <div class="governance-feedback-title">${escapeHtml(config.shortLabel || strategyKey)} · ${escapeHtml(config.label || row?.label || strategyKey)}</div>
+                    <div class="governance-feedback-sub">${escapeHtml(row?.mode || '--')} · Live ${escapeHtml(liveText)} · Candidate ${escapeHtml(candidateText)}</div>
+                </div>
+                <div class="governance-feedback-badges">
+                    <span class="table-badge ${strategyWorkspaceActionTone(action)}">${escapeHtml(row?.actionLabel || governanceActionLabel(action))}</span>
+                    <span class="table-badge ${tone === 'supported' ? 'status-live' : tone === 'conflict' ? 'status-danger' : 'status-warn'}">${escapeHtml(tone)}</span>
+                </div>
+            </div>
+            <div class="governance-feedback-columns">
+                <div class="governance-feedback-column">
+                    <div class="governance-feedback-column-title">为什么</div>
+                    <ul class="governance-feedback-list">
+                        ${renderGovernanceFeedbackList(row?.why, '等待 Advisor 解释。')}
+                    </ul>
+                </div>
+                <div class="governance-feedback-column">
+                    <div class="governance-feedback-column-title">风险在哪里</div>
+                    <div class="governance-feedback-list">
+                        ${renderGovernanceFeedbackRisk(row?.riskAreas)}
+                    </div>
+                </div>
+                <div class="governance-feedback-column">
+                    <div class="governance-feedback-column-title">下一轮测什么参数</div>
+                    <ul class="governance-feedback-list">
+                        ${renderGovernanceFeedbackList(row?.nextParameterTests, '等待 ParamLab 候选或路线调参建议。')}
+                    </ul>
+                </div>
+            </div>
+            <div class="governance-feedback-next">${escapeHtml(row?.nextStep || '保持只读观察，等待更多证据。')}</div>
+        </article>
+    `;
+}
+
+function updateGovernanceFeedback(d) {
+    const summaryEl = document.getElementById('governanceFeedbackSummary');
+    const metaEl = document.getElementById('governanceFeedbackMeta');
+    const bodyEl = document.getElementById('governanceFeedbackBody');
+    if (!summaryEl || !metaEl || !bodyEl) return;
+
+    const advisor = getGovernanceAdvisor(d);
+    const rows = getGovernanceFeedbackRows(advisor);
+    if (!advisor || !rows.length) {
+        summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 等待反馈解释`;
+        metaEl.textContent = advisor
+            ? '当前 Governance Advisor 还没有结构化 feedback；重新运行 build_governance_advisor.py 后会生成。'
+            : '等待 QuantGod_GovernanceAdvisor.json。';
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 AI/Governance Feedback</div>`;
+        return;
+    }
+
+    const riskCount = rows.reduce((sum, row) => sum + (Array.isArray(row.riskAreas) ? row.riskAreas.filter((risk) => risk?.severity === 'high' || risk?.severity === 'medium').length : 0), 0);
+    const paramCount = rows.reduce((sum, row) => sum + (Array.isArray(row.nextParameterTests) ? row.nextParameterTests.length : 0), 0);
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | ${rows.length} 条解释 | 风险 ${riskCount} | 参数建议 ${paramCount}`;
+    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；解释来自 Governance Advisor 结构化 feedback，只读展示，不启动 MT5，不改 live preset。`;
+    bodyEl.innerHTML = rows.map(renderGovernanceFeedbackCard).join('');
+}
+
 function updateQuantDingerInspiredHero(d) {
     const advisor = getGovernanceAdvisor(d);
     const health = advisor?.systemHealth || {};
@@ -9533,6 +9782,7 @@ function updateDashboard() {
     updateGovernanceAdvisor(d);
     updateParamLabBatchPanel(d);
     updateStrategyWorkspace(d);
+    updateGovernanceFeedback(d);
     updateQuantDingerInspiredHero(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);

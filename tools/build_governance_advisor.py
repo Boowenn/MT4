@@ -87,6 +87,51 @@ ROUTES = [
     },
 ]
 
+ACTION_LABELS = {
+    "KEEP_LIVE": "保持实盘",
+    "KEEP_LIVE_WATCH": "实盘观察",
+    "DEMOTE_REVIEW": "降级复核",
+    "KEEP_SIM_COLLECT": "模拟采样",
+    "KEEP_SIM_ITERATE": "模拟迭代",
+    "RETUNE_SIM": "模拟重调",
+    "PROMOTION_REVIEW": "升实盘复核",
+}
+
+BLOCKER_FEEDBACK = {
+    "live_forward_sample_lt_3": ("样本不足", "medium", "实盘 0.01 forward 平仓样本少于 3 笔，不能把短期结果当成稳定优势。"),
+    "consecutive_losses_ge_2": ("连续亏损", "high", "最近实盘 forward 出现连续亏损，路线需要降级复核或至少停止扩大风险。"),
+    "profit_factor_lt_1": ("PF 低于 1", "high", "已闭合样本的利润因子低于 1，说明当前参数版本没有覆盖亏损。"),
+    "win_rate_lt_45": ("胜率偏低", "high", "实盘 forward 胜率低于 45%，需要检查过滤器、止损/止盈或信号质量。"),
+    "open_position_drawdown_watch": ("持仓回撤", "high", "当前持仓浮亏触发观察阈值，需要确认 SL/TP 与安全保护仍有效。"),
+    "sample_lt_20": ("候选样本不足", "medium", "候选 60m 后验样本少于 20 条，暂时只能用于学习和排序。"),
+    "win_rate_lt_55": ("候选胜率未达标", "medium", "候选后验胜率低于 55%，还不能作为升实盘证据。"),
+    "avg_signed_pips_not_positive": ("候选均值不正", "medium", "候选方向后验平均 pips 不为正，优先重调参数而不是升实盘。"),
+    "candidate outcome sample is not ready": ("候选后验缺失", "medium", "候选路线还没有可用的 15/30/60 分钟后验样本。"),
+}
+
+ROUTE_PARAMETER_TEST_IDEAS = {
+    "MA_Cross": [
+        "比较 fresh-crossover lookback 5/8 与 pullback continuation 18/24/30 bars，保持 H1 trend filter 不放宽。",
+        "按 ATR 和 spread 分桶检查 pullback 入场，优先减少 RANGE/RANGE_TIGHT 误入场。",
+    ],
+    "RSI_Reversal": [
+        "围绕 USDJPY H1 测 RSI crossback 阈值与 oversold/overbought buffer，保持趋势扩张过滤。",
+        "比较固定 TP/SL 与保本后移动止损在 H1 反转样本中的 MFE/MAE 表现。",
+    ],
+    "BB_Triple": [
+        "测试 Bollinger touch buffer、band width 最小值和 H1 趋势反向过滤，减少单边行情逆势接刀。",
+        "把三重确认拆成 touch / RSI / candle confirmation 权重，优先保留 MFE/MAE 正偏的组合。",
+    ],
+    "MACD_Divergence": [
+        "测试 histogram momentum turn 最小幅度、divergence lookback bars 和 H1 trend filter。",
+        "增加 downtrend 禁买 / uptrend 禁卖的 regime guard 对比，避免背离信号逆趋势过早入场。",
+    ],
+    "SR_Breakout": [
+        "测试 breakout buffer、retest confirmation 与 ATR-normalized distance，减少假突破。",
+        "按 session 和 spread 分桶比较 M15 突破后 15/30/60 分钟 directional outcome。",
+    ],
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build QuantGod governance advisor JSON.")
@@ -578,6 +623,142 @@ def live_action(live: dict[str, Any] | None, open_info: dict[str, Any] | None) -
     return "KEEP_LIVE", "supported", []
 
 
+def fmt_metric(value: Any, digits: int = 2, suffix: str = "") -> str:
+    if value is None:
+        return "--"
+    try:
+        number = float(value)
+    except Exception:
+        return str(value)
+    if math.isfinite(number):
+        return f"{number:.{digits}f}{suffix}"
+    return "--"
+
+
+def feedback_risk_item(blocker: str) -> dict[str, str]:
+    label, severity, detail = BLOCKER_FEEDBACK.get(
+        blocker,
+        ("证据 blocker", "medium", f"Governance Advisor 标记了 `{blocker}`，需要在下一轮回测/forward 中复核。"),
+    )
+    return {
+        "code": blocker,
+        "label": label,
+        "severity": severity,
+        "detail": detail,
+    }
+
+
+def build_route_feedback(route_decision: dict[str, Any]) -> dict[str, Any]:
+    strategy = route_decision["strategy"]
+    action = route_decision["recommendedAction"]
+    live = route_decision.get("liveForward") or {}
+    candidate = route_decision.get("candidateSamples") or {}
+    param = route_decision.get("paramOptimization") or {}
+    lab = route_decision.get("paramLab") or {}
+    lab_result = route_decision.get("paramLabResult") or {}
+    result_metrics = lab_result.get("metrics") if isinstance(lab_result.get("metrics"), dict) else {}
+    blockers = list(route_decision.get("blockers") or [])
+    live_trades = int(live.get("closedTrades") or 0)
+    live_pf = live.get("profitFactor")
+    live_win = live.get("winRatePct")
+    live_net = as_float(live.get("netProfitUSC"))
+    candidate_rows = int(candidate.get("horizonRows") or 0)
+    candidate_win = candidate.get("winRatePct")
+    candidate_avg = candidate.get("avgSignedPips")
+
+    why: list[str] = [
+        f"当前建议是 `{ACTION_LABELS.get(action, action)}`，因为路线处于 {route_decision.get('mode', '--')}，且必须继续遵守 0.01、单仓、SL/TP、session/spread/news/cooldown/order-send 风控。",
+    ]
+    if route_decision.get("live"):
+        why.append(
+            "实盘 forward: "
+            f"{live_trades} 笔 closed trades，PF {fmt_metric(live_pf, 2)}，"
+            f"胜率 {fmt_metric(live_win, 1, '%')}，净值 {fmt_metric(live_net, 2)} USC。"
+        )
+        consecutive_losses = int(live.get("consecutiveLosses") or 0)
+        if consecutive_losses:
+            why.append(f"最近连续亏损 {consecutive_losses} 笔，任何扩仓或放宽都应暂停。")
+    else:
+        why.append(
+            "候选后验: "
+            f"60m 样本 {candidate_rows} 条，胜率 {fmt_metric(candidate_win, 1, '%')}，"
+            f"平均方向收益 {fmt_metric(candidate_avg, 2)} pips。"
+        )
+        why.append("该路线仍在 simulation/candidate/backtest 阶段，不能直接发送真实订单。")
+
+    risk_areas = [feedback_risk_item(blocker) for blocker in blockers]
+    if not risk_areas:
+        risk_areas.append({
+            "code": "no_hard_blocker",
+            "label": "无硬反证",
+            "severity": "low",
+            "detail": "当前汇总没有硬性 blocker，但仍需等待足够样本和参数版本评分。",
+        })
+    if not lab_result.get("candidateId"):
+        risk_areas.append({
+            "code": "parameter_version_unscored",
+            "label": "参数未评分",
+            "severity": "medium",
+            "detail": "还没有 Strategy Tester 结果回灌，不能按参数版本升实盘。",
+        })
+
+    next_parameter_tests: list[str] = []
+    if param.get("candidateId"):
+        next_parameter_tests.append(
+            f"优先复核候选 `{param.get('candidateId')}` ({param.get('variant') or '--'}): "
+            f"{param.get('parameterSummary') or '等待参数摘要'}。"
+        )
+    if lab.get("candidateId"):
+        next_parameter_tests.append(
+            f"ParamLab 队列已有 `{lab.get('candidateId')}`，状态 {lab.get('status') or '--'}；授权 Strategy Tester 窗口内运行后再解析报告。"
+        )
+    if lab_result.get("candidateId"):
+        grade = lab_result.get("grade") or "--"
+        score = lab_result.get("resultScore")
+        next_parameter_tests.append(
+            f"已评分 `{lab_result.get('candidateId')}`: grade {grade}, score {fmt_metric(score, 1)}, "
+            f"PF {fmt_metric(result_metrics.get('profitFactor'), 2)}, 胜率 {fmt_metric(result_metrics.get('winRate'), 1, '%')}。"
+        )
+    next_parameter_tests.extend(ROUTE_PARAMETER_TEST_IDEAS.get(strategy, []))
+
+    if action in {"DEMOTE_REVIEW", "RETUNE_SIM"}:
+        next_step = "先降级或保持模拟，优先跑参数重调和候选后验，不要开新 live switch。"
+    elif action == "PROMOTION_REVIEW":
+        next_step = "进入升实盘复核队列；只有回测、结果回灌、forward-style 证据和风控全部通过后，才允许最小 live switch 变更。"
+    elif action == "KEEP_LIVE":
+        next_step = "继续 0.01 live forward 采样；关注是否保持无连续亏损、order-send 稳定和 SL/TP 保护正常。"
+    elif action == "KEEP_LIVE_WATCH":
+        next_step = "保持 live 但观察，不扩大仓位；优先补足 closed trades 和检查当前 blocker 是否解除。"
+    else:
+        next_step = "保持 candidate/backtest 采样；下一步先生成或运行 ParamLab 候选。"
+
+    return {
+        "key": route_decision["key"],
+        "strategy": strategy,
+        "label": route_decision["label"],
+        "mode": route_decision["mode"],
+        "recommendedAction": action,
+        "actionLabel": ACTION_LABELS.get(action, action),
+        "tone": route_decision.get("tone", "waiting"),
+        "why": why,
+        "riskAreas": risk_areas,
+        "nextParameterTests": next_parameter_tests[:5],
+        "nextStep": next_step,
+        "evidence": {
+            "liveClosedTrades": live_trades,
+            "liveProfitFactor": live_pf,
+            "liveWinRatePct": live_win,
+            "liveNetProfitUSC": round(live_net, 4),
+            "candidateHorizonRows": candidate_rows,
+            "candidateWinRatePct": candidate_win,
+            "candidateAvgSignedPips": candidate_avg,
+            "paramCandidateId": param.get("candidateId", ""),
+            "paramLabCandidateId": lab.get("candidateId", ""),
+            "paramLabResultCandidateId": lab_result.get("candidateId", ""),
+        },
+    }
+
+
 def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     dashboard = read_json(runtime_dir / "QuantGod_Dashboard.json")
     close_rows = read_csv(runtime_dir / "QuantGod_CloseHistory.csv")
@@ -611,7 +792,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             action, tone, blockers = live_action(live, open_info)
         else:
             action, tone, blockers = candidate_action(candidate)
-        route_decisions.append({
+        route_decision = {
             **route,
             "mode": "LIVE_0_01" if route["live"] else "SIMULATION_CANDIDATE",
             "recommendedAction": action,
@@ -626,9 +807,12 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramOptimization": param_optimization.get("topByRoute", {}).get(route["strategy"], {}),
             "paramLab": param_lab.get("topByRoute", {}).get(route["strategy"], {}),
             "paramLabResult": param_lab_results.get("topByRoute", {}).get(route["strategy"], {}),
-        })
+        }
+        route_decision["feedback"] = build_route_feedback(route_decision)
+        route_decisions.append(route_decision)
 
     action_counts = Counter(item["recommendedAction"] for item in route_decisions)
+    governance_feedback = [item["feedback"] for item in route_decisions]
     return {
         "schemaVersion": 1,
         "source": "QuantDinger-inspired local governance adapter",
@@ -677,6 +861,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "paramLab": param_lab,
         "paramLabResults": param_lab_results,
         "routeDecisions": route_decisions,
+        "governanceFeedback": governance_feedback,
         "nextOperatorSteps": [
             "Keep MA_Cross and USDJPY RSI_Reversal at 0.01 live only while samples remain thin.",
             "Keep BB/MACD/SR in simulation and retune routes with weak 60m candidate outcomes.",

@@ -20,6 +20,7 @@ const contentTypes = {
 };
 
 const runtimeTextExtensions = new Set(['.json', '.csv', '.txt']);
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 const shiftJisDecoder = new TextDecoder('shift_jis');
 
 function send(res, statusCode, headers, body) {
@@ -31,6 +32,14 @@ function maybeTranscodeRuntimeText(target, ext, data) {
   const base = path.basename(target);
   if (!runtimeTextExtensions.has(ext) || !base.startsWith('QuantGod_')) {
     return data;
+  }
+
+  try {
+    utf8Decoder.decode(data);
+    return data;
+  } catch (_) {
+    // Some MT4/MT5 runtime CSV files are written in the terminal locale; keep
+    // the legacy Shift-JIS compatibility path only when bytes are not UTF-8.
   }
 
   try {
