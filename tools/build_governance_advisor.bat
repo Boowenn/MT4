@@ -18,6 +18,7 @@ python "%REPO_ROOT%\tools\build_polymarket_research_bridge.py" --runtime-dir "%R
 python "%REPO_ROOT%\tools\build_polymarket_market_radar.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
 python "%REPO_ROOT%\tools\build_polymarket_retune_planner.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
 python "%REPO_ROOT%\tools\build_polymarket_execution_gate.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
+python "%REPO_ROOT%\tools\build_polymarket_dry_run_orders.py" --runtime-dir "%RUNTIME_DIR%" --dashboard-dir "%REPO_ROOT%\Dashboard"
 python "%REPO_ROOT%\tools\run_param_lab_auto_tester_window.py" --runtime-dir "%RUNTIME_DIR%" --tester-root "%TESTER_ROOT%" --require-isolated-tester
 python "%REPO_ROOT%\tools\build_param_lab_run_recovery.py" --runtime-dir "%RUNTIME_DIR%"
 python "%REPO_ROOT%\tools\build_governance_advisor.py" --runtime-dir "%RUNTIME_DIR%"

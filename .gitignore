@@ -13,6 +13,8 @@ Dashboard/QuantGod_PolymarketRetunePlanner.json
 Dashboard/QuantGod_PolymarketRetunePlanner.csv
 Dashboard/QuantGod_PolymarketExecutionGate.json
 Dashboard/QuantGod_PolymarketExecutionGateLedger.csv
+Dashboard/QuantGod_PolymarketDryRunOrders.json
+Dashboard/QuantGod_PolymarketExecutionLedger.csv
 archive/mt4-runtime-snapshots/
 archive/backtests/runs/
 archive/param-lab/runs/

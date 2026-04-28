@@ -6096,6 +6096,7 @@
         .polymarket-group-grid,
         .polymarket-radar-grid,
         .polymarket-gate-grid,
+        .polymarket-dryrun-grid,
         .polymarket-retune-grid,
         .polymarket-risk-grid {
             display: grid;
@@ -6112,6 +6113,10 @@
         }
 
         .polymarket-gate-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-dryrun-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6384,14 +6389,15 @@
                 grid-template-columns: 1fr;
             }
 
-            .polymarket-summary-grid,
-            .polymarket-group-grid,
-            .polymarket-radar-grid,
-            .polymarket-gate-grid,
-            .polymarket-retune-grid,
-            .polymarket-risk-grid {
-                grid-template-columns: 1fr;
-            }
+        .polymarket-summary-grid,
+        .polymarket-group-grid,
+        .polymarket-radar-grid,
+        .polymarket-gate-grid,
+        .polymarket-dryrun-grid,
+        .polymarket-retune-grid,
+        .polymarket-risk-grid {
+            grid-template-columns: 1fr;
+        }
         }
     </style>
 </head>
@@ -7036,7 +7042,7 @@
                     <div class="section-heading-copy">
                         <div class="section-kicker">Polymarket 研究</div>
                         <div class="section-title">Polymarket 外部研究工作台</div>
-                        <div class="section-desc">只读接入 D:\polymarket 的执行、shadow、experiment、账号现金和风险日志证据；不恢复下注、不启动执行器、不改变 MT5 EA/订单/配置。</div>
+                        <div class="section-desc">只读接入 D:\polymarket 的实盘、影子、实验、账号现金和风险日志证据；不恢复下注、不启动执行器、不改变 MT5 EA/订单/配置。</div>
                     </div>
                     <div class="section-meta" id="polymarketSourceMeta">等待 QuantGod_PolymarketResearch.json</div>
                 </div>
@@ -7062,7 +7068,7 @@
                             <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">O</div>
                             机会雷达 / Gamma 扫描
                         </div>
-                        <span class="eval-summary" id="polymarketRadarSummary">等待 Polymarket Market Radar</span>
+                        <span class="eval-summary" id="polymarketRadarSummary">等待 Polymarket 机会雷达</span>
                     </div>
                     <div class="panel-body">
                         <div class="polymarket-radar-grid" id="polymarketRadarBody">
@@ -7082,6 +7088,21 @@
                     <div class="panel-body">
                         <div class="polymarket-gate-grid" id="polymarketExecutionGateBody">
                             <div class="empty-state">等待 `QuantGod_PolymarketExecutionGate.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(14,165,233,0.16); color: var(--accent-blue);">D</div>
+                            模拟订单 / 执行账本
+                        </div>
+                        <span class="eval-summary" id="polymarketDryRunSummary">等待模拟订单账本</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-dryrun-grid" id="polymarketDryRunBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketDryRunOrders.json`</div>
                         </div>
                     </div>
                 </div>
@@ -7646,6 +7667,7 @@ const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
 const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
 const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.json';
+const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -8455,7 +8477,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null,
-        polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null
+        polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null,
+        polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null
     };
 
     if (!isLocalRuntime()) {
@@ -8662,6 +8685,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Polymarket execution gate load failed.', error);
     }
 
+    try {
+        data.polymarketDryRunOrders = await loadLocalJsonSupplement(LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH);
+        data._polymarketDryRunOrdersError = false;
+    } catch (error) {
+        data._polymarketDryRunOrdersError = true;
+        console.warn('Polymarket dry-run order plan load failed.', error);
+    }
+
     return data;
 }
 
@@ -8765,6 +8796,10 @@ function getPolymarketExecutionGate(d) {
     return d?.polymarketExecutionGate || null;
 }
 
+function getPolymarketDryRunOrders(d) {
+    return d?.polymarketDryRunOrders || null;
+}
+
 function getPolymarketTone(stats = {}) {
     const pnl = Number(stats.realizedPnl || 0);
     const pf = stats.profitFactor === null || stats.profitFactor === undefined ? null : Number(stats.profitFactor);
@@ -8816,9 +8851,22 @@ function translatePolymarketToken(value) {
         OBSERVATION_ONLY_TRACK: '只允许观察，不允许下注',
         BLOCKED_CONTRACT_ONLY: '已阻断：只定义契约',
         BLOCKED_CONTRACT_ONLY_NO_WALLET_WRITE: '已阻断：契约模式且未写钱包',
+        DRY_RUN_ONLY_NO_WALLET_WRITE: '只做模拟订单：不写钱包',
+        DRY_RUN_READY_NO_WALLET_WRITE: '模拟可开：仍不写钱包',
+        DRY_RUN_BLOCKED_BY_GATE: '模拟阻断：执行闸门未通过',
+        SCHEMA_READY_NO_WALLET_WRITE: '账本结构就绪：不写钱包',
+        POLYMARKET_DRY_RUN_ORDER_SIMULATOR_V1: 'Polymarket 模拟订单 V1',
+        POLY_EXEC_LEDGER_V1: '执行账本结构 V1',
         SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
         SHADOW_REVIEW: '进入影子观察',
         OBSERVE_ONLY: '只观察',
+        TAKE_PROFIT_PRICE_HIT: '触及止盈价格',
+        STOP_LOSS_PRICE_HIT: '触及止损价格',
+        TRAILING_STOP_ARMED_AND_REVERSED: '移动止盈启动后回落',
+        MAX_HOLD_TIME_REACHED: '达到最大持有时间',
+        EXIT_BEFORE_RESOLUTION: '结算前退出',
+        GOVERNANCE_DEMOTION: '治理降级退出',
+        KILL_SWITCH: '熔断退出',
         low: '低',
         medium: '中',
         high: '高',
@@ -8878,7 +8926,7 @@ function renderPolymarketRadarCard(item = {}) {
     const flags = Array.isArray(item.riskFlags) ? item.riskFlags : [];
     return `
         <div class="polymarket-card ${escapeHtml(tone)}">
-            <div class="polymarket-eyebrow">${escapeHtml(item.suggestedShadowTrack || 'shadow radar')}</div>
+            <div class="polymarket-eyebrow">${escapeHtml(item.suggestedShadowTrack || '影子雷达')}</div>
             <div class="polymarket-title">#${escapeHtml(item.rank || '--')} ${escapeHtml(item.question || item.slug || '--')}</div>
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('概率', probability)}
@@ -8902,7 +8950,7 @@ function updatePolymarketMarketRadar(d) {
     const body = document.getElementById('polymarketRadarBody');
     if (!body) return;
     if (!radar || d?._polymarketMarketRadarError) {
-        if (summaryEl) summaryEl.textContent = '等待 Market Radar';
+        if (summaryEl) summaryEl.textContent = '等待机会雷达';
         body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketMarketRadar.json`；Gamma 扫描只读，不触发下注。</div>';
         return;
     }
@@ -8913,9 +8961,9 @@ function updatePolymarketMarketRadar(d) {
     if (radar.status === 'ERROR') {
         body.innerHTML = `
             <div class="polymarket-card danger">
-                <div class="polymarket-eyebrow">Gamma API</div>
+                <div class="polymarket-eyebrow">公共市场接口</div>
                 <div class="polymarket-title">雷达暂不可用</div>
-                <div class="polymarket-note">${escapeHtml(radar.error || 'Public API scan failed; keep execution disabled.')}</div>
+                <div class="polymarket-note">${escapeHtml(radar.error || '公共市场扫描失败；继续保持禁止下注。')}</div>
             </div>
         `;
         return;
@@ -8923,7 +8971,7 @@ function updatePolymarketMarketRadar(d) {
     const items = Array.isArray(radar.radar) ? radar.radar : [];
     const boundaryCard = `
         <div class="polymarket-card danger">
-            <div class="polymarket-eyebrow">Boundary</div>
+            <div class="polymarket-eyebrow">执行边界</div>
             <div class="polymarket-title">${escapeHtml(translatePolymarketToken(radar.decision || 'SHADOW_ONLY_MARKET_RADAR_NO_BETTING'))}</div>
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('公共读取', radar.source?.publicReadOnly ? '是' : '否')}
@@ -8937,7 +8985,7 @@ function updatePolymarketMarketRadar(d) {
     body.innerHTML = [
         boundaryCard,
         ...items.slice(0, 8).map(renderPolymarketRadarCard),
-    ].join('') || '<div class="empty-state">Gamma scan 暂无可展示市场。</div>';
+    ].join('') || '<div class="empty-state">公共市场扫描暂无可展示市场。</div>';
 }
 
 function renderPolymarketExecutionGateDecision(row = {}) {
@@ -9022,6 +9070,99 @@ function updatePolymarketExecutionGate(d) {
         blockerCard,
         ...decisions.slice(0, 6).map(renderPolymarketExecutionGateDecision),
     ].join('') || '<div class="empty-state">暂无执行闸门候选。</div>';
+}
+
+function formatPolymarketTime(value) {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+}
+
+function renderPolymarketDryRunOrder(row = {}) {
+    const exitPlan = row.exitPlan || {};
+    const blockers = Array.isArray(row.blockers) ? row.blockers : [];
+    const tone = row.canOpenDryRun ? 'watch' : 'danger';
+    const exitReasons = Array.isArray(exitPlan.exitReasons) ? exitPlan.exitReasons : [];
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(row.track || '模拟订单')}</div>
+            <div class="polymarket-title">${escapeHtml(row.question || row.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('模拟状态', translatePolymarketToken(row.decision || '--'))}
+                ${renderPolymarketMetric('方向/价格', `${row.side || 'YES'} @ ${row.entryPrice ?? '--'}`)}
+                ${renderPolymarketMetric('假设单笔', `${formatMoney(row.hypotheticalStakeUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('实际模拟', `${formatMoney(row.simulatedStakeUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('止盈价', exitPlan.takeProfitPrice ?? '--')}
+                ${renderPolymarketMetric('止损价', exitPlan.stopLossPrice ?? '--')}
+                ${renderPolymarketMetric('撤单时间', `${exitPlan.cancelUnfilledAfterMinutes ?? '--'} 分钟`)}
+                ${renderPolymarketMetric('最晚退出', formatPolymarketTime(exitPlan.maxHoldUntil))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">账本状态 ${escapeHtml(translatePolymarketToken(row.auditStatus || '--'))} · 写钱包 ${row.walletWrite ? '是' : '否'} · 下单 ${row.orderSend ? '是' : '否'}</div>
+                <div class="polymarket-action">退出规则 ${escapeHtml(translatePolymarketList(exitReasons, 5))}</div>
+                <div class="polymarket-action">阻断原因 ${escapeHtml(translatePolymarketList(blockers, 5))}</div>
+            </div>
+            <div class="polymarket-note">模拟单号 ${escapeHtml(row.dryRunOrderId || '--')}；只写执行账本，不连接钱包。</div>
+        </div>
+    `;
+}
+
+function updatePolymarketDryRunOrders(d) {
+    const dryRun = getPolymarketDryRunOrders(d);
+    const summaryEl = document.getElementById('polymarketDryRunSummary');
+    const body = document.getElementById('polymarketDryRunBody');
+    if (!body) return;
+    if (!dryRun || d?._polymarketDryRunOrdersError) {
+        if (summaryEl) summaryEl.textContent = '等待模拟订单';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketDryRunOrders.json`；这里只模拟，不接钱包。</div>';
+        return;
+    }
+    const summary = dryRun.summary || {};
+    const schema = dryRun.ledgerSchema || {};
+    const policy = dryRun.policyEcho || {};
+    const exitPolicy = policy.takeProfitStopLoss || {};
+    if (summaryEl) {
+        summaryEl.textContent = `${translatePolymarketToken(dryRun.decision || 'DRY_RUN_ONLY_NO_WALLET_WRITE')} | 可模拟 ${summary.readyDryRunOrders || 0}/${summary.candidateOrders || 0} | 假设金额 ${formatMoney(summary.hypotheticalStakeTotalUSDC || 0)} USDC`;
+    }
+    const schemaCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">执行账本结构</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(schema.version || 'POLY_EXEC_LEDGER_V1'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('账本文件', schema.name || 'QuantGod_PolymarketExecutionLedger.csv')}
+                ${renderPolymarketMetric('主键', schema.primaryKey || 'dry_run_order_id')}
+                ${renderPolymarketMetric('字段数', Array.isArray(schema.fields) ? schema.fields.length : '--')}
+                ${renderPolymarketMetric('真实执行', dryRun.safety?.orderSendAllowed ? '允许' : '禁止')}
+            </div>
+            <div class="polymarket-note">这套字段以后给真实 executor 复用；当前所有行都是 dry-run 审计。</div>
+        </div>
+    `;
+    const policyCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">模拟资金与退出</div>
+            <div class="polymarket-title">当前不会真实下注</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('模拟金额', `${formatMoney(summary.simulatedStakeTotalUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('日亏上限', `${formatMoney(summary.maxDailyLossUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('止盈', `${exitPolicy.takeProfitPct ?? '--'}%`)}
+                ${renderPolymarketMetric('止损', `${exitPolicy.stopLossPct ?? '--'}%`)}
+            </div>
+            <div class="polymarket-note">即使出现绿色候选，也先进入模拟账本观察，不直接恢复真钱执行。</div>
+        </div>
+    `;
+    const orders = Array.isArray(dryRun.dryRunOrders) ? dryRun.dryRunOrders : [];
+    body.innerHTML = [
+        schemaCard,
+        policyCard,
+        ...orders.slice(0, 7).map(renderPolymarketDryRunOrder),
+    ].join('') || '<div class="empty-state">暂无 Polymarket 模拟订单。</div>';
 }
 
 function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraClass = '') {
@@ -13935,6 +14076,7 @@ function updateDashboard() {
     updatePolymarketWorkspace(d);
     updatePolymarketMarketRadar(d);
     updatePolymarketExecutionGate(d);
+    updatePolymarketDryRunOrders(d);
     updatePolymarketRetunePlanner(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);

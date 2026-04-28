@@ -22,6 +22,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketRetunePlanner.csv`
 - `QuantGod_PolymarketExecutionGate.json`
 - `QuantGod_PolymarketExecutionGateLedger.csv`
+- `QuantGod_PolymarketDryRunOrders.json`
+- `QuantGod_PolymarketExecutionLedger.csv`
 
 ## Bridge
 
@@ -81,6 +83,29 @@ The gate consumes the research bridge, Gamma radar, and retune planner outputs. 
 
 It still does not load private keys, write wallets, call CLOB order APIs, start an executor, or mutate MT5. The current decision remains `BLOCKED_CONTRACT_ONLY_NO_WALLET_WRITE` until a separate execution module is explicitly promoted and wired through this gate.
 
+## Dry-Run Order Simulator and Execution Ledger
+
+Run:
+
+```bat
+tools\build_polymarket_dry_run_orders.bat
+```
+
+The simulator consumes `QuantGod_PolymarketExecutionGate.json` and `QuantGod_PolymarketMarketRadar.json`, then writes:
+
+- `QuantGod_PolymarketDryRunOrders.json`
+- `QuantGod_PolymarketExecutionLedger.csv`
+
+This layer answers "if a market eventually passed the gate, what would the order and exit plan look like?" without touching money:
+
+- calculates the reference stake and the actual dry-run stake;
+- records entry/limit price from market probability;
+- calculates TP price, SL price, trailing trigger, cancel-unfilled time, max-hold exit, and exit-before-resolution time;
+- writes the reusable execution-ledger schema that a future real executor would have to fill;
+- keeps `walletWrite=false`, `orderSend=false`, `startsExecutor=false`, and `mutatesMt5=false`.
+
+Blocked gate candidates still get a hypothetical plan, but `simulatedStakeUSDC=0` and `decision=DRY_RUN_BLOCKED_BY_GATE`. This prevents an eventual executor from appearing before the audit schema and exit rules are visible.
+
 ## Retune Planner
 
 Run:
@@ -109,6 +134,7 @@ It displays:
 - Account snapshot: separate Polymarket cash and configured bankroll, never mixed with MT5 equity.
 - Opportunity Radar: public Gamma scan with probability, liquidity, divergence, score, risk, and suggested shadow track.
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
+- Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.
@@ -148,7 +174,7 @@ Worth keeping from Polymarket:
 
 Not merged in this research slice:
 
-- Wallet/executor/live canary modules. They are allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, and kill-switch wiring. `Execution Gate V1` is the prerequisite contract, not the executor.
+- Wallet/executor/live canary modules. They are allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, and kill-switch wiring. `Execution Gate V1` plus the dry-run execution ledger are prerequisites, not the executor.
 - Auth/user/product modules.
 - Long-running Flask/Socket.IO service.
 - Database-backed strategy CRUD.
