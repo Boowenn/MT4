@@ -67,7 +67,7 @@ Important: the current MT5 implementation is still a partial port. In the shippe
 
 Live route promotion and demotion are now evidence-driven automation decisions. A live route can be demoted quickly when its recent `0.01` forward results, order-send health, or shadow/candidate outcomes show weakness; it then stays in simulation/backtest and is iterated there. A candidate route can be promoted back to live only after old-history context, Backtest Lab, candidate/outcome ledgers, and fresh `0.01` forward-style evidence show a stable edge without obvious risk objections. Promotion never changes the lot size, account, server, single-symbol cap, hard SL/TP, spread/session/news/cooldown/portfolio/order-send controls, or kill switches.
 
-The repo also includes a QuantDinger-inspired local Governance Advisor. It borrows the useful product idea of a strategy lifecycle view, but keeps QuantGod's broker boundary intact: `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. It is read-only and never stores credentials, connects to HFM, opens positions, or bypasses the existing EA `OrderSend` guards.
+The repo also includes a QuantDinger-inspired local Governance Advisor and light dashboard shell. It borrows the useful product ideas of a strategy lifecycle view, a clean app-style sidebar/header, and a health snapshot with file freshness/circuit-style evidence states. QuantGod's broker boundary stays intact: `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. It is read-only and never stores credentials, connects to HFM, opens positions, or bypasses the existing EA `OrderSend` guards.
 
 ## Strategies
 

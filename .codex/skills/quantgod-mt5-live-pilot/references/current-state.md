@@ -60,7 +60,7 @@ Responsibilities:
 - Provide Shadow Outcome Ledger so range-blocked and no-trade M15 opportunities gain post-outcome labels before anyone considers a shadow-only route change
 - Provide Shadow Candidate Router V1 so candidate routes can be compared by post-outcome evidence before they are eligible for Backtest Lab review
 - Provide Manual Alpha Ledger as a separate learning surface for discretionary trades; promotion from manual alpha to EA automation requires a later shadow-only route plus backtest and live-forward validation
-- Provide a QuantDinger-inspired Governance Advisor as a local, file-only lifecycle snapshot. It combines Backtest Lab, live `0.01` forward results, Shadow Signal/Outcome, Shadow Candidate/Outcome, and Manual Alpha evidence into `QuantGod_GovernanceAdvisor.json`; it is advisory only and never connects to HFM, stores credentials, sends orders, or bypasses EA `OrderSend` gating
+- Provide a QuantDinger-inspired Governance Advisor and light dashboard shell as a local, file-only lifecycle snapshot. It combines Backtest Lab, live `0.01` forward results, Shadow Signal/Outcome, Shadow Candidate/Outcome, Manual Alpha, and runtime file-health evidence into `QuantGod_GovernanceAdvisor.json`; it is advisory only and never connects to HFM, stores credentials, sends orders, or bypasses EA `OrderSend` gating
 - Surface the MT5 USD news filter state in `QuantGod_Dashboard.json` and the dashboard execution radar, including event code/kind/label, countdown, server event time, tracked-event count, block state, and bias state
 
 Non-responsibilities in phase 1:

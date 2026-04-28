@@ -22,6 +22,17 @@ from typing import Any
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 OUTPUT_NAME = "QuantGod_GovernanceAdvisor.json"
 
+RUNTIME_FILE_HEALTH = [
+    ("dashboard", "QuantGod_Dashboard.json", 180),
+    ("backtest", "QuantGod_BacktestSummary.json", 7 * 24 * 60 * 60),
+    ("live_forward", "QuantGod_CloseHistory.csv", 7 * 24 * 60 * 60),
+    ("shadow_signal", "QuantGod_ShadowSignalLedger.csv", 24 * 60 * 60),
+    ("shadow_outcome", "QuantGod_ShadowOutcomeLedger.csv", 24 * 60 * 60),
+    ("candidate_signal", "QuantGod_ShadowCandidateLedger.csv", 24 * 60 * 60),
+    ("candidate_outcome", "QuantGod_ShadowCandidateOutcomeLedger.csv", 24 * 60 * 60),
+    ("manual_alpha", "QuantGod_ManualAlphaLedger.csv", 24 * 60 * 60),
+]
+
 ROUTES = [
     {
         "key": "MA_Cross",
@@ -123,6 +134,63 @@ def as_float(value: Any, default: float = 0.0) -> float:
     except Exception:
         pass
     return default
+
+
+def summarize_runtime_health(runtime_dir: Path) -> dict[str, Any]:
+    now_ts = datetime.now(timezone.utc).timestamp()
+    files = []
+    missing = []
+    stale = []
+    for key, file_name, max_age_seconds in RUNTIME_FILE_HEALTH:
+        path = runtime_dir / file_name
+        if not path.exists():
+            missing.append(key)
+            files.append({
+                "key": key,
+                "file": file_name,
+                "status": "missing",
+                "ageSeconds": None,
+                "bytes": 0,
+                "maxAgeSeconds": max_age_seconds,
+                "modifiedAtIso": "",
+            })
+            continue
+        stat = path.stat()
+        age_seconds = max(0.0, now_ts - stat.st_mtime)
+        status = "fresh" if age_seconds <= max_age_seconds else "stale"
+        if status == "stale":
+            stale.append(key)
+        files.append({
+            "key": key,
+            "file": file_name,
+            "status": status,
+            "ageSeconds": round(age_seconds, 1),
+            "bytes": stat.st_size,
+            "maxAgeSeconds": max_age_seconds,
+            "modifiedAtIso": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        })
+
+    source_circuits = {}
+    for item in files:
+        source_circuits[item["key"]] = {
+            "state": "closed" if item["status"] == "fresh" else "open",
+            "reason": item["status"],
+            "ageSeconds": item["ageSeconds"],
+        }
+    return {
+        "status": "healthy" if not missing and not stale else "attention",
+        "checkedAtIso": datetime.now(timezone.utc).isoformat(),
+        "missingFiles": missing,
+        "staleFiles": stale,
+        "files": files,
+        "sourceCircuits": source_circuits,
+        "borrowedBackendIdeas": [
+            "QuantDinger-style health snapshot",
+            "TTL freshness checks for local runtime files",
+            "Circuit-breaker style source states for missing or stale evidence",
+            "Read-only no-store dashboard fetches instead of direct trading APIs",
+        ],
+    }
 
 
 def as_int(value: Any, default: int = 0) -> int:
@@ -383,6 +451,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     candidate_outcomes = summarize_candidate_outcomes(candidate_outcome_rows)
     manual = summarize_manual(manual_rows)
     backtest_summary = summarize_backtest(backtest)
+    runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
     for route in ROUTES:
@@ -429,12 +498,16 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "summary": {
             "routeCount": len(route_decisions),
             "actions": dict(action_counts),
+            "healthStatus": runtime_health["status"],
+            "missingRuntimeFiles": len(runtime_health["missingFiles"]),
+            "staleRuntimeFiles": len(runtime_health["staleFiles"]),
             "shadowRows": shadow["rows"],
             "candidateRows": len(candidate_rows),
             "candidateOutcomeRows": len(candidate_outcome_rows),
             "manualAlphaRows": manual["rows"],
             "openPositions": open_positions["total"],
         },
+        "systemHealth": runtime_health,
         "backtest": backtest_summary,
         "liveForward": live_forward,
         "shadow": shadow,

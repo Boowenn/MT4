@@ -2691,6 +2691,364 @@
             border-radius: 2px;
             transition: width 0.5s ease;
         }
+
+        /* QuantDinger-inspired light app shell. This is visual/product parity only:
+           QuantGod keeps its local file pipeline and EA-guarded execution path. */
+        :root {
+            --bg-primary: #f3f6fb;
+            --bg-secondary: #ffffff;
+            --bg-card: #ffffff;
+            --bg-card-hover: #f7faff;
+            --border: #dfe7f2;
+            --text-primary: #1f2937;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --accent-blue: #1677ff;
+            --accent-cyan: #13c2c2;
+            --accent-purple: #7c3aed;
+            --accent-green: #16a34a;
+            --accent-red: #dc2626;
+            --accent-orange: #d97706;
+            --accent-pink: #db2777;
+            --glow-blue: rgba(22, 119, 255, 0.12);
+            --glow-green: rgba(22, 163, 74, 0.12);
+            --glow-red: rgba(220, 38, 38, 0.12);
+        }
+
+        body {
+            background: linear-gradient(180deg, #f7faff 0%, #eef4fa 52%, #f7f9fc 100%);
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            height: 64px;
+            background: rgba(255, 255, 255, 0.96);
+            border-bottom: 1px solid rgba(223, 231, 242, 0.92);
+            box-shadow: 0 6px 24px rgba(15, 23, 42, 0.06);
+        }
+
+        .logo-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: #101828;
+            box-shadow: none;
+        }
+
+        .logo-text {
+            background: none;
+            -webkit-text-fill-color: currentColor;
+            color: #111827;
+            font-weight: 700;
+        }
+
+        .market-bar {
+            background: rgba(255, 255, 255, 0.9);
+            border-bottom: 1px solid rgba(223, 231, 242, 0.9);
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+        }
+
+        .sidebar-card,
+        .sidebar-nav,
+        .panel,
+        .stat-card,
+        .symbol-card,
+        .strategy-card,
+        .backtest-compare-card,
+        .research-window-card,
+        .radar-item,
+        .trade-section,
+        .route-card,
+        .filter-panel,
+        .suggestion-card,
+        .journal-card,
+        .chart-container {
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(223, 231, 242, 0.95);
+            border-radius: 8px;
+            box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
+            backdrop-filter: blur(14px);
+        }
+
+        .sidebar-link {
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+
+        .sidebar-link:hover,
+        .sidebar-link.active {
+            background: #eef6ff;
+            border-color: rgba(22, 119, 255, 0.24);
+            box-shadow: inset 3px 0 0 var(--accent-blue);
+        }
+
+        .sidebar-link-index,
+        .section-kicker,
+        .sidebar-kicker,
+        .research-window-kicker {
+            color: var(--accent-blue);
+        }
+
+        .stat-card::before {
+            height: 3px;
+            opacity: 0.82;
+        }
+
+        .panel-header,
+        .trade-header,
+        .section-heading {
+            border-color: rgba(223, 231, 242, 0.9);
+        }
+
+        .section-heading {
+            background: transparent;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 0 0 10px;
+        }
+
+        .section-title,
+        .panel-title,
+        .stat-value,
+        .radar-value,
+        .backtest-symbol,
+        .strategy-name,
+        .symbol-name {
+            color: var(--text-primary);
+        }
+
+        .section-desc,
+        .section-meta,
+        .stat-label,
+        .market-label,
+        .sidebar-runtime,
+        .sidebar-note,
+        .radar-label,
+        .radar-sub,
+        .backtest-note,
+        .research-window-meta {
+            color: var(--text-secondary);
+        }
+
+        .status-badge,
+        .backtest-status-pill,
+        .eval-summary {
+            border-radius: 999px;
+        }
+
+        .status-badge span,
+        .last-update,
+        .market-value,
+        .market-label {
+            white-space: nowrap;
+        }
+
+        .sidebar-summary-item {
+            background: #f4f7fb;
+            border: 1px solid #e5edf7;
+            border-radius: 8px;
+        }
+
+        .icon {
+            border-radius: 8px;
+            box-shadow: none;
+        }
+
+        .qd-home-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.42fr) minmax(280px, 0.78fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .qd-analysis-engine,
+        .qd-market-pulse,
+        .qd-route-watchlist {
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(223, 231, 242, 0.95);
+            border-radius: 8px;
+            box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
+        }
+
+        .qd-analysis-engine {
+            padding: 22px;
+            min-height: 210px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .qd-panel-eyebrow {
+            width: fit-content;
+            padding: 5px 10px;
+            border-radius: 999px;
+            color: var(--accent-blue);
+            background: #eef6ff;
+            border: 1px solid rgba(22, 119, 255, 0.18);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .qd-analysis-engine h2 {
+            margin-top: 12px;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .qd-analysis-engine p {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.65;
+        }
+
+        .qd-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .qd-feature {
+            padding: 12px;
+            border: 1px solid #e7eef7;
+            border-radius: 8px;
+            background: #fbfdff;
+        }
+
+        .qd-feature-title {
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .qd-feature-sub {
+            margin-top: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .qd-side-stack {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .qd-market-pulse,
+        .qd-route-watchlist {
+            padding: 16px;
+        }
+
+        .qd-card-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .qd-pulse-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .qd-pulse-item {
+            padding: 10px;
+            border-radius: 8px;
+            background: #f8fbff;
+            border: 1px solid #e8f0fa;
+        }
+
+        .qd-pulse-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .qd-pulse-value {
+            margin-top: 4px;
+            color: var(--text-primary);
+            font-size: 17px;
+            font-weight: 700;
+        }
+
+        .qd-route-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .qd-route-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #edf2f7;
+            font-size: 13px;
+        }
+
+        .qd-route-item:last-child {
+            border-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .qd-route-name {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .qd-route-mode {
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1100px) {
+            .qd-home-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .navbar {
+                height: auto;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 10px 14px;
+            }
+
+            .logo-text {
+                font-size: 18px;
+                line-height: 1.2;
+            }
+
+            .nav-status {
+                width: 100%;
+                justify-content: space-between;
+                gap: 8px;
+            }
+
+            .status-badge {
+                min-width: 0;
+                max-width: calc(100vw - 150px);
+                padding: 5px 10px;
+            }
+
+            .status-badge span {
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .qd-feature-grid,
+            .qd-pulse-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -2813,6 +3171,70 @@
                         <div class="section-desc">先看资金曲线、运行权限、服务器时钟和下一次评估窗口，这一段负责回答“系统现在是不是正常运转”。</div>
                     </div>
                     <div class="section-meta">适合开盘后第一眼确认环境、连接和节奏。</div>
+                </div>
+
+                <div class="qd-home-grid">
+                    <div class="qd-analysis-engine">
+                        <div>
+                            <div class="qd-panel-eyebrow">AI-GOVERNED</div>
+                            <h2>QuantGod Evidence Engine</h2>
+                            <p>借鉴 QuantDinger 的轻量工作台形态，但数据仍来自本地 HFM Files：回测、实盘 forward、Shadow、Candidate 与 Manual Alpha 合成一张可审计的升降级视图。</p>
+                        </div>
+                        <div class="qd-feature-grid">
+                            <div class="qd-feature">
+                                <div class="qd-feature-title">Multi-source Evidence</div>
+                                <div class="qd-feature-sub">Backtest / live / shadow / candidate 分层看，不让单一样本推动实盘风险。</div>
+                            </div>
+                            <div class="qd-feature">
+                                <div class="qd-feature-title">Route Lifecycle</div>
+                                <div class="qd-feature-sub">策略只在证据变强时升实盘，变弱时降模拟并继续重调。</div>
+                            </div>
+                            <div class="qd-feature">
+                                <div class="qd-feature-title">EA Guarded</div>
+                                <div class="qd-feature-sub">页面只读诊断；真实下单仍走原 EA 的 0.01、SL/TP 与风控链。</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="qd-side-stack">
+                        <div class="qd-market-pulse">
+                            <div class="qd-card-title">
+                                <span>System Pulse</span>
+                                <span class="eval-summary" id="qdPulseStatus">等待健康快照</span>
+                            </div>
+                            <div class="qd-pulse-grid">
+                                <div class="qd-pulse-item">
+                                    <div class="qd-pulse-label">Health</div>
+                                    <div class="qd-pulse-value" id="qdPulseHealth">--</div>
+                                </div>
+                                <div class="qd-pulse-item">
+                                    <div class="qd-pulse-label">Routes</div>
+                                    <div class="qd-pulse-value" id="qdPulseRoutes">--</div>
+                                </div>
+                                <div class="qd-pulse-item">
+                                    <div class="qd-pulse-label">Shadow Rows</div>
+                                    <div class="qd-pulse-value" id="qdPulseShadowRows">--</div>
+                                </div>
+                                <div class="qd-pulse-item">
+                                    <div class="qd-pulse-label">Candidate Rows</div>
+                                    <div class="qd-pulse-value" id="qdPulseCandidateRows">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="qd-route-watchlist">
+                            <div class="qd-card-title">
+                                <span>Route Watchlist</span>
+                                <span class="eval-summary">Live / Sim</span>
+                            </div>
+                            <div class="qd-route-list" id="qdRouteWatchlist">
+                                <div class="qd-route-item">
+                                    <span class="qd-route-name">MA_Cross</span>
+                                    <span class="qd-route-mode">等待快照</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="stats-grid">
@@ -5778,9 +6200,66 @@ function updateGovernanceAdvisor(d) {
     const shadowBlockers = Array.isArray(advisor.shadow?.dominantBlockers)
         ? advisor.shadow.dominantBlockers.slice(0, 3).map(([key, value]) => `${key}:${value}`).join(' / ')
         : '--';
+    const health = advisor.systemHealth || {};
+    const healthText = health.status
+        ? `runtime health ${health.status}`
+        : 'runtime health --';
     summaryEl.textContent = `${advisor.summary?.routeCount || advisor.routeDecisions.length} 条路线 | ${actionText || '等待动作'}`;
-    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
+    metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；${healthText}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
     bodyEl.innerHTML = advisor.routeDecisions.map(renderGovernanceRouteCard).join('');
+}
+
+function updateQuantDingerInspiredHero(d) {
+    const advisor = getGovernanceAdvisor(d);
+    const health = advisor?.systemHealth || {};
+    const summary = advisor?.summary || {};
+    const routeDecisions = Array.isArray(advisor?.routeDecisions) ? advisor.routeDecisions : [];
+    const healthStatus = health.status || summary.healthStatus || (d?._governanceAdvisorError ? 'missing' : 'waiting');
+    const missingCount = Number(summary.missingRuntimeFiles ?? health.missingFiles?.length ?? 0);
+    const staleCount = Number(summary.staleRuntimeFiles ?? health.staleFiles?.length ?? 0);
+
+    const pulseStatus = document.getElementById('qdPulseStatus');
+    const pulseHealth = document.getElementById('qdPulseHealth');
+    const pulseRoutes = document.getElementById('qdPulseRoutes');
+    const pulseShadowRows = document.getElementById('qdPulseShadowRows');
+    const pulseCandidateRows = document.getElementById('qdPulseCandidateRows');
+    const routeList = document.getElementById('qdRouteWatchlist');
+
+    if (pulseStatus) {
+        pulseStatus.textContent = healthStatus === 'healthy'
+            ? '健康'
+            : healthStatus === 'attention'
+                ? `注意 ${missingCount + staleCount}`
+                : '等待';
+        pulseStatus.className = `eval-summary ${healthStatus === 'healthy' ? 'supported' : healthStatus === 'attention' ? 'conflict' : 'waiting'}`;
+    }
+    if (pulseHealth) {
+        pulseHealth.textContent = healthStatus === 'healthy'
+            ? 'Healthy'
+            : healthStatus === 'attention'
+                ? `${missingCount} missing / ${staleCount} stale`
+                : '--';
+    }
+    if (pulseRoutes) pulseRoutes.textContent = String(summary.routeCount ?? routeDecisions.length ?? '--');
+    if (pulseShadowRows) pulseShadowRows.textContent = String(summary.shadowRows ?? d?.shadowSignalLedger?.rows?.length ?? '--');
+    if (pulseCandidateRows) pulseCandidateRows.textContent = String(summary.candidateRows ?? d?.shadowCandidateLedger?.rows?.length ?? '--');
+
+    if (routeList) {
+        if (!routeDecisions.length) {
+            routeList.innerHTML = '<div class="qd-route-item"><span class="qd-route-name">等待 Governance Advisor</span><span class="qd-route-mode">no snapshot</span></div>';
+        } else {
+            routeList.innerHTML = routeDecisions.slice(0, 5).map((route) => {
+                const action = governanceActionLabel(route.recommendedAction);
+                const mode = route.live ? 'LIVE 0.01' : 'SIM';
+                return `
+                    <div class="qd-route-item">
+                        <span class="qd-route-name">${escapeHtml(route.label || route.key || '--')}</span>
+                        <span class="qd-route-mode">${escapeHtml(mode)} · ${escapeHtml(action)}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
 }
 
 function updateResearchWindowSummary(d) {
@@ -6791,6 +7270,7 @@ function updateDashboard() {
     updateShadowSignalLedger(d);
     updateManualAlphaLedger(d);
     updateGovernanceAdvisor(d);
+    updateQuantDingerInspiredHero(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);
     updateResearchSuggestions(d);
