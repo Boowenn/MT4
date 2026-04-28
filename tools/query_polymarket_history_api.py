@@ -133,9 +133,39 @@ TABLES: Mapping[str, Dict[str, Any]] = {
             "suggested_shadow_track",
         ),
     },
+    "canary-contracts": {
+        "table": "qd_polymarket_canary_contracts",
+        "order": "generated_at",
+        "summary": "canaryContracts",
+        "search": (
+            "canary_contract_id",
+            "market_id",
+            "question",
+            "track",
+            "side",
+            "canary_state",
+            "decision",
+            "ai_color",
+            "cross_risk_tag",
+            "macro_risk_state",
+            "dry_run_state",
+            "outcome_state",
+            "would_exit_reason",
+            "blockers_json",
+        ),
+    },
 }
 
-RECENT_TABLES = ("opportunities", "analyses", "simulations", "worker-runs", "worker-trends", "worker-queue", "cross-linkage")
+RECENT_TABLES = (
+    "opportunities",
+    "analyses",
+    "simulations",
+    "worker-runs",
+    "worker-trends",
+    "worker-queue",
+    "cross-linkage",
+    "canary-contracts",
+)
 
 
 def utc_now() -> str:
@@ -272,7 +302,7 @@ def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offse
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),
         "source": "sqlite_api",
-        "schemaVersion": "POLYMARKET_HISTORY_DB_V3_CROSS_MARKET_LINKAGE",
+        "schemaVersion": "POLYMARKET_HISTORY_DB_V4_CANARY_CONTRACT",
         "decision": "LOCAL_HISTORY_DB_READ_ONLY_NO_WALLET_WRITE",
         "api": {"table": table_key, "query": query, "limit": limit, "offset": offset},
         "database": {"path": str(db_path), "exists": db_path.exists(), "readOnly": True},

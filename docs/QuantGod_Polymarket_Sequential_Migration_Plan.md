@@ -70,9 +70,17 @@ Next item after this commit: `Canary / Wallet Executor`, but only as a separatel
 
 ## 6. Canary / Wallet Executor
 
-Status: pending.
+Status: completed in this branch as contract-only V1.
 
-Target: design a separated canary executor with read/write isolation, stake budget, TP/SL, cancel/exit, kill switch, and ledger audit. No real wallet wiring until Gate and dry-run outcome evidence support it.
+- Added `tools/build_polymarket_canary_executor_contract.py` and `.bat`.
+- The builder reads Execution Gate, dry-run orders, dry-run outcomes, AI score, cross-market linkage, and radar snapshots.
+- It writes `QuantGod_PolymarketCanaryExecutorContract.json` and `QuantGod_PolymarketCanaryExecutorLedger.csv`.
+- V1 defines the isolated canary root, future env switch names, max single canary bet, max daily loss, max open canary positions, TP/SL, trailing, cancel, max-hold, exit-before-resolution, kill switch, and future audit ledgers.
+- Every candidate remains `canaryEligibleNow=false`, `walletWriteAllowed=false`, `orderSendAllowed=false`, and `startsExecutor=false`.
+- Upgraded the SQLite history builder/API to `POLYMARKET_HISTORY_DB_V4_CANARY_CONTRACT`, adding `qd_polymarket_canary_contracts`, `table=canary-contracts`, and `/api/polymarket/canary-executor-contract`.
+- `/api/polymarket/search` now folds Canary contract evidence into the same comprehensive evidence cards.
+- Dashboard now shows a dedicated Canary contract panel under Polymarket execution simulation and includes Canary contract counts in the history library.
+- Safety remains contract-only: no private-key read, no env secret read, no wallet write, no CLOB order call, no canary/executor start, no MT5 mutation.
 
 ## 7. Polymarket Auto Promotion / Demotion Governance
 

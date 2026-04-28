@@ -36,8 +36,9 @@ SINGLE_NAME = "QuantGod_PolymarketSingleMarketAnalysis.json"
 DRY_RUN_NAME = "QuantGod_PolymarketDryRunOrders.json"
 OUTCOME_NAME = "QuantGod_PolymarketDryRunOutcomeWatcher.json"
 CROSS_LINKAGE_NAME = "QuantGod_PolymarketCrossMarketLinkage.json"
+CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
 
-SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V3_CROSS_MARKET_LINKAGE"
+SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V4_CANARY_CONTRACT"
 
 
 def parse_args() -> argparse.Namespace:
@@ -144,6 +145,7 @@ def init_schema(con: sqlite3.Connection) -> None:
             trend_rows INTEGER NOT NULL DEFAULT 0,
             queue_rows INTEGER NOT NULL DEFAULT 0,
             cross_linkage_rows INTEGER NOT NULL DEFAULT 0,
+            canary_contract_rows INTEGER NOT NULL DEFAULT 0,
             wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
             order_send_allowed INTEGER NOT NULL DEFAULT 0
         );
@@ -371,6 +373,43 @@ def init_schema(con: sqlite3.Connection) -> None:
             raw_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS qd_polymarket_canary_contracts (
+            id TEXT PRIMARY KEY,
+            generated_at TEXT NOT NULL,
+            canary_contract_id TEXT,
+            market_id TEXT,
+            question TEXT,
+            polymarket_url TEXT,
+            track TEXT,
+            side TEXT,
+            canary_state TEXT,
+            decision TEXT,
+            canary_eligible_now INTEGER NOT NULL DEFAULT 0,
+            reference_stake_usdc REAL,
+            canary_stake_usdc REAL,
+            max_single_bet_usdc REAL,
+            max_daily_loss_usdc REAL,
+            take_profit_pct REAL,
+            stop_loss_pct REAL,
+            trailing_profit_pct REAL,
+            cancel_unfilled_minutes INTEGER,
+            max_hold_hours REAL,
+            exit_before_resolution_hours REAL,
+            source_score REAL,
+            ai_score REAL,
+            ai_color TEXT,
+            cross_risk_tag TEXT,
+            macro_risk_state TEXT,
+            dry_run_state TEXT,
+            outcome_state TEXT,
+            would_exit_reason TEXT,
+            blockers_json TEXT,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            starts_executor INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_poly_asset_market ON qd_polymarket_asset_opportunities(market_id, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_poly_asset_score ON qd_polymarket_asset_opportunities(ai_rule_score, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_analysis_market ON qd_polymarket_market_analysis(market_id, generated_at);
@@ -383,6 +422,8 @@ def init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_poly_queue_market ON qd_polymarket_radar_queue(market_id, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_cross_market ON qd_polymarket_cross_market_linkage(market_id, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_cross_tag ON qd_polymarket_cross_market_linkage(primary_risk_tag, macro_risk_state);
+        CREATE INDEX IF NOT EXISTS idx_poly_canary_market ON qd_polymarket_canary_contracts(market_id, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_canary_state ON qd_polymarket_canary_contracts(canary_state, decision);
         """
     )
     ensure_columns(
@@ -393,6 +434,7 @@ def init_schema(con: sqlite3.Connection) -> None:
             "trend_rows": "INTEGER NOT NULL DEFAULT 0",
             "queue_rows": "INTEGER NOT NULL DEFAULT 0",
             "cross_linkage_rows": "INTEGER NOT NULL DEFAULT 0",
+            "canary_contract_rows": "INTEGER NOT NULL DEFAULT 0",
         },
     )
 
@@ -945,6 +987,80 @@ def upsert_cross_market_linkage(con: sqlite3.Connection, cross_payload: dict[str
     return count
 
 
+def upsert_canary_contracts(con: sqlite3.Connection, canary_payload: dict[str, Any], now_iso: str) -> int:
+    rows = canary_payload.get("candidateContracts") if isinstance(canary_payload.get("candidateContracts"), list) else []
+    generated_default = str(canary_payload.get("generatedAt") or now_iso)
+    count = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        contract_id = str(item.get("canaryContractId") or "")
+        row_id = contract_id or stable_id("canary", item.get("marketId"), item.get("question"), item.get("track"))
+        con.execute(
+            """
+            INSERT OR REPLACE INTO qd_polymarket_canary_contracts (
+                id, generated_at, canary_contract_id, market_id, question,
+                polymarket_url, track, side, canary_state, decision,
+                canary_eligible_now, reference_stake_usdc, canary_stake_usdc,
+                max_single_bet_usdc, max_daily_loss_usdc, take_profit_pct,
+                stop_loss_pct, trailing_profit_pct, cancel_unfilled_minutes,
+                max_hold_hours, exit_before_resolution_hours, source_score,
+                ai_score, ai_color, cross_risk_tag, macro_risk_state,
+                dry_run_state, outcome_state, would_exit_reason, blockers_json,
+                wallet_write_allowed, order_send_allowed, starts_executor, raw_json
+            ) VALUES (
+                :id, :generated_at, :canary_contract_id, :market_id, :question,
+                :polymarket_url, :track, :side, :canary_state, :decision,
+                :canary_eligible_now, :reference_stake_usdc, :canary_stake_usdc,
+                :max_single_bet_usdc, :max_daily_loss_usdc, :take_profit_pct,
+                :stop_loss_pct, :trailing_profit_pct, :cancel_unfilled_minutes,
+                :max_hold_hours, :exit_before_resolution_hours, :source_score,
+                :ai_score, :ai_color, :cross_risk_tag, :macro_risk_state,
+                :dry_run_state, :outcome_state, :would_exit_reason, :blockers_json,
+                :wallet_write_allowed, :order_send_allowed, :starts_executor, :raw_json
+            )
+            """,
+            {
+                "id": row_id,
+                "generated_at": str(item.get("generatedAt") or generated_default),
+                "canary_contract_id": contract_id,
+                "market_id": str(item.get("marketId") or ""),
+                "question": str(item.get("question") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "track": str(item.get("track") or ""),
+                "side": str(item.get("side") or ""),
+                "canary_state": str(item.get("canaryState") or ""),
+                "decision": str(item.get("decision") or ""),
+                "canary_eligible_now": as_bool_int(item.get("canaryEligibleNow")),
+                "reference_stake_usdc": safe_number(item.get("referenceStakeUSDC")),
+                "canary_stake_usdc": safe_number(item.get("canaryStakeUSDC")),
+                "max_single_bet_usdc": safe_number(item.get("maxSingleBetUSDC")),
+                "max_daily_loss_usdc": safe_number(item.get("maxDailyLossUSDC")),
+                "take_profit_pct": safe_number(item.get("takeProfitPct")),
+                "stop_loss_pct": safe_number(item.get("stopLossPct")),
+                "trailing_profit_pct": safe_number(item.get("trailingProfitPct")),
+                "cancel_unfilled_minutes": safe_int(item.get("cancelUnfilledAfterMinutes"), 0),
+                "max_hold_hours": safe_number(item.get("maxHoldHours")),
+                "exit_before_resolution_hours": safe_number(item.get("exitBeforeResolutionHours")),
+                "source_score": safe_number(item.get("sourceScore")),
+                "ai_score": safe_number(item.get("aiScore")),
+                "ai_color": str(item.get("aiColor") or ""),
+                "cross_risk_tag": str(item.get("crossRiskTag") or ""),
+                "macro_risk_state": str(item.get("macroRiskState") or ""),
+                "dry_run_state": str(item.get("dryRunState") or ""),
+                "outcome_state": str(item.get("outcomeState") or ""),
+                "would_exit_reason": str(item.get("wouldExitReason") or ""),
+                "blockers_json": compact_json(item.get("blockers") if isinstance(item.get("blockers"), list) else []),
+                "wallet_write_allowed": as_bool_int(item.get("walletWriteAllowed")),
+                "order_send_allowed": as_bool_int(item.get("orderSendAllowed")),
+                "starts_executor": as_bool_int(item.get("startsExecutor")),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
 def table_summary(con: sqlite3.Connection, table: str, latest_col: str = "generated_at") -> dict[str, Any]:
     row = con.execute(f"SELECT COUNT(*) AS rows, MAX({latest_col}) AS latest_at FROM {table}").fetchone()
     return {"rows": int(row["rows"] or 0), "latestAt": row["latest_at"] or ""}
@@ -965,6 +1081,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         "qd_polymarket_radar_trends": table_summary(con, "qd_polymarket_radar_trends"),
         "qd_polymarket_radar_queue": table_summary(con, "qd_polymarket_radar_queue"),
         "qd_polymarket_cross_market_linkage": table_summary(con, "qd_polymarket_cross_market_linkage"),
+        "qd_polymarket_canary_contracts": table_summary(con, "qd_polymarket_canary_contracts"),
     }
     total_rows = sum(item["rows"] for item in tables.values())
     recent_opportunities = fetch_rows(
@@ -1095,15 +1212,46 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         """,
         (recent_limit,),
     )
+    recent_canary_contracts = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, canary_contract_id AS canaryContractId,
+               market_id AS marketId, question, polymarket_url AS polymarketUrl,
+               track, side, canary_state AS canaryState, decision,
+               canary_eligible_now AS canaryEligibleNow,
+               reference_stake_usdc AS referenceStakeUSDC,
+               canary_stake_usdc AS canaryStakeUSDC,
+               max_single_bet_usdc AS maxSingleBetUSDC,
+               max_daily_loss_usdc AS maxDailyLossUSDC,
+               take_profit_pct AS takeProfitPct,
+               stop_loss_pct AS stopLossPct,
+               trailing_profit_pct AS trailingProfitPct,
+               cancel_unfilled_minutes AS cancelUnfilledAfterMinutes,
+               max_hold_hours AS maxHoldHours,
+               exit_before_resolution_hours AS exitBeforeResolutionHours,
+               source_score AS sourceScore, ai_score AS aiScore,
+               ai_color AS aiColor, cross_risk_tag AS crossRiskTag,
+               macro_risk_state AS macroRiskState, dry_run_state AS dryRunState,
+               outcome_state AS outcomeState, would_exit_reason AS wouldExitReason,
+               blockers_json AS blockersJson,
+               wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed,
+               starts_executor AS startsExecutor
+        FROM qd_polymarket_canary_contracts
+        ORDER BY generated_at DESC, source_score DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
     return {
         "generatedAt": now_iso,
-        "mode": "POLYMARKET_HISTORY_DB_V3",
+        "mode": "POLYMARKET_HISTORY_DB_V4",
         "schemaVersion": SCHEMA_VERSION,
         "decision": "LOCAL_HISTORY_DB_NO_WALLET_WRITE",
         "database": {
             "path": str(db_path),
             "tables": list(tables.keys()),
-            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, cross-market linkage, analysis, dry-run, outcome, and bridge snapshots.",
+            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, cross-market linkage, canary contracts, analysis, dry-run, outcome, and bridge snapshots.",
         },
         "sourceFiles": source_files,
         "summary": {
@@ -1117,6 +1265,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "radarTrendRows": tables["qd_polymarket_radar_trends"]["rows"],
             "radarQueueRows": tables["qd_polymarket_radar_queue"]["rows"],
             "crossMarketLinkages": tables["qd_polymarket_cross_market_linkage"]["rows"],
+            "canaryContracts": tables["qd_polymarket_canary_contracts"]["rows"],
             "latestAt": max((item["latestAt"] for item in tables.values() if item["latestAt"]), default=""),
         },
         "tables": tables,
@@ -1128,6 +1277,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "workerTrends": recent_worker_trends,
             "workerQueue": recent_worker_queue,
             "crossMarketLinkage": recent_cross_linkage,
+            "canaryContracts": recent_canary_contracts,
             "research": latest_research[0] if latest_research else {},
         },
         "safety": {
@@ -1184,6 +1334,7 @@ def main() -> int:
     dry_run, dry_run_path = read_json_candidate(DRY_RUN_NAME, runtime_dir, dashboard_dir)
     outcome, outcome_path = read_json_candidate(OUTCOME_NAME, runtime_dir, dashboard_dir)
     cross_linkage, cross_linkage_path = read_json_candidate(CROSS_LINKAGE_NAME, runtime_dir, dashboard_dir)
+    canary_contract, canary_contract_path = read_json_candidate(CANARY_CONTRACT_NAME, runtime_dir, dashboard_dir)
     source_files = {
         RESEARCH_NAME: research_path,
         RADAR_NAME: radar_path,
@@ -1194,6 +1345,7 @@ def main() -> int:
         DRY_RUN_NAME: dry_run_path,
         OUTCOME_NAME: outcome_path,
         CROSS_LINKAGE_NAME: cross_linkage_path,
+        CANARY_CONTRACT_NAME: canary_contract_path,
     }
 
     con = connect_db(db_path)
@@ -1208,6 +1360,7 @@ def main() -> int:
         trend_rows = upsert_radar_trends(con, radar_trend_cache, radar_worker, now_iso)
         queue_rows = upsert_radar_queue(con, radar_queue, radar_worker, now_iso)
         cross_linkage_rows = upsert_cross_market_linkage(con, cross_linkage, now_iso)
+        canary_contract_rows = upsert_canary_contracts(con, canary_contract, now_iso)
         simulation_rows = dry_run_rows + outcome_rows
         run_id = "POLYHIST-" + utc_now().strftime("%Y%m%d-%H%M%S")
         con.execute(
@@ -1216,8 +1369,9 @@ def main() -> int:
                 run_id, generated_at, schema_version, db_path, source_files_json,
                 radar_rows, analysis_rows, simulation_rows, research_rows,
                 worker_rows, trend_rows, queue_rows, cross_linkage_rows,
+                canary_contract_rows,
                 wallet_write_allowed, order_send_allowed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 run_id,
@@ -1233,6 +1387,7 @@ def main() -> int:
                 trend_rows,
                 queue_rows,
                 cross_linkage_rows,
+                canary_contract_rows,
             ),
         )
         con.commit()

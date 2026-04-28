@@ -14,6 +14,7 @@ const polymarketRadarWorkerName = 'QuantGod_PolymarketRadarWorkerV2.json';
 const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
 const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.json';
+const polymarketCanaryExecutorContractName = 'QuantGod_PolymarketCanaryExecutorContract.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
@@ -28,6 +29,7 @@ const polymarketHistoryTables = new Set([
   'worker-trends',
   'worker-queue',
   'cross-linkage',
+  'canary-contracts',
 ]);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
@@ -36,7 +38,8 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarWorkerName,
   polymarketAiScoreName,
   polymarketSingleMarketAnalysisName,
-  polymarketCrossMarketLinkageName
+  polymarketCrossMarketLinkageName,
+  polymarketCanaryExecutorContractName
 ]);
 
 const contentTypes = {
@@ -639,6 +642,43 @@ function compactCrossLinkageResult(item = {}, generatedAt = '') {
   };
 }
 
+function compactCanaryContractResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'canary-contract',
+    sourceLabel: 'Canary 契约',
+    title: firstDefined(item.question, item.marketId, item.canaryContractId, '--'),
+    subtitle: firstDefined(item.canaryState, item.track, item.side),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, generatedAt),
+    risk: firstDefined(item.crossRiskTag, item.macroRiskState, item.aiColor),
+    recommendation: firstDefined(item.decision, item.canaryState, 'CANARY_CONTRACT_ONLY_NO_WALLET_WRITE'),
+    track: firstDefined(item.track),
+    probability: null,
+    divergence: null,
+    score: numericScore(item.aiScore, item.sourceScore),
+    detail: {
+      historyType: 'canary-contracts',
+      rawType: 'canary-contract',
+      canaryContractId: firstDefined(item.canaryContractId),
+      canaryEligibleNow: firstDefined(item.canaryEligibleNow),
+      referenceStakeUSDC: firstDefined(item.referenceStakeUSDC),
+      canaryStakeUSDC: firstDefined(item.canaryStakeUSDC),
+      maxSingleBetUSDC: firstDefined(item.maxSingleBetUSDC),
+      maxDailyLossUSDC: firstDefined(item.maxDailyLossUSDC),
+      takeProfitPct: firstDefined(item.takeProfitPct),
+      stopLossPct: firstDefined(item.stopLossPct),
+      trailingProfitPct: firstDefined(item.trailingProfitPct),
+      dryRunState: firstDefined(item.dryRunState),
+      outcomeState: firstDefined(item.outcomeState),
+      blockers: firstDefined(item.blockers, item.blockersJson),
+      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.orderSendAllowed),
+      startsExecutor: firstDefined(item.startsExecutor)
+    }
+  };
+}
+
 function isWorkerHistoryType(historyType = '') {
   return ['worker-runs', 'worker-trends', 'worker-queue'].includes(String(historyType || '').trim());
 }
@@ -651,12 +691,17 @@ function isCrossLinkageHistoryRow(row = {}) {
   return String(row.historyType || '').trim() === 'cross-linkage';
 }
 
+function isCanaryContractHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'canary-contracts';
+}
+
 function getHistorySourceLabel(historyType = '') {
   const normalized = String(historyType || '').trim();
   if (normalized === 'worker-runs') return 'Worker 批次';
   if (normalized === 'worker-trends') return '趋势缓存';
   if (normalized === 'worker-queue') return '雷达队列';
   if (normalized === 'cross-linkage') return '跨市场联动';
+  if (normalized === 'canary-contracts') return 'Canary 契约';
   if (normalized === 'opportunities') return '机会历史';
   if (normalized === 'analyses') return '分析历史';
   if (normalized === 'simulations') return '模拟历史';
@@ -669,6 +714,7 @@ function compactHistoryResult(row = {}) {
   const historyType = firstDefined(row.historyType, 'history');
   const workerRow = isWorkerHistoryType(historyType);
   const crossRow = isCrossLinkageHistoryRow(row);
+  const canaryRow = isCanaryContractHistoryRow(row);
   const workerSubtitle = firstDefined(
     row.nextAction,
     row.queueState,
@@ -678,31 +724,35 @@ function compactHistoryResult(row = {}) {
     row.schemaVersion
   );
   return {
-    sourceType: workerRow || crossRow ? historyType : firstDefined(row.historyType, 'history'),
+    sourceType: workerRow || crossRow || canaryRow ? historyType : firstDefined(row.historyType, 'history'),
     sourceLabel: getHistorySourceLabel(historyType),
     title: firstDefined(row.question, row.query, row.topMarket, row.marketId, row.runId, row.mode, '--'),
     subtitle: crossRow
       ? firstDefined(row.primaryRiskTag, row.macroRiskState, row.category)
+      : canaryRow
+      ? firstDefined(row.canaryState, row.track, row.side)
       : workerRow
       ? workerSubtitle
       : firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
     marketId: firstDefined(row.marketId),
     url: firstDefined(row.polymarketUrl, row.url),
     generatedAt: firstDefined(row.generatedAt, row.seenAt, row.lastSeenAt, row.firstSeenAt),
-    risk: firstDefined(row.risk, row.topRisk, row.macroRiskState),
+    risk: firstDefined(row.risk, row.topRisk, row.crossRiskTag, row.macroRiskState, row.aiColor),
     recommendation: crossRow
       ? firstDefined(row.primaryRiskTag, row.macroRiskState, 'AWARENESS_ONLY')
+      : canaryRow
+      ? firstDefined(row.decision, row.canaryState, 'CANARY_CONTRACT_ONLY_NO_WALLET_WRITE')
       : workerRow
       ? firstDefined(row.nextAction, row.queueState, row.status, row.decision, 'WORKER_EVIDENCE')
       : firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
     track: firstDefined(row.suggestedShadowTrack, row.track, row.source),
     probability: firstDefined(row.probability, row.marketProbability, row.lastProbability),
     divergence: firstDefined(row.divergence, row.probabilityDelta),
-    score: numericScore(row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.executedPf),
+    score: numericScore(row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.aiScore, row.executedPf),
     detail: {
       historyType,
       source: firstDefined(row.source),
-      rawType: workerRow ? 'worker-history' : 'history',
+      rawType: workerRow ? 'worker-history' : (canaryRow ? 'canary-history' : 'history'),
       runId: firstDefined(row.runId),
       candidateId: firstDefined(row.candidateId),
       queueState: firstDefined(row.queueState),
@@ -724,7 +774,22 @@ function compactHistoryResult(row = {}) {
       linkedMt5Symbols: firstDefined(row.linkedMt5SymbolsJson),
       macroRiskState: firstDefined(row.macroRiskState),
       sourceTypes: firstDefined(row.sourceTypesJson),
-      mt5ExecutionAllowed: firstDefined(row.mt5ExecutionAllowed)
+      mt5ExecutionAllowed: firstDefined(row.mt5ExecutionAllowed),
+      canaryContractId: firstDefined(row.canaryContractId),
+      canaryEligibleNow: firstDefined(row.canaryEligibleNow),
+      referenceStakeUSDC: firstDefined(row.referenceStakeUSDC),
+      canaryStakeUSDC: firstDefined(row.canaryStakeUSDC),
+      maxSingleBetUSDC: firstDefined(row.maxSingleBetUSDC),
+      maxDailyLossUSDC: firstDefined(row.maxDailyLossUSDC),
+      takeProfitPct: firstDefined(row.takeProfitPct),
+      stopLossPct: firstDefined(row.stopLossPct),
+      trailingProfitPct: firstDefined(row.trailingProfitPct),
+      dryRunState: firstDefined(row.dryRunState),
+      outcomeState: firstDefined(row.outcomeState),
+      blockers: firstDefined(row.blockersJson),
+      walletWriteAllowed: firstDefined(row.walletWriteAllowed),
+      orderSendAllowed: firstDefined(row.orderSendAllowed),
+      startsExecutor: firstDefined(row.startsExecutor)
     }
   };
 }
@@ -1040,6 +1105,16 @@ async function handlePolymarketSearch(req, res) {
       errors.push({ source: 'cross-linkage', error: error.message || String(error) });
     }
 
+    let canaryContract = null;
+    let canaryContractPath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketCanaryExecutorContractName);
+      canaryContract = withServiceMeta(read.payload, '/api/polymarket/canary-executor-contract', read.filePath);
+      canaryContractPath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'canary-contract', error: error.message || String(error) });
+    }
+
     let latestAnalysis = null;
     let latestAnalysisPath = '';
     try {
@@ -1069,6 +1144,9 @@ async function handlePolymarketSearch(req, res) {
     const crossLinkageItems = Array.isArray(crossLinkage?.linkages)
       ? crossLinkage.linkages.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
       : [];
+    const canaryItems = Array.isArray(canaryContract?.candidateContracts)
+      ? canaryContract.candidateContracts.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : [];
 
     const historyPayload = historyResult.payload || {};
     const rawHistoryRows = query
@@ -1090,8 +1168,13 @@ async function handlePolymarketSearch(req, res) {
       : [
           ...(historyPayload.recent?.['cross-linkage'] || historyPayload.recent?.crossMarketLinkage || []),
         ].slice(0, limit);
+    const canaryRows = query
+      ? rawHistoryRows.filter(isCanaryContractHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['canary-contracts'] || historyPayload.recent?.canaryContracts || []),
+        ].slice(0, limit);
     const historyRows = query
-      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row)).slice(0, limit)
+      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row)).slice(0, limit)
       : rawHistoryRows;
     const analysisRows = normalizeAnalyzeHistoryRows(
       analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
@@ -1135,6 +1218,10 @@ async function handlePolymarketSearch(req, res) {
         ...crossLinkageItems.map((item) => compactCrossLinkageResult(item, crossLinkage?.generatedAt)),
         ...crossRows.slice(0, limit).map(compactHistoryResult)
       ].slice(0, limit),
+      canary: [
+        ...canaryItems.map((item) => compactCanaryContractResult(item, canaryContract?.generatedAt)),
+        ...canaryRows.slice(0, limit).map(compactHistoryResult)
+      ].slice(0, limit),
       history: historyRows.slice(0, limit).map(compactHistoryResult)
     };
     const rawSearchResults = sortSearchResults([
@@ -1143,12 +1230,13 @@ async function handlePolymarketSearch(req, res) {
       ...sections.analyses,
       ...sections.worker,
       ...sections.crossLinkage,
+      ...sections.canary,
       ...sections.history
     ]);
     const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
 
     sendJson(res, 200, {
-      mode: 'POLYMARKET_SEARCH_API_V3_WORKER_EVIDENCE_GROUPS',
+      mode: 'POLYMARKET_SEARCH_API_V4_CANARY_EVIDENCE_GROUPS',
       status: errors.length ? 'PARTIAL' : 'OK',
       generatedAt: new Date().toISOString(),
       source: 'quantgod_dashboard_local_api',
@@ -1164,6 +1252,7 @@ async function handlePolymarketSearch(req, res) {
         analysisMatches: sections.analyses.length,
         workerMatches: sections.worker.length,
         crossLinkageMatches: sections.crossLinkage.length,
+        canaryMatches: sections.canary.length,
         historyMatches: sections.history.length,
         historyTotalRows: historyPayload.summary?.totalRows || 0
       },
@@ -1175,6 +1264,7 @@ async function handlePolymarketSearch(req, res) {
         radarPath,
         aiScorePath,
         crossLinkagePath,
+        canaryContractPath,
         latestAnalysisPath,
         historyDatabase: historyPayload.database || null
       },
@@ -1304,6 +1394,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/cross-linkage') {
     handlePolymarketReadOnlyJson(req, res, polymarketCrossMarketLinkageName, '/api/polymarket/cross-linkage');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/canary-executor-contract') {
+    handlePolymarketReadOnlyJson(req, res, polymarketCanaryExecutorContractName, '/api/polymarket/canary-executor-contract');
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {

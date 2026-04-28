@@ -31,6 +31,8 @@ Dashboard/QuantGod_PolymarketAiScoreV1.json
 Dashboard/QuantGod_PolymarketAiScoreV1.csv
 Dashboard/QuantGod_PolymarketCrossMarketLinkage.json
 Dashboard/QuantGod_PolymarketCrossMarketLinkage.csv
+Dashboard/QuantGod_PolymarketCanaryExecutorContract.json
+Dashboard/QuantGod_PolymarketCanaryExecutorLedger.csv
 archive/backtests/runs/
 archive/param-lab/runs/
 archive/polymarket/history/
