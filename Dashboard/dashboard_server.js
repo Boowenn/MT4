@@ -14,8 +14,10 @@ const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
 const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
+const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
 const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
+const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
 const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
   polymarketAiScoreName,
@@ -345,6 +347,100 @@ async function handleMt5Readonly(req, res, endpoint) {
         orderSendAllowed: false,
         closeAllowed: false,
         cancelAllowed: false,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesMt5: false
+      }
+    });
+  }
+}
+
+function buildMt5SymbolRegistryArgs(endpoint, parsedUrl) {
+  const params = parsedUrl.searchParams;
+  const args = ['--endpoint', endpoint];
+  const symbol = cleanMt5ReadonlyParam(params.get('symbol') || params.get('canonical') || params.get('brokerSymbol') || '', 160);
+  const group = cleanMt5ReadonlyParam(params.get('group') || '*', 120) || '*';
+  const query = cleanMt5ReadonlyParam(params.get('q') || params.get('query') || '', 120);
+  const limit = clampMt5ReadonlyLimit(params.get('limit'), 2000, 5000);
+
+  if (symbol) args.push('--symbol', symbol);
+  args.push('--group', group);
+  if (query) args.push('--query', query);
+  args.push('--limit', String(limit));
+  return args;
+}
+
+async function handleMt5SymbolRegistry(req, res, endpoint) {
+  if (!mt5SymbolRegistryEndpoints.has(endpoint)) {
+    sendJson(res, 404, {
+      ok: false,
+      status: 'NOT_FOUND',
+      endpoint,
+      error: 'unsupported_mt5_symbol_registry_endpoint',
+      supportedEndpoints: Array.from(mt5SymbolRegistryEndpoints).sort(),
+      safety: {
+        readOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        symbolSelectAllowed: false,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesMt5: false
+      }
+    });
+    return;
+  }
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const result = await runJsonPython(mt5SymbolRegistryScript, buildMt5SymbolRegistryArgs(endpoint, parsed), 15000);
+    if (!result.ok) {
+      sendJson(res, 200, {
+        ok: false,
+        status: 'UNAVAILABLE',
+        endpoint,
+        error: result.stderr || result.reason || 'mt5_symbol_registry_failed',
+        detail: result,
+        safety: {
+          readOnly: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          symbolSelectAllowed: false,
+          credentialStorageAllowed: false,
+          livePresetMutationAllowed: false,
+          mutatesMt5: false
+        }
+      });
+      return;
+    }
+    const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    sendJson(res, 200, {
+      ...payload,
+      _api: {
+        service: 'quantgod_dashboard_mt5_symbol_registry',
+        endpoint: endpoint === 'resolve' ? '/api/mt5-symbol-registry/resolve' : '/api/mt5-symbol-registry',
+        script: mt5SymbolRegistryScript,
+        readOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        symbolSelectAllowed: false,
+        mutatesMt5: false
+      }
+    });
+  } catch (error) {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'UNAVAILABLE',
+      endpoint,
+      error: error.message || String(error),
+      safety: {
+        readOnly: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        symbolSelectAllowed: false,
         credentialStorageAllowed: false,
         livePresetMutationAllowed: false,
         mutatesMt5: false
@@ -1027,6 +1123,12 @@ const server = http.createServer((req, res) => {
     const pathPart = requestUrl.split('?')[0];
     const endpoint = pathPart === '/api/mt5-readonly' ? 'snapshot' : path.basename(pathPart);
     handleMt5Readonly(req, res, endpoint);
+    return;
+  }
+  if (req.method === 'GET' && (requestUrl.split('?')[0] === '/api/mt5-symbol-registry' || requestUrl.split('?')[0].startsWith('/api/mt5-symbol-registry/'))) {
+    const pathPart = requestUrl.split('?')[0];
+    const endpoint = pathPart === '/api/mt5-symbol-registry' ? 'registry' : path.basename(pathPart);
+    handleMt5SymbolRegistry(req, res, endpoint);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {

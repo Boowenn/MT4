@@ -7684,6 +7684,60 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel" style="margin-top: 1rem;">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">SR</div>
+                            MT5 品种映射
+                        </div>
+                        <span class="eval-summary" id="mt5SymbolRegistrySummary">等待 symbol registry</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="mt5-shadow-panel">
+                            <div class="mt5-shadow-meta" id="mt5SymbolRegistryMeta">
+                                将 HFM broker symbol 归一为 canonical symbol，供 Dashboard 和研究层复用；这里只读展示，不选择品种、不下单。
+                            </div>
+                            <div class="mt5-shadow-note" id="mt5SymbolRegistryPills">
+                                <span class="mt5-shadow-pill">symbolSelect=false</span>
+                                <span class="mt5-shadow-pill">read-only API</span>
+                            </div>
+                            <div class="mt5-shadow-metrics" id="mt5SymbolRegistryMetrics">
+                                <div class="mt5-shadow-metric">
+                                    <div class="mt5-shadow-metric-label">Registry</div>
+                                    <div class="mt5-shadow-metric-value">--</div>
+                                    <div class="mt5-shadow-metric-meta">等待 /api/mt5-symbol-registry</div>
+                                </div>
+                            </div>
+                            <div class="mt5-shadow-subpanel">
+                                <div class="mt5-shadow-subpanel-header">
+                                    <div class="mt5-shadow-subpanel-title">Broker → Canonical Mapping</div>
+                                    <div class="mt5-shadow-subpanel-meta" id="mt5SymbolRegistryTableMeta">等待映射</div>
+                                </div>
+                                <div class="mt5-shadow-subpanel-body">
+                                    <div class="table-wrapper" style="max-height: 360px; overflow-y: auto;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Canonical</th>
+                                                    <th>Broker</th>
+                                                    <th>资产类</th>
+                                                    <th>后缀</th>
+                                                    <th>交易规格</th>
+                                                    <th>路径</th>
+                                                    <th>状态</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="mt5SymbolRegistryBody">
+                                                <tr><td colspan="7" class="empty-state">等待 symbol registry</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-trades" data-nav-section="trades">
@@ -8278,6 +8332,7 @@ const POLYMARKET_ANALYZE_HISTORY_API_PATH = '/api/polymarket/analyze/history';
 const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
 const POLYMARKET_SEARCH_API_PATH = '/api/polymarket/search';
 const MT5_READONLY_SNAPSHOT_API_PATH = '/api/mt5-readonly/snapshot';
+const MT5_SYMBOL_REGISTRY_API_PATH = '/api/mt5-symbol-registry';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -9415,6 +9470,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null,
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
         mt5ReadOnlyBridge: baseData?.mt5ReadOnlyBridge || previousData?.mt5ReadOnlyBridge || null,
+        mt5SymbolRegistry: baseData?.mt5SymbolRegistry || previousData?.mt5SymbolRegistry || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
@@ -9616,6 +9672,17 @@ async function attachSupplementalData(baseData, previousData = null) {
     } catch (error) {
         data._mt5ReadOnlyBridgeError = true;
         console.warn('MT5 read-only bridge load failed.', error);
+    }
+
+    try {
+        const registryParams = new URLSearchParams();
+        registryParams.set('group', '*');
+        registryParams.set('limit', '2000');
+        data.mt5SymbolRegistry = await loadDashboardApiJson(`${MT5_SYMBOL_REGISTRY_API_PATH}?${registryParams.toString()}`);
+        data._mt5SymbolRegistryError = false;
+    } catch (error) {
+        data._mt5SymbolRegistryError = true;
+        console.warn('MT5 symbol registry load failed.', error);
     }
 
     try {
@@ -15909,6 +15976,7 @@ function updateDashboard() {
     updateResearchSuggestions(d);
     updateRegimeHeatmap(d);
     updateSidebarSummary(d);
+    updateMt5SymbolRegistryPanel(d);
     updateMt5ReadOnlyBridgePanel(d);
     updateMt5ShadowJournalPanel(d);
 
@@ -16086,6 +16154,156 @@ function updateStrategyCards(d) {
             }
         });
     });
+}
+
+function getMt5SymbolRegistryMappings(registry) {
+    return Array.isArray(registry?.mappings) ? registry.mappings : [];
+}
+
+function formatMt5AssetClassCounts(counts = {}) {
+    const entries = Object.entries(counts || {})
+        .filter(([, value]) => Number(value) > 0)
+        .sort((a, b) => Number(b[1]) - Number(a[1]));
+    return entries.length
+        ? entries.slice(0, 4).map(([key, value]) => `${key} ${value}`).join(' / ')
+        : '--';
+}
+
+function updateMt5SymbolRegistryPanel(d) {
+    const registry = d?.mt5SymbolRegistry || null;
+    const summaryEl = document.getElementById('mt5SymbolRegistrySummary');
+    const metaEl = document.getElementById('mt5SymbolRegistryMeta');
+    const pillsEl = document.getElementById('mt5SymbolRegistryPills');
+    const metricsEl = document.getElementById('mt5SymbolRegistryMetrics');
+    const tableMetaEl = document.getElementById('mt5SymbolRegistryTableMeta');
+    const bodyEl = document.getElementById('mt5SymbolRegistryBody');
+
+    if (!summaryEl || !metaEl || !pillsEl || !metricsEl || !tableMetaEl || !bodyEl) {
+        return;
+    }
+
+    const unavailableText = registry?.error || registry?.detail?.error || (d?._mt5SymbolRegistryError ? '本地 /api/mt5-symbol-registry 暂不可用' : '等待 /api/mt5-symbol-registry');
+    if (!registry || registry.ok === false) {
+        summaryEl.textContent = 'Symbol registry 不可用';
+        metaEl.textContent = unavailableText;
+        pillsEl.innerHTML = [
+            '<span class="mt5-shadow-pill">read-only</span>',
+            '<span class="mt5-shadow-pill">symbolSelect=false</span>',
+            '<span class="mt5-shadow-pill">no order/close/cancel</span>'
+        ].join('');
+        metricsEl.innerHTML = `
+            <div class="mt5-shadow-metric">
+                <div class="mt5-shadow-metric-label">Registry</div>
+                <div class="mt5-shadow-metric-value">UNAVAILABLE</div>
+                <div class="mt5-shadow-metric-meta">${escapeHtml(unavailableText)}</div>
+            </div>`;
+        tableMetaEl.textContent = '等待映射';
+        bodyEl.innerHTML = '<tr><td colspan="7" class="empty-state">MT5 symbol registry 暂不可用</td></tr>';
+        return;
+    }
+
+    const summary = registry.summary || {};
+    const mappings = getMt5SymbolRegistryMappings(registry);
+    const assetCounts = summary.assetClassCounts || {};
+    const suffixCounts = summary.brokerSuffixCounts || {};
+    const conflictCount = Number(summary.canonicalConflictCount || 0);
+    const total = Number(summary.totalSymbols || mappings.length || 0);
+    const visible = Number(summary.visibleSymbols || 0);
+    const selected = Number(summary.selectedSymbols || 0);
+    const sourceLabel = registry.source === 'live_mt5' ? 'Live MT5' : (registry.source || 'registry');
+
+    summaryEl.textContent = `${total} symbols | ${formatMt5AssetClassCounts(assetCounts)}`;
+    metaEl.textContent = `source=${sourceLabel} | group=${registry.group || '*'} | generated=${registry.generatedAtIso || '--'} | terminal=${registry.terminal?.name || '--'}`;
+
+    const suffixPreview = Object.entries(suffixCounts)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 4)
+        .map(([key, value]) => `${key} ${value}`)
+        .join(' / ') || '--';
+    pillsEl.innerHTML = [
+        '<span class="mt5-shadow-pill">READ_ONLY</span>',
+        '<span class="mt5-shadow-pill">symbolSelect=false</span>',
+        `<span class="mt5-shadow-pill">visible ${visible}</span>`,
+        `<span class="mt5-shadow-pill">selected ${selected}</span>`,
+        `<span class="mt5-shadow-pill">suffix ${escapeHtml(suffixPreview)}</span>`
+    ].join('');
+
+    const metrics = [
+        {
+            label: 'Total',
+            value: String(total),
+            meta: `${Number(summary.mappedSymbols || total || 0)} mapped`
+        },
+        {
+            label: 'Forex',
+            value: String(assetCounts.Forex || 0),
+            meta: 'currency pair prefix mapping'
+        },
+        {
+            label: 'Metals',
+            value: String(assetCounts.Metals || 0),
+            meta: 'XAU/XAG canonical mapping'
+        },
+        {
+            label: 'Visible / Selected',
+            value: `${visible}/${selected}`,
+            meta: 'read-only Market Watch state'
+        },
+        {
+            label: 'Conflicts',
+            value: String(conflictCount),
+            meta: conflictCount ? 'same canonical has multiple broker symbols' : 'no canonical duplicates'
+        },
+        {
+            label: 'API',
+            value: sourceLabel,
+            meta: registry._api?.endpoint || '/api/mt5-symbol-registry'
+        }
+    ];
+
+    metricsEl.innerHTML = metrics.map((item) => `
+        <div class="mt5-shadow-metric">
+            <div class="mt5-shadow-metric-label">${escapeHtml(item.label)}</div>
+            <div class="mt5-shadow-metric-value">${escapeHtml(item.value)}</div>
+            <div class="mt5-shadow-metric-meta">${escapeHtml(item.meta)}</div>
+        </div>
+    `).join('');
+
+    tableMetaEl.textContent = mappings.length
+        ? `显示 ${Math.min(mappings.length, 120)} / ${mappings.length} 条映射`
+        : '暂无映射';
+
+    if (!mappings.length) {
+        bodyEl.innerHTML = '<tr><td colspan="7" class="empty-state">MT5 没有返回可映射 symbols</td></tr>';
+        return;
+    }
+
+    bodyEl.innerHTML = mappings.slice(0, 120).map((row) => {
+        const specText = [
+            `digits ${row.digits ?? '--'}`,
+            `point ${row.point ?? '--'}`,
+            `vol ${formatLots(row.volumeMin)} / ${formatLots(row.volumeStep)}`
+        ].join(' · ');
+        const statusBadges = [
+            `<span class="table-badge ${row.visible ? 'status-live' : 'status-warn'}">${row.visible ? 'visible' : 'hidden'}</span>`,
+            row.selected ? '<span class="table-badge status-info">selected</span>' : '',
+            `<span class="table-badge status-muted">mode ${escapeHtml(row.tradeMode ?? '--')}</span>`
+        ].filter(Boolean).join(' ');
+        return `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(row.canonicalSymbol || '--')}</strong>
+                    <div style="margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: Inter, sans-serif;">${escapeHtml(row.baseCurrency || '--')} / ${escapeHtml(row.quoteCurrency || '--')}</div>
+                </td>
+                <td>${escapeHtml(row.brokerSymbol || '--')}</td>
+                <td>${escapeHtml(row.assetClass || '--')}</td>
+                <td>${escapeHtml(row.brokerSuffix || '(none)')}</td>
+                <td>${escapeHtml(specText)}</td>
+                <td>${escapeHtml(row.path || '--')}</td>
+                <td>${statusBadges}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function getMt5ReadonlyItems(block) {
