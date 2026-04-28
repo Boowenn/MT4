@@ -984,6 +984,30 @@
             font-size: 12px;
         }
 
+        .run-recovery-stack {
+            display: grid;
+            gap: 0.75rem;
+            min-width: 1180px;
+        }
+
+        .run-recovery-subtitle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.7rem;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 850;
+            padding: 0.45rem 0.55rem;
+            background: #f8fbff;
+            border: 1px solid #e2e8f0;
+            border-radius: 7px;
+        }
+
+        .run-recovery-risk-table table {
+            min-width: 1180px;
+        }
+
         .paramlab-command,
         .paramlab-path {
             display: block;
@@ -9292,6 +9316,78 @@ function runRecoveryActionText(action = '') {
     return mapping[action] || action || '--';
 }
 
+function getParamLabRunRecoveryDrilldown(d) {
+    const recovery = getParamLabRunRecovery(d);
+    const rows = Array.isArray(recovery?.candidateDrilldown) ? recovery.candidateDrilldown : [];
+    const filtered = isRouteStrategyFiltered()
+        ? rows.filter((row) => (row?.routeKey || row?.strategy) === routeStrategyFilter)
+        : rows;
+    return filtered.slice().sort((a, b) => Number(b?.riskScore || 0) - Number(a?.riskScore || 0));
+}
+
+function runRecoveryRiskText(level = '') {
+    const mapping = {
+        red: '红灯',
+        yellow: '黄灯',
+        green: '绿灯'
+    };
+    return mapping[level] || level || '--';
+}
+
+function runRecoveryRiskReasonText(reason = '') {
+    const mapping = {
+        malformed: '报告格式异常',
+        terminal_nonzero: 'terminal exit 非零',
+        missing_after_run: '运行后缺报告',
+        retry_budget_exhausted: '重试预算耗尽',
+        repeated_waiting_report: '多次等待报告',
+        within_retry_budget: '预算内'
+    };
+    return mapping[reason] || reason || '--';
+}
+
+function renderRunRecoveryCandidateRow(row) {
+    const failure = row?.failureReasons || {};
+    const route = row?.routeKey ? strategyShortLabel(row.routeKey) : '--';
+    const retryUsed = Number(row?.retryUsed || 0);
+    const retryBudget = Number(row?.retryBudget || 0);
+    const retryRemaining = Number(row?.retryRemaining || 0);
+    const riskTone = row?.riskTone || (row?.riskLevel === 'red' ? 'status-danger' : row?.riskLevel === 'yellow' ? 'status-warn' : 'status-live');
+    const failureText = [
+        `wait ${Number(failure.waiting_report || row?.waitingReportCount || 0)}`,
+        `missing ${Number(failure.report_missing_after_run || row?.reportMissingCount || 0)}`,
+        `malformed ${Number(failure.report_malformed || row?.reportMalformedCount || 0)}`,
+        `exit ${Number(failure.terminal_exit_nonzero || row?.terminalNonzeroCount || 0)}`
+    ].join(' · ');
+    return `<tr>
+        <td class="paramlab-route-cell">
+            <div class="paramlab-route-name">${escapeHtml(row?.candidateId || '--')}</div>
+            <div class="paramlab-route-sub">${escapeHtml(route)} · ${escapeHtml(row?.symbol || '--')} · ${escapeHtml(row?.timeframe || '--')}</div>
+        </td>
+        <td>
+            <span class="table-badge ${riskTone}">${escapeHtml(runRecoveryRiskText(row?.riskLevel))}</span>
+            <div class="paramlab-path">${escapeHtml(runRecoveryRiskReasonText(row?.riskReason))}</div>
+        </td>
+        <td>
+            <div class="paramlab-metric-strip">
+                ${renderParamLabMetricChip('Attempts', String(row?.attemptCount ?? 0))}
+                ${renderParamLabMetricChip('Retry', `${retryUsed}/${retryBudget}`)}
+                ${renderParamLabMetricChip('Remain', String(retryRemaining))}
+                ${renderParamLabMetricChip('Parsed', String(row?.reportParsedCount ?? 0))}
+            </div>
+        </td>
+        <td>
+            <span class="paramlab-path">${escapeHtml(failureText)}</span>
+            <span class="paramlab-path">latest: ${escapeHtml(row?.latestRunId || '--')} / ${escapeHtml(row?.latestState || '--')}</span>
+        </td>
+        <td>
+            <span class="paramlab-path">${escapeHtml(row?.latestRecoveryAction || '--')}</span>
+            <span class="paramlab-path">report: ${escapeHtml(row?.latestReportPath || '--')}</span>
+            <div class="governance-feedback-actions">${renderCopyButton(row?.latestReportPath || '', '复制 report', '无 report 路径')}</div>
+        </td>
+    </tr>`;
+}
+
 function renderParamLabRunRecoveryRow(row) {
     const state = runRecoveryTone(row);
     const routeText = Array.isArray(row?.routeKeys) && row.routeKeys.length
@@ -9356,26 +9452,64 @@ function updateParamLabRunRecoveryPanel(d) {
     }
 
     const summary = recovery.summary || recovery;
+    const drilldownRows = getParamLabRunRecoveryDrilldown(d);
     const routeLabel = isRouteStrategyFiltered() ? strategyLabel(routeStrategyFilter) : '全部路线';
     const runCount = Number(summary.runCount || rows.length || 0);
     const missing = Number(summary.reportMissingCount || 0);
     const malformed = Number(summary.reportMalformedCount || 0);
     const recoveryQueue = Number(summary.recoveryQueueCount || 0);
-    summaryEl.textContent = `${routeLabel} | runs ${rows.length}/${runCount} | recovery ${recoveryQueue}`;
-    metaEl.textContent = `Mode ${recovery.mode || 'FILE_ONLY_RUN_HISTORY_RECOVERY'} · latest ${summary.latestRunId || '--'} / ${runRecoveryStopText(summary.latestStopReason)} · 生成 ${recovery.generatedAtIso || '--'}。`;
+    const red = Number(summary.riskRedCount || drilldownRows.filter((row) => row.riskLevel === 'red').length || 0);
+    const yellow = Number(summary.riskYellowCount || drilldownRows.filter((row) => row.riskLevel === 'yellow').length || 0);
+    const green = Number(summary.riskGreenCount || drilldownRows.filter((row) => row.riskLevel === 'green').length || 0);
+    const retryBudget = Number(summary.retryBudget || 0);
+    summaryEl.textContent = `${routeLabel} | runs ${rows.length}/${runCount} | risk ${red}/${yellow}/${green}`;
+    metaEl.textContent = `Mode ${recovery.mode || 'FILE_ONLY_RUN_HISTORY_RECOVERY'} · latest ${summary.latestRunId || '--'} / ${runRecoveryStopText(summary.latestStopReason)} · retry budget ${retryBudget || '--'} · 生成 ${recovery.generatedAtIso || '--'}。`;
     countersEl.innerHTML = [
         `<span class="table-badge status-muted">config ${Number(summary.configOnlyCount || 0)}</span>`,
         `<span class="table-badge status-info">attempted ${Number(summary.runAttemptedCount || 0)}</span>`,
         `<span class="table-badge ${missing ? 'status-warn' : 'status-live'}">missing ${missing}</span>`,
-        `<span class="table-badge ${malformed ? 'status-danger' : 'status-live'}">malformed ${malformed}</span>`
+        `<span class="table-badge ${malformed ? 'status-danger' : 'status-live'}">malformed ${malformed}</span>`,
+        `<span class="table-badge ${red ? 'status-danger' : 'status-live'}">red ${red}</span>`,
+        `<span class="table-badge ${yellow ? 'status-warn' : 'status-live'}">yellow ${yellow}</span>`
     ].join('');
 
-    if (!rows.length) {
+    if (!rows.length && !drilldownRows.length) {
         bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(routeLabel)} 当前没有 Run Recovery 记录；先生成 ParamLab config-only 队列后会出现 runId。</div>`;
         return;
     }
 
-    bodyEl.innerHTML = `<table>
+    const drilldownTable = drilldownRows.length ? `<div class="run-recovery-risk-table">
+        <div class="run-recovery-subtitle">
+            <span>Retry Budget / Failure Reason Drilldown</span>
+            <span>按 candidate 聚合等待报告、缺报告、malformed 和 terminal exit 风险</span>
+        </div>
+        <table>
+            <colgroup>
+                <col style="width: 26%;">
+                <col style="width: 12%;">
+                <col style="width: 22%;">
+                <col style="width: 18%;">
+                <col style="width: 22%;">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>candidate</th>
+                    <th>风险</th>
+                    <th>重试预算</th>
+                    <th>失败原因</th>
+                    <th>恢复动作</th>
+                </tr>
+            </thead>
+            <tbody>${drilldownRows.slice(0, 30).map(renderRunRecoveryCandidateRow).join('')}</tbody>
+        </table>
+    </div>` : '';
+
+    const runHistoryTable = rows.length ? `<div>
+        <div class="run-recovery-subtitle">
+            <span>Guarded Run History</span>
+            <span>每次 runId 的 terminal exit、报告状态和停止原因</span>
+        </div>
+        <table>
         <colgroup>
             <col style="width: 20%;">
             <col style="width: 16%;">
@@ -9393,7 +9527,10 @@ function updateParamLabRunRecoveryPanel(d) {
             </tr>
         </thead>
         <tbody>${rows.slice(0, 30).map(renderParamLabRunRecoveryRow).join('')}</tbody>
-    </table>`;
+        </table>
+    </div>` : '';
+
+    bodyEl.innerHTML = `<div class="run-recovery-stack">${drilldownTable}${runHistoryTable}</div>`;
 }
 
 function getParamLabReportWatcherRows(d) {

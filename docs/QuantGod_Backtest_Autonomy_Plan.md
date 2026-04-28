@@ -18,7 +18,7 @@ Implemented:
 - Version Promotion Gate dry-run: writes `QuantGod_VersionPromotionGate.json` and `QuantGod_VersionPromotionGateLedger.csv`, judging each current route version and optimizer proposal by `versionId` without changing live switches.
 - ParamLab Auto Scheduler config-only: writes `QuantGod_ParamLabAutoScheduler.json` and `QuantGod_ParamLabAutoSchedulerLedger.csv`, translating Gate `WAIT_REPORT`, `RETUNE`, and `WAIT_FORWARD` evidence into the next route-balanced tester-only queue without adding `-RunTerminal`.
 - AUTO_TESTER_WINDOW guarded execution layer: writes `QuantGod_AutoTesterWindow.json` and `QuantGod_AutoTesterWindowLedger.csv`; default mode is evaluation-only, and run-terminal execution is blocked unless the Strategy Tester window, authorization lock, tester-only queue, HFM terminal/profile target, ParamLab config, report path, lot size, and position caps all pass.
-- ParamLab Run History / Recovery: writes `QuantGod_ParamLabRunRecovery.json` and `QuantGod_ParamLabRunRecoveryLedger.csv`, summarizing each guarded/config run by runId, terminal exit code, report missing/parsed/malformed state, retry count, stop reason, and next recovery action.
+- ParamLab Run History / Recovery: writes `QuantGod_ParamLabRunRecovery.json`, `QuantGod_ParamLabRunRecoveryLedger.csv`, and `QuantGod_ParamLabRunRecoveryDrilldown.csv`, summarizing each guarded/config run by runId, terminal exit code, report missing/parsed/malformed state, retry count, stop reason, and next recovery action, then aggregating each candidate into a red/yellow/green retry-budget and failure-reason drilldown.
 
 Current live-trading boundary:
 
@@ -89,8 +89,8 @@ Remaining recovery work:
 
 - Poll continuously during authorized tester windows instead of running as a one-shot builder.
 - Detect terminal timeout separately from tester failure.
-- Requeue retryable failures with a cap.
-- Run history and dashboard recovery visibility are now implemented; retry/budget policy still needs a capped executor layer before unattended reruns.
+- Requeue retryable failures with an executor-level cap.
+- Run history, dashboard recovery visibility, and candidate retry-budget drilldown are now implemented; the remaining gap is wiring the drilldown into the guarded executor so red candidates cannot consume unattended reruns.
 
 ### 3. Backtest Budget and Experiment Control
 
@@ -187,4 +187,4 @@ The recommended target is:
 
 ## Immediate Next Step
 
-Build the run-history / recovery layer next. Auto Scheduler chooses the next tester-only batch, AUTO_TESTER_WINDOW now gates whether it may run, and Report Watcher discovers/report-scores landed tester reports. The remaining gap for comfortable full automation is transparent run history plus retry/budget controls, not live-risk expansion.
+Use the run-history / recovery drilldown to drive the next retry policy. Auto Scheduler chooses the next tester-only batch, AUTO_TESTER_WINDOW gates whether it may run, Report Watcher discovers/report-scores landed tester reports, and Run Recovery now shows red/yellow/green candidate risk. The remaining gap for comfortable full automation is executor-level retry enforcement, not live-risk expansion.

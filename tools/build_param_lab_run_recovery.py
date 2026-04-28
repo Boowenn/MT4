@@ -26,6 +26,8 @@ WATCHER_NAME = "QuantGod_ParamLabReportWatcher.json"
 AUTO_TESTER_WINDOW_NAME = "QuantGod_AutoTesterWindow.json"
 OUTPUT_NAME = "QuantGod_ParamLabRunRecovery.json"
 LEDGER_NAME = "QuantGod_ParamLabRunRecoveryLedger.csv"
+DRILLDOWN_LEDGER_NAME = "QuantGod_ParamLabRunRecoveryDrilldown.csv"
+DEFAULT_RETRY_BUDGET = 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,6 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--archive-root", default="")
     parser.add_argument("--output", default="")
     parser.add_argument("--ledger", default="")
+    parser.add_argument("--drilldown-ledger", default="")
+    parser.add_argument("--retry-budget", type=int, default=DEFAULT_RETRY_BUDGET)
     return parser.parse_args()
 
 
@@ -288,12 +292,149 @@ def build_run_rows(
     return sorted(rows, key=lambda item: str(item.get("runId")), reverse=True)
 
 
+def report_state_for_run_task(task: dict[str, Any], result: dict[str, Any], run_terminal: bool) -> str:
+    if not run_terminal and str(task.get("status") or "").upper() == "CONFIG_READY":
+        return "waiting_report"
+    state = report_state_from_task(task, result)
+    if state == "pending":
+        return "waiting_report"
+    return state
+
+
+def failure_reason_counts(row: dict[str, Any]) -> dict[str, int]:
+    return {
+        "waiting_report": int(row.get("waitingReportCount") or 0),
+        "report_missing_after_run": int(row.get("reportMissingCount") or 0),
+        "report_malformed": int(row.get("reportMalformedCount") or 0),
+        "terminal_exit_nonzero": int(row.get("terminalNonzeroCount") or 0),
+        "parsed": int(row.get("reportParsedCount") or 0),
+    }
+
+
+def risk_for_candidate(row: dict[str, Any], retry_budget: int) -> tuple[str, str, int, str]:
+    retry_used = int(row.get("retryUsed") or 0)
+    waiting = int(row.get("waitingReportCount") or 0)
+    missing = int(row.get("reportMissingCount") or 0)
+    malformed = int(row.get("reportMalformedCount") or 0)
+    nonzero = int(row.get("terminalNonzeroCount") or 0)
+    parsed = int(row.get("reportParsedCount") or 0)
+    budget_exhausted = retry_used >= retry_budget and parsed == 0
+    if malformed or nonzero or missing or budget_exhausted:
+        reason = "malformed" if malformed else "terminal_nonzero" if nonzero else "missing_after_run" if missing else "retry_budget_exhausted"
+        score = 100 + malformed * 20 + nonzero * 15 + missing * 12 + max(0, retry_used - retry_budget + 1) * 10
+        return "red", "status-danger", score, reason
+    if waiting >= 2 or retry_used > 0:
+        score = 50 + waiting * 5 + retry_used * 4
+        return "yellow", "status-warn", score, "repeated_waiting_report"
+    return "green", "status-live", 10 + parsed, "within_retry_budget"
+
+
+def recovery_advice_for_candidate(row: dict[str, Any], risk_reason: str) -> str:
+    mapping = {
+        "malformed": "Open report, fix parser mapping, then rerun watcher before another tester run.",
+        "terminal_nonzero": "Inspect terminal/tester logs and profile sync before consuming another retry.",
+        "missing_after_run": "Verify reportPath and Strategy Tester output folder, then rerun watcher once.",
+        "retry_budget_exhausted": "Pause automatic reruns; inspect config/report paths and candidate parameters first.",
+        "repeated_waiting_report": "Keep queued, but prioritize only after authorized tester window and lock are green.",
+        "within_retry_budget": "Low recovery risk; keep in queue or score if parsed.",
+    }
+    if int(row.get("reportParsedCount") or 0) and risk_reason == "within_retry_budget":
+        return "Parsed report exists; hand to Score and Version Gate."
+    return mapping.get(risk_reason, "Review candidate recovery state before rerun.")
+
+
+def build_candidate_drilldown(
+    statuses: list[dict[str, Any]],
+    result_index: dict[tuple[str, str], dict[str, Any]],
+    retry_budget: int,
+) -> list[dict[str, Any]]:
+    candidates: dict[str, dict[str, Any]] = {}
+    sorted_statuses = sorted(statuses, key=lambda item: str(item.get("runId") or item.get("generatedAtIso") or ""))
+    for status in sorted_statuses:
+        run_id = str(status.get("runId") or status.get("generatedAtIso") or "unknown_run")
+        run_terminal = bool(status.get("runTerminal"))
+        status_path = str(status.get("_statusPath") or "")
+        generated_at = str(status.get("generatedAtIso") or "")
+        for raw_task in safe_list(status.get("tasks")):
+            task = safe_dict(raw_task)
+            candidate_id = str(task.get("candidateId") or "")
+            if not candidate_id:
+                continue
+            result = result_index.get((run_id, candidate_id), {})
+            route_key = str(task.get("routeKey") or result.get("routeKey") or task.get("strategy") or "")
+            row = candidates.setdefault(candidate_id, {
+                "candidateId": candidate_id,
+                "routeKey": route_key,
+                "symbol": str(task.get("symbol") or result.get("symbol") or ""),
+                "timeframe": str(task.get("timeframe") or result.get("timeframe") or ""),
+                "variant": str(task.get("variant") or result.get("variant") or ""),
+                "attemptCount": 0,
+                "runIds": [],
+                "reportParsedCount": 0,
+                "waitingReportCount": 0,
+                "reportMissingCount": 0,
+                "reportMalformedCount": 0,
+                "terminalNonzeroCount": 0,
+                "terminalExitCodes": [],
+                "latestRunId": "",
+                "latestGeneratedAtIso": "",
+                "latestStatusPath": "",
+                "latestReportPath": "",
+                "latestState": "",
+                "latestStopReason": "",
+                "latestRecoveryAction": "",
+            })
+            if route_key:
+                row["routeKey"] = route_key
+            row["attemptCount"] += 1
+            row["runIds"].append(run_id)
+            row["latestRunId"] = run_id
+            row["latestGeneratedAtIso"] = generated_at
+            row["latestStatusPath"] = status_path
+            row["latestReportPath"] = str(task.get("reportPath") or result.get("reportPath") or row.get("latestReportPath") or "")
+
+            terminal_code = task.get("terminalExitCode")
+            if terminal_code not in (None, ""):
+                row["terminalExitCodes"].append(terminal_code)
+                if terminal_code not in (0, "0"):
+                    row["terminalNonzeroCount"] += 1
+
+            state = report_state_for_run_task(task, result, run_terminal)
+            row["latestState"] = state
+            if state == "parsed":
+                row["reportParsedCount"] += 1
+            elif state == "missing":
+                row["reportMissingCount"] += 1
+            elif state == "malformed":
+                row["reportMalformedCount"] += 1
+            else:
+                row["waitingReportCount"] += 1
+
+    normalized: list[dict[str, Any]] = []
+    for row in candidates.values():
+        row["retryBudget"] = retry_budget
+        row["retryUsed"] = max(0, int(row.get("attemptCount") or 0) - 1)
+        row["retryRemaining"] = max(0, retry_budget - int(row["retryUsed"]))
+        risk_level, risk_tone, risk_score, risk_reason = risk_for_candidate(row, retry_budget)
+        row["riskLevel"] = risk_level
+        row["riskTone"] = risk_tone
+        row["riskScore"] = risk_score
+        row["riskReason"] = risk_reason
+        row["failureReasons"] = failure_reason_counts(row)
+        row["latestStopReason"] = risk_reason
+        row["latestRecoveryAction"] = recovery_advice_for_candidate(row, risk_reason)
+        normalized.append(row)
+    return sorted(normalized, key=lambda item: (-int(item.get("riskScore") or 0), str(item.get("candidateId") or "")))
+
+
 def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
     repo_root = Path(args.repo_root)
     runtime_dir = Path(args.runtime_dir)
     archive_root = Path(args.archive_root) if args.archive_root else repo_root / "archive" / "param-lab" / "runs"
     output_path = Path(args.output) if args.output else runtime_dir / OUTPUT_NAME
     ledger_path = Path(args.ledger) if args.ledger else runtime_dir / LEDGER_NAME
+    drilldown_ledger_path = Path(args.drilldown_ledger) if args.drilldown_ledger else runtime_dir / DRILLDOWN_LEDGER_NAME
+    retry_budget = max(1, int(args.retry_budget or DEFAULT_RETRY_BUDGET))
 
     auto_tester_window = read_json(runtime_dir / AUTO_TESTER_WINDOW_NAME)
     current_summary = safe_dict(auto_tester_window.get("summary"))
@@ -302,6 +443,7 @@ def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
     statuses = load_status_documents(runtime_dir / STATUS_NAME, archive_root)
     result_index = build_result_index(read_json(runtime_dir / RESULTS_NAME), read_json(runtime_dir / WATCHER_NAME))
     runs = build_run_rows(statuses, result_index, [str(item) for item in current_blockers])
+    candidate_drilldown = build_candidate_drilldown(statuses, result_index, retry_budget)
     recovery_queue = [
         row for row in runs
         if row.get("recoveryAction") not in {"SCORE_AND_VERSION_GATE"} or row.get("reportMalformedCount") or row.get("reportMissingCount")
@@ -318,6 +460,12 @@ def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
         "reportMalformedCount": sum(int(row.get("reportMalformedCount") or 0) for row in runs),
         "retryCount": sum(int(row.get("retryCount") or 0) for row in runs),
         "recoveryQueueCount": len(recovery_queue),
+        "candidateDrilldownCount": len(candidate_drilldown),
+        "riskRedCount": sum(1 for row in candidate_drilldown if row.get("riskLevel") == "red"),
+        "riskYellowCount": sum(1 for row in candidate_drilldown if row.get("riskLevel") == "yellow"),
+        "riskGreenCount": sum(1 for row in candidate_drilldown if row.get("riskLevel") == "green"),
+        "retryBudget": retry_budget,
+        "retryBudgetExhaustedCount": sum(1 for row in candidate_drilldown if int(row.get("retryRemaining") or 0) <= 0 and int(row.get("reportParsedCount") or 0) == 0),
         "latestRunId": runs[0]["runId"] if runs else "",
         "latestStopReason": runs[0]["stopReason"] if runs else "no_runs",
         "canRunTerminalNow": bool(current_summary.get("canRunTerminal")),
@@ -345,6 +493,7 @@ def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
             "blockers": current_blockers,
         },
         "runs": runs,
+        "candidateDrilldown": candidate_drilldown[:50],
         "recoveryQueue": recovery_queue[:25],
         "hardGuards": [
             "Run Recovery is read-only and never launches MT5.",
@@ -353,6 +502,7 @@ def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
             "Retry advice is advisory; run-terminal execution still requires AUTO_TESTER_WINDOW lock/window/profile/config validation.",
         ],
         "nextOperatorSteps": [
+            "Use candidateDrilldown red/yellow/green risk before consuming more tester retries.",
             "Clear AUTO_TESTER_WINDOW blockers before any guarded run-terminal attempt.",
             "If terminal exit is non-zero, inspect HFM terminal/tester logs before retry.",
             "If reports are missing, verify reportPath under archive/param-lab/runs and rerun the watcher.",
@@ -401,13 +551,68 @@ def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
             "StatusPath",
         ],
     )
+    write_csv(
+        drilldown_ledger_path,
+        [
+            {
+                "GeneratedAtIso": generated_at,
+                "CandidateId": row.get("candidateId", ""),
+                "Route": row.get("routeKey", ""),
+                "Symbol": row.get("symbol", ""),
+                "Timeframe": row.get("timeframe", ""),
+                "RiskLevel": row.get("riskLevel", ""),
+                "RiskReason": row.get("riskReason", ""),
+                "RiskScore": row.get("riskScore", 0),
+                "AttemptCount": row.get("attemptCount", 0),
+                "RetryBudget": row.get("retryBudget", 0),
+                "RetryUsed": row.get("retryUsed", 0),
+                "RetryRemaining": row.get("retryRemaining", 0),
+                "WaitingReport": row.get("waitingReportCount", 0),
+                "MissingAfterRun": row.get("reportMissingCount", 0),
+                "Malformed": row.get("reportMalformedCount", 0),
+                "TerminalNonzero": row.get("terminalNonzeroCount", 0),
+                "Parsed": row.get("reportParsedCount", 0),
+                "LatestRunId": row.get("latestRunId", ""),
+                "LatestState": row.get("latestState", ""),
+                "LatestReportPath": row.get("latestReportPath", ""),
+                "RecoveryAction": row.get("latestRecoveryAction", ""),
+            }
+            for row in candidate_drilldown
+        ],
+        [
+            "GeneratedAtIso",
+            "CandidateId",
+            "Route",
+            "Symbol",
+            "Timeframe",
+            "RiskLevel",
+            "RiskReason",
+            "RiskScore",
+            "AttemptCount",
+            "RetryBudget",
+            "RetryUsed",
+            "RetryRemaining",
+            "WaitingReport",
+            "MissingAfterRun",
+            "Malformed",
+            "TerminalNonzero",
+            "Parsed",
+            "LatestRunId",
+            "LatestState",
+            "LatestReportPath",
+            "RecoveryAction",
+        ],
+    )
     print(f"Wrote {output_path}")
     print(f"Wrote {ledger_path}")
+    print(f"Wrote {drilldown_ledger_path}")
     print(
         "Run Recovery: "
         f"runs={summary['runCount']} attempted={summary['runAttemptedCount']} "
         f"missing={summary['reportMissingCount']} parsed={summary['reportParsedCount']} "
-        f"malformed={summary['reportMalformedCount']} latest={summary['latestStopReason']}"
+        f"malformed={summary['reportMalformedCount']} "
+        f"risk(red/yellow/green)={summary['riskRedCount']}/{summary['riskYellowCount']}/{summary['riskGreenCount']} "
+        f"latest={summary['latestStopReason']}"
     )
     return output
 

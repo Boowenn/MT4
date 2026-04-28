@@ -685,6 +685,12 @@ def summarize_param_lab_run_recovery(recovery: dict[str, Any]) -> dict[str, Any]
             "reportMalformedCount": 0,
             "retryCount": 0,
             "recoveryQueueCount": 0,
+            "candidateDrilldownCount": 0,
+            "riskRedCount": 0,
+            "riskYellowCount": 0,
+            "riskGreenCount": 0,
+            "retryBudget": 0,
+            "retryBudgetExhaustedCount": 0,
             "latestRunId": "",
             "latestStopReason": "missing",
             "canRunTerminalNow": False,
@@ -693,6 +699,7 @@ def summarize_param_lab_run_recovery(recovery: dict[str, Any]) -> dict[str, Any]
             "livePresetMutation": False,
             "runs": [],
             "recoveryQueue": [],
+            "candidateDrilldown": [],
         }
     summary = recovery.get("summary") if isinstance(recovery.get("summary"), dict) else {}
     return {
@@ -708,6 +715,12 @@ def summarize_param_lab_run_recovery(recovery: dict[str, Any]) -> dict[str, Any]
         "reportMalformedCount": int(summary.get("reportMalformedCount") or 0),
         "retryCount": int(summary.get("retryCount") or 0),
         "recoveryQueueCount": int(summary.get("recoveryQueueCount") or 0),
+        "candidateDrilldownCount": int(summary.get("candidateDrilldownCount") or 0),
+        "riskRedCount": int(summary.get("riskRedCount") or 0),
+        "riskYellowCount": int(summary.get("riskYellowCount") or 0),
+        "riskGreenCount": int(summary.get("riskGreenCount") or 0),
+        "retryBudget": int(summary.get("retryBudget") or 0),
+        "retryBudgetExhaustedCount": int(summary.get("retryBudgetExhaustedCount") or 0),
         "latestRunId": str(summary.get("latestRunId") or ""),
         "latestStopReason": str(summary.get("latestStopReason") or ""),
         "canRunTerminalNow": bool(summary.get("canRunTerminalNow")),
@@ -717,6 +730,7 @@ def summarize_param_lab_run_recovery(recovery: dict[str, Any]) -> dict[str, Any]
         "currentGuard": recovery.get("currentGuard", {}) if isinstance(recovery.get("currentGuard"), dict) else {},
         "runs": recovery.get("runs") if isinstance(recovery.get("runs"), list) else [],
         "recoveryQueue": recovery.get("recoveryQueue") if isinstance(recovery.get("recoveryQueue"), list) else [],
+        "candidateDrilldown": recovery.get("candidateDrilldown") if isinstance(recovery.get("candidateDrilldown"), list) else [],
     }
 
 
@@ -1321,6 +1335,9 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramLabRunRecoveryRuns": param_lab_run_recovery["runCount"],
             "paramLabRunRecoveryQueue": param_lab_run_recovery["recoveryQueueCount"],
             "paramLabRunRecoveryLatestStop": param_lab_run_recovery["latestStopReason"],
+            "paramLabRunRecoveryRiskRed": param_lab_run_recovery["riskRedCount"],
+            "paramLabRunRecoveryRiskYellow": param_lab_run_recovery["riskYellowCount"],
+            "paramLabRunRecoveryRetryBudgetExhausted": param_lab_run_recovery["retryBudgetExhaustedCount"],
             "strategyVersionCount": strategy_version_registry["routeCount"],
             "optimizerV2Proposals": optimizer_v2["proposalCount"],
             "optimizerV2WaitingReport": optimizer_v2["waitingReportCount"],
@@ -1361,7 +1378,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "Use VersionPromotionGate as dry-run promotion/demotion review; it never mutates live switches by itself.",
             "Use ParamLabAutoScheduler as the config-only queue for the next tester-only batch; it never adds -RunTerminal.",
             "Use AUTO_TESTER_WINDOW as the only guarded run-terminal bridge; it requires the tester window, an authorization lock, tester-only queue, and profile/config validation.",
-            "Use ParamLabRunRecovery to inspect guarded-run history, report missing/parsed/malformed state, retry counts, and recovery actions before rerunning tasks.",
+            "Use ParamLabRunRecovery to inspect guarded-run history, report missing/parsed/malformed state, retry budget drilldown, and recovery actions before rerunning tasks.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }
