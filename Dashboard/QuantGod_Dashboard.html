@@ -6095,6 +6095,7 @@
         .polymarket-summary-grid,
         .polymarket-group-grid,
         .polymarket-radar-grid,
+        .polymarket-ai-score-grid,
         .polymarket-single-grid,
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
@@ -6112,6 +6113,10 @@
         }
 
         .polymarket-radar-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-ai-score-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6563,6 +6568,7 @@
         .polymarket-summary-grid,
         .polymarket-group-grid,
         .polymarket-radar-grid,
+        .polymarket-ai-score-grid,
         .polymarket-single-grid,
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
@@ -7273,6 +7279,21 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-mint);">AI</div>
+                            历史 AI 评分 V1
+                        </div>
+                        <span class="eval-summary" id="polymarketAiScoreSummary">等待 AI 评分</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-ai-score-grid" id="polymarketAiScoreBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketAiScoreV1.json`</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-polymarket-analysis" data-nav-section="polymarket-analysis">
@@ -7947,6 +7968,7 @@ const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.j
 const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
 const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
 const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
+const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -8945,7 +8967,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         polymarketExecutionGate: baseData?.polymarketExecutionGate || previousData?.polymarketExecutionGate || null,
         polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null,
         polymarketDryRunOutcomeWatcher: baseData?.polymarketDryRunOutcomeWatcher || previousData?.polymarketDryRunOutcomeWatcher || null,
-        polymarketHistoryDb: baseData?.polymarketHistoryDb || previousData?.polymarketHistoryDb || null
+        polymarketHistoryDb: baseData?.polymarketHistoryDb || previousData?.polymarketHistoryDb || null,
+        polymarketAiScore: baseData?.polymarketAiScore || previousData?.polymarketAiScore || null
     };
 
     if (!isLocalRuntime()) {
@@ -9193,6 +9216,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Polymarket history DB summary load failed.', error);
     }
 
+    try {
+        data.polymarketAiScore = await loadLocalJsonSupplement(LOCAL_POLYMARKET_AI_SCORE_PATH);
+        data._polymarketAiScoreError = false;
+    } catch (error) {
+        data._polymarketAiScoreError = true;
+        console.warn('Polymarket AI score load failed.', error);
+    }
+
     return data;
 }
 
@@ -9316,6 +9347,10 @@ function getPolymarketHistoryDb(d) {
     return d?.polymarketHistoryDb || null;
 }
 
+function getPolymarketAiScore(d) {
+    return d?.polymarketAiScore || null;
+}
+
 function getPolymarketTone(stats = {}) {
     const pnl = Number(stats.realizedPnl || 0);
     const pf = stats.profitFactor === null || stats.profitFactor === undefined ? null : Number(stats.profitFactor);
@@ -9386,6 +9421,23 @@ function translatePolymarketToken(value) {
         WOULD_EXIT_EXIT_BEFORE_RESOLUTION: '本应结算前退出',
         AMBIGUOUS_TP_SL_TRIGGER: '止盈止损触发顺序不确定',
         SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
+        AI_SCORE_ONLY_NO_BETTING: 'AI 评分只读：不下注',
+        AI_SCORE_ONLY_NO_WALLET_WRITE: 'AI 评分只读：不写钱包',
+        POLYMARKET_AI_SCORE_V1: '历史 AI 评分 V1',
+        SHADOW_REVIEW_PRIORITY: '优先进入影子复核',
+        WATCH_SHADOW_AND_COLLECT_OUTCOME: '继续影子观察并收集后验',
+        RETUNE_BEFORE_NEXT_BATCH: '下一批前先重调',
+        RETUNE_OR_IGNORE: '重调或忽略',
+        radar_score_strong: '雷达评分强',
+        liquidity_volume_strong: '成交量/流动性强',
+        divergence_large_enough_for_shadow: '偏离足够进入影子观察',
+        risk_low: '风险低',
+        single_analysis_confidence_high: '单市场分析信心高',
+        single_analysis_shadow_review_high_priority: '单市场建议高优先复核',
+        dry_run_outcome_missing: '缺少模拟后验',
+        gate_blocked_rows_present: '存在闸门阻断后验',
+        executed_pf_below_1: '实盘 PF 小于 1',
+        shadow_pf_below_1: '影子 PF 小于 1',
         RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING: '单市场研究：不下注',
         POLYMARKET_SINGLE_MARKET_AI_ANALYSIS_V1: '单市场 AI/规则分析 V1',
         RULE_PROXY_NO_LLM: '规则代理评分，未接 LLM',
@@ -9405,6 +9457,9 @@ function translatePolymarketToken(value) {
         low: '低',
         medium: '中',
         high: '高',
+        green: '绿灯',
+        yellow: '黄灯',
+        red: '红灯',
         probability_missing: '缺少概率',
         price_extreme: '赔率过极端',
         volume_below_floor: '成交量不足',
@@ -9430,8 +9485,17 @@ function translatePolymarketToken(value) {
         shadow_recovery_negative: '影子恢复样本仍为负',
         shadow_profit_factor_below_1: '影子 PF 小于 1',
         account_cash_below_bankroll: '账户现金低于预算',
+        shadow_realized_pnl_negative: '影子收益为负',
+        single_analysis_missing: '缺少单市场分析',
+        single_analysis_neutral: '单市场分析中性',
         live_canary_disabled: 'live canary 仍关闭',
     };
+    if (text.startsWith('dry_run_rows_')) {
+        return `模拟后验 ${text.replace('dry_run_rows_', '')} 条`;
+    }
+    if (text.startsWith('single_analysis_risk_')) {
+        return `单市场风险 ${translatePolymarketToken(text.replace('single_analysis_risk_', ''))}`;
+    }
     return map[text] || text || '--';
 }
 
@@ -9521,6 +9585,92 @@ function updatePolymarketMarketRadar(d) {
         boundaryCard,
         ...items.slice(0, 8).map(renderPolymarketRadarCard),
     ].join('') || '<div class="empty-state">公共市场扫描暂无可展示市场。</div>';
+}
+
+function getPolymarketAiScoreTone(color) {
+    const normalized = String(color || '').toLowerCase();
+    if (normalized === 'green') return 'good';
+    if (normalized === 'red') return 'danger';
+    if (normalized === 'yellow') return 'watch';
+    return 'watch';
+}
+
+function formatPolymarketScore(value) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num.toFixed(1) : '--';
+}
+
+function renderPolymarketAiScoreCard(item = {}) {
+    const tone = getPolymarketAiScoreTone(item.color);
+    const components = item.components || {};
+    const componentLine = [
+        `雷达 ${formatPolymarketScore(components.radarScore)}`,
+        `流动性 ${formatPolymarketScore(components.liquidityScore)}`,
+        `偏离 ${formatPolymarketScore(components.divergenceScore)}`,
+        `后验 ${formatPolymarketScore(components.outcomeScore)}`,
+        `全局 ${formatPolymarketScore(components.globalPenalty)}`,
+    ].join(' · ');
+    const probability = item.probability === null || item.probability === undefined
+        ? '--'
+        : `${Number(item.probability).toFixed(1)}%`;
+    const reasons = translatePolymarketList(item.reasons, 6);
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(item.executionMode || 'AI_SCORE_ONLY_NO_WALLET_WRITE'))}</div>
+            <div class="polymarket-title">${escapeHtml(item.question || item.eventTitle || item.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('AI 分', formatPolymarketScore(item.score))}
+                ${renderPolymarketMetric('颜色', translatePolymarketToken(item.color || '--'))}
+                ${renderPolymarketMetric('概率', probability)}
+                ${renderPolymarketMetric('偏离', formatPolymarketSignedPp(item.divergence))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">${escapeHtml(translatePolymarketToken(item.action || '--'))}</div>
+                <div class="polymarket-action">${escapeHtml(componentLine)}</div>
+                <div class="polymarket-action">原因 ${escapeHtml(reasons)}</div>
+                <div class="polymarket-action">下一步 ${escapeHtml(item.nextStep || '继续只读观察，不下注。')}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(item.track || item.suggestedShadowTrack || '--')} · ${escapeHtml(item.polymarketUrl || '历史评分只读')} · 不写钱包、不影响 MT5。</div>
+        </div>
+    `;
+}
+
+function updatePolymarketAiScore(d) {
+    const score = getPolymarketAiScore(d);
+    const summaryEl = document.getElementById('polymarketAiScoreSummary');
+    const body = document.getElementById('polymarketAiScoreBody');
+    if (!body) return;
+    if (!score || d?._polymarketAiScoreError) {
+        if (summaryEl) summaryEl.textContent = '等待 AI 评分';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketAiScoreV1.json`；可运行 `tools\\score_polymarket_ai_v1.bat` 生成，只读不下注。</div>';
+        return;
+    }
+    const summary = score.summary || {};
+    const scores = Array.isArray(score.scores) ? score.scores : [];
+    if (summaryEl) {
+        summaryEl.textContent = `${translatePolymarketToken(score.decision || 'AI_SCORE_ONLY_NO_BETTING')} | 候选 ${summary.candidates || scores.length || 0} | 绿/黄/红 ${summary.green || 0}/${summary.yellow || 0}/${summary.red || 0} | 最高 ${formatPolymarketScore(summary.topScore)}`;
+    }
+    const boundaryCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">执行边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(score.decision || 'AI_SCORE_ONLY_NO_BETTING'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('写钱包', score.safety?.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('下注', score.safety?.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('启动执行器', score.safety?.startsExecutor ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', score.safety?.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">历史 AI 评分只用于 shadow/dry-run 排序；真正 executor 仍需单独 Gate、预算、止盈止损、审计和 kill switch。</div>
+        </div>
+    `;
+    if (!scores.length) {
+        body.innerHTML = `${boundaryCard}<div class="empty-state">历史库暂无可评分市场。</div>`;
+        return;
+    }
+    body.innerHTML = [
+        boundaryCard,
+        ...scores.slice(0, 11).map(renderPolymarketAiScoreCard),
+    ].join('');
 }
 
 function formatPolymarketSignedPp(value, digits = 1) {
@@ -15051,6 +15201,7 @@ function updateDashboard() {
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
     updatePolymarketMarketRadar(d);
+    updatePolymarketAiScore(d);
     updatePolymarketSingleMarketAnalysis(d);
     updatePolymarketExecutionGate(d);
     updatePolymarketDryRunOrders(d);

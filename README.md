@@ -116,47 +116,32 @@ This means:
 
 ```text
 QuantGod_MT4/
-├─ MQL4/
-│  ├─ Experts/
-│  │  └─ QuantGod_MultiStrategy.mq4
-│  └─ Include/
-│     └─ QuantEngine.mqh
-├─ MQL5/
-│  └─ Experts/
-│     └─ QuantGod_MultiStrategy.mq5
-├─ Dashboard/
-│  ├─ QuantGod_Dashboard.html
-│  ├─ dashboard_server.js
-│  └─ start_dashboard.bat
-├─ Start_QuantGod.bat
-└─ Start_QuantGod_MT5.bat
+|-- MQL5/
+|   |-- Experts/
+|   |   `-- QuantGod_MultiStrategy.mq5
+|   `-- Config/
+|-- Dashboard/
+|   |-- QuantGod_Dashboard.html
+|   |-- dashboard_server.js
+|   `-- start_dashboard.bat
+|-- tools/
+|-- Start_QuantGod.bat
+`-- Start_QuantGod_MT5.bat
 ```
 
-## MT4 Installation
-
-Copy these files into your MT4 installation:
-
-```text
-MQL4/Experts/QuantGod_MultiStrategy.mq4  -> [MT4]/MQL4/Experts/
-MQL4/Include/QuantEngine.mqh             -> [MT4]/MQL4/Include/
-Dashboard/QuantGod_Dashboard.html        -> [MT4]/MQL4/Files/
-Dashboard/dashboard_server.js            -> [MT4]/MQL4/Files/
-Dashboard/start_dashboard.bat            -> [MT4]/MQL4/Files/
-```
-
-Compile `QuantGod_MultiStrategy.mq4` in MetaEditor after copying.
-
-## MT5 Phase 1 Installation
+## MT5/HFM Installation
 
 Copy these files into your MT5 installation:
 
 ```text
-MQL5/Experts/QuantGod_MultiStrategy.mq5  -> [MT5]/MQL5/Experts/
-Dashboard/QuantGod_Dashboard.html        -> [MT5]/MQL5/Files/
-Dashboard/dashboard_server.js            -> [MT5]/MQL5/Files/
+MQL5/Experts/QuantGod_MultiStrategy.mq5  -> [HFM MT5]/MQL5/Experts/
+Dashboard/QuantGod_Dashboard.html        -> [HFM MT5]/MQL5/Files/
+Dashboard/dashboard_server.js            -> [HFM MT5]/MQL5/Files/
 ```
 
 Then compile `QuantGod_MultiStrategy.mq5` in MetaEditor64 and attach it to an MT5 chart.
+
+MT4/MQL4 source has been retired from this repository. Historical MT4 notes are no longer an active deployment path.
 
 Phase 1 now exports runtime snapshots plus broker-history journaling files for the dashboard/research layer:
 
@@ -180,7 +165,7 @@ That HFM directory is the correct live-account data source for the local dashboa
 
 ## One-Click Startup
 
-Recommended for MT4:
+Recommended:
 
 ```bat
 Start_QuantGod.bat
@@ -188,12 +173,12 @@ Start_QuantGod.bat
 
 This will:
 
-- start MT4
+- delegate to the HFM MT5 launcher
 - start the local dashboard server
 - keep Cloudflare sync off unless you explicitly create an enable file
 - open `http://localhost:8080/QuantGod_Dashboard.html` with a cache-busting timestamp
 
-For MT5 phase 1:
+Direct MT5 launcher:
 
 ```bat
 Start_QuantGod_MT5.bat
@@ -357,21 +342,9 @@ Manual Alpha Ledger:
 - A strong manual trade can become a route candidate, but it cannot directly add a symbol, strategy, or lot size to EA execution.
 - To promote a manual idea into automation, first create a shadow-only route, then require Shadow Ledger evidence, Backtest Lab support, and live `0.01` forward samples that do not refute it.
 
-## MT4 Data Retention
+## Retired MT4/MQL4 Path
 
-Before deleting the MT4 install, archive the research assets into the repo-local archive area:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\archive_mt4_runtime.ps1
-```
-
-This creates a local snapshot under:
-
-```text
-archive/mt4-runtime-snapshots/
-```
-
-The snapshot folder is intentionally ignored by Git so the large private runtime datasets stay local by default.
+The active runtime path is HFM MT5. MT4/MQL4 source and the old MT4 runtime archive helper have been removed from the repo so new work cannot accidentally deploy or restart the retired stack.
 
 If you only want the dashboard server:
 
@@ -385,10 +358,10 @@ Cloudflare is not part of the default local workflow.
 
 Only use this if you explicitly want a remote dashboard and understand that it adds external requests and quota usage.
 
-The MT4 execution engine still runs on Windows / MT4. Cloudflare is used for:
+The HFM MT5 execution/research engine still runs locally on Windows. Cloudflare is used for:
 
 - cloud dashboard hosting
-- ingesting the latest MT4 snapshot
+- ingesting the latest MT5 dashboard snapshot
 - exposing `/api/latest` for remote viewing
 
 Project files are in:
@@ -403,18 +376,18 @@ Quick path:
 2. Fill the KV ids in `cloudflare/wrangler.jsonc`
 3. Set `QG_INGEST_TOKEN` with `wrangler secret put`
 4. Run `npx wrangler deploy`
-5. In MT4 EA inputs, set:
+5. In MT5 EA inputs, set:
    - `EnableCloudSync = true`
    - `CloudSyncEndpoint = https://<your-worker-domain>/api/ingest`
    - `CloudSyncToken = <same token>`
-6. In MT4, allow the same domain under `Allow WebRequest for listed URL`
+6. In MT5, allow the same domain under `Allow WebRequest for listed URL`
 
-If you do not want to rely on MT4 WebRequest allowlist handling, use the local uploader.
+If you do not want to rely on MT5 WebRequest allowlist handling, use the local uploader.
 
 This is still opt-in. It will stay off unless you manually create the enable file:
 
-- copy `Dashboard/cloud_sync_uploader.ps1` into `[MT4]/MQL4/Files/`
-- create `[MT4]/MQL4/Files/quantgod_cloud_sync.enabled.json`
+- copy `Dashboard/cloud_sync_uploader.ps1` into `[HFM MT5]/MQL5/Files/`
+- create `[HFM MT5]/MQL5/Files/quantgod_cloud_sync.enabled.json`
 - `Start_QuantGod.bat` will auto-start the uploader only when that file exists
 
 If you want to force local-only mode, make sure `quantgod_cloud_sync.enabled.json` does not exist.

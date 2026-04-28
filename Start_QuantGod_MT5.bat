@@ -2,7 +2,7 @@
 title QuantGod MT5 Launcher
 set "REPO_ROOT=%~dp0"
 if "%REPO_ROOT:~-1%"=="\" set "REPO_ROOT=%REPO_ROOT:~0,-1%"
-set "QG_ROOT=C:\Program Files\MetaTrader 5"
+set "QG_ROOT=C:\Program Files\HFM Metatrader 5"
 set "QG_FILES=%QG_ROOT%\MQL5\Files"
 set "QG_EXPERTS=%QG_ROOT%\MQL5\Experts"
 set "QG_CONFIG=%REPO_ROOT%\MQL5\Config\QuantGod_MT5_Start.ini"

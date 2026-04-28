@@ -30,6 +30,8 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketDryRunOutcomeLedger.csv`
 - `QuantGod_PolymarketHistoryDb.json`
 - `QuantGod_PolymarketHistoryDb.csv`
+- `QuantGod_PolymarketAiScoreV1.json`
+- `QuantGod_PolymarketAiScoreV1.csv`
 
 ## Bridge
 
@@ -204,6 +206,28 @@ This closes the first persistence gap from the QuantDinger-style workflow: oppor
 
 Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
 
+## History-Aware AI Score V1
+
+Run:
+
+```bat
+tools\score_polymarket_ai_v1.bat
+```
+
+The scorer consumes `archive\polymarket\history\QuantGod_PolymarketHistory.sqlite` and writes:
+
+- `QuantGod_PolymarketAiScoreV1.json`
+- `QuantGod_PolymarketAiScoreV1.csv`
+
+V1 is a transparent, history-aware scoring layer over:
+
+- Gamma opportunity radar score, probability divergence, volume, and liquidity;
+- single-market analysis recommendation, confidence, and risk;
+- dry-run/outcome MFE, MAE, TP/SL/trailing evidence, and gate blockers;
+- global executed/shadow/account quarantine evidence.
+
+The output classifies markets as green/yellow/red for research priority only. Current decision remains `AI_SCORE_ONLY_NO_BETTING`: no private-key read, no wallet write, no CLOB order calls, no executor start, and no MT5 mutation. Green rows can only become higher-priority shadow/dry-run candidates until a separate execution gate, budget policy, stop-loss/take-profit manager, ledger audit, and kill switch are promoted.
+
 ## Retune Planner
 
 Run:
@@ -236,6 +260,7 @@ It displays:
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
 - Historical Analysis DB: SQLite-backed research history with row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary.
+- Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, and global quarantine evidence; it remains `AI_SCORE_ONLY_NO_BETTING`.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.

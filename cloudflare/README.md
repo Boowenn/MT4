@@ -2,14 +2,14 @@
 
 Cloudflare is optional. The repository is designed to run in **local-first** mode by default.
 
-If you are only running MT4 and the dashboard on your own machine, stop here and do not enable this folder.
+If you are only running HFM MT5 and the dashboard on your own machine, stop here and do not enable this folder.
 
 This folder deploys the existing dashboard plus a lightweight ingest API.
 
 ## What It Does
 
 - Serves `../Dashboard/QuantGod_Dashboard.html` on Cloudflare
-- Accepts MT4 snapshot pushes at `/api/ingest`
+- Accepts MT5 dashboard snapshot pushes at `/api/ingest`
 - Stores the latest snapshot in Cloudflare KV
 - Exposes the latest snapshot at `/api/latest`
 
@@ -50,7 +50,7 @@ After deploy, the dashboard will be available on your Worker domain and the API 
 - `/api/latest`
 - `/api/ingest`
 
-## MT4 Settings
+## MT5 Settings
 
 In EA inputs:
 
@@ -58,7 +58,7 @@ In EA inputs:
 - `CloudSyncEndpoint = https://<your-worker-domain>/api/ingest`
 - `CloudSyncToken = <same token as QG_INGEST_TOKEN>`
 
-In MT4 terminal settings, add the same domain to:
+In MT5 terminal settings, add the same domain to:
 
 - `Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL`
 
@@ -78,5 +78,5 @@ https://your-worker-domain.workers.dev
 
 The local uploader is opt-in.
 
-- `Start_QuantGod.bat` only starts cloud sync when `[MT4]/MQL4/Files/quantgod_cloud_sync.enabled.json` exists
+- `Start_QuantGod.bat` only starts cloud sync when `[HFM MT5]/MQL5/Files/quantgod_cloud_sync.enabled.json` exists
 - if that file does not exist, the project stays fully local

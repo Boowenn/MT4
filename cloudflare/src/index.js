@@ -82,7 +82,7 @@ async function handleLatest(env) {
       {
         ok: false,
         error: 'NO_SNAPSHOT',
-        detail: 'No MT4 snapshot has been pushed yet.'
+        detail: 'No MT5 dashboard snapshot has been pushed yet.'
       },
       404
     );
