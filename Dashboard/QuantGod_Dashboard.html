@@ -4874,6 +4874,832 @@
                 display: none;
             }
         }
+
+        /* QuantGod command-center skin: inspired by the QuantDinger workspace,
+           implemented with our own markup/data and without login/SaaS modules. */
+        :root {
+            --bg-primary: #0d0f12;
+            --bg-secondary: #111317;
+            --bg-card: #181b20;
+            --bg-card-hover: #1f242b;
+            --border: #262c35;
+            --text-primary: #f2f5f8;
+            --text-secondary: #a7b0bd;
+            --text-muted: #6f7a89;
+            --accent-blue: #1390ff;
+            --accent-cyan: #1fb9d4;
+            --accent-purple: #8b5cf6;
+            --accent-green: #1fc77e;
+            --accent-red: #ff4d5e;
+            --accent-orange: #ffac38;
+            --accent-pink: #ff5ea8;
+            --glow-blue: rgba(19, 144, 255, 0.18);
+            --glow-green: rgba(31, 199, 126, 0.16);
+            --glow-red: rgba(255, 77, 94, 0.16);
+        }
+
+        html {
+            background: #0a0b0d;
+        }
+
+        body {
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 70% 0%, rgba(19, 144, 255, 0.08), transparent 28%),
+                linear-gradient(180deg, #101216 0%, #0d0f12 100%);
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            height: 44px;
+            padding: 0 18px;
+            background: #101113;
+            border-bottom: 1px solid #1a1d22;
+            box-shadow: none;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: #f8fafc;
+            color: #0d0f12;
+            font-size: 13px;
+            box-shadow: none;
+        }
+
+        .logo-text {
+            color: #f8fafc;
+            font-size: 14px;
+            font-weight: 800;
+        }
+
+        .nav-status {
+            gap: 10px;
+        }
+
+        .status-badge {
+            min-height: 26px;
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            background: #171a20;
+            border-color: #2a313b;
+        }
+
+        .last-update {
+            color: #7d8794;
+            font-size: 12px;
+        }
+
+        .market-bar {
+            height: 36px;
+            padding: 0 18px;
+            gap: 18px;
+            background: #0d0e10;
+            border-bottom: 1px solid #171a1f;
+            color: var(--text-secondary);
+        }
+
+        .market-label {
+            color: #687382;
+        }
+
+        .market-value {
+            color: #d9e2ef;
+        }
+
+        .qd-platform-shell {
+            max-width: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            grid-template-columns: 214px minmax(0, 1fr);
+            gap: 0;
+            align-items: stretch;
+            min-height: calc(100vh - 80px);
+        }
+
+        .qd-app-menu {
+            position: sticky;
+            top: 0;
+            align-self: start;
+            min-height: calc(100vh - 80px);
+            max-height: calc(100vh - 80px);
+            overflow: auto;
+            padding: 14px 12px;
+            gap: 14px;
+            background: #090a0c;
+            border: 0;
+            border-right: 1px solid #1d2026;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        .qd-app-brand {
+            padding: 0 4px 14px;
+            border-bottom: 1px solid #1d2026;
+        }
+
+        .qd-brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+            background: #f8fafc;
+            color: #0d0f12;
+            font-size: 16px;
+        }
+
+        .qd-brand-name {
+            color: #f8fafc;
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .qd-brand-sub {
+            color: #687382;
+            font-size: 10px;
+            letter-spacing: 0.06em;
+        }
+
+        .qd-menu-group {
+            gap: 4px;
+        }
+
+        .qd-menu-label {
+            padding: 0 8px 4px;
+            color: #5f6875;
+            font-size: 10px;
+        }
+
+        .qd-menu-item {
+            min-height: 45px;
+            padding: 8px 10px;
+            gap: 10px;
+            color: #a8b2bf;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .qd-menu-item strong,
+        .qd-menu-item em {
+            display: block;
+            font-style: normal;
+            line-height: 1.25;
+            letter-spacing: 0;
+        }
+
+        .qd-menu-item em {
+            margin-top: 2px;
+            color: #66717e;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .qd-menu-item:hover,
+        .qd-menu-item.active {
+            color: #f8fafc;
+            background: #1390ff;
+            border-color: #1390ff;
+        }
+
+        .qd-menu-item:hover em,
+        .qd-menu-item.active em,
+        .qd-menu-item:hover .qd-menu-icon,
+        .qd-menu-item.active .qd-menu-icon {
+            color: rgba(255, 255, 255, 0.82);
+        }
+
+        .qd-menu-icon {
+            width: 19px;
+            color: #8c96a4;
+            font-size: 13px;
+        }
+
+        .qd-menu-footer {
+            padding: 12px 6px 0;
+            border-top: 1px solid #1d2026;
+            color: #697482;
+            font-size: 11px;
+        }
+
+        .qd-command-center {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 22px 24px 30px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 180px),
+                #0f1114;
+        }
+
+        .qd-command-header,
+        .qd-main-panel,
+        .qd-market-pulse,
+        .qd-route-watchlist,
+        .qd-analysis-engine,
+        .panel,
+        .trade-section,
+        .stat-card,
+        .radar-item,
+        .symbol-card,
+        .strategy-card,
+        .route-card,
+        .filter-panel,
+        .suggestion-card,
+        .journal-card,
+        .chart-container,
+        .research-window-card,
+        .backtest-compare-card,
+        .research-suggestion-card,
+        .eval-card,
+        .mt5-shadow-subpanel {
+            background: #181b20;
+            border: 1px solid #2a3039;
+            border-radius: 8px;
+            color: var(--text-primary);
+            box-shadow: none;
+            backdrop-filter: none;
+        }
+
+        .qd-command-header {
+            min-height: 112px;
+            padding: 18px 20px;
+            background: linear-gradient(135deg, #191d23 0%, #15181d 100%);
+        }
+
+        .qd-panel-eyebrow {
+            padding: 4px 8px;
+            border-radius: 5px;
+            color: #81c7ff;
+            background: rgba(19, 144, 255, 0.12);
+            border: 1px solid rgba(19, 144, 255, 0.22);
+            font-size: 10px;
+        }
+
+        .qd-command-title,
+        .qd-primary-symbol,
+        .qd-analysis-engine h2,
+        .section-title,
+        .panel-title,
+        .stat-value,
+        .symbol-name,
+        .strategy-name,
+        .backtest-symbol,
+        .radar-value,
+        .qd-main-metric-value,
+        .qd-action-value,
+        .qd-pulse-value,
+        .qd-route-name,
+        .qd-feature-title,
+        .qd-evidence-title,
+        .research-suggestion-symbol,
+        .eval-card-symbol,
+        .strategy-stat-value,
+        .regime-heatmap-winrate,
+        .regime-heatmap-pf,
+        .regime-heatmap-head-main,
+        .regime-heatmap-row-main {
+            color: #f3f6fb;
+        }
+
+        .qd-command-title {
+            font-size: 25px;
+        }
+
+        .qd-command-desc,
+        .qd-primary-sub,
+        .section-desc,
+        .section-meta,
+        .stat-label,
+        .radar-label,
+        .radar-sub,
+        .backtest-note,
+        .research-window-meta,
+        .qd-feature-sub,
+        .qd-evidence-copy,
+        .mt5-shadow-metric-meta,
+        .research-suggestion-reason,
+        .research-suggestion-next,
+        .eval-card-subline,
+        .eval-card-time-meta,
+        .eval-block-note,
+        .strategy-context-meta,
+        .diag-reason,
+        .symbol-strategy-action-detail-key,
+        .regime-heatmap-summary,
+        .regime-heatmap-head-sub,
+        .regime-heatmap-row-sub,
+        .regime-heatmap-footer {
+            color: #96a1af;
+        }
+
+        .qd-command-actions {
+            grid-template-columns: repeat(2, minmax(112px, 1fr));
+            min-width: 300px;
+        }
+
+        .qd-action-stat,
+        .qd-main-metric,
+        .qd-pulse-item,
+        .qd-feature,
+        .qd-evidence-item,
+        .symbol-strategy-action-detail,
+        .strategy-opportunity-stat,
+        .mt5-shadow-metric,
+        .research-window-metric,
+        .backtest-metric,
+        .research-suggestion-metric,
+        .regime-heatmap-metric,
+        .eval-card-times,
+        .eval-block,
+        .symbol-strategy-action-detail-item,
+        .strategy-stat,
+        .mt5-shadow-subpanel-header {
+            background: #20242b;
+            border: 1px solid #303744;
+            color: #f2f5f8;
+            box-shadow: none;
+        }
+
+        .qd-action-label,
+        .qd-main-metric-label,
+        .qd-pulse-label,
+        .mt5-shadow-metric-label,
+        .research-suggestion-metric-label,
+        .regime-heatmap-metric-label {
+            color: #788391;
+        }
+
+        .qd-command-grid {
+            grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.68fr);
+            gap: 16px;
+        }
+
+        .qd-side-panel {
+            gap: 16px;
+        }
+
+        .qd-route-button {
+            border-radius: 5px;
+        }
+
+        .qd-route-button:hover {
+            background: #202934;
+            border-color: #34465b;
+        }
+
+        .qd-route-button.active {
+            background: rgba(19, 144, 255, 0.16);
+            border-color: rgba(19, 144, 255, 0.45);
+            box-shadow: inset 3px 0 0 #1390ff;
+        }
+
+        .qd-route-item {
+            border-bottom: 1px solid #272d36;
+        }
+
+        .qd-route-mode {
+            color: #8994a3;
+        }
+
+        .qd-pill,
+        .status-badge,
+        .eval-summary,
+        .backtest-status-pill,
+        .regime-filter-chip,
+        .mt5-shadow-pill,
+        .regime-heatmap-flag,
+        .research-confidence-badge,
+        .table-badge {
+            border-radius: 5px;
+        }
+
+        .qd-pill {
+            color: #8dccff;
+            background: rgba(19, 144, 255, 0.12);
+            border-color: rgba(19, 144, 255, 0.26);
+        }
+
+        .qd-pill.warn {
+            color: #ffc46b;
+            background: rgba(255, 172, 56, 0.11);
+            border-color: rgba(255, 172, 56, 0.24);
+        }
+
+        .app-shell.qd-section-stage {
+            max-width: none;
+            margin: 0;
+            padding: 0;
+            display: block;
+        }
+
+        .page-content,
+        .main {
+            min-width: 0;
+        }
+
+        .main.workspace-mode .content-section {
+            display: none;
+        }
+
+        .main.workspace-mode .content-section.is-active-section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            animation: fadeIn 0.22s ease forwards;
+        }
+
+        .section-heading {
+            margin-top: 2px;
+            padding: 14px 16px;
+            background: #14171c;
+            border: 1px solid #252b34;
+            border-radius: 8px;
+        }
+
+        .section-kicker {
+            color: #81c7ff;
+            letter-spacing: 0.08em;
+        }
+
+        .panel-header,
+        .trade-header {
+            background: #161a20;
+            border-color: #2a3039;
+        }
+
+        .panel-body {
+            color: var(--text-primary);
+        }
+
+        .table-wrapper,
+        .report-table-wrapper {
+            background: #15181d;
+            border: 1px solid #2a3039;
+            border-radius: 8px;
+        }
+
+        table,
+        .table-wrapper table {
+            color: #dbe4ef;
+        }
+
+        th,
+        .table-wrapper thead th {
+            background: #1b2027;
+            color: #96a1af;
+            border-bottom-color: #2f3742;
+        }
+
+        td {
+            color: #dbe4ef;
+            border-bottom-color: #252b34;
+        }
+
+        tr:hover td {
+            background: #1d242e;
+        }
+
+        .table-group-row td {
+            background: rgba(19, 144, 255, 0.14);
+            color: #9ed2ff;
+            border-color: rgba(19, 144, 255, 0.28);
+        }
+
+        .empty-state {
+            background: #161a20;
+            color: #7e8998;
+            border-color: #2a3039;
+        }
+
+        .regime-heatmap-head-cell,
+        .regime-heatmap-row-label,
+        .regime-heatmap-cell {
+            background: #171b21;
+            border-color: #2a3039;
+            color: #dbe4ef;
+        }
+
+        .regime-heatmap-head-cell.corner,
+        .regime-heatmap-cell.empty {
+            background: #14181e;
+        }
+
+        .regime-heatmap-cell.positive {
+            background: rgba(31, 199, 126, 0.12) !important;
+            border-color: rgba(31, 199, 126, 0.35);
+        }
+
+        .regime-heatmap-cell.negative {
+            background: rgba(255, 77, 94, 0.12) !important;
+            border-color: rgba(255, 77, 94, 0.32);
+        }
+
+        .regime-heatmap-cell.neutral {
+            background: #1a2028 !important;
+            border-color: #303744;
+        }
+
+        .research-suggestion-card.keep {
+            background: linear-gradient(180deg, #181b20 0%, rgba(31, 199, 126, 0.08) 100%);
+            border-color: rgba(31, 199, 126, 0.3);
+        }
+
+        .research-suggestion-card.reduce {
+            background: linear-gradient(180deg, #181b20 0%, rgba(255, 172, 56, 0.08) 100%);
+            border-color: rgba(255, 172, 56, 0.3);
+        }
+
+        .research-suggestion-card.pause {
+            background: linear-gradient(180deg, #181b20 0%, rgba(255, 77, 94, 0.08) 100%);
+            border-color: rgba(255, 77, 94, 0.3);
+        }
+
+        .research-suggestion-card.is-focused,
+        .eval-card:hover,
+        .research-suggestion-card:hover {
+            border-color: rgba(19, 144, 255, 0.55);
+            box-shadow: 0 0 0 1px rgba(19, 144, 255, 0.16);
+            transform: none;
+        }
+
+        .strat-manual,
+        .table-badge.status-muted,
+        .table-badge.runtime-off {
+            background: #252b34;
+            border-color: #384150;
+            color: #b7c1ce;
+        }
+
+        .strat-quantgod,
+        .table-badge.status-live,
+        .table-badge.runtime-boost {
+            background: rgba(31, 199, 126, 0.13);
+            border-color: rgba(31, 199, 126, 0.32);
+            color: #73e3ac;
+        }
+
+        .table-badge.status-info,
+        .table-badge.runtime-on {
+            background: rgba(19, 144, 255, 0.13);
+            border-color: rgba(19, 144, 255, 0.32);
+            color: #8dccff;
+        }
+
+        .table-badge.status-warn,
+        .table-badge.runtime-low {
+            background: rgba(255, 172, 56, 0.13);
+            border-color: rgba(255, 172, 56, 0.32);
+            color: #ffc46b;
+        }
+
+        .table-badge.status-danger,
+        .table-badge.runtime-paused {
+            background: rgba(255, 77, 94, 0.13);
+            border-color: rgba(255, 77, 94, 0.32);
+            color: #ff96a0;
+        }
+
+        .profit-cell.positive,
+        .type-buy,
+        .positive {
+            color: #6ee7a7;
+        }
+
+        .profit-cell.negative,
+        .type-sell,
+        .negative {
+            color: #ff8994;
+        }
+
+        .footer {
+            margin-left: 214px;
+            background: #0d0f12;
+            border-top: 1px solid #1c2026;
+            color: #5f6875;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0d0f12;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #323945;
+        }
+
+        @media (max-width: 1100px) {
+            .qd-platform-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .qd-app-menu {
+                position: sticky;
+                top: 0;
+                min-height: 0;
+                max-height: none;
+                flex-direction: row;
+                align-items: center;
+                overflow-x: auto;
+                border-right: 0;
+                border-bottom: 1px solid #1d2026;
+                padding: 10px 12px;
+            }
+
+            .qd-app-brand {
+                min-width: 176px;
+                border-bottom: 0;
+                border-right: 1px solid #1d2026;
+                padding: 0 12px 0 2px;
+            }
+
+            .qd-menu-group {
+                display: flex;
+                min-width: max-content;
+                gap: 8px;
+            }
+
+            .qd-menu-label,
+            .qd-menu-footer {
+                display: none;
+            }
+
+            .qd-menu-item {
+                min-width: 150px;
+            }
+
+            .qd-command-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .footer {
+                margin-left: 0;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .navbar {
+                height: auto;
+                padding: 9px 12px;
+            }
+
+            .market-bar {
+                height: auto;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                padding: 8px 12px;
+                gap: 8px 10px;
+            }
+
+            .qd-command-center {
+                padding: 14px 12px 22px;
+            }
+
+            .qd-command-header,
+            .qd-main-panel-top {
+                display: grid;
+            }
+
+            .qd-command-actions,
+            .qd-main-metrics,
+            .qd-evidence-strip,
+            .qd-pulse-grid {
+                grid-template-columns: 1fr 1fr;
+                min-width: 0;
+            }
+
+            .qd-app-brand {
+                display: none;
+            }
+
+            .qd-menu-item {
+                min-width: 128px;
+            }
+        }
+
+        @media (max-width: 520px) {
+            .qd-command-actions,
+            .qd-main-metrics,
+            .qd-evidence-strip,
+            .qd-pulse-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Final dark unification for ParamLab, Strategy Workspace and feedback cards. */
+        .paramlab-batch-toolbar,
+        .strategy-workspace-toolbar {
+            background: #15181d;
+            border-color: #2a3039;
+        }
+
+        .paramlab-filter-chip,
+        .strategy-workspace-tab,
+        .paramlab-sort-select {
+            background: #20242b;
+            border-color: #303744;
+            color: #c3ccd8;
+        }
+
+        .paramlab-filter-chip:hover,
+        .strategy-workspace-tab:hover {
+            background: #243141;
+            border-color: rgba(19, 144, 255, 0.45);
+            color: #8dccff;
+        }
+
+        .paramlab-filter-chip.active,
+        .strategy-workspace-tab.active {
+            background: rgba(19, 144, 255, 0.18);
+            border-color: rgba(19, 144, 255, 0.52);
+            color: #9ed2ff;
+        }
+
+        .paramlab-metric-chip,
+        .param-plan-note,
+        .run-recovery-subtitle,
+        .governance-feedback-column,
+        .governance-feedback-param,
+        .governance-feedback-copy-block,
+        .strategy-workspace-card,
+        .strategy-version-card,
+        .strategy-version-row,
+        .version-gate-card,
+        .optimizer-card {
+            background: #20242b;
+            border-color: #303744;
+            color: #e8eef6;
+            box-shadow: none;
+        }
+
+        .strategy-workspace-card.supported,
+        .governance-feedback-card.supported,
+        .version-gate-card.supported {
+            background: linear-gradient(180deg, #181b20 0%, rgba(31, 199, 126, 0.08) 100%);
+            border-color: rgba(31, 199, 126, 0.32);
+        }
+
+        .strategy-workspace-card.waiting,
+        .governance-feedback-card.waiting,
+        .version-gate-card.waiting {
+            background: linear-gradient(180deg, #181b20 0%, rgba(255, 172, 56, 0.08) 100%);
+            border-color: rgba(255, 172, 56, 0.32);
+        }
+
+        .strategy-workspace-card.conflict,
+        .governance-feedback-card.conflict,
+        .version-gate-card.conflict {
+            background: linear-gradient(180deg, #181b20 0%, rgba(255, 77, 94, 0.08) 100%);
+            border-color: rgba(255, 77, 94, 0.32);
+        }
+
+        .paramlab-metric-value,
+        .backtest-metric-value,
+        .strategy-workspace-title,
+        .governance-feedback-title,
+        .governance-feedback-column-title,
+        .governance-feedback-param-text,
+        .strategy-version-title,
+        .optimizer-title,
+        .version-gate-title {
+            color: #f3f6fb;
+        }
+
+        .paramlab-command,
+        .governance-feedback-command {
+            color: #8dccff;
+        }
+
+        .paramlab-path,
+        .governance-feedback-path,
+        .governance-feedback-sub,
+        .governance-feedback-next,
+        .strategy-workspace-sub,
+        .strategy-version-meta,
+        .optimizer-meta,
+        .version-gate-meta {
+            color: #96a1af;
+        }
+
+        .governance-feedback-copy-button {
+            background: rgba(19, 144, 255, 0.14);
+            border-color: rgba(19, 144, 255, 0.35);
+            color: #9ed2ff;
+        }
+
+        .governance-feedback-copy-button:hover:not(:disabled) {
+            background: rgba(19, 144, 255, 0.24);
+            color: #f2f7ff;
+        }
+
+        .governance-feedback-copy-button:disabled {
+            background: #20242b;
+            border-color: #303744;
+            color: #687382;
+        }
     </style>
 </head>
 <body>
@@ -4931,13 +5757,13 @@
             </div>
         </div>
         <div class="qd-menu-group">
-            <div class="qd-menu-label">Workspace</div>
-            <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span>总览分析</a>
-            <a class="qd-menu-item" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span>策略工作台</a>
-            <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span>指标行情</a>
-            <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span>策略实验室</a>
-            <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span>交易机器人</a>
-            <a class="qd-menu-item" href="#section-reports"><span class="qd-menu-icon">◫</span>报表证据</a>
+            <div class="qd-menu-label">Command</div>
+            <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span><span><strong>AI Evidence</strong><em>总览雷达</em></span></a>
+            <a class="qd-menu-item" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span><span><strong>Strategy & Live</strong><em>策略工作台</em></span></a>
+            <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span><span><strong>Indicator Market</strong><em>品种监控</em></span></a>
+            <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span><span><strong>ParamLab</strong><em>回测闭环</em></span></a>
+            <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>Trading Bot</strong><em>EA 只读</em></span></a>
+            <a class="qd-menu-item" href="#section-reports"><span class="qd-menu-icon">◫</span><span><strong>Reports</strong><em>证据报表</em></span></a>
         </div>
         <div class="qd-menu-footer">
             <strong>Guardrail:</strong><br>
@@ -5052,80 +5878,8 @@
                 </div>
             </aside>
         </div>
-    </main>
-</div>
 
-<div class="app-shell">
-    <aside class="page-sidebar">
-        <div class="sidebar-card">
-            <div class="sidebar-kicker">研究工作台</div>
-            <div class="sidebar-focus" id="sidebarFocusSymbol">焦点品种 --</div>
-            <div class="sidebar-runtime" id="sidebarRuntimeStatus">运行状态 --</div>
-            <div class="sidebar-summary-grid">
-                <div class="sidebar-summary-item">
-                    <div class="sidebar-summary-label">研究净值</div>
-                    <div class="sidebar-summary-value" id="sidebarEquity">--</div>
-                </div>
-                <div class="sidebar-summary-item">
-                    <div class="sidebar-summary-label">当前持仓</div>
-                    <div class="sidebar-summary-value" id="sidebarOpenTrades">--</div>
-                </div>
-                <div class="sidebar-summary-item">
-                    <div class="sidebar-summary-label">研究建议</div>
-                    <div class="sidebar-summary-value" id="sidebarSuggestionCount">--</div>
-                </div>
-                <div class="sidebar-summary-item">
-                    <div class="sidebar-summary-label">筛选范围</div>
-                    <div class="sidebar-summary-value" id="sidebarFilterScope">全部</div>
-                </div>
-            </div>
-            <div class="sidebar-note">左侧导航切换工作台视图，只显示当前模块；研究建议会跟随 regime 和路线筛选同步更新。</div>
-        </div>
-        <nav class="sidebar-nav">
-            <a class="sidebar-link active" href="#section-overview" data-section-link="overview">
-                <span class="sidebar-link-index">01</span>
-                <span class="sidebar-link-copy">
-                    <span class="sidebar-link-title">概览</span>
-                    <span class="sidebar-link-sub">资金、倒计时、执行雷达</span>
-                </span>
-            </a>
-            <a class="sidebar-link" href="#section-strategy-workspace" data-section-link="strategy-workspace">
-                <span class="sidebar-link-index">02</span>
-                <span class="sidebar-link-copy">
-                    <span class="sidebar-link-title">策略</span>
-                    <span class="sidebar-link-sub">MA/RSI/BB/MACD/SR 路线</span>
-                </span>
-            </a>
-            <a class="sidebar-link" href="#section-monitor" data-section-link="monitor">
-                <span class="sidebar-link-index">03</span>
-                <span class="sidebar-link-copy">
-                    <span class="sidebar-link-title">监控</span>
-                    <span class="sidebar-link-sub">品种总览、策略状态</span>
-                </span>
-            </a>
-            <a class="sidebar-link" href="#section-trades" data-section-link="trades">
-                <span class="sidebar-link-index">04</span>
-                <span class="sidebar-link-copy">
-                    <span class="sidebar-link-title">交易</span>
-                    <span class="sidebar-link-sub">当前持仓、历史交易</span>
-                </span>
-            </a>
-            <a class="sidebar-link" href="#section-research" data-section-link="research">
-                <span class="sidebar-link-index">05</span>
-                <span class="sidebar-link-copy">
-                    <span class="sidebar-link-title">研究</span>
-                    <span class="sidebar-link-sub">研究建议、Regime 热力图</span>
-                </span>
-            </a>
-            <a class="sidebar-link" href="#section-reports" data-section-link="reports">
-                <span class="sidebar-link-index">06</span>
-                <span class="sidebar-link-copy">
-                    <span class="sidebar-link-title">报表</span>
-                    <span class="sidebar-link-sub">策略评估、收益分布</span>
-                </span>
-            </a>
-        </nav>
-    </aside>
+        <div class="app-shell qd-section-stage">
 
     <div class="page-content">
         <div class="main">
@@ -5960,6 +6714,8 @@
             </section>
         </div>
     </div>
+</div>
+    </main>
 </div>
 
 <div class="footer">
@@ -11125,6 +11881,51 @@ function getValidSectionKeys() {
     return sections.map((section) => section.dataset.navSection || normalizeSectionKey(section.id));
 }
 
+const DASHBOARD_SECTION_META = {
+    overview: {
+        eyebrow: 'AI Evidence',
+        title: '总览雷达',
+        desc: '像工作台一样先看系统能否行动、关键 blocker、Route Watchlist 和证据健康度；页面只读，不改变 EA 风控。'
+    },
+    'strategy-workspace': {
+        eyebrow: 'Strategy & Live',
+        title: '策略路线工作台',
+        desc: 'MA/RSI/BB/MACD/SR 每条路线独立看 live/candidate 状态、参数版本、升降级 Gate 与下一轮测试。'
+    },
+    monitor: {
+        eyebrow: 'Indicator Market',
+        title: '品种与指标监控',
+        desc: '用后台工具台的密度查看品种、策略状态、点差、regime 和当前主要阻断原因。'
+    },
+    research: {
+        eyebrow: 'ParamLab',
+        title: '回测闭环与任务队列',
+        desc: '集中查看候选参数、tester-only 队列、Report Watcher、Auto Scheduler、Run Recovery 和 Retry 风险。'
+    },
+    trades: {
+        eyebrow: 'Trading Bot',
+        title: 'EA 交易只读台',
+        desc: '只读核对当前持仓、历史成交、SL/TP 与降级保护状态；真实执行仍只允许 EA 受控路径。'
+    },
+    reports: {
+        eyebrow: 'Reports',
+        title: '证据报表',
+        desc: '把评估表、收益分布和日 PnL 集中展示，供 Governance Advisor 做后续升降级判断。'
+    }
+};
+
+function updateCommandHeaderForSection(sectionKey) {
+    const meta = DASHBOARD_SECTION_META[sectionKey] || DASHBOARD_SECTION_META.overview;
+    const header = document.querySelector('.qd-command-header');
+    if (!header) return;
+    const eyebrow = header.querySelector('.qd-panel-eyebrow');
+    const title = header.querySelector('.qd-command-title');
+    const desc = header.querySelector('.qd-command-desc');
+    if (eyebrow) eyebrow.textContent = meta.eyebrow;
+    if (title) title.textContent = meta.title;
+    if (desc) desc.textContent = meta.desc;
+}
+
 function setDashboardSection(sectionKey = '', options = {}) {
     const sections = Array.from(document.querySelectorAll('.content-section[data-nav-section]'));
     const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
@@ -11153,6 +11954,7 @@ function setDashboardSection(sectionKey = '', options = {}) {
         const itemSection = String(item.getAttribute('href') || '').replace(/^#section-/, '');
         item.classList.toggle('active', itemSection === activeSection);
     });
+    updateCommandHeaderForSection(activeSection);
 
     if (options.updateHash !== false) {
         const nextHash = `#section-${activeSection}`;
