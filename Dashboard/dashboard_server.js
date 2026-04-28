@@ -526,6 +526,149 @@ function sortSearchResults(results = []) {
     });
 }
 
+function normalizeMarketGroupValue(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 260);
+}
+
+function normalizeMarketGroupKey(item = {}) {
+  const marketId = normalizeMarketGroupValue(item.marketId);
+  if (marketId) return `market:${marketId}`;
+
+  const url = normalizeMarketGroupValue(item.url);
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      const slug = parsed.pathname.replace(/\/+$/g, '').split('/').filter(Boolean).pop();
+      return `url:${slug || `${parsed.origin}${parsed.pathname}`}`;
+    } catch (_error) {
+      return `url:${url}`;
+    }
+  }
+
+  const title = normalizeMarketGroupValue(item.title);
+  if (title) return `title:${title}`;
+
+  const fallback = normalizeMarketGroupValue(firstDefined(item.subtitle, item.sourceType, 'unknown'));
+  return `fallback:${fallback}`;
+}
+
+function marketRiskRank(risk) {
+  const normalized = String(risk || '').trim().toLowerCase();
+  if (['red', 'danger', 'high', 'blocked'].includes(normalized)) return 3;
+  if (['yellow', 'watch', 'medium', 'warn', 'warning'].includes(normalized)) return 2;
+  if (['green', 'good', 'low', 'ok'].includes(normalized)) return 1;
+  return 0;
+}
+
+function newerTimestamp(left, right) {
+  const leftTime = Date.parse(left || '') || 0;
+  const rightTime = Date.parse(right || '') || 0;
+  return rightTime > leftTime ? right : left;
+}
+
+function toSearchEvidenceItem(item = {}) {
+  return {
+    sourceType: firstDefined(item.sourceType),
+    sourceLabel: firstDefined(item.sourceLabel, item.sourceType),
+    title: firstDefined(item.title),
+    subtitle: firstDefined(item.subtitle),
+    generatedAt: firstDefined(item.generatedAt),
+    risk: firstDefined(item.risk),
+    recommendation: firstDefined(item.recommendation),
+    track: firstDefined(item.track),
+    probability: firstDefined(item.probability),
+    divergence: firstDefined(item.divergence),
+    score: numericScore(item.score),
+    detail: item.detail || {}
+  };
+}
+
+function mergeMarketSearchGroup(group, item = {}) {
+  const itemScore = numericScore(item.score);
+  const currentScore = numericScore(group.score);
+  const itemTime = item.generatedAt || '';
+  const nextTime = newerTimestamp(group.generatedAt, itemTime);
+  const itemIsNewer = nextTime === itemTime && itemTime !== group.generatedAt;
+  const itemIsHigherScore = itemScore > currentScore;
+
+  group.title = firstDefined(group.title, item.title, item.marketId, item.url, '--');
+  group.subtitle = firstDefined(group.subtitle, item.subtitle, item.url, '多源聚合结果');
+  group.marketId = firstDefined(group.marketId, item.marketId);
+  group.url = firstDefined(group.url, item.url);
+  group.generatedAt = nextTime;
+  group.score = Math.max(currentScore, itemScore);
+
+  if (marketRiskRank(item.risk) > marketRiskRank(group.risk)) {
+    group.risk = item.risk;
+  } else {
+    group.risk = firstDefined(group.risk, item.risk);
+  }
+
+  if (itemIsHigherScore || itemIsNewer || !group.recommendation) {
+    group.recommendation = firstDefined(item.recommendation, group.recommendation);
+    group.track = firstDefined(item.track, group.track);
+  }
+  group.probability = firstDefined(group.probability, item.probability);
+  group.divergence = firstDefined(group.divergence, item.divergence);
+
+  if (item.sourceType && !group.sourceTypes.includes(item.sourceType)) group.sourceTypes.push(item.sourceType);
+  const sourceLabel = firstDefined(item.sourceLabel, item.sourceType);
+  if (sourceLabel && !group.sourceLabels.includes(sourceLabel)) group.sourceLabels.push(sourceLabel);
+
+  group.evidence.push(toSearchEvidenceItem(item));
+  group.evidence = sortSearchResults(group.evidence).slice(0, 8);
+  group.evidenceCount += 1;
+  group.summaryLine = `${group.evidenceCount} 条证据 · ${group.sourceLabels.join(' / ') || '未分类来源'}`;
+  return group;
+}
+
+function groupSearchResultsByMarket(results = [], limit = 36) {
+  const grouped = new Map();
+  for (const item of sortSearchResults(results)) {
+    const key = normalizeMarketGroupKey(item);
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sourceType: 'market-group',
+        sourceLabel: '综合证据',
+        groupKey: key,
+        title: '',
+        subtitle: '',
+        marketId: '',
+        url: '',
+        generatedAt: '',
+        risk: '',
+        recommendation: '',
+        track: '',
+        probability: '',
+        divergence: '',
+        score: 0,
+        sourceTypes: [],
+        sourceLabels: [],
+        evidenceCount: 0,
+        evidence: [],
+        detail: { grouped: true }
+      });
+    }
+    mergeMarketSearchGroup(grouped.get(key), item);
+  }
+
+  return Array.from(grouped.values())
+    .sort((a, b) => {
+      const scoreDelta = numericScore(b.score) - numericScore(a.score);
+      if (scoreDelta) return scoreDelta;
+      const evidenceDelta = numericScore(b.evidenceCount) - numericScore(a.evidenceCount);
+      if (evidenceDelta) return evidenceDelta;
+      const rightTime = Date.parse(b.generatedAt || '') || 0;
+      const leftTime = Date.parse(a.generatedAt || '') || 0;
+      return rightTime - leftTime;
+    })
+    .slice(0, limit);
+}
+
 async function handleSingleMarketRequest(req, res) {
   try {
     const text = await readRequestBody(req);
@@ -744,15 +887,16 @@ async function handlePolymarketSearch(req, res) {
       analyses: [...latestAnalysisRows, ...analysisRows].slice(0, limit).map(compactAnalysisResult),
       history: historyRows.slice(0, limit).map(compactHistoryResult)
     };
-    const allResults = sortSearchResults([
+    const rawSearchResults = sortSearchResults([
       ...sections.radar,
       ...sections.aiScore,
       ...sections.analyses,
       ...sections.history
-    ]).slice(0, limit);
+    ]);
+    const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
 
     sendJson(res, 200, {
-      mode: 'POLYMARKET_SEARCH_API_V1',
+      mode: 'POLYMARKET_SEARCH_API_V2_GROUPED_MARKET_EVIDENCE',
       status: errors.length ? 'PARTIAL' : 'OK',
       generatedAt: new Date().toISOString(),
       source: 'quantgod_dashboard_local_api',
@@ -760,14 +904,18 @@ async function handlePolymarketSearch(req, res) {
       query,
       limit,
       summary: {
-        totalMatches: allResults.length,
+        totalMatches: groupedResults.length,
+        marketGroups: groupedResults.length,
+        rawMatches: rawSearchResults.length,
         radarMatches: sections.radar.length,
         aiScoreMatches: sections.aiScore.length,
         analysisMatches: sections.analyses.length,
         historyMatches: sections.history.length,
         historyTotalRows: historyPayload.summary?.totalRows || 0
       },
-      results: allResults,
+      results: groupedResults,
+      groupedResults,
+      rawResults: rawSearchResults.slice(0, limit),
       sections,
       sources: {
         radarPath,

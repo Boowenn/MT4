@@ -6118,7 +6118,7 @@
         }
 
         .polymarket-search-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .polymarket-ai-score-grid {
@@ -6222,6 +6222,54 @@
             font-size: 15px;
             font-weight: 900;
             overflow-wrap: anywhere;
+        }
+
+        .polymarket-search-boundary {
+            grid-column: 1 / -1;
+        }
+
+        .polymarket-source-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .polymarket-source-chip {
+            max-width: 100%;
+            border: 1px solid #334155;
+            background: #111720;
+            border-radius: 999px;
+            padding: 3px 8px;
+            color: #cbd5e1;
+            font-size: 10px;
+            font-weight: 800;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .polymarket-evidence-list {
+            display: grid;
+            gap: 7px;
+            margin-top: 10px;
+        }
+
+        .polymarket-evidence-row {
+            min-width: 0;
+            border: 1px solid #2c3645;
+            background: #10161f;
+            border-radius: 6px;
+            padding: 8px 9px;
+            color: #b6c3d5;
+            font-size: 11px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .polymarket-evidence-source {
+            color: #e5edf7;
+            font-weight: 900;
         }
 
         .polymarket-note {
@@ -6668,6 +6716,7 @@
 
         .polymarket-summary-grid,
         .polymarket-group-grid,
+        .polymarket-search-grid,
         .polymarket-radar-grid,
         .polymarket-ai-score-grid,
         .polymarket-single-grid,
@@ -9996,27 +10045,59 @@ function getPolymarketUnifiedSearchTone(item = {}) {
     const risk = String(item.risk || '').toLowerCase();
     const recommendation = String(item.recommendation || '').toUpperCase();
     const score = Number(item.score);
-    if (risk === 'high' || risk === 'red' || recommendation.includes('AVOID') || recommendation.includes('NO_TRADE')) {
+    if (risk === 'high' || risk === 'red' || risk === 'danger' || recommendation.includes('AVOID') || recommendation.includes('NO_TRADE')) {
         return 'danger';
     }
-    if (risk === 'low' || risk === 'green' || (Number.isFinite(score) && score >= 60)) {
+    if (risk === 'low' || risk === 'green' || risk === 'good' || (Number.isFinite(score) && score >= 60)) {
         return 'good';
     }
     return 'watch';
 }
 
+function renderPolymarketUnifiedEvidenceRows(item = {}) {
+    const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+    if (!evidence.length) {
+        return '<div class="polymarket-evidence-row">暂无可展开的来源明细；保留原始 rawResults 供 API 调试。</div>';
+    }
+    return evidence.slice(0, 4).map((row) => {
+        const source = translatePolymarketToken(row.sourceLabel || row.sourceType || '证据');
+        const score = formatPolymarketScore(row.score);
+        const recommendation = translatePolymarketToken(row.recommendation || '--');
+        const risk = translatePolymarketToken(row.risk || '--');
+        const time = formatPolymarketTime(row.generatedAt);
+        const title = row.title || row.subtitle || item.title || '--';
+        return `
+            <div class="polymarket-evidence-row">
+                <span class="polymarket-evidence-source">${escapeHtml(source)}</span>
+                · 分 ${escapeHtml(score)}
+                · ${escapeHtml(recommendation)}
+                · 风险 ${escapeHtml(risk)}
+                · ${escapeHtml(time)}
+                <br>${escapeHtml(title)}
+            </div>
+        `;
+    }).join('');
+}
+
 function renderPolymarketUnifiedSearchCard(item = {}) {
     const tone = getPolymarketUnifiedSearchTone(item);
-    const source = item.sourceLabel || item.sourceType || '证据';
+    const sourceLabels = Array.isArray(item.sourceLabels) && item.sourceLabels.length
+        ? item.sourceLabels
+        : [item.sourceLabel || item.sourceType || '证据'];
+    const sourceChips = sourceLabels.slice(0, 6).map((source) => (
+        `<span class="polymarket-source-chip">${escapeHtml(translatePolymarketToken(source))}</span>`
+    )).join('');
     const probability = formatPolymarketPercent(item.probability);
     const divergence = formatPolymarketSignedPp(item.divergence);
     const score = formatPolymarketScore(item.score);
     const title = item.title || item.marketId || item.url || '--';
     const subtitle = item.subtitle || item.url || '只读聚合结果';
+    const evidenceCount = Number(item.evidenceCount || 0);
     return `
         <div class="polymarket-card ${escapeHtml(tone)}">
-            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(source))}</div>
+            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(item.sourceLabel || '综合证据'))} · ${escapeHtml(evidenceCount || sourceLabels.length || 1)} 条</div>
             <div class="polymarket-title">${escapeHtml(title)}</div>
+            <div class="polymarket-source-chips">${sourceChips}</div>
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('评分', score)}
                 ${renderPolymarketMetric('概率', probability)}
@@ -10028,7 +10109,8 @@ function renderPolymarketUnifiedSearchCard(item = {}) {
                 <div class="polymarket-action">路线 ${escapeHtml(item.track || '--')} · marketId ${escapeHtml(item.marketId || '--')}</div>
                 <div class="polymarket-action">时间 ${escapeHtml(formatPolymarketTime(item.generatedAt))}</div>
             </div>
-            <div class="polymarket-note">${escapeHtml(subtitle)} · 统一搜索只读，不生成新分析、不下注、不影响 MT5。</div>
+            <div class="polymarket-evidence-list">${renderPolymarketUnifiedEvidenceRows(item)}</div>
+            <div class="polymarket-note">${escapeHtml(subtitle)} · 同一 market 已折叠；统一搜索只读，不生成新分析、不下注、不影响 MT5。</div>
         </div>
     `;
 }
@@ -10045,15 +10127,17 @@ function updatePolymarketUnifiedSearch(d) {
     }
     const summary = search.summary || {};
     const query = String(search.query || '').trim();
-    const results = Array.isArray(search.results) ? search.results : [];
+    const results = Array.isArray(search.groupedResults)
+        ? search.groupedResults
+        : (Array.isArray(search.results) ? search.results : []);
     if (summaryEl) {
         const sourceLabel = d?._polymarketUnifiedSearchSource === 'api' || search.source === 'quantgod_dashboard_local_api' ? 'API' : '文件';
         const activeQuery = query ? `关键词 ${query}` : '最近/高分证据';
-        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 总 ${summary.totalMatches || results.length || 0} | 雷达/分析/历史/AI ${summary.radarMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
+        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 雷达/分析/历史/AI ${summary.radarMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
     }
     const safety = search.safety || {};
     const boundaryCard = `
-        <div class="polymarket-card ${search.status === 'PARTIAL' ? 'watch' : 'good'}">
+        <div class="polymarket-card polymarket-search-boundary ${search.status === 'PARTIAL' ? 'watch' : 'good'}">
             <div class="polymarket-eyebrow">统一搜索边界</div>
             <div class="polymarket-title">${escapeHtml(translatePolymarketToken(search.decision || 'READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE'))}</div>
             <div class="polymarket-metric">
@@ -10062,7 +10146,7 @@ function updatePolymarketUnifiedSearch(d) {
                 ${renderPolymarketMetric('下单', safety.orderSendAllowed ? '是' : '否')}
                 ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
             </div>
-            <div class="polymarket-note">同一入口聚合历史库、雷达、单市场分析和 AI 评分；仅用于找证据。</div>
+            <div class="polymarket-note">同一入口聚合历史库、雷达、单市场分析和 AI 评分；现在按同一 market 折叠成综合证据卡，仅用于找证据。</div>
         </div>
     `;
     const cards = results.slice(0, 11).map(renderPolymarketUnifiedSearchCard);
