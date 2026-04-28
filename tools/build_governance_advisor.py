@@ -32,6 +32,7 @@ OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
 VERSION_PROMOTION_GATE_NAME = "QuantGod_VersionPromotionGate.json"
 PARAM_LAB_AUTO_SCHEDULER_NAME = "QuantGod_ParamLabAutoScheduler.json"
 MT5_RESEARCH_STATS_NAME = "QuantGod_MT5ResearchStats.json"
+MT5_BACKEND_BACKTEST_NAME = "QuantGod_MT5BackendBacktest.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -53,6 +54,7 @@ RUNTIME_FILE_HEALTH = [
     ("version_promotion_gate", VERSION_PROMOTION_GATE_NAME, 7 * 24 * 60 * 60),
     ("param_lab_auto_scheduler", PARAM_LAB_AUTO_SCHEDULER_NAME, 7 * 24 * 60 * 60),
     ("mt5_research_stats", MT5_RESEARCH_STATS_NAME, 24 * 60 * 60),
+    ("mt5_backend_backtest", MT5_BACKEND_BACKTEST_NAME, 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -961,6 +963,50 @@ def summarize_mt5_research_stats(stats: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_mt5_backend_backtest(backtest: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(backtest, dict) or not backtest:
+        return {
+            "status": "missing",
+            "mode": "",
+            "taskCount": 0,
+            "readyCount": 0,
+            "cautionCount": 0,
+            "noTradeCount": 0,
+            "routeCount": 0,
+            "topCandidateId": "",
+            "topRouteKey": "",
+            "topRows": [],
+            "readOnly": True,
+            "pythonBacktestOnly": True,
+            "usesMt5StrategyTester": False,
+            "orderSendAllowed": False,
+            "livePresetMutation": False,
+        }
+    summary = backtest.get("summary") if isinstance(backtest.get("summary"), dict) else {}
+    rows = backtest.get("rows") if isinstance(backtest.get("rows"), list) else []
+    safety = backtest.get("safety") if isinstance(backtest.get("safety"), dict) else {}
+    return {
+        "status": "ready" if backtest.get("ok", False) else "unavailable",
+        "mode": backtest.get("mode", "MT5_BACKEND_BACKTEST_LOOP_V1"),
+        "generatedAtIso": backtest.get("generatedAtIso", ""),
+        "source": backtest.get("source", ""),
+        "taskCount": int(summary.get("taskCount") or len(rows)),
+        "readyCount": int(summary.get("readyCount") or 0),
+        "cautionCount": int(summary.get("cautionCount") or 0),
+        "noTradeCount": int(summary.get("noTradeCount") or 0),
+        "routeCount": int(summary.get("routeCount") or 0),
+        "topCandidateId": str(summary.get("topCandidateId") or ""),
+        "topRouteKey": str(summary.get("topRouteKey") or ""),
+        "topRankScore": as_float(summary.get("topRankScore")),
+        "topRows": rows[:8],
+        "readOnly": bool(safety.get("readOnly", True)),
+        "pythonBacktestOnly": bool(safety.get("pythonBacktestOnly", True)),
+        "usesMt5StrategyTester": bool(safety.get("usesMt5StrategyTester", False)),
+        "orderSendAllowed": bool(safety.get("orderSendAllowed", False)),
+        "livePresetMutation": bool(safety.get("livePresetMutationAllowed", False)),
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -1284,6 +1330,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     version_promotion_gate_doc = read_json(runtime_dir / VERSION_PROMOTION_GATE_NAME)
     param_lab_auto_scheduler_doc = read_json(runtime_dir / PARAM_LAB_AUTO_SCHEDULER_NAME)
     mt5_research_stats_doc = read_json(runtime_dir / MT5_RESEARCH_STATS_NAME)
+    mt5_backend_backtest_doc = read_json(runtime_dir / MT5_BACKEND_BACKTEST_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -1303,6 +1350,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     version_promotion_gate = summarize_version_promotion_gate(version_promotion_gate_doc)
     param_lab_auto_scheduler = summarize_param_lab_auto_scheduler(param_lab_auto_scheduler_doc)
     mt5_research_stats = summarize_mt5_research_stats(mt5_research_stats_doc)
+    mt5_backend_backtest = summarize_mt5_backend_backtest(mt5_backend_backtest_doc)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -1396,6 +1444,10 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "mt5ResearchStatsClosedTrades": mt5_research_stats["closedTrades"],
             "mt5ResearchStatsReadySlices": mt5_research_stats["readySlices"],
             "mt5ResearchStatsCandidateSlices": mt5_research_stats["candidateSlices"],
+            "mt5BackendBacktestTasks": mt5_backend_backtest["taskCount"],
+            "mt5BackendBacktestReady": mt5_backend_backtest["readyCount"],
+            "mt5BackendBacktestCaution": mt5_backend_backtest["cautionCount"],
+            "mt5BackendBacktestTopCandidate": mt5_backend_backtest["topCandidateId"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -1416,6 +1468,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "versionPromotionGate": version_promotion_gate,
         "paramLabAutoScheduler": param_lab_auto_scheduler,
         "mt5ResearchStats": mt5_research_stats,
+        "mt5BackendBacktest": mt5_backend_backtest,
         "routeDecisions": route_decisions,
         "governanceFeedback": governance_feedback,
         "nextOperatorSteps": [
@@ -1426,6 +1479,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "Use ParamLabReportWatcher to discover landed Strategy Tester reports, then use ParamLabResults as the parameter-version ranking source; pending or malformed reports are not promotion evidence.",
             "Use VersionPromotionGate as dry-run promotion/demotion review; it never mutates live switches by itself.",
             "Use ParamLabAutoScheduler as the config-only queue for the next tester-only batch; it never adds -RunTerminal.",
+            "Use MT5BackendBacktest as the scalable Python pre-screen before spending Strategy Tester time; it is advisory only and cannot trade.",
             "Use AUTO_TESTER_WINDOW as the only guarded run-terminal bridge; it requires the tester window, an authorization lock, tester-only queue, and profile/config validation.",
             "Use ParamLabRunRecovery to inspect guarded-run history, report missing/parsed/malformed state, retry budget drilldown, and recovery actions before rerunning tasks.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
