@@ -8420,6 +8420,7 @@ const LOCAL_TRADE_JOURNAL_PATH = 'QuantGod_TradeJournal.csv';
 const LOCAL_CLOSE_HISTORY_PATH = 'QuantGod_CloseHistory.csv';
 const LOCAL_TRADE_OUTCOME_LABELS_PATH = 'QuantGod_TradeOutcomeLabels.csv';
 const LOCAL_TRADE_EVENT_LINKS_PATH = 'QuantGod_TradeEventLinks.csv';
+const LOCAL_MT5_RESEARCH_STATS_PATH = 'QuantGod_MT5ResearchStats.json';
 const LOCAL_BACKTEST_SUMMARY_PATH = 'QuantGod_BacktestSummary.json';
 const LOCAL_SHADOW_SIGNAL_LEDGER_PATH = 'QuantGod_ShadowSignalLedger.csv';
 const LOCAL_SHADOW_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowOutcomeLedger.csv';
@@ -9682,6 +9683,16 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.mt5ResearchStats = await loadLocalJsonSupplement(LOCAL_MT5_RESEARCH_STATS_PATH);
+        data._mt5ResearchStatsError = false;
+        data._mt5ResearchStatsSource = 'backend_artifact';
+    } catch (error) {
+        data._mt5ResearchStatsError = true;
+        data._mt5ResearchStatsSource = 'dashboard_fallback';
+        console.warn('MT5 research stats artifact load failed.', error);
+    }
+
+    try {
         data.backtestSummary = await loadLocalJsonSupplement(LOCAL_BACKTEST_SUMMARY_PATH);
         data._backtestSummaryError = false;
     } catch (error) {
@@ -9949,7 +9960,12 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     applyMt5SymbolRegistryToDashboardData(data);
-    data.mt5ResearchStats = buildMt5ResearchStats(data);
+    if (!data.mt5ResearchStats || data.mt5ResearchStats.ok === false) {
+        data.mt5ResearchStats = buildMt5ResearchStats(data);
+        data._mt5ResearchStatsSource = 'dashboard_fallback';
+    } else {
+        data._mt5ResearchStatsSource = data._mt5ResearchStatsSource || 'backend_artifact';
+    }
 
     return data;
 }
@@ -16442,6 +16458,12 @@ function applyMt5SymbolRegistryToDashboardData(data) {
     if (data.market?.symbol) {
         data.market = applyMt5SymbolToRow(data.market, resolver);
     }
+    if (Array.isArray(data.mt5ResearchStats?.rows)) {
+        data.mt5ResearchStats = {
+            ...data.mt5ResearchStats,
+            rows: data.mt5ResearchStats.rows.map((row) => applyMt5SymbolToRow(row, resolver))
+        };
+    }
     data._mt5SymbolResolverReady = true;
     data._mt5SymbolResolverCount = resolver.size;
     return data;
@@ -17282,7 +17304,7 @@ function updateMt5ResearchStatsPanel(d) {
         ? `${scopeText} | ${routeText} | ${scopedRows.length} 个切片 | 平仓 ${closedTrades} | ${formatMoneyWithCurrency(totalNet, currency)}`
         : `${scopeText} | ${routeText} | 等待 MT5 research stats`;
     metaEl.textContent = allRows.length
-        ? `source=${stats.source || 'dashboard_rows'} | generated=${stats.generatedAtIso || '--'} | registry=${d?._mt5SymbolResolverReady ? `${d._mt5SymbolResolverCount || 0} aliases` : 'unavailable'} | read-only/no order`
+        ? `source=${d?._mt5ResearchStatsSource || stats.source || 'dashboard_rows'} | generated=${stats.generatedAtIso || '--'} | registry=${d?._mt5SymbolResolverReady ? `${d._mt5SymbolResolverCount || 0} aliases` : 'unavailable'} | read-only/no order`
         : '等待 TradeJournal、CloseHistory、OutcomeLabels、EventLinks 和 Symbol Registry 形成闭环样本。';
 
     countersEl.innerHTML = [

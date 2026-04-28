@@ -31,6 +31,7 @@ STRATEGY_VERSION_REGISTRY_NAME = "QuantGod_StrategyVersionRegistry.json"
 OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
 VERSION_PROMOTION_GATE_NAME = "QuantGod_VersionPromotionGate.json"
 PARAM_LAB_AUTO_SCHEDULER_NAME = "QuantGod_ParamLabAutoScheduler.json"
+MT5_RESEARCH_STATS_NAME = "QuantGod_MT5ResearchStats.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -51,6 +52,7 @@ RUNTIME_FILE_HEALTH = [
     ("optimizer_v2", OPTIMIZER_V2_NAME, 7 * 24 * 60 * 60),
     ("version_promotion_gate", VERSION_PROMOTION_GATE_NAME, 7 * 24 * 60 * 60),
     ("param_lab_auto_scheduler", PARAM_LAB_AUTO_SCHEDULER_NAME, 7 * 24 * 60 * 60),
+    ("mt5_research_stats", MT5_RESEARCH_STATS_NAME, 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -920,6 +922,45 @@ def summarize_param_lab_auto_scheduler(scheduler: dict[str, Any]) -> dict[str, A
     }
 
 
+def summarize_mt5_research_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(stats, dict) or not stats:
+        return {
+            "status": "missing",
+            "mode": "",
+            "sliceCount": 0,
+            "canonicalSymbolCount": 0,
+            "closedTrades": 0,
+            "journalEvents": 0,
+            "outcomeLabels": 0,
+            "eventLinks": 0,
+            "readySlices": 0,
+            "candidateSlices": 0,
+            "topSlices": [],
+            "symbolSummary": [],
+            "readOnly": True,
+        }
+    summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
+    rows = stats.get("rows") if isinstance(stats.get("rows"), list) else []
+    symbol_summary = stats.get("canonicalSymbolSummary") if isinstance(stats.get("canonicalSymbolSummary"), list) else []
+    return {
+        "status": "ready" if stats.get("ok", False) else "unavailable",
+        "mode": stats.get("mode", "MT5_RESEARCH_STATS_V1"),
+        "generatedAtIso": stats.get("generatedAtIso", ""),
+        "source": stats.get("source", ""),
+        "sliceCount": int(summary.get("sliceCount") or len(rows)),
+        "canonicalSymbolCount": int(summary.get("canonicalSymbolCount") or len(symbol_summary)),
+        "closedTrades": int(summary.get("closedTrades") or 0),
+        "journalEvents": int(summary.get("journalEvents") or 0),
+        "outcomeLabels": int(summary.get("outcomeLabels") or 0),
+        "eventLinks": int(summary.get("eventLinks") or 0),
+        "readySlices": int(summary.get("readySlices") or 0),
+        "candidateSlices": int(summary.get("candidateSlices") or 0),
+        "topSlices": rows[:8],
+        "symbolSummary": symbol_summary[:12],
+        "readOnly": bool((stats.get("safety") or {}).get("readOnly", True)),
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -1242,6 +1283,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     optimizer_v2_doc = read_json(runtime_dir / OPTIMIZER_V2_NAME)
     version_promotion_gate_doc = read_json(runtime_dir / VERSION_PROMOTION_GATE_NAME)
     param_lab_auto_scheduler_doc = read_json(runtime_dir / PARAM_LAB_AUTO_SCHEDULER_NAME)
+    mt5_research_stats_doc = read_json(runtime_dir / MT5_RESEARCH_STATS_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -1260,6 +1302,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     optimizer_v2 = summarize_optimizer_v2(optimizer_v2_doc)
     version_promotion_gate = summarize_version_promotion_gate(version_promotion_gate_doc)
     param_lab_auto_scheduler = summarize_param_lab_auto_scheduler(param_lab_auto_scheduler_doc)
+    mt5_research_stats = summarize_mt5_research_stats(mt5_research_stats_doc)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -1348,6 +1391,11 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramLabAutoSchedulerQueue": param_lab_auto_scheduler["queueCount"],
             "paramLabAutoSchedulerWaitReport": param_lab_auto_scheduler["waitReportQueueCount"],
             "paramLabAutoSchedulerRetune": param_lab_auto_scheduler["retuneQueueCount"],
+            "mt5ResearchStatsSlices": mt5_research_stats["sliceCount"],
+            "mt5ResearchStatsCanonicalSymbols": mt5_research_stats["canonicalSymbolCount"],
+            "mt5ResearchStatsClosedTrades": mt5_research_stats["closedTrades"],
+            "mt5ResearchStatsReadySlices": mt5_research_stats["readySlices"],
+            "mt5ResearchStatsCandidateSlices": mt5_research_stats["candidateSlices"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -1367,6 +1415,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "optimizerV2": optimizer_v2,
         "versionPromotionGate": version_promotion_gate,
         "paramLabAutoScheduler": param_lab_auto_scheduler,
+        "mt5ResearchStats": mt5_research_stats,
         "routeDecisions": route_decisions,
         "governanceFeedback": governance_feedback,
         "nextOperatorSteps": [
