@@ -191,22 +191,15 @@ function safeResolve(urlPath) {
   return target;
 }
 
-const server = http.createServer((req, res) => {
-  const requestUrl = req.url || '/';
-  if (req.method === 'OPTIONS') {
-    sendJson(res, 204, {});
-    return;
-  }
-  if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/single-market-request') {
-    handleSingleMarketRequest(req, res);
-    return;
-  }
-  const target = safeResolve(req.url || '/');
-  if (!target) {
-    send(res, 403, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Forbidden');
-    return;
-  }
+function resolveRuntimeFallback(target) {
+  const base = path.basename(target || '');
+  if (!base.startsWith('QuantGod_')) return null;
+  const runtimeTarget = path.join(defaultRuntimeDir, base);
+  if (!runtimeTarget.startsWith(defaultRuntimeDir)) return null;
+  return fs.existsSync(runtimeTarget) ? runtimeTarget : null;
+}
 
+function sendStaticFile(target, res) {
   fs.stat(target, (statErr, stats) => {
     if (statErr || !stats.isFile()) {
       send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
@@ -233,6 +226,35 @@ const server = http.createServer((req, res) => {
       }, body);
     });
   });
+}
+
+const server = http.createServer((req, res) => {
+  const requestUrl = req.url || '/';
+  if (req.method === 'OPTIONS') {
+    sendJson(res, 204, {});
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/latest') {
+    const latestDashboard = path.join(defaultRuntimeDir, 'QuantGod_Dashboard.json');
+    if (fs.existsSync(latestDashboard)) {
+      sendStaticFile(latestDashboard, res);
+      return;
+    }
+    send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
+    return;
+  }
+  if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/polymarket/single-market-request') {
+    handleSingleMarketRequest(req, res);
+    return;
+  }
+  const target = safeResolve(req.url || '/');
+  if (!target) {
+    send(res, 403, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Forbidden');
+    return;
+  }
+
+  const fallback = fs.existsSync(target) ? target : resolveRuntimeFallback(target);
+  sendStaticFile(fallback || target, res);
 });
 
 server.listen(port, host, () => {
