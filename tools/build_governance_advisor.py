@@ -24,6 +24,8 @@ OUTPUT_NAME = "QuantGod_GovernanceAdvisor.json"
 PARAM_OPTIMIZATION_NAME = "QuantGod_ParamOptimizationPlan.json"
 PARAM_LAB_STATUS_NAME = "QuantGod_ParamLabStatus.json"
 PARAM_LAB_RESULTS_NAME = "QuantGod_ParamLabResults.json"
+STRATEGY_VERSION_REGISTRY_NAME = "QuantGod_StrategyVersionRegistry.json"
+OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -37,6 +39,8 @@ RUNTIME_FILE_HEALTH = [
     ("param_optimization", PARAM_OPTIMIZATION_NAME, 7 * 24 * 60 * 60),
     ("param_lab", PARAM_LAB_STATUS_NAME, 7 * 24 * 60 * 60),
     ("param_lab_results", PARAM_LAB_RESULTS_NAME, 7 * 24 * 60 * 60),
+    ("strategy_version_registry", STRATEGY_VERSION_REGISTRY_NAME, 7 * 24 * 60 * 60),
+    ("optimizer_v2", OPTIMIZER_V2_NAME, 7 * 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -582,6 +586,95 @@ def summarize_param_lab_results(results: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_strategy_version_registry(registry: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(registry, dict) or not registry:
+        return {
+            "status": "missing",
+            "routeCount": 0,
+            "liveVersionCount": 0,
+            "simCandidateVersionCount": 0,
+            "candidateChildVersionCount": 0,
+            "topByRoute": {},
+        }
+    summary = registry.get("summary") if isinstance(registry.get("summary"), dict) else {}
+    top_by_route = {}
+    for route in registry.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        route_key = str(route.get("routeKey") or route.get("strategy") or "")
+        if not route_key:
+            continue
+        top_by_route[route_key] = {
+            "versionId": route.get("versionId", ""),
+            "status": route.get("status", ""),
+            "parameterHash": route.get("parameterHash", ""),
+            "parameterSummary": route.get("parameterSummary", ""),
+            "liveEnabled": bool(route.get("liveEnabled", False)),
+            "candidateEnabled": bool(route.get("candidateEnabled", False)),
+            "readiness": (route.get("promotionState") or {}).get("readiness", ""),
+            "candidateChildCount": len(route.get("candidateChildren") or []),
+            "topCandidateVersionId": (route.get("lineage") or {}).get("topCandidateVersionId", ""),
+            "livePresetMutation": False,
+        }
+    return {
+        "status": "ready",
+        "generatedAtIso": registry.get("generatedAtIso", ""),
+        "mode": registry.get("mode", "FILE_ONLY_STRATEGY_VERSION_REGISTRY"),
+        "routeCount": int(summary.get("routeCount") or len(top_by_route)),
+        "liveVersionCount": int(summary.get("liveVersionCount") or 0),
+        "simCandidateVersionCount": int(summary.get("simCandidateVersionCount") or 0),
+        "candidateChildVersionCount": int(summary.get("candidateChildVersionCount") or 0),
+        "promotionReviewReadyCount": int(summary.get("promotionReviewReadyCount") or 0),
+        "retuneCount": int(summary.get("retuneCount") or 0),
+        "topByRoute": top_by_route,
+    }
+
+
+def summarize_optimizer_v2(plan: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(plan, dict) or not plan:
+        return {
+            "status": "missing",
+            "proposalCount": 0,
+            "readyToQueueCount": 0,
+            "waitingReportCount": 0,
+            "topByRoute": {},
+        }
+    summary = plan.get("summary") if isinstance(plan.get("summary"), dict) else {}
+    top_by_route = {}
+    for route in plan.get("routePlans") or []:
+        if not isinstance(route, dict):
+            continue
+        route_key = str(route.get("routeKey") or route.get("strategy") or "")
+        proposals = route.get("proposals") if isinstance(route.get("proposals"), list) else []
+        top = proposals[0] if proposals and isinstance(proposals[0], dict) else {}
+        if route_key:
+            top_by_route[route_key] = {
+                "currentVersionId": route.get("currentVersionId", ""),
+                "primaryAction": route.get("primaryAction", ""),
+                "resultState": route.get("resultState", ""),
+                "proposalCount": int(route.get("proposalCount") or 0),
+                "topProposalId": route.get("topProposalId", ""),
+                "topRankScore": route.get("topRankScore"),
+                "topCandidateVersionId": top.get("candidateVersionId", ""),
+                "topParameterSummary": top.get("parameterSummary", ""),
+                "topObjective": top.get("objective", ""),
+                "testerOnlyCommand": top.get("testerOnlyCommand", ""),
+                "livePresetMutation": False,
+            }
+    return {
+        "status": "ready",
+        "generatedAtIso": plan.get("generatedAtIso", ""),
+        "mode": plan.get("mode", "VERSION_AWARE_TESTER_ONLY_OPTIMIZER"),
+        "routeCount": int(summary.get("routeCount") or len(top_by_route)),
+        "proposalCount": int(summary.get("proposalCount") or 0),
+        "readyToQueueCount": int(summary.get("readyToQueueCount") or 0),
+        "waitingReportCount": int(summary.get("waitingReportCount") or 0),
+        "retuneRouteCount": int(summary.get("retuneRouteCount") or 0),
+        "topProposalId": str(summary.get("topProposalId") or ""),
+        "topByRoute": top_by_route,
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -898,6 +991,8 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_optimization_plan = read_json(runtime_dir / PARAM_OPTIMIZATION_NAME)
     param_lab_status = read_json(runtime_dir / PARAM_LAB_STATUS_NAME)
     param_lab_results_doc = read_json(runtime_dir / PARAM_LAB_RESULTS_NAME)
+    strategy_version_registry_doc = read_json(runtime_dir / STRATEGY_VERSION_REGISTRY_NAME)
+    optimizer_v2_doc = read_json(runtime_dir / OPTIMIZER_V2_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -909,6 +1004,8 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_optimization = summarize_param_optimization(param_optimization_plan)
     param_lab = summarize_param_lab(param_lab_status)
     param_lab_results = summarize_param_lab_results(param_lab_results_doc)
+    strategy_version_registry = summarize_strategy_version_registry(strategy_version_registry_doc)
+    optimizer_v2 = summarize_optimizer_v2(optimizer_v2_doc)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -976,6 +1073,9 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramLabResultCount": param_lab_results["resultCount"],
             "paramLabResultParsed": param_lab_results["parsedReportCount"],
             "paramLabPromotionReady": param_lab_results["promotionReadyCount"],
+            "strategyVersionCount": strategy_version_registry["routeCount"],
+            "optimizerV2Proposals": optimizer_v2["proposalCount"],
+            "optimizerV2WaitingReport": optimizer_v2["waitingReportCount"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -988,6 +1088,8 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "paramOptimization": param_optimization,
         "paramLab": param_lab,
         "paramLabResults": param_lab_results,
+        "strategyVersionRegistry": strategy_version_registry,
+        "optimizerV2": optimizer_v2,
         "routeDecisions": route_decisions,
         "governanceFeedback": governance_feedback,
         "nextOperatorSteps": [

@@ -1225,6 +1225,95 @@
             padding: 0.38rem 0.62rem;
         }
 
+        .strategy-version-panel-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 0.9rem;
+            margin-top: 0.85rem;
+        }
+
+        .strategy-version-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.85rem;
+        }
+
+        .strategy-version-card {
+            min-width: 0;
+            display: grid;
+            gap: 0.65rem;
+            background: #ffffff;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 0.85rem;
+            box-shadow: var(--shadow-subtle);
+        }
+
+        .strategy-version-top,
+        .strategy-version-badges {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.65rem;
+        }
+
+        .strategy-version-badges {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .strategy-version-title {
+            min-width: 0;
+            color: var(--text-primary);
+            font-weight: 800;
+            overflow-wrap: anywhere;
+        }
+
+        .strategy-version-sub {
+            margin-top: 0.25rem;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .strategy-version-facts {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.5rem;
+        }
+
+        .strategy-version-fact {
+            min-width: 0;
+            background: #f8fafc;
+            border: 1px solid #e5edf6;
+            border-radius: 7px;
+            padding: 0.55rem;
+        }
+
+        .strategy-version-fact-label {
+            color: var(--text-muted);
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .strategy-version-fact-value {
+            margin-top: 0.2rem;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            font-weight: 800;
+            overflow-wrap: anywhere;
+        }
+
+        .strategy-version-copy {
+            color: var(--text-secondary);
+            font-size: 0.77rem;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+        }
+
         .governance-feedback-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3291,6 +3380,7 @@
             .strategy-workspace-tabs { justify-content: flex-start; }
             .strategy-workspace-metrics,
             .strategy-workspace-lanes { grid-template-columns: 1fr; }
+            .strategy-version-panel-grid,
             .governance-feedback-grid,
             .governance-feedback-columns { grid-template-columns: 1fr; }
         }
@@ -5319,6 +5409,35 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">V</div>
+                            Strategy Version Registry + Optimizer V2
+                        </div>
+                        <span class="eval-summary" id="strategyVersionOptimizerSummary">等待版本与优化器</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="research-window-meta" id="strategyVersionOptimizerMeta">
+                            版本登记沉淀当前策略参数、父子候选和证据；Optimizer V2 只生成 tester-only 下一轮参数建议，不写 live preset。
+                        </div>
+                        <div class="strategy-version-panel-grid">
+                            <div>
+                                <div class="strategy-workspace-meta">Strategy Version Registry</div>
+                                <div class="strategy-version-grid" id="strategyVersionRegistryBody">
+                                    <div class="empty-state">等待 QuantGod_StrategyVersionRegistry.json</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="strategy-workspace-meta">Optimizer V2</div>
+                                <div class="strategy-version-grid" id="optimizerV2Body">
+                                    <div class="empty-state">等待 QuantGod_OptimizerV2Plan.json</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(139,92,246,0.15); color: var(--accent-purple);">AI</div>
                             AI / Governance Feedback
                         </div>
@@ -5748,6 +5867,8 @@ const LOCAL_SHADOW_CANDIDATE_LEDGER_PATH = 'QuantGod_ShadowCandidateLedger.csv';
 const LOCAL_SHADOW_CANDIDATE_OUTCOME_LEDGER_PATH = 'QuantGod_ShadowCandidateOutcomeLedger.csv';
 const LOCAL_MANUAL_ALPHA_LEDGER_PATH = 'QuantGod_ManualAlphaLedger.csv';
 const LOCAL_GOVERNANCE_ADVISOR_PATH = 'QuantGod_GovernanceAdvisor.json';
+const LOCAL_STRATEGY_VERSION_REGISTRY_PATH = 'QuantGod_StrategyVersionRegistry.json';
+const LOCAL_OPTIMIZER_V2_PATH = 'QuantGod_OptimizerV2Plan.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -5896,6 +6017,7 @@ function setRouteStrategyFilter(strategy) {
     updateGovernanceAdvisor(dashboardData);
     updateParamLabBatchPanel(dashboardData);
     updateStrategyWorkspace(dashboardData);
+    updateStrategyVersionOptimizerPanel(dashboardData);
     updateGovernanceFeedback(dashboardData);
     updateStrategyCards(dashboardData);
     updateStrategyEvaluationTable(dashboardData);
@@ -6541,7 +6663,9 @@ async function attachSupplementalData(baseData, previousData = null) {
             ? baseData.manualAlphaLedgerRows
             : (previousData?.manualAlphaLedgerRows || []),
         backtestSummary: baseData?.backtestSummary || previousData?.backtestSummary || null,
-        governanceAdvisor: baseData?.governanceAdvisor || previousData?.governanceAdvisor || null
+        governanceAdvisor: baseData?.governanceAdvisor || previousData?.governanceAdvisor || null,
+        strategyVersionRegistry: baseData?.strategyVersionRegistry || previousData?.strategyVersionRegistry || null,
+        optimizerV2: baseData?.optimizerV2 || previousData?.optimizerV2 || null
     };
 
     if (!isLocalRuntime()) {
@@ -6660,6 +6784,22 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Governance advisor load failed.', error);
     }
 
+    try {
+        data.strategyVersionRegistry = await loadLocalJsonSupplement(LOCAL_STRATEGY_VERSION_REGISTRY_PATH);
+        data._strategyVersionRegistryError = false;
+    } catch (error) {
+        data._strategyVersionRegistryError = true;
+        console.warn('Strategy version registry load failed.', error);
+    }
+
+    try {
+        data.optimizerV2 = await loadLocalJsonSupplement(LOCAL_OPTIMIZER_V2_PATH);
+        data._optimizerV2Error = false;
+    } catch (error) {
+        data._optimizerV2Error = true;
+        console.warn('Optimizer V2 load failed.', error);
+    }
+
     return data;
 }
 
@@ -6717,6 +6857,14 @@ function getManualAlphaLedgerRows(d) {
 
 function getGovernanceAdvisor(d) {
     return d?.governanceAdvisor || null;
+}
+
+function getStrategyVersionRegistry(d) {
+    return d?.strategyVersionRegistry || d?.governanceAdvisor?.strategyVersionRegistry || null;
+}
+
+function getOptimizerV2(d) {
+    return d?.optimizerV2 || d?.governanceAdvisor?.optimizerV2 || null;
 }
 
 function getFocusSymbol(d) {
@@ -8758,6 +8906,22 @@ function getStrategyWorkspaceActionText(row) {
     return '保持 candidate/simulation 采样，等待更多候选后验和参数候选。';
 }
 
+function findStrategyVersionRoute(d, strategyKey) {
+    const registry = getStrategyVersionRegistry(d);
+    const routes = Array.isArray(registry?.routes) ? registry.routes : [];
+    return routes.find((route) => (route?.routeKey || route?.strategy) === strategyKey)
+        || registry?.topByRoute?.[strategyKey]
+        || null;
+}
+
+function findOptimizerV2Route(d, strategyKey) {
+    const optimizer = getOptimizerV2(d);
+    const routes = Array.isArray(optimizer?.routePlans) ? optimizer.routePlans : [];
+    return routes.find((route) => (route?.routeKey || route?.strategy) === strategyKey)
+        || optimizer?.topByRoute?.[strategyKey]
+        || null;
+}
+
 function buildStrategyWorkspaceRows(d) {
     const advisor = getGovernanceAdvisor(d);
     const opportunitySummaryMap = getOpportunitySummaryMap(d);
@@ -8780,6 +8944,8 @@ function buildStrategyWorkspaceRows(d) {
         const paramOptimization = decision?.paramOptimization || {};
         const paramLab = labTop[strategyKey] || decision?.paramLab || {};
         const paramLabResult = resultTop[strategyKey] || decision?.paramLabResult || {};
+        const versionInfo = findStrategyVersionRoute(d, strategyKey);
+        const optimizerInfo = findOptimizerV2Route(d, strategyKey);
         const batchState = getParamLabBatchState(paramLab, paramLabResult);
         const metrics = paramLabResult.metrics || paramLab.metrics || {};
         const fallbackNet = closedTrades.reduce((sum, trade) => sum + Number(trade.profit || 0), 0);
@@ -8813,6 +8979,8 @@ function buildStrategyWorkspaceRows(d) {
             paramOptimization,
             paramLab,
             paramLabResult,
+            versionInfo,
+            optimizerInfo,
             batchState,
             paramMetrics: metrics,
             blockers: Array.isArray(decision?.blockers) ? decision.blockers : []
@@ -8885,9 +9053,20 @@ function renderStrategyWorkspaceCard(row) {
     const opportunityText = opp.count
         ? `Opportunity ${opp.count} 条；Bias 命中 ${formatPercentValue(opp.biasHitRate, 0)}；Long/Short ${formatSignedPips(opp.avgLongClose)} / ${formatSignedPips(opp.avgShortClose)}`
         : 'Opportunity label 仍在等待样本。';
-    const paramText = param.candidateId
+    const versionInfo = row.versionInfo || {};
+    const optimizerInfo = row.optimizerInfo || {};
+    const optimizerTop = Array.isArray(optimizerInfo.proposals) ? optimizerInfo.proposals[0] : {};
+    const versionText = versionInfo.versionId
+        ? `Version ${versionInfo.versionId}；${versionInfo.status || '--'}；hash ${String(versionInfo.parameterHash || '').slice(0, 8) || '--'}`
+        : 'Strategy Version Registry 仍在等待生成。';
+    const optimizerText = optimizerTop?.proposalId || optimizerInfo.topProposalId
+        ? `Optimizer V2: ${optimizerTop?.proposalId || optimizerInfo.topProposalId}；${optimizerTop?.parameterSummary || optimizerInfo.topParameterSummary || '参数摘要待补齐'}`
+        : 'Optimizer V2 仍在等待下一轮候选。';
+    const paramText = versionInfo.versionId
+        ? `${versionText}。${optimizerText}`
+        : (param.candidateId
         ? `${param.variant || '--'} @ ${param.symbol || '--'} ${param.timeframe || ''}；${param.parameterSummary || '参数摘要待补齐'}`
-        : '等待 QuantGod_ParamOptimizationPlan.json 生成候选参数。';
+        : '等待 QuantGod_ParamOptimizationPlan.json 生成候选参数。');
     const resultText = result.candidateId
         ? `Score ${formatParamLabNumber(result.resultScore, 1)} / ${result.grade || '--'}；PF ${formatParamLabNumber(resultMetrics.profitFactor, 2)}；胜率 ${hasParamLabNumber(resultMetrics.winRate) ? formatPercentValue(resultMetrics.winRate, 1) : '--'}；交易 ${hasParamLabNumber(resultMetrics.closedTrades) ? resultMetrics.closedTrades : '--'}`
         : batchState.next || '等待 ParamLab 任务和结果回灌。';
@@ -8934,7 +9113,8 @@ function renderStrategyWorkspaceCard(row) {
                     `<span class="table-badge status-muted">${escapeHtml(reportRow.lastEvalTime ? `评估 ${reportRow.lastEvalTime}` : '评估 --')}</span>`
                 ])}
                 ${renderStrategyWorkspaceLane('参数版本', paramText, [
-                    `<span class="table-badge ${batchState.tone || 'status-muted'}">${escapeHtml(labStatusText)}</span>`
+                    `<span class="table-badge ${batchState.tone || 'status-muted'}">${escapeHtml(labStatusText)}</span>`,
+                    `<span class="table-badge status-info">${escapeHtml(versionInfo.versionId ? 'Versioned' : 'Unversioned')}</span>`
                 ])}
                 ${renderStrategyWorkspaceLane('结果/下一步', `${resultText}。${nextText}`, [
                     `<span class="table-badge ${strategyWorkspaceActionTone(row.action)}">${escapeHtml(governanceActionLabel(row.action))}</span>`
@@ -8983,6 +9163,117 @@ function updateStrategyWorkspace(d) {
     bodyEl.innerHTML = rows.length
         ? rows.map(renderStrategyWorkspaceCard).join('')
         : `<div class="empty-state">${escapeHtml(scopedLabel)} 当前没有策略路线工作台数据</div>`;
+}
+
+function strategyVersionStatusTone(status) {
+    const normalized = String(status || '').toUpperCase();
+    if (normalized.includes('LIVE')) return 'status-live';
+    if (normalized.includes('SIM') || normalized.includes('CANDIDATE')) return 'status-info';
+    if (normalized.includes('OFF') || normalized.includes('WAIT')) return 'status-muted';
+    return 'status-warn';
+}
+
+function optimizerObjectiveTone(objective) {
+    const normalized = String(objective || '').toUpperCase();
+    if (normalized.includes('RETUNE')) return 'status-warn';
+    if (normalized.includes('PENDING') || normalized.includes('REPORT')) return 'status-info';
+    if (normalized.includes('PROMOTION')) return 'status-live';
+    return 'status-muted';
+}
+
+function renderStrategyVersionFact(label, value) {
+    return `
+        <div class="strategy-version-fact">
+            <div class="strategy-version-fact-label">${escapeHtml(label)}</div>
+            <div class="strategy-version-fact-value">${escapeHtml(value || '--')}</div>
+        </div>
+    `;
+}
+
+function renderStrategyVersionCard(route) {
+    const evidence = route?.evidence || {};
+    const promotion = route?.promotionState || {};
+    const childCount = Array.isArray(route?.candidateChildren) ? route.candidateChildren.length : Number(route?.candidateChildCount || 0);
+    const result = evidence.paramLabResult || {};
+    return `
+        <article class="strategy-version-card">
+            <div class="strategy-version-top">
+                <div>
+                    <div class="strategy-version-title">${escapeHtml(route?.shortLabel || route?.routeKey || '--')} · ${escapeHtml(route?.versionId || route?.currentVersionId || '--')}</div>
+                    <div class="strategy-version-sub">${escapeHtml(route?.label || route?.routeKey || '--')}</div>
+                </div>
+                <div class="strategy-version-badges">
+                    <span class="table-badge ${strategyVersionStatusTone(route?.status)}">${escapeHtml(route?.status || '--')}</span>
+                    <span class="table-badge ${route?.liveEnabled ? 'status-live' : 'status-muted'}">${escapeHtml(route?.liveEnabled ? 'Live ON' : 'Live OFF')}</span>
+                </div>
+            </div>
+            <div class="strategy-version-facts">
+                ${renderStrategyVersionFact('Hash', String(route?.parameterHash || '').slice(0, 10))}
+                ${renderStrategyVersionFact('Child Versions', String(childCount || 0))}
+                ${renderStrategyVersionFact('Readiness', promotion.readiness || route?.readiness || '--')}
+                ${renderStrategyVersionFact('ParamLab', result.grade ? `${result.grade} / ${formatParamLabNumber(result.resultScore, 1)}` : '--')}
+            </div>
+            <div class="strategy-version-copy">${escapeHtml(route?.parameterSummary || route?.topParameterSummary || '参数摘要待生成。')}</div>
+        </article>
+    `;
+}
+
+function renderOptimizerV2Card(route) {
+    const proposals = Array.isArray(route?.proposals) ? route.proposals : [];
+    const top = proposals[0] || route || {};
+    return `
+        <article class="strategy-version-card">
+            <div class="strategy-version-top">
+                <div>
+                    <div class="strategy-version-title">${escapeHtml(route?.routeKey || top?.routeKey || '--')} · ${escapeHtml(top?.proposalId || route?.topProposalId || '--')}</div>
+                    <div class="strategy-version-sub">parent ${escapeHtml(top?.parentVersionId || route?.currentVersionId || '--')}</div>
+                </div>
+                <div class="strategy-version-badges">
+                    <span class="table-badge ${optimizerObjectiveTone(top?.objective || route?.primaryAction)}">${escapeHtml(top?.objective || route?.primaryAction || '--')}</span>
+                    <span class="table-badge status-muted">tester-only</span>
+                </div>
+            </div>
+            <div class="strategy-version-facts">
+                ${renderStrategyVersionFact('Score', formatParamLabNumber(top?.rankScore ?? route?.topRankScore, 1))}
+                ${renderStrategyVersionFact('Result State', route?.resultState || '--')}
+                ${renderStrategyVersionFact('Symbol', top?.symbol || '--')}
+                ${renderStrategyVersionFact('Version', top?.candidateVersionId || top?.topCandidateVersionId || '--')}
+            </div>
+            <div class="strategy-version-copy">${escapeHtml(top?.parameterSummary || route?.topParameterSummary || '等待下一轮参数建议。')}</div>
+        </article>
+    `;
+}
+
+function updateStrategyVersionOptimizerPanel(d) {
+    const summaryEl = document.getElementById('strategyVersionOptimizerSummary');
+    const metaEl = document.getElementById('strategyVersionOptimizerMeta');
+    const registryBody = document.getElementById('strategyVersionRegistryBody');
+    const optimizerBody = document.getElementById('optimizerV2Body');
+    if (!summaryEl || !metaEl || !registryBody || !optimizerBody) return;
+
+    const registry = getStrategyVersionRegistry(d);
+    const optimizer = getOptimizerV2(d);
+    const registryRoutes = Array.isArray(registry?.routes) ? registry.routes : [];
+    const optimizerRoutes = Array.isArray(optimizer?.routePlans) ? optimizer.routePlans : [];
+    const scopedRegistryRoutes = isRouteStrategyFiltered()
+        ? registryRoutes.filter((route) => (route?.routeKey || route?.strategy) === routeStrategyFilter)
+        : registryRoutes.filter((route) => CORE_ROUTE_KEYS.includes(route?.routeKey || route?.strategy));
+    const scopedOptimizerRoutes = isRouteStrategyFiltered()
+        ? optimizerRoutes.filter((route) => (route?.routeKey || route?.strategy) === routeStrategyFilter)
+        : optimizerRoutes.filter((route) => CORE_ROUTE_KEYS.includes(route?.routeKey || route?.strategy));
+    const regSummary = registry?.summary || registry || {};
+    const optSummary = optimizer?.summary || optimizer || {};
+
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | versions ${regSummary.routeCount || scopedRegistryRoutes.length || 0} / proposals ${optSummary.proposalCount || 0} / wait ${optSummary.waitingReportCount || 0}`;
+    metaEl.textContent = registry || optimizer
+        ? `Version Registry ${registry?.generatedAtIso || '--'}；Optimizer V2 ${optimizer?.generatedAtIso || '--'}；只读、tester-only、livePresetMutation=false。`
+        : '等待 QuantGod_StrategyVersionRegistry.json 和 QuantGod_OptimizerV2Plan.json。';
+    registryBody.innerHTML = scopedRegistryRoutes.length
+        ? scopedRegistryRoutes.map(renderStrategyVersionCard).join('')
+        : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有版本登记</div>`;
+    optimizerBody.innerHTML = scopedOptimizerRoutes.length
+        ? scopedOptimizerRoutes.map(renderOptimizerV2Card).join('')
+        : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Optimizer V2 建议</div>`;
 }
 
 function getGovernanceFeedbackRows(advisor) {
@@ -10318,6 +10609,7 @@ function updateDashboard() {
     updateGovernanceAdvisor(d);
     updateParamLabBatchPanel(d);
     updateStrategyWorkspace(d);
+    updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
     updateQuantDingerInspiredHero(d);
     updateStrategyCards(d);
