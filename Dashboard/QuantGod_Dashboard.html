@@ -6333,6 +6333,73 @@
             overflow-wrap: anywhere;
         }
 
+        .polymarket-history-card {
+            grid-column: 1 / -1;
+        }
+
+        .polymarket-history-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 10px;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        .polymarket-history-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .polymarket-history-table-wrap {
+            margin-top: 12px;
+            overflow-x: auto;
+            border: 1px solid #303a49;
+            border-radius: 7px;
+            background: #121821;
+        }
+
+        .polymarket-history-table {
+            width: 100%;
+            min-width: 1040px;
+        }
+
+        .polymarket-history-table th:nth-child(1),
+        .polymarket-history-table td:nth-child(1) {
+            width: 148px;
+            white-space: nowrap;
+        }
+
+        .polymarket-history-table th:nth-child(2),
+        .polymarket-history-table td:nth-child(2) {
+            width: 300px;
+        }
+
+        .polymarket-history-table th:nth-child(3),
+        .polymarket-history-table td:nth-child(3),
+        .polymarket-history-table th:nth-child(4),
+        .polymarket-history-table td:nth-child(4) {
+            width: 118px;
+        }
+
+        .polymarket-history-market {
+            display: grid;
+            gap: 4px;
+        }
+
+        .polymarket-history-market strong {
+            color: #f3f6fb;
+            font-weight: 900;
+        }
+
+        .polymarket-history-market span {
+            color: #8f9aa8;
+            font-size: 11px;
+        }
+
         .qd-command-center.is-detail-section .qd-command-grid {
             display: none;
         }
@@ -6575,7 +6642,11 @@
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>Trading Bot</strong><em>EA 只读</em></span></a>
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-reports"><span class="qd-menu-icon">◫</span><span><strong>Reports</strong><em>证据报表</em></span></a>
             <div class="qd-menu-separator" data-workspace-label="polymarket">Polymarket</div>
-            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>Polymarket</strong><em>外部研究</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>治理总览</strong><em>账户与边界</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-radar"><span class="qd-menu-icon">⌁</span><span><strong>机会雷达</strong><em>Gamma 扫描</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-analysis"><span class="qd-menu-icon">⌕</span><span><strong>单市场分析</strong><em>URL/标题入口</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-execution"><span class="qd-menu-icon">⇄</span><span><strong>执行模拟</strong><em>Gate / dry-run</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-ledger"><span class="qd-menu-icon">◫</span><span><strong>重调账本</strong><em>样本与日志</em></span></a>
         </div>
         <div class="qd-menu-footer">
             <strong>Guardrail:</strong><br>
@@ -7170,6 +7241,17 @@
                         </div>
                     </div>
                 </div>
+            </section>
+
+            <section class="content-section fade-in" id="section-polymarket-radar" data-nav-section="polymarket-radar">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Polymarket 机会雷达</div>
+                        <div class="section-title">Gamma 公共市场扫描</div>
+                        <div class="section-desc">只读扫描活跃市场，按概率、成交量、流动性、偏离度和规则评分生成 shadow track；不碰钱包、不下注。</div>
+                    </div>
+                    <div class="section-meta">QuantGod_PolymarketMarketRadar.json / csv</div>
+                </div>
 
                 <div class="panel">
                     <div class="panel-header">
@@ -7185,6 +7267,17 @@
                         </div>
                     </div>
                 </div>
+            </section>
+
+            <section class="content-section fade-in" id="section-polymarket-analysis" data-nav-section="polymarket-analysis">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Polymarket 单市场分析</div>
+                        <div class="section-title">URL / 标题 / marketId 研究入口</div>
+                        <div class="section-desc">本地输入控件会生成请求并运行只读分析；历史列表会保留每次推荐、风险、偏离度和影子路线。</div>
+                    </div>
+                    <div class="section-meta">QuantGod_PolymarketSingleMarketAnalysisLedger.csv</div>
+                </div>
 
                 <div class="panel">
                     <div class="panel-header">
@@ -7199,6 +7292,17 @@
                             <div class="empty-state">等待 `QuantGod_PolymarketSingleMarketAnalysis.json`</div>
                         </div>
                     </div>
+                </div>
+            </section>
+
+            <section class="content-section fade-in" id="section-polymarket-execution" data-nav-section="polymarket-execution">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Polymarket 执行模拟</div>
+                        <div class="section-title">执行闸门 / 模拟订单 / 退出观察</div>
+                        <div class="section-desc">只定义下注契约、模拟订单和退出观察；真实钱包写操作仍关闭，未来必须单独通过执行闸门。</div>
+                    </div>
+                    <div class="section-meta">闸门 + 模拟 + 退出观察</div>
                 </div>
 
                 <div class="panel">
@@ -7244,6 +7348,17 @@
                             <div class="empty-state">等待 `QuantGod_PolymarketDryRunOutcomeWatcher.json`</div>
                         </div>
                     </div>
+                </div>
+            </section>
+
+            <section class="content-section fade-in" id="section-polymarket-ledger" data-nav-section="polymarket-ledger">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Polymarket 重调账本</div>
+                        <div class="section-title">Retune 队列 / 样本分桶 / 风险日志</div>
+                        <div class="section-desc">只读展示 shadow-only 重调建议、executed/shadow/experiment 分桶、最近样本和风险日志；与 MT5 资金口径分离。</div>
+                    </div>
+                    <div class="section-meta">research ledger + risk log</div>
                 </div>
 
                 <div class="panel">
@@ -7805,6 +7920,7 @@ const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
 const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
 const LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_PATH = 'QuantGod_PolymarketSingleMarketAnalysis.json';
+const LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_LEDGER_PATH = 'QuantGod_PolymarketSingleMarketAnalysisLedger.csv';
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
 const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.json';
 const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
@@ -8397,6 +8513,12 @@ function toNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function toNullableNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
 function toBooleanFlag(value) {
     const normalized = String(value ?? '').trim().toUpperCase();
     return normalized === 'Y' || normalized === 'TRUE' || normalized === '1';
@@ -8619,6 +8741,30 @@ function parseManualAlphaLedgerCsv(text) {
         comment: row.Comment || '',
         learningUse: row.LearningUse || ''
     })).filter((row) => row.positionId && row.symbol);
+}
+
+function parsePolymarketSingleMarketAnalysisLedgerCsv(text) {
+    return parseCsvTable(text).map((row, index) => ({
+        rowId: index + 1,
+        generatedAt: row.generated_at || '',
+        status: row.status || '',
+        decision: row.decision || '',
+        query: row.query || '',
+        querySource: row.query_source || '',
+        marketId: row.market_id || '',
+        question: row.question || '',
+        category: row.category || '',
+        marketProbability: toNullableNumber(row.market_probability),
+        aiProbability: toNullableNumber(row.ai_probability),
+        divergence: toNullableNumber(row.divergence),
+        confidence: toNullableNumber(row.confidence),
+        recommendation: row.recommendation || '',
+        risk: row.risk || '',
+        shadowTrack: row.shadow_track || '',
+        url: row.url || '',
+        walletWrite: toBooleanFlag(row.wallet_write),
+        orderSend: toBooleanFlag(row.order_send)
+    })).filter((row) => row.generatedAt || row.question || row.query || row.marketId);
 }
 
 function parseTradeJournalCsv(text) {
@@ -8976,6 +9122,15 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.polymarketSingleMarketAnalysisLedgerRows = await loadLocalCsvSupplement(LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_LEDGER_PATH, parsePolymarketSingleMarketAnalysisLedgerCsv);
+        data._polymarketSingleMarketAnalysisLedgerError = false;
+    } catch (error) {
+        data.polymarketSingleMarketAnalysisLedgerRows = [];
+        data._polymarketSingleMarketAnalysisLedgerError = true;
+        console.warn('Polymarket single market analysis ledger load failed.', error);
+    }
+
+    try {
         data.polymarketRetunePlanner = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RETUNE_PLANNER_PATH);
         data._polymarketRetunePlannerError = false;
     } catch (error) {
@@ -9104,6 +9259,10 @@ function getPolymarketMarketRadar(d) {
 
 function getPolymarketSingleMarketAnalysis(d) {
     return d?.polymarketSingleMarketAnalysis || null;
+}
+
+function getPolymarketSingleMarketAnalysisHistory(d) {
+    return Array.isArray(d?.polymarketSingleMarketAnalysisLedgerRows) ? d.polymarketSingleMarketAnalysisLedgerRows : [];
 }
 
 function getPolymarketRetunePlanner(d) {
@@ -9329,15 +9488,113 @@ function updatePolymarketMarketRadar(d) {
     ].join('') || '<div class="empty-state">公共市场扫描暂无可展示市场。</div>';
 }
 
+function formatPolymarketSignedPp(value, digits = 1) {
+    if (value === null || value === undefined || value === '') return '--';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '--';
+    return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}pp`;
+}
+
+function getPolymarketRiskBadgeClass(risk) {
+    const normalized = String(risk || '').trim().toLowerCase();
+    if (normalized === 'high') return 'status-danger';
+    if (normalized === 'medium') return 'status-warn';
+    if (normalized === 'low') return 'status-live';
+    return 'status-muted';
+}
+
+function getPolymarketRecommendationBadgeClass(recommendation) {
+    const normalized = String(recommendation || '').trim().toUpperCase();
+    if (normalized.includes('HIGH_PRIORITY')) return 'status-info';
+    if (normalized.includes('AVOID') || normalized.includes('NO_TRADE')) return 'status-danger';
+    if (normalized.includes('OBSERVE') || normalized.includes('SHADOW')) return 'status-warn';
+    return 'status-muted';
+}
+
+function renderPolymarketSingleMarketHistory(d, limit = 12) {
+    const rows = getPolymarketSingleMarketAnalysisHistory(d)
+        .slice()
+        .sort((a, b) => {
+            const left = Date.parse(a.generatedAt || '') || 0;
+            const right = Date.parse(b.generatedAt || '') || 0;
+            return right - left;
+        });
+    const visibleRows = rows.slice(0, limit);
+    const lowRisk = rows.filter((row) => String(row.risk || '').toLowerCase() === 'low').length;
+    const highPriority = rows.filter((row) => String(row.recommendation || '').toUpperCase().includes('HIGH_PRIORITY')).length;
+    const noWalletWrites = rows.filter((row) => !row.walletWrite && !row.orderSend).length;
+    const ledgerState = d?._polymarketSingleMarketAnalysisLedgerError ? '账本未读取' : `历史 ${rows.length} 条`;
+    if (!rows.length) {
+        return `
+            <div class="polymarket-card polymarket-history-card watch">
+                <div class="polymarket-eyebrow">单市场历史</div>
+                <div class="polymarket-title">暂无历史列表</div>
+                <div class="polymarket-note">等待 QuantGod_PolymarketSingleMarketAnalysisLedger.csv；之后每次分析会按时间、推荐、风险和偏离度累计显示。</div>
+            </div>
+        `;
+    }
+    return `
+        <div class="polymarket-card polymarket-history-card">
+            <div class="polymarket-eyebrow">单市场分析历史</div>
+            <div class="polymarket-title">最近 ${escapeHtml(String(visibleRows.length))} 条 / 总 ${escapeHtml(String(rows.length))} 条</div>
+            <div class="polymarket-history-toolbar">
+                <span>${escapeHtml(ledgerState)}；只读研究记录，不写钱包、不下单。</span>
+                <div class="polymarket-history-badges">
+                    <span class="table-badge status-info">高优先 ${escapeHtml(String(highPriority))}</span>
+                    <span class="table-badge status-live">低风险 ${escapeHtml(String(lowRisk))}</span>
+                    <span class="table-badge status-muted">无写操作 ${escapeHtml(String(noWalletWrites))}</span>
+                </div>
+            </div>
+            <div class="polymarket-history-table-wrap">
+                <table class="report-table compact-report-table polymarket-ledger-table polymarket-history-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>市场</th>
+                            <th>推荐</th>
+                            <th>风险</th>
+                            <th>偏离度</th>
+                            <th>信心</th>
+                            <th>概率</th>
+                            <th>影子路线</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${visibleRows.map((row) => `
+                            <tr>
+                                <td>${escapeHtml(formatPolymarketTime(row.generatedAt))}</td>
+                                <td>
+                                    <div class="polymarket-history-market">
+                                        <strong>${escapeHtml(row.question || row.query || row.marketId || '--')}</strong>
+                                        <span>${escapeHtml(row.category || '--')} · ${escapeHtml(row.marketId || '--')}</span>
+                                    </div>
+                                </td>
+                                <td><span class="table-badge ${getPolymarketRecommendationBadgeClass(row.recommendation)}">${escapeHtml(translatePolymarketToken(row.recommendation || row.status || '--'))}</span></td>
+                                <td><span class="table-badge ${getPolymarketRiskBadgeClass(row.risk)}">${escapeHtml(translatePolymarketToken(row.risk || '--'))}</span></td>
+                                <td class="${Number(row.divergence || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatPolymarketSignedPp(row.divergence))}</td>
+                                <td>${escapeHtml(formatPolymarketPercent(row.confidence))}</td>
+                                <td>${escapeHtml(formatPolymarketPercent(row.marketProbability))} / ${escapeHtml(formatPolymarketPercent(row.aiProbability))}</td>
+                                <td>${escapeHtml(row.shadowTrack || '--')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
 function updatePolymarketSingleMarketAnalysis(d) {
     const single = getPolymarketSingleMarketAnalysis(d);
     const summaryEl = document.getElementById('polymarketSingleMarketSummary');
     const body = document.getElementById('polymarketSingleMarketBody');
     if (!body) return;
     const requestForm = renderPolymarketSingleMarketRequestForm(single);
+    const historyCard = renderPolymarketSingleMarketHistory(d);
+    const historyRows = getPolymarketSingleMarketAnalysisHistory(d);
     if (!single || d?._polymarketSingleMarketAnalysisError) {
-        if (summaryEl) summaryEl.textContent = '等待单市场分析';
-        body.innerHTML = `${requestForm}<div class="empty-state">等待 \`QuantGod_PolymarketSingleMarketAnalysis.json\`；可用 URL/标题/marketId 生成，不触发下注。</div>`;
+        if (summaryEl) summaryEl.textContent = `等待单市场分析 | 历史 ${historyRows.length} 条`;
+        body.innerHTML = `${requestForm}<div class="empty-state">等待 \`QuantGod_PolymarketSingleMarketAnalysis.json\`；可用 URL/标题/marketId 生成，不触发下注。</div>${historyCard}`;
         return;
     }
     const request = single.request || {};
@@ -9348,7 +9605,7 @@ function updatePolymarketSingleMarketAnalysis(d) {
     const risk = analysis.riskLevel || single.summary?.risk || 'unknown';
     const confidence = analysis.confidencePct ?? single.summary?.confidencePct ?? 0;
     if (summaryEl) {
-        summaryEl.textContent = `${single.status || 'UNKNOWN'} | ${translatePolymarketToken(recommendation)} | 风险 ${translatePolymarketToken(risk)} | 信心 ${confidence}%`;
+        summaryEl.textContent = `${single.status || 'UNKNOWN'} | ${translatePolymarketToken(recommendation)} | 风险 ${translatePolymarketToken(risk)} | 信心 ${confidence}% | 历史 ${historyRows.length} 条`;
     }
     if (single.status === 'ERROR') {
         body.innerHTML = `
@@ -9358,6 +9615,7 @@ function updatePolymarketSingleMarketAnalysis(d) {
                 <div class="polymarket-title">分析失败，保持不下注</div>
                 <div class="polymarket-note">${escapeHtml(single.error || 'Gamma 单市场分析失败。')}</div>
             </div>
+            ${historyCard}
         `;
         return;
     }
@@ -9421,7 +9679,7 @@ function updatePolymarketSingleMarketAnalysis(d) {
             <div class="polymarket-note">单市场分析只能补研究能力，不能绕过 Execution Gate / dry-run / 钱包守卫。</div>
         </div>
     `;
-    body.innerHTML = [requestForm, requestCard, analysisCard, riskCard, safetyCard].join('');
+    body.innerHTML = [requestForm, requestCard, analysisCard, riskCard, safetyCard, historyCard].join('');
 }
 
 function renderPolymarketExecutionGateDecision(row = {}) {
@@ -14170,9 +14428,29 @@ const DASHBOARD_SECTION_META = {
         desc: 'MA/RSI/BB/MACD/SR 每条路线独立看 live/candidate 状态、参数版本、升降级 Gate 与下一轮测试。'
     },
     polymarket: {
-        eyebrow: 'Polymarket Research',
-        title: 'Polymarket 外部研究',
-        desc: '只读合并 D:\\polymarket 的 executed、shadow、experiment、账号现金、PnL 和 risk_log 证据；只生成 shadow-only 重调建议，不恢复下注执行。'
+        eyebrow: 'Polymarket 研究',
+        title: 'Polymarket 治理总览',
+        desc: '只读合并 D:\\polymarket 的账号现金、资金边界、executed/shadow/experiment 摘要和全局阻断；不混入 MT5 资金口径。'
+    },
+    'polymarket-radar': {
+        eyebrow: 'Polymarket 机会雷达',
+        title: '机会雷达',
+        desc: '读取 Gamma 公共市场，按概率、成交量、流动性、偏离度和规则评分生成 shadow-only 候选。'
+    },
+    'polymarket-analysis': {
+        eyebrow: '单市场分析',
+        title: '单市场分析',
+        desc: '输入 URL、标题或 marketId 后生成只读研究请求，并把每次分析沉淀到历史列表。'
+    },
+    'polymarket-execution': {
+        eyebrow: '执行模拟',
+        title: '执行模拟',
+        desc: '查看 Execution Gate、dry-run 订单和 outcome watcher；真实钱包写操作仍关闭。'
+    },
+    'polymarket-ledger': {
+        eyebrow: '重调账本',
+        title: '重调账本',
+        desc: '查看 shadow-only 重调建议、样本分桶、风险日志和最近 Polymarket 证据。'
     },
     monitor: {
         eyebrow: 'Indicator Market',
@@ -14225,9 +14503,10 @@ function setDashboardSection(sectionKey = '', options = {}) {
     if (mainEl) mainEl.classList.add('workspace-mode');
     const shellEl = document.querySelector('.qd-platform-shell');
     if (shellEl) {
+        const isPolymarketSection = activeSection === 'polymarket' || activeSection.startsWith('polymarket-');
         shellEl.classList.toggle('workspace-home', activeSection === 'home');
-        shellEl.classList.toggle('workspace-polymarket', activeSection === 'polymarket');
-        shellEl.classList.toggle('workspace-mt5', activeSection !== 'home' && activeSection !== 'polymarket');
+        shellEl.classList.toggle('workspace-polymarket', isPolymarketSection);
+        shellEl.classList.toggle('workspace-mt5', activeSection !== 'home' && !isPolymarketSection);
     }
     const commandCenter = document.querySelector('.qd-command-center');
     if (commandCenter) commandCenter.classList.toggle('is-detail-section', activeSection !== 'overview');

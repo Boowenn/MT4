@@ -191,14 +191,14 @@ Planner outputs include:
 
 ## Dashboard Surface
 
-The QuantGod dashboard now starts from a workspace entry page. `MT5` and `Polymarket` are selected as separate workspaces, and the left navigation only shows the active workspace plus the entry link so the MT5 equity/open-position view is not mixed with Polymarket account cash.
+The QuantGod dashboard now starts from a workspace entry page. `MT5` and `Polymarket` are selected as separate workspaces, and the left navigation only shows the active workspace plus the entry link so the MT5 equity/open-position view is not mixed with Polymarket account cash. Inside the Polymarket workspace, the left navigation is further split into `治理总览`, `机会雷达`, `单市场分析`, `执行模拟`, and `重调账本` so research, dry-run execution review, and ledger/risk evidence are not stacked into one long page.
 
 It displays:
 
 - Safety boundary: DB is read-only, `.env` secret values are redacted, no executor, no MT5 mutation.
 - Account snapshot: separate Polymarket cash and configured bankroll, never mixed with MT5 equity.
 - Opportunity Radar: public Gamma scan with probability, liquidity, divergence, score, risk, and suggested shadow track.
-- Single Market AI Analysis: URL/title/marketId focused analysis with market probability, AI/rule probability, divergence, confidence, risk factors, and shadow-track recommendation.
+- Single Market AI Analysis: URL/title/marketId focused analysis with market probability, AI/rule probability, divergence, confidence, risk factors, and shadow-track recommendation. The dashboard also reads `QuantGod_PolymarketSingleMarketAnalysisLedger.csv` to show a compact history list by time, recommendation, risk, divergence, confidence, probability, and shadow track, so the operator is not limited to the latest request JSON.
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
