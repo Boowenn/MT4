@@ -1232,6 +1232,10 @@
             margin-top: 0.85rem;
         }
 
+        .strategy-version-panel-wide {
+            grid-column: 1 / -1;
+        }
+
         .strategy-version-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -5431,6 +5435,12 @@
                                     <div class="empty-state">等待 QuantGod_OptimizerV2Plan.json</div>
                                 </div>
                             </div>
+                            <div class="strategy-version-panel-wide">
+                                <div class="strategy-workspace-meta">Version Promotion Gate</div>
+                                <div class="strategy-version-grid" id="versionPromotionGateBody">
+                                    <div class="empty-state">等待 QuantGod_VersionPromotionGate.json</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -5869,6 +5879,7 @@ const LOCAL_MANUAL_ALPHA_LEDGER_PATH = 'QuantGod_ManualAlphaLedger.csv';
 const LOCAL_GOVERNANCE_ADVISOR_PATH = 'QuantGod_GovernanceAdvisor.json';
 const LOCAL_STRATEGY_VERSION_REGISTRY_PATH = 'QuantGod_StrategyVersionRegistry.json';
 const LOCAL_OPTIMIZER_V2_PATH = 'QuantGod_OptimizerV2Plan.json';
+const LOCAL_VERSION_PROMOTION_GATE_PATH = 'QuantGod_VersionPromotionGate.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -6800,6 +6811,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Optimizer V2 load failed.', error);
     }
 
+    try {
+        data.versionPromotionGate = await loadLocalJsonSupplement(LOCAL_VERSION_PROMOTION_GATE_PATH);
+        data._versionPromotionGateError = false;
+    } catch (error) {
+        data._versionPromotionGateError = true;
+        console.warn('Version promotion gate load failed.', error);
+    }
+
     return data;
 }
 
@@ -6865,6 +6884,10 @@ function getStrategyVersionRegistry(d) {
 
 function getOptimizerV2(d) {
     return d?.optimizerV2 || d?.governanceAdvisor?.optimizerV2 || null;
+}
+
+function getVersionPromotionGate(d) {
+    return d?.versionPromotionGate || d?.governanceAdvisor?.versionPromotionGate || null;
 }
 
 function getFocusSymbol(d) {
@@ -9181,6 +9204,15 @@ function optimizerObjectiveTone(objective) {
     return 'status-muted';
 }
 
+function versionGateDecisionTone(decision) {
+    const normalized = String(decision || '').toUpperCase();
+    if (normalized.includes('PROMOTE') || normalized.includes('KEEP_LIVE')) return 'status-live';
+    if (normalized.includes('DEMOTE')) return 'status-danger';
+    if (normalized.includes('RETUNE')) return 'status-warn';
+    if (normalized.includes('WAIT')) return 'status-info';
+    return 'status-muted';
+}
+
 function renderStrategyVersionFact(label, value) {
     return `
         <div class="strategy-version-fact">
@@ -9244,17 +9276,65 @@ function renderOptimizerV2Card(route) {
     `;
 }
 
+function getVersionPromotionGateRows(gate) {
+    const rows = Array.isArray(gate?.routeDecisions) && gate.routeDecisions.length
+        ? gate.routeDecisions
+        : Object.entries(gate?.topByRoute || {}).map(([routeKey, row]) => ({
+            routeKey,
+            currentVersionId: row?.currentVersionId,
+            currentDecision: row?.currentDecision,
+            currentReason: row?.currentReason,
+            promotionCandidateCount: row?.promotionCandidateCount,
+            waitingReportCount: row?.waitingReportCount,
+            retuneCount: row?.retuneCount,
+            demoteLiveCount: row?.demoteLiveCount,
+            blockers: row?.blockers || []
+        }));
+    return isRouteStrategyFiltered()
+        ? rows.filter((row) => (row?.routeKey || row?.strategy) === routeStrategyFilter)
+        : rows.filter((row) => CORE_ROUTE_KEYS.includes(row?.routeKey || row?.strategy));
+}
+
+function renderVersionPromotionGateCard(row) {
+    const blockers = Array.isArray(row?.blockers) ? row.blockers.filter(Boolean) : [];
+    const blockerText = blockers.length ? blockers.join(' / ') : '无硬性 blocker';
+    return `
+        <article class="strategy-version-card">
+            <div class="strategy-version-top">
+                <div>
+                    <div class="strategy-version-title">${escapeHtml(row?.routeKey || '--')} · ${escapeHtml(row?.currentVersionId || row?.versionId || '--')}</div>
+                    <div class="strategy-version-sub">${escapeHtml(row?.currentReason || row?.reason || '等待 Gate 生成判断。')}</div>
+                </div>
+                <div class="strategy-version-badges">
+                    <span class="table-badge ${versionGateDecisionTone(row?.currentDecision || row?.decision)}">${escapeHtml(row?.currentDecision || row?.decision || '--')}</span>
+                    <span class="table-badge status-muted">dry-run</span>
+                </div>
+            </div>
+            <div class="strategy-version-facts">
+                ${renderStrategyVersionFact('Promote', String(row?.promotionCandidateCount ?? 0))}
+                ${renderStrategyVersionFact('Wait Report', String(row?.waitingReportCount ?? 0))}
+                ${renderStrategyVersionFact('Retune', String(row?.retuneCount ?? 0))}
+                ${renderStrategyVersionFact('Demote Live', String(row?.demoteLiveCount ?? 0))}
+            </div>
+            <div class="strategy-version-copy">${escapeHtml(`Blockers: ${blockerText}`)}</div>
+        </article>
+    `;
+}
+
 function updateStrategyVersionOptimizerPanel(d) {
     const summaryEl = document.getElementById('strategyVersionOptimizerSummary');
     const metaEl = document.getElementById('strategyVersionOptimizerMeta');
     const registryBody = document.getElementById('strategyVersionRegistryBody');
     const optimizerBody = document.getElementById('optimizerV2Body');
-    if (!summaryEl || !metaEl || !registryBody || !optimizerBody) return;
+    const gateBody = document.getElementById('versionPromotionGateBody');
+    if (!summaryEl || !metaEl || !registryBody || !optimizerBody || !gateBody) return;
 
     const registry = getStrategyVersionRegistry(d);
     const optimizer = getOptimizerV2(d);
+    const gate = getVersionPromotionGate(d);
     const registryRoutes = Array.isArray(registry?.routes) ? registry.routes : [];
     const optimizerRoutes = Array.isArray(optimizer?.routePlans) ? optimizer.routePlans : [];
+    const gateRows = getVersionPromotionGateRows(gate);
     const scopedRegistryRoutes = isRouteStrategyFiltered()
         ? registryRoutes.filter((route) => (route?.routeKey || route?.strategy) === routeStrategyFilter)
         : registryRoutes.filter((route) => CORE_ROUTE_KEYS.includes(route?.routeKey || route?.strategy));
@@ -9263,17 +9343,21 @@ function updateStrategyVersionOptimizerPanel(d) {
         : optimizerRoutes.filter((route) => CORE_ROUTE_KEYS.includes(route?.routeKey || route?.strategy));
     const regSummary = registry?.summary || registry || {};
     const optSummary = optimizer?.summary || optimizer || {};
+    const gateSummary = gate?.summary || gate || {};
 
-    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | versions ${regSummary.routeCount || scopedRegistryRoutes.length || 0} / proposals ${optSummary.proposalCount || 0} / wait ${optSummary.waitingReportCount || 0}`;
-    metaEl.textContent = registry || optimizer
-        ? `Version Registry ${registry?.generatedAtIso || '--'}；Optimizer V2 ${optimizer?.generatedAtIso || '--'}；只读、tester-only、livePresetMutation=false。`
-        : '等待 QuantGod_StrategyVersionRegistry.json 和 QuantGod_OptimizerV2Plan.json。';
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | versions ${regSummary.routeCount || scopedRegistryRoutes.length || 0} / proposals ${optSummary.proposalCount || 0} / gate wait ${gateSummary.waitReportCount || 0} / retune ${gateSummary.retuneCount || 0}`;
+    metaEl.textContent = registry || optimizer || gate
+        ? `Version Registry ${registry?.generatedAtIso || '--'}；Optimizer V2 ${optimizer?.generatedAtIso || '--'}；Promotion Gate ${gate?.generatedAtIso || '--'}；只读、tester-only、dry-run、livePresetMutation=false。`
+        : '等待 QuantGod_StrategyVersionRegistry.json、QuantGod_OptimizerV2Plan.json 和 QuantGod_VersionPromotionGate.json。';
     registryBody.innerHTML = scopedRegistryRoutes.length
         ? scopedRegistryRoutes.map(renderStrategyVersionCard).join('')
         : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有版本登记</div>`;
     optimizerBody.innerHTML = scopedOptimizerRoutes.length
         ? scopedOptimizerRoutes.map(renderOptimizerV2Card).join('')
         : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Optimizer V2 建议</div>`;
+    gateBody.innerHTML = gateRows.length
+        ? gateRows.map(renderVersionPromotionGateCard).join('')
+        : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Promotion Gate 判断</div>`;
 }
 
 function getGovernanceFeedbackRows(advisor) {

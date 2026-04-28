@@ -15,6 +15,7 @@ Implemented:
 - Feedback to ParamLab task links: connects next-parameter advice to candidate/task/report state and tester-only commands.
 - Strategy Version Registry: records current route versions, parameter hashes, live/candidate status, evidence, and tester-only child lineage.
 - Optimizer V2: proposes next-generation tester-only parameters linked to parent strategy versions.
+- Version Promotion Gate dry-run: writes `QuantGod_VersionPromotionGate.json` and `QuantGod_VersionPromotionGateLedger.csv`, judging each current route version and optimizer proposal by `versionId` without changing live switches.
 
 Current live-trading boundary:
 
@@ -25,37 +26,7 @@ Current live-trading boundary:
 
 ## Remaining Migration Work
 
-### 1. Version Promotion Gate
-
-Purpose:
-
-- Make Governance Advisor decide promotion/demotion by `versionId`, not only by route name.
-- Separate a weak route from a weak parameter version.
-- Prevent a new candidate version from inheriting promotion rights from an older route-level result.
-
-Inputs:
-
-- `QuantGod_StrategyVersionRegistry.json`
-- `QuantGod_OptimizerV2Plan.json`
-- `QuantGod_ParamLabResults.json`
-- `QuantGod_GovernanceAdvisor.json`
-- live `0.01` forward samples
-- Shadow/Candidate outcome ledgers
-- Manual Alpha evidence
-
-Output:
-
-- `QuantGod_VersionPromotionGate.json`
-- `QuantGod_VersionPromotionGateLedger.csv`
-- Dashboard panel row per version: `PROMOTE_CANDIDATE`, `KEEP_SIM`, `RETUNE`, `DEMOTE_LIVE`, `WAIT_REPORT`, or `WAIT_FORWARD`.
-
-Important:
-
-- First version should be dry-run only.
-- It may recommend a live switch change, but must not apply it automatically.
-- Promotion still requires enough tester reports and forward-style evidence.
-
-### 2. Fully Automatic Tester Runner
+### 1. Fully Automatic Tester Runner
 
 Purpose:
 
@@ -87,7 +58,7 @@ Proposed mode names:
 - `AUTO_PROMOTION_DRY_RUN`: creates version promotion recommendations only.
 - `AUTO_LIVE_SWITCH`: not recommended now; would require a separate explicit rule change and stronger evidence gates.
 
-### 3. Report Watcher and Recovery
+### 2. Report Watcher and Recovery
 
 Purpose:
 
@@ -102,7 +73,7 @@ Needed behavior:
 - Requeue retryable failures with a cap.
 - Never reuse stale reports from a previous candidate.
 
-### 4. Backtest Budget and Experiment Control
+### 3. Backtest Budget and Experiment Control
 
 Purpose:
 
@@ -118,7 +89,7 @@ Needed behavior:
 - Cooldown for repeatedly failing parameter families.
 - Keep control-arm versions in the queue so Optimizer V2 does not chase noise.
 
-### 5. Dashboard Run History / Audit Trail
+### 4. Dashboard Run History / Audit Trail
 
 Purpose:
 
@@ -137,7 +108,7 @@ Needed dashboard surface:
 - Next automatic action.
 - Why the scheduler stopped.
 
-### 6. QuantDinger Pieces Not Worth Porting Now
+### 5. QuantDinger Pieces Not Worth Porting Now
 
 Defer:
 
@@ -166,7 +137,7 @@ Yes, the backtest loop can be fully automatic if "fully automatic" means:
 6. Results Parser scores reports.
 7. Strategy Version Registry updates parent/child version state.
 8. Optimizer V2 creates the next generation.
-9. Governance Advisor and Version Promotion Gate produce recommendations.
+9. Governance Advisor and Version Promotion Gate produce dry-run recommendations.
 
 No, it should not be fully automatic if "fully automatic" means:
 
@@ -185,14 +156,13 @@ The recommended target is:
 
 ## Suggested Implementation Order
 
-1. Implement `Version Promotion Gate` as dry-run.
-2. Implement `ParamLab Auto Scheduler` without `-RunTerminal`.
-3. Implement `Report Watcher` and run-state ledger.
-4. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
-5. Add Dashboard run-history panel.
-6. Add retry/budget controls.
-7. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
+1. Implement `ParamLab Auto Scheduler` without `-RunTerminal`.
+2. Implement `Report Watcher` and run-state ledger.
+3. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
+4. Add Dashboard run-history panel.
+5. Add retry/budget controls.
+6. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
 
 ## Immediate Next Step
 
-Build `Version Promotion Gate` dry-run first. It will make every later automation safer because the system will already know which `versionId` is blocked by missing reports, weak PF, low trade count, high drawdown, weak candidate outcomes, or insufficient live forward samples.
+Build `ParamLab Auto Scheduler` in config-only mode next. The Version Promotion Gate now tells the system which `versionId` is blocked by missing reports, weak PF, low trade count, high drawdown, weak candidate outcomes, or insufficient live forward samples; the scheduler should use that dry-run evidence to choose the next tester-only batch without launching MT5 by default.

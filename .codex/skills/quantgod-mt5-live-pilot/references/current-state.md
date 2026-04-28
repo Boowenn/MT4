@@ -69,7 +69,7 @@ Responsibilities:
 - Provide Shadow Outcome Ledger so range-blocked and no-trade M15 opportunities gain post-outcome labels before anyone considers a shadow-only route change
 - Provide Shadow Candidate Router V1 so candidate routes can be compared by post-outcome evidence before they are eligible for Backtest Lab review
 - Provide Manual Alpha Ledger as a separate learning surface for discretionary trades; promotion from manual alpha to EA automation requires a later shadow-only route plus backtest and live-forward validation
-- Provide a QuantDinger-inspired Governance Advisor, Strategy Version Registry, Optimizer V2, and light dashboard shell as a local, file-only lifecycle snapshot. It combines Backtest Lab, live `0.01` forward results, Shadow Signal/Outcome, Shadow Candidate/Outcome, Manual Alpha, runtime file-health evidence, parameter hashes, and version-linked tester-only optimizer proposals into `QuantGod_GovernanceAdvisor.json`, `QuantGod_StrategyVersionRegistry.json`, and `QuantGod_OptimizerV2Plan.json`; it is advisory only and never connects to HFM, stores credentials, sends orders, mutates the HFM live preset, or bypasses EA `OrderSend` gating
+- Provide a QuantDinger-inspired Governance Advisor, Strategy Version Registry, Optimizer V2, Version Promotion Gate, and light dashboard shell as a local, file-only lifecycle snapshot. It combines Backtest Lab, live `0.01` forward results, Shadow Signal/Outcome, Shadow Candidate/Outcome, Manual Alpha, runtime file-health evidence, parameter hashes, version-linked tester-only optimizer proposals, and dry-run promotion/demotion recommendations into `QuantGod_GovernanceAdvisor.json`, `QuantGod_StrategyVersionRegistry.json`, `QuantGod_OptimizerV2Plan.json`, and `QuantGod_VersionPromotionGate.json`; it is advisory only and never connects to HFM, stores credentials, sends orders, mutates the HFM live preset, or bypasses EA `OrderSend` gating
 - Surface the MT5 USD news filter state in `QuantGod_Dashboard.json` and the dashboard execution radar, including event code/kind/label, countdown, server event time, tracked-event count, block state, and bias state
 
 Non-responsibilities in phase 1:
@@ -107,7 +107,7 @@ Responsibilities:
 - Render the Governance Advisor overview card from `QuantGod_GovernanceAdvisor.json`, showing route lifecycle actions, live-forward stats, candidate outcome evidence, open-position pressure, blockers, and guardrail reminders
 - Render a read-only ParamLab batch panel from Governance Advisor's `ParamLabStatus` and `ParamLabResults` summaries, showing which tester-only parameter tasks are ready for an authorized Strategy Tester window, which have run, which are waiting for reports, and which are already scored. The panel has one-click status/route filters and queue sorting, may display suggested commands and report/config paths, but must not launch MT5 or mutate the live preset from the browser.
 - Render a read-only Strategy Workspace for `MA_Cross`, `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout`, giving each route an independent card with live/candidate authority, forward samples, candidate outcomes, ParamLab batch/result state, blockers, and Governance Advisor next steps. The workspace can focus dashboard evidence by route, but it must not launch MT5, mutate live presets, or change EA execution permissions.
-- Render a read-only Strategy Version Registry + Optimizer V2 panel from `QuantGod_StrategyVersionRegistry.json` and `QuantGod_OptimizerV2Plan.json`, showing current version IDs, parameter hashes, child candidate versions, result readiness, and the top tester-only next-generation proposal per route.
+- Render a read-only Strategy Version Registry + Optimizer V2 + Version Promotion Gate panel from `QuantGod_StrategyVersionRegistry.json`, `QuantGod_OptimizerV2Plan.json`, and `QuantGod_VersionPromotionGate.json`, showing current version IDs, parameter hashes, child candidate versions, result readiness, the top tester-only next-generation proposal, and the dry-run promotion/demotion decision per route.
 - Render a read-only AI/Governance Feedback panel from `QuantGod_GovernanceAdvisor.json`, showing each route's `why`, structured risk areas, next parameter tests, and the matching ParamLab candidate/task/report state with copyable tester-only commands and report paths. This is explanation and planning only; it does not promote routes, launch Strategy Tester, or write live configuration.
 
 ### Data Layer
@@ -145,6 +145,7 @@ MT5 phase 1 exports only:
 - `QuantGod_GovernanceAdvisor.json` (derived by `tools/build_governance_advisor.py`, not exported by the EA)
 - `QuantGod_StrategyVersionRegistry.json` (derived by `tools/build_strategy_version_registry.py`, not exported by the EA)
 - `QuantGod_OptimizerV2Plan.json` (derived by `tools/build_optimizer_v2_plan.py`, not exported by the EA)
+- `QuantGod_VersionPromotionGate.json` (derived by `tools/build_version_promotion_gate.py`, not exported by the EA)
 
 HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 
@@ -171,6 +172,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
 - `tools/collect_param_lab_results.py` is the durable local implementation of ParamLab result回灌. It can parse tester reports and rank parameter versions by `resultScore`, but it never launches MT5 and never writes a live preset. Governance Advisor should use this layer to distinguish a pending candidate from a tested parameter version.
 - `tools/build_strategy_version_registry.py` is the durable local implementation of strategy versioning. It snapshots route parameters into stable version IDs and candidate child lineage, but it never treats a version record as permission to trade.
 - `tools/build_optimizer_v2_plan.py` is the durable local implementation of version-aware offline optimizer proposals. It can propose the next tester-only parameter generation for MA/RSI/BB/MACD/SR, but it does not launch MT5, does not write the live preset, and does not authorize promotion by itself.
+- `tools/build_version_promotion_gate.py` is the durable local implementation of dry-run version promotion/demotion review. It can label current versions and optimizer proposals as `PROMOTE_CANDIDATE`, `KEEP_SIM`, `RETUNE`, `DEMOTE_LIVE`, `WAIT_REPORT`, or `WAIT_FORWARD`, but it does not write the live preset, open live switches, launch MT5, or authorize promotion by itself.
 
 ### Adaptive Control
 
@@ -216,7 +218,7 @@ HFM Cent live runtime uses the same phase 1 export set, but writes it under:
   - the focus-symbol adaptive summary in dashboard root `strategies`
   - per-symbol slices in `QuantGod_StrategyEvaluationReport.csv`
 - Use `QuantGod_RegimeEvaluationReport.csv` when the question is about which market regime a strategy is handling well or badly.
-- Use `QuantGod_GovernanceAdvisor.json`, `QuantGod_StrategyVersionRegistry.json`, and `QuantGod_OptimizerV2Plan.json` when the question is about promotion, demotion, strategy version lineage, or which route should stay live versus simulation; regenerate them first if the runtime evidence has changed.
+- Use `QuantGod_GovernanceAdvisor.json`, `QuantGod_StrategyVersionRegistry.json`, `QuantGod_OptimizerV2Plan.json`, and `QuantGod_VersionPromotionGate.json` when the question is about promotion, demotion, strategy version lineage, or which route should stay live versus simulation; regenerate them first if the runtime evidence has changed.
 - If dashboard heatmap and raw CSV disagree, treat the CSV as the source of truth first and debug the frontend aggregation/filtering path.
 - If research suggestions and heatmap disagree, debug the recommendation-threshold layer separately from the raw regime aggregation layer.
 - Do not mix one symbol's adaptive state into another symbol's evaluation.

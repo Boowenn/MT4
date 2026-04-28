@@ -26,6 +26,7 @@ PARAM_LAB_STATUS_NAME = "QuantGod_ParamLabStatus.json"
 PARAM_LAB_RESULTS_NAME = "QuantGod_ParamLabResults.json"
 STRATEGY_VERSION_REGISTRY_NAME = "QuantGod_StrategyVersionRegistry.json"
 OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
+VERSION_PROMOTION_GATE_NAME = "QuantGod_VersionPromotionGate.json"
 
 RUNTIME_FILE_HEALTH = [
     ("dashboard", "QuantGod_Dashboard.json", 180),
@@ -41,6 +42,7 @@ RUNTIME_FILE_HEALTH = [
     ("param_lab_results", PARAM_LAB_RESULTS_NAME, 7 * 24 * 60 * 60),
     ("strategy_version_registry", STRATEGY_VERSION_REGISTRY_NAME, 7 * 24 * 60 * 60),
     ("optimizer_v2", OPTIMIZER_V2_NAME, 7 * 24 * 60 * 60),
+    ("version_promotion_gate", VERSION_PROMOTION_GATE_NAME, 7 * 24 * 60 * 60),
 ]
 
 ROUTES = [
@@ -675,6 +677,55 @@ def summarize_optimizer_v2(plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_version_promotion_gate(gate: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(gate, dict) or not gate:
+        return {
+            "status": "missing",
+            "versionDecisionCount": 0,
+            "promoteCandidateCount": 0,
+            "demoteLiveCount": 0,
+            "retuneCount": 0,
+            "waitReportCount": 0,
+            "waitForwardCount": 0,
+            "topByRoute": {},
+        }
+    summary = gate.get("summary") if isinstance(gate.get("summary"), dict) else {}
+    top_by_route = {}
+    for route in gate.get("routeDecisions") or []:
+        if not isinstance(route, dict):
+            continue
+        route_key = str(route.get("routeKey") or route.get("strategy") or "")
+        if not route_key:
+            continue
+        top_by_route[route_key] = {
+            "currentVersionId": route.get("currentVersionId", ""),
+            "currentDecision": route.get("currentDecision", ""),
+            "currentReason": route.get("currentReason", ""),
+            "promotionCandidateCount": int(route.get("promotionCandidateCount") or 0),
+            "waitingReportCount": int(route.get("waitingReportCount") or 0),
+            "retuneCount": int(route.get("retuneCount") or 0),
+            "demoteLiveCount": int(route.get("demoteLiveCount") or 0),
+            "blockers": route.get("blockers") if isinstance(route.get("blockers"), list) else [],
+            "dryRun": True,
+            "livePresetMutation": False,
+        }
+    return {
+        "status": "ready",
+        "generatedAtIso": gate.get("generatedAtIso", ""),
+        "mode": gate.get("mode", "VERSION_PROMOTION_GATE_DRY_RUN"),
+        "versionDecisionCount": int(summary.get("versionDecisionCount") or 0),
+        "routeCount": int(summary.get("routeCount") or len(top_by_route)),
+        "promoteCandidateCount": int(summary.get("promoteCandidateCount") or 0),
+        "demoteLiveCount": int(summary.get("demoteLiveCount") or 0),
+        "retuneCount": int(summary.get("retuneCount") or 0),
+        "waitReportCount": int(summary.get("waitReportCount") or 0),
+        "waitForwardCount": int(summary.get("waitForwardCount") or 0),
+        "livePresetMutation": False,
+        "dryRun": True,
+        "topByRoute": top_by_route,
+    }
+
+
 def candidate_action(candidate: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     if not candidate or not candidate.get("horizonRows"):
         return "KEEP_SIM_COLLECT", "waiting", ["candidate outcome sample is not ready"]
@@ -993,6 +1044,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_lab_results_doc = read_json(runtime_dir / PARAM_LAB_RESULTS_NAME)
     strategy_version_registry_doc = read_json(runtime_dir / STRATEGY_VERSION_REGISTRY_NAME)
     optimizer_v2_doc = read_json(runtime_dir / OPTIMIZER_V2_NAME)
+    version_promotion_gate_doc = read_json(runtime_dir / VERSION_PROMOTION_GATE_NAME)
 
     live_forward = summarize_live_forward(close_rows)
     open_positions = summarize_open_positions(dashboard)
@@ -1006,6 +1058,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_lab_results = summarize_param_lab_results(param_lab_results_doc)
     strategy_version_registry = summarize_strategy_version_registry(strategy_version_registry_doc)
     optimizer_v2 = summarize_optimizer_v2(optimizer_v2_doc)
+    version_promotion_gate = summarize_version_promotion_gate(version_promotion_gate_doc)
     runtime_health = summarize_runtime_health(runtime_dir)
 
     route_decisions = []
@@ -1076,6 +1129,10 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "strategyVersionCount": strategy_version_registry["routeCount"],
             "optimizerV2Proposals": optimizer_v2["proposalCount"],
             "optimizerV2WaitingReport": optimizer_v2["waitingReportCount"],
+            "versionGateDecisions": version_promotion_gate["versionDecisionCount"],
+            "versionGatePromoteCandidates": version_promotion_gate["promoteCandidateCount"],
+            "versionGateDemoteLive": version_promotion_gate["demoteLiveCount"],
+            "versionGateRetune": version_promotion_gate["retuneCount"],
             "openPositions": open_positions["total"],
         },
         "systemHealth": runtime_health,
@@ -1090,6 +1147,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "paramLabResults": param_lab_results,
         "strategyVersionRegistry": strategy_version_registry,
         "optimizerV2": optimizer_v2,
+        "versionPromotionGate": version_promotion_gate,
         "routeDecisions": route_decisions,
         "governanceFeedback": governance_feedback,
         "nextOperatorSteps": [
@@ -1098,6 +1156,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "Use ParamOptimizationPlan candidates as offline tester tasks only; never overwrite the live preset automatically.",
             "Use ParamLabStatus as the controlled Strategy Tester task queue; CONFIG_READY tasks still require an authorized tester run before promotion review.",
             "Use ParamLabResults as the parameter-version ranking source after Strategy Tester reports exist; pending reports are not promotion evidence.",
+            "Use VersionPromotionGate as dry-run promotion/demotion review; it never mutates live switches by itself.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }
