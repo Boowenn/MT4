@@ -69,6 +69,8 @@ Live route promotion and demotion are now evidence-driven automation decisions. 
 
 The repo also includes a QuantDinger-inspired local Governance Advisor and light dashboard shell. It borrows the useful product ideas of a strategy lifecycle view, a clean app-style sidebar/header, and a health snapshot with file freshness/circuit-style evidence states. QuantGod's broker boundary stays intact: `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. It is read-only and never stores credentials, connects to HFM, opens positions, or bypasses the existing EA `OrderSend` guards.
 
+The dashboard home Route Watchlist is also the main strategy focus control. Clicking `MA`, `RSI`, `BB`, `MACD`, or `SR` filters the evidence cards, strategy cards, regime research, and charts to that route; clicking `All routes` returns to the full-system view. This is a read-only review filter and does not change live switches or EA execution permissions.
+
 ## Strategies
 
 | # | Strategy | Description | Research Timeframe |

@@ -565,28 +565,30 @@
         }
 
         .research-window-card {
-            background: linear-gradient(135deg, rgba(10, 14, 23, 0.92), rgba(17, 24, 39, 0.88));
-            border: 1px solid rgba(42, 58, 78, 0.88);
-            border-radius: 14px;
+            background: #ffffff;
+            border: 1px solid #e4ebf5;
+            border-radius: 8px;
             padding: 1rem;
             display: flex;
             flex-direction: column;
             gap: 0.85rem;
             min-height: 212px;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045);
         }
 
         .research-window-card.positive {
-            border-color: rgba(16, 185, 129, 0.35);
-            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #f7fffb 100%);
         }
 
         .research-window-card.negative {
-            border-color: rgba(239, 68, 68, 0.35);
-            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.24);
+            background: linear-gradient(180deg, #ffffff 0%, #fff8f8 100%);
         }
 
         .research-window-card.neutral {
-            border-color: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.18);
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
         }
 
         .research-window-topline {
@@ -657,14 +659,14 @@
         }
 
         .research-window-metric {
-            background: rgba(17, 24, 39, 0.72);
-            border: 1px solid rgba(42, 58, 78, 0.78);
-            border-radius: 10px;
+            background: rgba(248, 251, 255, 0.94);
+            border: 1px solid #e4ebf5;
+            border-radius: 8px;
             padding: 0.7rem 0.75rem;
         }
 
         .research-window-metric-label {
-            color: var(--text-muted);
+            color: #64748b;
             font-size: 10px;
             text-transform: uppercase;
             letter-spacing: 0.06em;
@@ -672,7 +674,7 @@
 
         .research-window-metric-value {
             margin-top: 0.3rem;
-            color: var(--text-primary);
+            color: #111827;
             font-size: 16px;
             font-weight: 700;
             font-family: 'JetBrains Mono', monospace;
@@ -702,28 +704,30 @@
         }
 
         .backtest-compare-card {
-            background: linear-gradient(135deg, rgba(10, 14, 23, 0.94), rgba(17, 24, 39, 0.9));
-            border: 1px solid rgba(42, 58, 78, 0.88);
-            border-radius: 14px;
+            background: #ffffff;
+            border: 1px solid #e4ebf5;
+            border-radius: 8px;
             padding: 1rem;
             display: flex;
             flex-direction: column;
             gap: 0.85rem;
             min-height: 210px;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045);
         }
 
         .backtest-compare-card.supported {
-            border-color: rgba(16, 185, 129, 0.35);
-            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #f7fffb 100%);
         }
 
         .backtest-compare-card.waiting {
-            border-color: rgba(245, 158, 11, 0.35);
+            border-color: rgba(245, 158, 11, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #fffaf0 100%);
         }
 
         .backtest-compare-card.conflict {
-            border-color: rgba(239, 68, 68, 0.35);
-            box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.24);
+            background: linear-gradient(180deg, #ffffff 0%, #fff8f8 100%);
         }
 
         .backtest-compare-topline {
@@ -772,14 +776,14 @@
         }
 
         .backtest-metric {
-            background: rgba(17, 24, 39, 0.72);
-            border: 1px solid rgba(42, 58, 78, 0.78);
-            border-radius: 10px;
+            background: rgba(248, 251, 255, 0.94);
+            border: 1px solid #e4ebf5;
+            border-radius: 8px;
             padding: 0.7rem 0.75rem;
         }
 
         .backtest-metric-label {
-            color: var(--text-muted);
+            color: #64748b;
             font-size: 10px;
             text-transform: uppercase;
             letter-spacing: 0.06em;
@@ -787,7 +791,7 @@
 
         .backtest-metric-value {
             margin-top: 0.3rem;
-            color: var(--text-primary);
+            color: #111827;
             font-size: 15px;
             font-weight: 700;
             font-family: 'JetBrains Mono', monospace;
@@ -2993,6 +2997,33 @@
             font-size: 13px;
         }
 
+        .qd-route-button {
+            width: 100%;
+            min-height: 42px;
+            margin: 0;
+            padding: 10px 8px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            appearance: none;
+            color: inherit;
+            cursor: pointer;
+            font: inherit;
+            text-align: left;
+            transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .qd-route-button:hover {
+            background: #f5f9ff;
+            border-color: #dbeafe;
+        }
+
+        .qd-route-button.active {
+            background: #eef6ff;
+            border-color: rgba(22, 119, 255, 0.32);
+            box-shadow: inset 3px 0 0 var(--accent-blue);
+        }
+
         .qd-route-item:last-child {
             border-bottom: 0;
             padding-bottom: 0;
@@ -4381,6 +4412,7 @@ const RESEARCH_SUGGESTION_LIMIT = 8;
 const OVERNIGHT_RESEARCH_START_HOUR = 20;
 const RESEARCH_DAY_START_HOUR = 8;
 let regimeHeatmapSymbolFilter = 'ALL';
+let routeStrategyFilter = 'ALL';
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
 const TIMEFRAME_ORDER = {
@@ -4459,6 +4491,71 @@ function strategyLabel(key) {
 function strategyShortLabel(key) {
     return STRATEGY_CONFIG[key]?.shortLabel || strategyLabel(key);
 }
+
+function normalizeRouteStrategy(strategy) {
+    const key = String(strategy || '').trim();
+    return key && Object.prototype.hasOwnProperty.call(STRATEGY_CONFIG, key) ? key : 'ALL';
+}
+
+function isRouteStrategyFiltered() {
+    return routeStrategyFilter !== 'ALL';
+}
+
+function getRouteStrategyFilterLabel() {
+    return isRouteStrategyFiltered()
+        ? `${strategyShortLabel(routeStrategyFilter)} · ${strategyLabel(routeStrategyFilter)}`
+        : '全部路线';
+}
+
+function getRouteFilteredStrategyEntries() {
+    const entries = Object.entries(STRATEGY_CONFIG);
+    return isRouteStrategyFiltered()
+        ? entries.filter(([key]) => key === routeStrategyFilter)
+        : entries;
+}
+
+function getRouteFilteredClosedTrades(d) {
+    const trades = Array.isArray(d?.closedTrades) ? d.closedTrades : [];
+    return isRouteStrategyFiltered()
+        ? trades.filter((trade) => trade.strategy === routeStrategyFilter)
+        : trades;
+}
+
+function getRouteFilteredDecisions(routeDecisions) {
+    const rows = Array.isArray(routeDecisions) ? routeDecisions : [];
+    return isRouteStrategyFiltered()
+        ? rows.filter((route) => (route?.strategy || route?.key) === routeStrategyFilter)
+        : rows;
+}
+
+function getRouteFilteredBacktestRuns(runs) {
+    const rows = Array.isArray(runs) ? runs : [];
+    return isRouteStrategyFiltered()
+        ? rows.filter((run) => (run?.strategy || 'MA_Cross') === routeStrategyFilter)
+        : rows;
+}
+
+function setRouteStrategyFilter(strategy) {
+    const next = normalizeRouteStrategy(strategy);
+    if (routeStrategyFilter === next) return;
+    routeStrategyFilter = next;
+    if (!dashboardData) return;
+
+    updateQuantDingerInspiredHero(dashboardData);
+    updateBacktestLiveComparison(dashboardData);
+    updateShadowSignalLedger(dashboardData);
+    updateManualAlphaLedger(dashboardData);
+    updateGovernanceAdvisor(dashboardData);
+    updateStrategyCards(dashboardData);
+    updateStrategyEvaluationTable(dashboardData);
+    updateResearchSuggestions(dashboardData);
+    updateRegimeHeatmap(dashboardData);
+    updateEquityChart(dashboardData);
+    updatePieChart(dashboardData);
+    updateDailyPnlChart(dashboardData);
+}
+
+window.setRouteStrategyFilter = setRouteStrategyFilter;
 
 function tradeTypeLabel(type) {
     return type === 'BUY' ? '买入' : type === 'SELL' ? '卖出' : type;
@@ -5382,9 +5479,14 @@ function getRegimeHeatmapAvailableSymbols(d) {
 }
 
 function getFilteredResearchScopeRows(d) {
-    const rows = getRegimeDisplayRows(d);
-    if (regimeHeatmapSymbolFilter === 'ALL') return rows;
-    return rows.filter((row) => row.symbol === regimeHeatmapSymbolFilter);
+    let rows = getRegimeDisplayRows(d);
+    if (regimeHeatmapSymbolFilter !== 'ALL') {
+        rows = rows.filter((row) => row.symbol === regimeHeatmapSymbolFilter);
+    }
+    if (isRouteStrategyFiltered()) {
+        rows = rows.filter((row) => row.strategy === routeStrategyFilter);
+    }
+    return rows;
 }
 
 function getResearchActionMeta(action) {
@@ -6264,10 +6366,10 @@ function renderResearchWindowCard(title, windowLabel, summary, openSummary, note
     `;
 }
 
-function summarizeLiveForwardForBacktest(d, symbol) {
+function summarizeLiveForwardForBacktest(d, symbol, strategy = 'MA_Cross') {
     const closeRows = getCloseHistoryRows(d).filter((row) =>
         row.symbol === symbol &&
-        row.strategy === 'MA_Cross' &&
+        row.strategy === strategy &&
         String(row.source || '').toUpperCase() === 'EA'
     );
     const summary = {
@@ -6359,6 +6461,10 @@ function getBacktestSupportState(run, liveSummary) {
 function renderBacktestCompareCard(run, liveSummary) {
     const normalizedRun = normalizeBacktestRun(run);
     const support = getBacktestSupportState(normalizedRun, liveSummary);
+    const strategyText = normalizedRun.strategy || 'MA_Cross';
+    const timeframeText = [normalizedRun.signalTimeframe, normalizedRun.trendTimeframe]
+        .filter(Boolean)
+        .join('/');
     const btNetText = normalizedRun.closedTrades > 0 ? formatMoney(normalizedRun.netProfit, 2) : '--';
     const liveNetText = liveSummary.closedTrades > 0 ? formatMoney(liveSummary.netProfit, 2) : '--';
     const btPfText = normalizedRun.closedTrades > 0 ? formatProfitFactor(normalizedRun.profitFactor) : '--';
@@ -6371,7 +6477,7 @@ function renderBacktestCompareCard(run, liveSummary) {
         <div class="backtest-compare-card ${support.className}">
             <div class="backtest-compare-topline">
                 <div>
-                    <div class="research-window-kicker">MA_Cross · 0.01 · M15/H1</div>
+                    <div class="research-window-kicker">${escapeHtml(strategyLabel(strategyText))} · 0.01 · ${escapeHtml(timeframeText || normalizedRun.timeframe || '--')}</div>
                     <div class="backtest-symbol">${escapeHtml(normalizedRun.symbol || '--')}</div>
                     <div class="research-window-time">${escapeHtml(normalizedRun.status || 'CONFIG_READY')}</div>
                 </div>
@@ -6425,12 +6531,19 @@ function updateBacktestLiveComparison(d) {
         return;
     }
 
-    const runs = summary.runs.map(normalizeBacktestRun);
+    const allRuns = summary.runs.map(normalizeBacktestRun);
+    const runs = getRouteFilteredBacktestRuns(allRuns);
+    if (!runs.length) {
+        summaryEl.textContent = `${getRouteStrategyFilterLabel()} 暂无回测摘要`;
+        metaEl.textContent = `${summary.lab || 'HFM_MT5_BACKTEST_LAB_V1'} | 当前路线还没有 Backtest Lab 摘要；不会因此扩大实盘权限。`;
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有可展示的 Backtest Lab 摘要</div>`;
+        return;
+    }
     const withReports = runs.filter((run) => Number(run.closedTrades || 0) > 0).length;
-    const liveSummaries = runs.map((run) => summarizeLiveForwardForBacktest(d, run.symbol));
+    const liveSummaries = runs.map((run) => summarizeLiveForwardForBacktest(d, run.symbol, run.strategy || 'MA_Cross'));
     const liveClosed = liveSummaries.reduce((sum, item) => sum + item.closedTrades, 0);
-    summaryEl.textContent = `回测 ${withReports}/${runs.length} 有样本 | 实盘 ${liveClosed} 闭环`;
-    metaEl.textContent = `${summary.lab || 'HFM_MT5_BACKTEST_LAB_V1'} | ${summary.fromDate || '--'} -> ${summary.toDate || '--'} | ${summary.note || '策略调整必须同时看回测和实盘前向样本。'}`;
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 回测 ${withReports}/${runs.length} 有样本 | 实盘 ${liveClosed} 闭环`;
+    metaEl.textContent = `${summary.lab || 'HFM_MT5_BACKTEST_LAB_V1'} | ${summary.fromDate || '--'} -> ${summary.toDate || '--'} | ${summary.note || '策略调整必须同时看回测和实盘前向样本。'} | 当前展示 ${runs.length}/${allRuns.length} 条`;
     bodyEl.innerHTML = runs.map((run, index) => renderBacktestCompareCard(run, liveSummaries[index])).join('');
 }
 
@@ -6575,8 +6688,8 @@ function updateShadowSignalLedger(d) {
         .map(([route, item]) => `${route} ${item.wins}/${item.losses}/${item.flats}`)
         .join(' / ');
 
-    summaryEl.textContent = `${summary.total} 条影子样本 | ${candidateSummary.total} 条候选 | ${summary.blocked} 次拦截`;
-    metaEl.textContent = `最近 ${recentRows.length} 条：信号率 ${formatPercentValue(signalRate, 0)}，拦截率 ${formatPercentValue(blockRate, 0)}；后验 ${outcomeSummary.total} 条，候选后验 ${candidateOutcomeRows.length} 条`;
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | ${summary.total} 条影子样本 | ${candidateSummary.total} 条候选 | ${summary.blocked} 次拦截`;
+    metaEl.textContent = `当前策略筛选用于联动下方证据与图表；Shadow Ledger 本体仍保留全量旁路样本。最近 ${recentRows.length} 条：信号率 ${formatPercentValue(signalRate, 0)}，拦截率 ${formatPercentValue(blockRate, 0)}；后验 ${outcomeSummary.total} 条，候选后验 ${candidateOutcomeRows.length} 条`;
     bodyEl.innerHTML = [
         renderShadowLedgerCard('样本速度', `${summary.total} 条`, `${Array.from(summary.symbols).join(' / ') || '--'} 每个 M15 评估都会旁路记录。`, 'supported'),
         renderShadowLedgerCard('信号/观察', `${summary.signals}/${summary.observed}`, `真实成交之外，也记录 NO_CROSS、RANGE_BLOCK、NEWS_BLOCK 等学习样本。`, 'waiting'),
@@ -6714,6 +6827,33 @@ function renderGovernanceRouteCard(item) {
     `;
 }
 
+let routeWatchlistGlobalBinding = false;
+
+function handleRouteWatchlistActivation(event) {
+    const target = event.target?.closest?.('[data-route-strategy]');
+    if (!target) return;
+    if (!target.closest('#qdHeroRouteWatchlist, #qdRouteWatchlist')) return;
+    event.preventDefault();
+    setRouteStrategyFilter(target.dataset.routeStrategy || 'ALL');
+}
+
+function ensureRouteWatchlistGlobalBinding() {
+    if (routeWatchlistGlobalBinding || typeof document === 'undefined') return;
+    routeWatchlistGlobalBinding = true;
+    document.addEventListener('pointerdown', handleRouteWatchlistActivation, true);
+    document.addEventListener('click', handleRouteWatchlistActivation, true);
+}
+
+function bindRouteWatchlist(container) {
+    if (!container) return;
+    ensureRouteWatchlistGlobalBinding();
+    container.querySelectorAll('[data-route-strategy]').forEach((button) => {
+        button.addEventListener('click', () => {
+            setRouteStrategyFilter(button.dataset.routeStrategy || 'ALL');
+        });
+    });
+}
+
 function updateGovernanceAdvisor(d) {
     const summaryEl = document.getElementById('governanceAdvisorSummary');
     const metaEl = document.getElementById('governanceAdvisorMeta');
@@ -6741,9 +6881,12 @@ function updateGovernanceAdvisor(d) {
     const healthText = health.status
         ? `runtime health ${health.status}`
         : 'runtime health --';
-    summaryEl.textContent = `${advisor.summary?.routeCount || advisor.routeDecisions.length} 条路线 | ${actionText || '等待动作'}`;
+    const visibleDecisions = getRouteFilteredDecisions(advisor.routeDecisions);
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | ${visibleDecisions.length}/${advisor.routeDecisions.length} 条路线 | ${actionText || '等待动作'}`;
     metaEl.textContent = `生成 ${advisor.generatedAtIso || '--'}；${healthText}；硬边界：${advisor.hardGuards?.lotSize || '0.01'}，${advisor.hardGuards?.maxTotalPositions || '单仓'}；主要 shadow blocker：${shadowBlockers}`;
-    bodyEl.innerHTML = advisor.routeDecisions.map(renderGovernanceRouteCard).join('');
+    bodyEl.innerHTML = visibleDecisions.length
+        ? visibleDecisions.map(renderGovernanceRouteCard).join('')
+        : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Governance Advisor 路线卡</div>`;
 }
 
 function updateQuantDingerInspiredHero(d) {
@@ -6751,6 +6894,7 @@ function updateQuantDingerInspiredHero(d) {
     const health = advisor?.systemHealth || {};
     const summary = advisor?.summary || {};
     const routeDecisions = Array.isArray(advisor?.routeDecisions) ? advisor.routeDecisions : [];
+    const visibleRouteDecisions = getRouteFilteredDecisions(routeDecisions);
     const healthStatus = health.status || summary.healthStatus || (d?._governanceAdvisorError ? 'missing' : 'waiting');
     const missingCount = Number(summary.missingRuntimeFiles ?? health.missingFiles?.length ?? 0);
     const staleCount = Number(summary.staleRuntimeFiles ?? health.staleFiles?.length ?? 0);
@@ -6795,12 +6939,12 @@ function updateQuantDingerInspiredHero(d) {
     setText('qdHeroEquity', Number.isFinite(Number(account.equity)) ? `$${Number(account.equity).toFixed(2)}` : '--');
     setText('qdHeroOpen', `${Array.isArray(d?.openTrades) ? d.openTrades.length : 0} / ${Number(account.maxTotalTrades ?? account.maxTotalPositions ?? 0) || '--'}`);
     setText('qdHeroSymbol', market.symbol || '--');
-    setText('qdHeroBlocker', `Primary blocker: ${topBlocker}`);
+    setText('qdHeroBlocker', `Focus: ${getRouteStrategyFilterLabel()} | Primary blocker: ${topBlocker}`);
     setText('qdHeroHealth', `Health ${healthLabel}`);
     setText('qdHeroRisk', riskText);
     setText('qdHeroPrice', priceText);
     setText('qdHeroSpread', `${market.spread ?? '--'} 点`);
-    setText('qdHeroRoutes', String(summary.routeCount ?? routeDecisions.length ?? '--'));
+    setText('qdHeroRoutes', isRouteStrategyFiltered() ? `${visibleRouteDecisions.length} / ${routeDecisions.length || '--'}` : String(summary.routeCount ?? routeDecisions.length ?? '--'));
     setText('qdHeroShadowRows', String(summary.shadowRows ?? d?.shadowSignalLedger?.rows?.length ?? '--'));
     setText('qdHeroPulseHealth', healthLabel);
     setText('qdHeroCandidateRows', String(summary.candidateRows ?? d?.shadowCandidateLedger?.rows?.length ?? '--'));
@@ -6830,44 +6974,42 @@ function updateQuantDingerInspiredHero(d) {
                 ? `${missingCount} missing / ${staleCount} stale`
                 : '--';
     }
-    if (pulseRoutes) pulseRoutes.textContent = String(summary.routeCount ?? routeDecisions.length ?? '--');
+    if (pulseRoutes) pulseRoutes.textContent = isRouteStrategyFiltered() ? `${visibleRouteDecisions.length} / ${routeDecisions.length || '--'}` : String(summary.routeCount ?? routeDecisions.length ?? '--');
     if (pulseShadowRows) pulseShadowRows.textContent = String(summary.shadowRows ?? d?.shadowSignalLedger?.rows?.length ?? '--');
     if (pulseCandidateRows) pulseCandidateRows.textContent = String(summary.candidateRows ?? d?.shadowCandidateLedger?.rows?.length ?? '--');
 
     const renderRouteWatchlist = () => {
+        const allActive = routeStrategyFilter === 'ALL' ? ' active' : '';
+        const allButton = `
+            <button type="button" class="qd-route-item qd-route-button${allActive}" data-route-strategy="ALL" onclick="setRouteStrategyFilter('ALL')">
+                <span class="qd-route-name">全部路线</span>
+                <span class="qd-route-mode">${escapeHtml(String(routeDecisions.length || 0))} routes</span>
+            </button>
+        `;
         if (!routeDecisions.length) {
-            return '<div class="qd-route-item"><span class="qd-route-name">等待 Governance Advisor</span><span class="qd-route-mode">no snapshot</span></div>';
+            return allButton + '<div class="qd-route-item"><span class="qd-route-name">等待 Governance Advisor</span><span class="qd-route-mode">no snapshot</span></div>';
         }
-        return routeDecisions.slice(0, 5).map((route) => {
+        return allButton + routeDecisions.slice(0, 5).map((route) => {
             const action = governanceActionLabel(route.recommendedAction);
             const mode = route.live ? 'LIVE 0.01' : 'SIM';
+            const strategy = normalizeRouteStrategy(route.strategy || route.key);
+            const activeClass = strategy === routeStrategyFilter ? ' active' : '';
             return `
-                <div class="qd-route-item">
+                <button type="button" class="qd-route-item qd-route-button${activeClass}" data-route-strategy="${escapeHtml(strategy)}" onclick="setRouteStrategyFilter('${escapeHtml(strategy)}')">
                     <span class="qd-route-name">${escapeHtml(route.label || route.key || '--')}</span>
-                    <span class="qd-route-mode">${escapeHtml(mode)} · ${escapeHtml(action)}</span>
-                </div>
+                    <span class="qd-route-mode">${escapeHtml(strategyShortLabel(strategy))} · ${escapeHtml(mode)} · ${escapeHtml(action)}</span>
+                </button>
             `;
         }).join('');
     };
 
     if (heroRouteList) {
         heroRouteList.innerHTML = renderRouteWatchlist();
+        bindRouteWatchlist(heroRouteList);
     }
     if (routeList) {
-        if (!routeDecisions.length) {
-            routeList.innerHTML = '<div class="qd-route-item"><span class="qd-route-name">等待 Governance Advisor</span><span class="qd-route-mode">no snapshot</span></div>';
-        } else {
-            routeList.innerHTML = routeDecisions.slice(0, 5).map((route) => {
-                const action = governanceActionLabel(route.recommendedAction);
-                const mode = route.live ? 'LIVE 0.01' : 'SIM';
-                return `
-                    <div class="qd-route-item">
-                        <span class="qd-route-name">${escapeHtml(route.label || route.key || '--')}</span>
-                        <span class="qd-route-mode">${escapeHtml(mode)} · ${escapeHtml(action)}</span>
-                    </div>
-                `;
-            }).join('');
-        }
+        routeList.innerHTML = renderRouteWatchlist();
+        bindRouteWatchlist(routeList);
     }
 }
 
@@ -7918,7 +8060,7 @@ function updateStrategyCards(d) {
     const focusSymbol = getFocusSymbol(d);
     const opportunitySummaryMap = getOpportunitySummaryMap(d);
 
-    for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
+    for (const [key, config] of getRouteFilteredStrategyEntries()) {
         const strat = d.strategies[key] || { enabled: false, positions: 0 };
         const stratTrades = d.closedTrades.filter(t => t.strategy === key);
         const stratWins = stratTrades.filter(t => t.profit > 0).length;
@@ -8051,7 +8193,7 @@ function updateStrategyCards(d) {
             </div>
         </div>`;
     }
-    container.innerHTML = html;
+    container.innerHTML = html || `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有策略卡</div>`;
     container.querySelectorAll('.strategy-card').forEach(card => {
         const labels = card.querySelectorAll('.strategy-stat-label');
         const text = ['持仓', '样本', '风险', '胜率', '收益'];
@@ -8275,6 +8417,7 @@ function updateStrategyEvaluationTable(d) {
     );
 
     const rows = getStrategyEvaluationRows(d)
+        .filter((row) => !isRouteStrategyFiltered() || row.strategy === routeStrategyFilter)
         .slice()
         .sort((a, b) => {
             const symbolCompare = String(a.symbol || '').localeCompare(String(b.symbol || ''));
@@ -8298,7 +8441,7 @@ function updateStrategyEvaluationTable(d) {
                 acc[action] = (acc[action] || 0) + 1;
                 return acc;
             }, {});
-            summary.textContent = `${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停 | 研究动作 保留 ${actionCounts.KEEP || 0} / 降权 ${actionCounts.REDUCE || 0} / 暂停 ${actionCounts.PAUSE || 0} | Opportunity ${labelRows.length} 条`;
+            summary.textContent = `${getRouteStrategyFilterLabel()} | ${rows.length} 行 | ${symbolCount} 个品种 | ${activeCount} 在线 / ${pausedCount} 暂停 | 研究动作 保留 ${actionCounts.KEEP || 0} / 降权 ${actionCounts.REDUCE || 0} / 暂停 ${actionCounts.PAUSE || 0} | Opportunity ${labelRows.length} 条`;
         }
     }
 
@@ -8475,6 +8618,13 @@ function updateResearchSuggestions(d) {
 
     const rows = getResearchRecommendationRows(d);
     const scopeText = regimeHeatmapSymbolFilter === 'ALL' ? '全部品种' : regimeHeatmapSymbolFilter;
+    const routeScopeText = getRouteStrategyFilterLabel();
+    if (!rows.length) {
+        summary.textContent = `${scopeText} | ${routeScopeText} | 暂无研究切片`;
+        meta.textContent = `当前路线筛选没有可展示的 regime 建议；可以点“全部路线”回到全量，或等待这条策略产生更多闭环样本。`;
+        body.innerHTML = '<div class="empty-state">当前路线暂无可展示的研究建议</div>';
+        return;
+    }
     const counts = rows.reduce((acc, row) => {
         acc[row.recommendation.action] = (acc[row.recommendation.action] || 0) + 1;
         return acc;
@@ -8493,12 +8643,12 @@ function updateResearchSuggestions(d) {
         }
     }
 
-    summary.textContent = `${scopeText} | 保留 ${keepCount} | 降权 ${reduceCount} | 暂停观察 ${pauseCount} | 当前展示 ${visibleRows.length} 条`;
+    summary.textContent = `${scopeText} | ${routeScopeText} | 保留 ${keepCount} | 降权 ${reduceCount} | 暂停观察 ${pauseCount} | 当前展示 ${visibleRows.length} 条`;
     meta.textContent = researchFocusTarget?.view === 'suggestion'
         ? (focusedSuggestionExists
-            ? `已定位到 ${researchFocusTarget.symbol} / ${strategyLabel(researchFocusTarget.strategy)} / ${translateRegime(researchFocusTarget.regime)} 的研究建议切片。当前范围 ${scopeText}，共 ${rows.length} 个切片。`
-            : `当前监控卡片使用的是 ${researchFocusTarget.exact ? 'exact' : 'fallback'} 建议，但当前筛选下没有可直接定位的建议卡；已先切到 ${scopeText} 范围供你继续查看。`)
-        : `建议严格来自当前本地 regime 切片，不会直接改下单。当前范围 ${scopeText}，共 ${rows.length} 个切片；建议优先处理“暂停观察”和“降权”的切片。`;
+            ? `已定位到 ${researchFocusTarget.symbol} / ${strategyLabel(researchFocusTarget.strategy)} / ${translateRegime(researchFocusTarget.regime)} 的研究建议切片。当前范围 ${scopeText} / ${routeScopeText}，共 ${rows.length} 个切片。`
+            : `当前监控卡片使用的是 ${researchFocusTarget.exact ? 'exact' : 'fallback'} 建议，但当前筛选下没有可直接定位的建议卡；已先切到 ${scopeText} / ${routeScopeText} 范围供你继续查看。`)
+        : `建议严格来自当前本地 regime 切片，不会直接改下单。当前范围 ${scopeText} / ${routeScopeText}，共 ${rows.length} 个切片；建议优先处理“暂停观察”和“降权”的切片。`;
 
     body.innerHTML = visibleRows.map((row) => {
         const config = STRATEGY_CONFIG[row.strategy] || { cssClass: '', label: row.strategy };
@@ -8566,7 +8716,10 @@ function updateRegimeHeatmap(d) {
     if (!body || !summary || !meta || !filters) return;
 
     const allRows = getRegimeDisplayRows(d);
-    const availableSymbols = getRegimeHeatmapAvailableSymbols(d);
+    const symbolScopeRows = isRouteStrategyFiltered()
+        ? allRows.filter((row) => row.strategy === routeStrategyFilter)
+        : allRows;
+    const availableSymbols = Array.from(new Set(symbolScopeRows.map((row) => row.symbol))).sort((a, b) => a.localeCompare(b));
     if (regimeHeatmapSymbolFilter !== 'ALL' && !availableSymbols.includes(regimeHeatmapSymbolFilter)) {
         regimeHeatmapSymbolFilter = 'ALL';
     }
@@ -8605,8 +8758,8 @@ function updateRegimeHeatmap(d) {
     const filteredRows = getFilteredResearchScopeRows(d);
 
     if (!filteredRows.length) {
-        summary.textContent = `当前筛选 ${regimeHeatmapSymbolFilter} 暂无 regime 样本`;
-        meta.textContent = '可以先切回“全部品种”，或继续等待该品种产生更多已平仓研究样本。';
+        summary.textContent = `当前筛选 ${regimeHeatmapSymbolFilter} / ${getRouteStrategyFilterLabel()} 暂无 regime 样本`;
+        meta.textContent = '可以先切回“全部路线”或“全部品种”，也可以继续等待该策略产生更多已平仓研究样本。';
         body.innerHTML = '<div class="empty-state">当前品种还没有可聚合的 regime 样本</div>';
         return;
     }
@@ -8616,7 +8769,7 @@ function updateRegimeHeatmap(d) {
         filteredRows.some((row) => row.entryRegime === regime)
     );
     const regimes = presentRegimes.length ? presentRegimes : ['UNKNOWN'];
-    const strategies = Object.keys(STRATEGY_CONFIG);
+    const strategies = getRouteFilteredStrategyEntries().map(([key]) => key);
     const visibleStrategies = strategies.filter((strategy) =>
         regimes.some((regime) => matrix.has(`${strategy}__${regime}`))
     );
@@ -8629,12 +8782,12 @@ function updateRegimeHeatmap(d) {
         && researchFocusTarget.view === 'heatmap'
         && filteredRows.some((row) => row.strategy === researchFocusTarget.strategy && row.entryRegime === researchFocusTarget.regime));
 
-    summary.textContent = `${scopeText} | ${strategyRows.length} 个策略 | ${visibleStrategies.length} 个已有样本 | ${regimes.length} 个 regime | 已平仓 ${closedTrades} 笔 | 链接 ${closedTrades > 0 ? (linkedTrades / closedTrades * 100).toFixed(0) : '0'}%`;
+    summary.textContent = `${scopeText} | ${getRouteStrategyFilterLabel()} | ${strategyRows.length} 个策略 | ${visibleStrategies.length} 个已有样本 | ${regimes.length} 个 regime | 已平仓 ${closedTrades} 笔 | 链接 ${closedTrades > 0 ? (linkedTrades / closedTrades * 100).toFixed(0) : '0'}%`;
     meta.textContent = researchFocusTarget?.view === 'heatmap'
         ? (focusedHeatmapExists
-            ? `已定位到 ${researchFocusTarget.symbol} / ${strategyLabel(researchFocusTarget.strategy)} / ${translateRegime(researchFocusTarget.regime)} 的热力图切片。当前展示 ${scopeText}，累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`
-            : `当前监控卡片使用的是 ${researchFocusTarget.exact ? 'exact' : 'fallback'} 建议，但这个热力图切片在当前筛选下还没有可高亮样本；已先切到 ${scopeText} 范围。`)
-        : `当前展示 ${scopeText} 的研究切片，颜色综合反映胜率、PF 和净收益；链接覆盖低或样本少会自动降权。累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`;
+            ? `已定位到 ${researchFocusTarget.symbol} / ${strategyLabel(researchFocusTarget.strategy)} / ${translateRegime(researchFocusTarget.regime)} 的热力图切片。当前展示 ${scopeText} / ${getRouteStrategyFilterLabel()}，累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`
+            : `当前监控卡片使用的是 ${researchFocusTarget.exact ? 'exact' : 'fallback'} 建议，但这个热力图切片在当前筛选下还没有可高亮样本；已先切到 ${scopeText} / ${getRouteStrategyFilterLabel()} 范围。`)
+        : `当前展示 ${scopeText} / ${getRouteStrategyFilterLabel()} 的研究切片，颜色综合反映胜率、PF 和净收益；链接覆盖低或样本少会自动降权。累计净收益 ${netProfit >= 0 ? '+' : ''}$${Math.abs(netProfit).toFixed(2)}。`;
 
     body.style.gridTemplateColumns = `minmax(180px, 190px) repeat(${regimes.length}, minmax(150px, 1fr))`;
     const headHtml = `
@@ -9055,7 +9208,7 @@ function updateDailyPnlChart(d) {
 
 function updateEquityChart(d) {
     if (!equityChart || !equityChart.ctx) return;
-    const trades = d.closedTrades || [];
+    const trades = getRouteFilteredClosedTrades(d);
     const labels = ['起始'];
     const data = [];
     const researchMode = isResearchMode(d);
@@ -9070,7 +9223,7 @@ function updateEquityChart(d) {
     }
 
     labels.push('当前');
-    data.push(Number(d?.account?.equity ?? 0));
+    data.push(isRouteStrategyFiltered() ? balance : Number(d?.account?.equity ?? 0));
 
     const gradient = equityChart.ctx.createLinearGradient(0, 0, 0, 300);
     gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
@@ -9078,7 +9231,7 @@ function updateEquityChart(d) {
 
     equityChart.data.labels = labels;
     equityChart.data.datasets = [{
-        label: researchMode ? '研究净值曲线' : '净值曲线',
+        label: `${getRouteStrategyFilterLabel()} ${researchMode ? '研究净值曲线' : '净值曲线'}`,
         data,
         borderColor: '#3b82f6',
         backgroundColor: gradient,
@@ -9094,10 +9247,10 @@ function updatePieChart(d) {
     const stratColors = [];
     const stratLabels = [];
 
-    for (const [key, config] of Object.entries(STRATEGY_CONFIG)) {
+    for (const [key, config] of getRouteFilteredStrategyEntries()) {
         const profit = (d.closedTrades || [])
             .filter(t => t.strategy === key)
-            .reduce((sum, t) => sum + t.profit, 0);
+            .reduce((sum, t) => sum + Number(t.profit || 0), 0);
 
         if (profit !== 0) {
             stratLabels.push(config.label);
@@ -9121,9 +9274,9 @@ function updateDailyPnlChart(d) {
     const researchMode = isResearchMode(d);
     const dailyPnl = {};
 
-    (d.closedTrades || []).forEach(t => {
+    getRouteFilteredClosedTrades(d).forEach(t => {
         const date = (t.closeTime || '').split(' ')[0] || '未知';
-        dailyPnl[date] = (dailyPnl[date] || 0) + t.profit;
+        dailyPnl[date] = (dailyPnl[date] || 0) + Number(t.profit || 0);
     });
 
     const dates = Object.keys(dailyPnl).sort();
@@ -9132,7 +9285,7 @@ function updateDailyPnlChart(d) {
 
     dailyChart.data.labels = dates.map(date => date.replace('2026.', ''));
     dailyChart.data.datasets = [{
-        label: researchMode ? '研究日盈亏' : '每日盈亏',
+        label: `${getRouteStrategyFilterLabel()} ${researchMode ? '研究日盈亏' : '每日盈亏'}`,
         data: values,
         backgroundColor: colors,
         borderRadius: 4,
