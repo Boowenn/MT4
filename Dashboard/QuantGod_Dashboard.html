@@ -816,6 +816,116 @@
             white-space: nowrap;
         }
 
+        .paramlab-batch-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            background: #f8fbff;
+        }
+
+        .paramlab-batch-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .paramlab-batch-counters {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            justify-content: flex-end;
+        }
+
+        .paramlab-batch-table {
+            max-height: 380px;
+            border-top: 0;
+        }
+
+        .paramlab-batch-table table {
+            min-width: 1180px;
+            table-layout: fixed;
+        }
+
+        .paramlab-batch-table th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8fbff;
+            box-shadow: 0 1px 0 var(--border);
+        }
+
+        .paramlab-route-cell {
+            min-width: 170px;
+            white-space: normal;
+        }
+
+        .paramlab-route-name {
+            color: var(--text-primary);
+            font-weight: 800;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .paramlab-route-sub {
+            margin-top: 0.18rem;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .paramlab-metric-strip {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.35rem;
+            min-width: 230px;
+        }
+
+        .paramlab-metric-chip {
+            padding: 0.35rem 0.45rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #ffffff;
+            color: #334155;
+        }
+
+        .paramlab-metric-label {
+            display: block;
+            color: var(--text-muted);
+            font-family: 'Inter', sans-serif;
+            font-size: 10px;
+            line-height: 1.1;
+        }
+
+        .paramlab-metric-value {
+            display: block;
+            margin-top: 0.12rem;
+            color: var(--text-primary);
+            font-weight: 800;
+            font-size: 12px;
+        }
+
+        .paramlab-command,
+        .paramlab-path {
+            display: block;
+            max-width: 100%;
+            white-space: normal;
+            word-break: break-all;
+            line-height: 1.45;
+        }
+
+        .paramlab-command {
+            color: #1d4ed8;
+            font-weight: 700;
+        }
+
+        .paramlab-path {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
         .radar-label {
             color: var(--text-muted);
             font-size: 11px;
@@ -4860,6 +4970,27 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">P</div>
+                            ParamLab 回测批次
+                        </div>
+                        <span class="eval-summary" id="paramLabBatchSummary">等待 ParamLab 队列</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="paramlab-batch-toolbar">
+                            <div class="paramlab-batch-meta" id="paramLabBatchMeta">
+                                显示 tester-only 参数任务的执行状态；页面只读，不启动 Strategy Tester，也不改 live preset。
+                            </div>
+                            <div class="paramlab-batch-counters" id="paramLabBatchCounters"></div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper paramlab-batch-table" id="paramLabBatchBody">
+                            <div class="empty-state">等待 ParamLab 队列</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">A</div>
                             切片研究建议
                         </div>
@@ -5131,6 +5262,7 @@ function setRouteStrategyFilter(strategy) {
     updateShadowSignalLedger(dashboardData);
     updateManualAlphaLedger(dashboardData);
     updateGovernanceAdvisor(dashboardData);
+    updateParamLabBatchPanel(dashboardData);
     updateStrategyCards(dashboardData);
     updateStrategyEvaluationTable(dashboardData);
     updateResearchSuggestions(dashboardData);
@@ -7503,6 +7635,210 @@ function updateGovernanceAdvisor(d) {
         : `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 Governance Advisor 路线卡</div>`;
 }
 
+function getParamLabBatchRows(advisor) {
+    if (!advisor) return [];
+    const labTop = advisor.paramLab?.topByRoute || {};
+    const resultTop = advisor.paramLabResults?.topByRoute || {};
+    const routeKeys = [];
+    const pushRoute = (key) => {
+        const normalized = String(key || '').trim();
+        if (!normalized || routeKeys.includes(normalized)) return;
+        if (isRouteStrategyFiltered() && normalized !== routeStrategyFilter) return;
+        if (!labTop[normalized] && !resultTop[normalized]) return;
+        routeKeys.push(normalized);
+    };
+
+    getRouteFilteredDecisions(advisor.routeDecisions).forEach((route) => {
+        pushRoute(route?.strategy || route?.key);
+    });
+    Object.keys(labTop).forEach(pushRoute);
+    Object.keys(resultTop).forEach(pushRoute);
+
+    return routeKeys.map((routeKey) => ({
+        routeKey,
+        task: labTop[routeKey] || {},
+        result: resultTop[routeKey] || {}
+    }));
+}
+
+function getParamLabBatchState(task = {}, result = {}) {
+    const taskStatus = String(task.status || '').toUpperCase();
+    const resultStatus = String(result.status || '').toUpperCase();
+    const grade = String(result.grade || '').toUpperCase();
+    const metrics = result.metrics || task.metrics || {};
+    const reportExists = Boolean(metrics.reportExists);
+    const attempted = task.terminalExitCode !== null && task.terminalExitCode !== undefined
+        || ['RUN_ATTEMPTED', 'REPORT_MISSING_AFTER_RUN', 'PARSED_PARTIAL', 'REPORT_FOUND_UNPARSED'].includes(taskStatus);
+
+    if (grade && grade !== 'PENDING_REPORT') {
+        return { key: 'scored', label: '已评分', tone: 'status-live', next: '结果已进入 Governance Advisor 的参数版本排名。' };
+    }
+    if (attempted && !reportExists) {
+        return { key: 'waiting_report', label: '等待报告', tone: 'status-warn', next: '已尝试运行，等待 Strategy Tester reportPath 产出后再回灌评分。' };
+    }
+    if (attempted || reportExists || resultStatus === 'REPORT_FOUND_UNPARSED') {
+        return { key: 'ran', label: '已运行', tone: 'status-info', next: '已有运行痕迹，下一步用 Results Parser 解析并评分。' };
+    }
+    if (taskStatus === 'CONFIG_READY' || task.configPath || task.presetPath) {
+        return { key: 'ready', label: '可在授权窗口运行', tone: 'status-info', next: '周末或明确授权 Strategy Tester 窗口内可按候选运行。' };
+    }
+    if (resultStatus === 'PENDING_REPORT') {
+        return { key: 'waiting_report', label: '等待报告', tone: 'status-warn', next: '结果账本已有占位，但还没有可解析报告。' };
+    }
+    return { key: 'queued', label: '等待配置', tone: 'status-muted', next: '等待 ParamLab Runner 生成 tester-only 配置。' };
+}
+
+function countParamLabBatchStates(rows) {
+    return rows.reduce((counts, row) => {
+        const task = row.task || {};
+        const result = row.result || {};
+        const state = getParamLabBatchState(task, result);
+        const metrics = result.metrics || task.metrics || {};
+        const attempted = task.terminalExitCode !== null && task.terminalExitCode !== undefined
+            || ['RUN_ATTEMPTED', 'REPORT_MISSING_AFTER_RUN', 'PARSED_PARTIAL', 'REPORT_FOUND_UNPARSED'].includes(String(task.status || '').toUpperCase());
+        const scored = state.key === 'scored';
+
+        if (state.key === 'ready') counts.ready += 1;
+        if (attempted || scored || Boolean(metrics.reportExists)) counts.ran += 1;
+        if ((attempted || state.key === 'waiting_report') && !scored && !metrics.reportExists) counts.waiting += 1;
+        if (scored) counts.scored += 1;
+        return counts;
+    }, { ready: 0, ran: 0, waiting: 0, scored: 0 });
+}
+
+function hasParamLabNumber(value) {
+    return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+}
+
+function formatParamLabNumber(value, digits = 2) {
+    return hasParamLabNumber(value) ? Number(value).toFixed(digits) : '--';
+}
+
+function renderParamLabMetricChip(label, value) {
+    return `
+        <span class="paramlab-metric-chip">
+            <span class="paramlab-metric-label">${escapeHtml(label)}</span>
+            <span class="paramlab-metric-value">${escapeHtml(value)}</span>
+        </span>
+    `;
+}
+
+function renderParamLabBatchRow(row) {
+    const task = row.task || {};
+    const result = row.result || {};
+    const metrics = result.metrics || task.metrics || {};
+    const state = getParamLabBatchState(task, result);
+    const candidateId = task.candidateId || result.candidateId || '--';
+    const variant = task.variant || result.variant || '--';
+    const symbol = task.symbol || result.symbol || '--';
+    const timeframe = task.timeframe || result.timeframe || '--';
+    const score = result.grade && result.grade !== 'PENDING_REPORT'
+        ? `${formatParamLabNumber(result.resultScore, 1)} / ${result.grade}`
+        : `${formatParamLabNumber(task.score, 1)} plan`;
+    const pf = formatParamLabNumber(metrics.profitFactor, 2);
+    const winRate = hasParamLabNumber(metrics.winRate) ? formatPercentValue(metrics.winRate, 1) : '--';
+    const net = hasParamLabNumber(metrics.netProfit) ? formatMoney(metrics.netProfit, 2) : '--';
+    const trades = hasParamLabNumber(metrics.closedTrades) ? String(metrics.closedTrades) : '--';
+    const drawdown = hasParamLabNumber(metrics.relativeDrawdownPct)
+        ? formatPercentValue(metrics.relativeDrawdownPct, 1)
+        : formatParamLabNumber(metrics.maxDrawdown, 2);
+    const command = candidateId !== '--'
+        ? `tools\\run_param_lab.bat --candidate-id ${candidateId} --run-terminal --authorized-strategy-tester`
+        : 'tools\\run_param_lab.bat --run-terminal --authorized-strategy-tester';
+    const reportPath = task.reportPath || result.reportPath || '';
+    const configPath = task.configPath || result.configPath || '';
+    const blockers = Array.isArray(result.blockers) && result.blockers.length
+        ? result.blockers.join(' / ')
+        : '无结果 blocker';
+
+    return `<tr>
+        <td class="paramlab-route-cell">
+            <div class="paramlab-route-name">${escapeHtml(strategyShortLabel(row.routeKey))} · ${escapeHtml(strategyLabel(row.routeKey))}</div>
+            <div class="paramlab-route-sub">${escapeHtml(symbol)} / ${escapeHtml(timeframe)}</div>
+        </td>
+        <td>
+            <span class="table-badge status-muted">${escapeHtml(variant)}</span>
+            <div class="paramlab-path">${escapeHtml(candidateId)}</div>
+        </td>
+        <td>
+            <span class="table-badge ${state.tone}">${escapeHtml(state.label)}</span>
+            <div class="paramlab-path">${escapeHtml(state.next)}</div>
+        </td>
+        <td>
+            <div class="paramlab-metric-strip">
+                ${renderParamLabMetricChip('Score', score)}
+                ${renderParamLabMetricChip('PF', pf)}
+                ${renderParamLabMetricChip('Win', winRate)}
+                ${renderParamLabMetricChip('Trades', trades)}
+                ${renderParamLabMetricChip('Net', net)}
+                ${renderParamLabMetricChip('DD', drawdown)}
+            </div>
+        </td>
+        <td>
+            <span class="paramlab-command">${escapeHtml(command)}</span>
+            <span class="paramlab-path">仅限授权 Strategy Tester 窗口；不改 live preset。</span>
+        </td>
+        <td>
+            <span class="paramlab-path">report: ${escapeHtml(reportPath || '--')}</span>
+            <span class="paramlab-path">config: ${escapeHtml(configPath || '--')}</span>
+            <span class="paramlab-path">blocker: ${escapeHtml(blockers)}</span>
+        </td>
+    </tr>`;
+}
+
+function updateParamLabBatchPanel(d) {
+    const summaryEl = document.getElementById('paramLabBatchSummary');
+    const metaEl = document.getElementById('paramLabBatchMeta');
+    const countersEl = document.getElementById('paramLabBatchCounters');
+    const bodyEl = document.getElementById('paramLabBatchBody');
+    if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
+
+    const advisor = getGovernanceAdvisor(d);
+    const rows = getParamLabBatchRows(advisor);
+    if (!advisor || !rows.length) {
+        summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 等待 ParamLab 队列`;
+        metaEl.textContent = advisor
+            ? `${getRouteStrategyFilterLabel()} 当前没有 tester-only 参数批次；不会触发 MT5 或实盘配置。`
+            : '等待 QuantGod_GovernanceAdvisor.json 汇总 ParamLabStatus / ParamLabResults。';
+        countersEl.innerHTML = '';
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(getRouteStrategyFilterLabel())} 当前没有 ParamLab 批次任务</div>`;
+        return;
+    }
+
+    const counts = countParamLabBatchStates(rows);
+    const paramLab = advisor.paramLab || {};
+    const results = advisor.paramLabResults || {};
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 可运行 ${counts.ready} / 已运行 ${counts.ran} / 等待报告 ${counts.waiting} / 已评分 ${counts.scored}`;
+    metaEl.textContent = `Run ${paramLab.runId || '--'} · ${paramLab.mode || '--'} · 任务 ${rows.length}/${paramLab.selectedTaskCount || rows.length}；结果账本 ${results.parsedReportCount || 0}/${results.resultCount || 0} 已评分。`;
+    countersEl.innerHTML = [
+        `<span class="table-badge status-info">可运行 ${counts.ready}</span>`,
+        `<span class="table-badge status-muted">已运行 ${counts.ran}</span>`,
+        `<span class="table-badge status-warn">等待报告 ${counts.waiting}</span>`,
+        `<span class="table-badge status-live">已评分 ${counts.scored}</span>`
+    ].join('');
+    bodyEl.innerHTML = `<table>
+        <colgroup>
+            <col style="width: 15%;">
+            <col style="width: 18%;">
+            <col style="width: 15%;">
+            <col style="width: 20%;">
+            <col style="width: 17%;">
+            <col style="width: 15%;">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>路线</th>
+                <th>参数候选</th>
+                <th>批次状态</th>
+                <th>结果/评分</th>
+                <th>授权窗口命令</th>
+                <th>报告与配置</th>
+            </tr>
+        </thead>
+        <tbody>${rows.map(renderParamLabBatchRow).join('')}</tbody>
+    </table>`;
+}
+
 function updateQuantDingerInspiredHero(d) {
     const advisor = getGovernanceAdvisor(d);
     const health = advisor?.systemHealth || {};
@@ -8635,6 +8971,7 @@ function updateDashboard() {
     updateShadowSignalLedger(d);
     updateManualAlphaLedger(d);
     updateGovernanceAdvisor(d);
+    updateParamLabBatchPanel(d);
     updateQuantDingerInspiredHero(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);

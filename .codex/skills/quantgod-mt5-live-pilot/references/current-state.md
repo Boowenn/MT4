@@ -99,6 +99,7 @@ Responsibilities:
 - Let operators jump back from research suggestion cards and regime heatmap cells into the monitor section, where the corresponding symbol card and strategy chip are visually focused for fast cross-checking
 - Explain that monitor-section focus with a breadcrumb, so the operator can tell whether the current highlight came from a research suggestion card or from a heatmap cell
 - Render the Governance Advisor overview card from `QuantGod_GovernanceAdvisor.json`, showing route lifecycle actions, live-forward stats, candidate outcome evidence, open-position pressure, blockers, and guardrail reminders
+- Render a read-only ParamLab batch panel from Governance Advisor's `ParamLabStatus` and `ParamLabResults` summaries, showing which tester-only parameter tasks are ready for an authorized Strategy Tester window, which have run, which are waiting for reports, and which are already scored. The panel may display suggested commands and report/config paths, but it must not launch MT5 or mutate the live preset from the browser.
 
 ### Data Layer
 
