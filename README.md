@@ -59,7 +59,7 @@ The MT5 work is intentionally split into phases:
 - includes a ParamLab Results Parser that scans ParamLab archives after Strategy Tester has produced reports, writes `QuantGod_ParamLabResults.json` / `QuantGod_ParamLabResultsLedger.csv`, scores each parameter version by PF, win rate, net profit, trade count, and drawdown, then feeds those scores back into Governance Advisor
 - includes a read-only Dashboard ParamLab batch panel that turns `QuantGod_ParamLabStatus.json` and `QuantGod_ParamLabResults.json` into an execution queue view: `可在授权窗口运行`, `已运行`, `等待报告`, and `已评分`, with the matching tester-only command and report/config paths visible before weekend Strategy Tester sessions
 - includes a read-only Dashboard Strategy Workspace that gives `MA_Cross`, `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` their own route cards with live/candidate authority, forward samples, candidate outcomes, ParamLab state, scored parameter versions, blockers, and the next Governance Advisor action
-- includes a structured AI/Governance Feedback layer in `QuantGod_GovernanceAdvisor.json` plus a Dashboard panel that explains, per route, why the Advisor recommends keep/demote/iterate/promote, where the risks are, which parameter tests should run next, and the matching ParamLab candidate/task/report status plus tester-only command
+- includes a structured AI/Governance Feedback layer in `QuantGod_GovernanceAdvisor.json` plus a Dashboard panel that explains, per route, why the Advisor recommends keep/demote/iterate/promote, where the risks are, which parameter tests should run next, and the matching ParamLab candidate/task/report status plus one-click copy buttons for tester-only commands and report paths
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
 - includes Shadow Candidate Router V1, a research layer that records MA continuation/range-soft candidates plus RSI, Bollinger, MACD, and support/resistance route candidates without enabling new live routes by default
@@ -390,7 +390,7 @@ The dashboard shows:
 - virtual research balance / equity / floating P&L / drawdown
 - real broker-account balance / equity as reference
 - a Strategy Workspace for MA/RSI/BB/MACD/SR that combines route authority, forward samples, ParamLab batch/result state, blockers, and Governance Advisor next steps without launching MT5 or changing live presets
-- an AI/Governance Feedback panel that turns each route action into `why / risk / next parameter tests`, with each parameter suggestion linked to candidate/task/report state and its tester-only command so operators can see the reasoning before any promotion or demotion decision
+- an AI/Governance Feedback panel that turns each route action into `why / risk / next parameter tests`, with each parameter suggestion linked to candidate/task/report state and copyable tester-only commands/report paths so operators can prepare weekend tester runs without touching live settings
 - per-symbol grouped strategy status
 - open trades and closed trades
 - research equity curve
