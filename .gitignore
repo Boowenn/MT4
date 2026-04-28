@@ -7,6 +7,8 @@ cloudflare/.wrangler/
 Dashboard/quantgod_cloud_sync.json
 Dashboard/QuantGod_PolymarketResearch.json
 Dashboard/QuantGod_PolymarketResearchLedger.csv
+Dashboard/QuantGod_PolymarketMarketRadar.json
+Dashboard/QuantGod_PolymarketMarketRadar.csv
 Dashboard/QuantGod_PolymarketRetunePlanner.json
 Dashboard/QuantGod_PolymarketRetunePlanner.csv
 archive/mt4-runtime-snapshots/

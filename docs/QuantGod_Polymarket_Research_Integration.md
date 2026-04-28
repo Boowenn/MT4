@@ -16,6 +16,8 @@ The generated file is only a dashboard evidence supplement:
 
 - `QuantGod_PolymarketResearch.json`
 - `QuantGod_PolymarketResearchLedger.csv`
+- `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketMarketRadar.csv`
 - `QuantGod_PolymarketRetunePlanner.json`
 - `QuantGod_PolymarketRetunePlanner.csv`
 
@@ -37,6 +39,26 @@ The bridge writes the snapshot to both:
 
 - HFM runtime files directory, for the MT5-local dashboard data layer.
 - `Dashboard\`, for the local `http://localhost:8080/QuantGod_Dashboard.html` static dashboard server.
+
+## Opportunity Radar V1
+
+Run:
+
+```bat
+tools\build_polymarket_market_radar.bat
+```
+
+The radar uses only the public Gamma API active-market endpoint. It writes `QuantGod_PolymarketMarketRadar.json` and CSV with market, probability, volume, liquidity, divergence, rule-proxy score, risk flags, and the suggested shadow track.
+
+Current radar behavior is deliberately `SHADOW_ONLY_MARKET_RADAR_NO_BETTING`:
+
+- no `.env` load;
+- no wallet read/write;
+- no CLOB order calls;
+- no Polymarket executor or canary loop;
+- no MT5 mutation.
+
+If Polymarket execution is added later, it should be a separate promoted module gated by Strategy Version Registry, Governance Advisor, bankroll isolation, position sizing, per-market max loss, take-profit/stop-loss exit rules, order-send audit, and a kill switch. The radar is the discovery layer, not the execution layer.
 
 ## Retune Planner
 
@@ -64,6 +86,7 @@ It displays:
 
 - Safety boundary: DB is read-only, `.env` secret values are redacted, no executor, no MT5 mutation.
 - Account snapshot: separate Polymarket cash and configured bankroll, never mixed with MT5 equity.
+- Opportunity Radar: public Gamma scan with probability, liquidity, divergence, score, risk, and suggested shadow track.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.
@@ -88,7 +111,7 @@ The dashboard decision is therefore:
 RESEARCH_ONLY_DO_NOT_ENABLE_LIVE
 ```
 
-This means Polymarket evidence can help diagnose and design retunes, but it should not resume live execution or merge order-execution code into QuantGod.
+This means Polymarket evidence can help diagnose and design retunes. Live execution is not restored by the research bridge, radar, or retune planner; if it is reintroduced later, it must be explicitly promoted through a separate wallet/execution guard with TP/SL and loss controls.
 
 ## Refactor Direction
 
@@ -101,13 +124,13 @@ Worth keeping from Polymarket:
 - Canary/rollback mindset.
 - Dashboard-only evidence snapshots.
 
-Not worth merging into QuantGod now:
+Not merged in this research slice:
 
-- Wallet/executor/live canary modules.
+- Wallet/executor/live canary modules. They are allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, and kill-switch wiring.
 - Auth/user/product modules.
 - Long-running Flask/Socket.IO service.
 - Database-backed strategy CRUD.
-- Any non-EA execution path.
+- Any execution path that bypasses Governance Advisor and the safety gate.
 
 ## Next Safe Work
 

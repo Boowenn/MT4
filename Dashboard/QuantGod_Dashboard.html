@@ -6094,6 +6094,7 @@
 
         .polymarket-summary-grid,
         .polymarket-group-grid,
+        .polymarket-radar-grid,
         .polymarket-retune-grid,
         .polymarket-risk-grid {
             display: grid;
@@ -6102,6 +6103,10 @@
         }
 
         .polymarket-group-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-radar-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6376,6 +6381,7 @@
 
             .polymarket-summary-grid,
             .polymarket-group-grid,
+            .polymarket-radar-grid,
             .polymarket-retune-grid,
             .polymarket-risk-grid {
                 grid-template-columns: 1fr;
@@ -7047,6 +7053,21 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">O</div>
+                            Opportunity Radar / Gamma Scan
+                        </div>
+                        <span class="eval-summary" id="polymarketRadarSummary">等待 Polymarket Market Radar</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-radar-grid" id="polymarketRadarBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketMarketRadar.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-green);">T</div>
                             Retune Planner / Shadow-only Queue
                         </div>
@@ -7601,6 +7622,7 @@ const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json
 const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
+const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
@@ -8409,6 +8431,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null,
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
+        polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null
     };
 
@@ -8593,6 +8616,14 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.polymarketMarketRadar = await loadLocalJsonSupplement(LOCAL_POLYMARKET_MARKET_RADAR_PATH);
+        data._polymarketMarketRadarError = false;
+    } catch (error) {
+        data._polymarketMarketRadarError = true;
+        console.warn('Polymarket market radar load failed.', error);
+    }
+
+    try {
         data.polymarketRetunePlanner = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RETUNE_PLANNER_PATH);
         data._polymarketRetunePlannerError = false;
     } catch (error) {
@@ -8691,6 +8722,10 @@ function getPolymarketResearch(d) {
     return d?.polymarketResearch || null;
 }
 
+function getPolymarketMarketRadar(d) {
+    return d?.polymarketMarketRadar || null;
+}
+
 function getPolymarketRetunePlanner(d) {
     return d?.polymarketRetunePlanner || null;
 }
@@ -8719,6 +8754,16 @@ function formatPolymarketPercent(value) {
     return Number.isFinite(num) ? `${num.toFixed(1)}%` : '--';
 }
 
+function formatPolymarketCompactNumber(value, digits = 1) {
+    if (value === null || value === undefined || value === '') return '--';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '--';
+    const abs = Math.abs(num);
+    if (abs >= 1000000) return `${(num / 1000000).toFixed(digits)}m`;
+    if (abs >= 1000) return `${(num / 1000).toFixed(digits)}k`;
+    return num.toFixed(abs >= 100 ? 0 : digits);
+}
+
 function renderPolymarketMetric(label, value) {
     return `
         <div class="polymarket-metric-item">
@@ -8726,6 +8771,80 @@ function renderPolymarketMetric(label, value) {
             <div class="polymarket-metric-value">${escapeHtml(value)}</div>
         </div>
     `;
+}
+
+function renderPolymarketRadarCard(item = {}) {
+    const risk = item.risk || 'medium';
+    const tone = risk === 'low' ? 'good' : (risk === 'high' ? 'danger' : 'watch');
+    const probability = item.probability === null || item.probability === undefined
+        ? '--'
+        : `${Number(item.probability).toFixed(1)}%`;
+    const divergence = item.divergence === null || item.divergence === undefined
+        ? '--'
+        : `${Number(item.divergence) >= 0 ? '+' : ''}${Number(item.divergence).toFixed(1)}pp`;
+    const flags = Array.isArray(item.riskFlags) ? item.riskFlags : [];
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(item.suggestedShadowTrack || 'shadow radar')}</div>
+            <div class="polymarket-title">#${escapeHtml(item.rank || '--')} ${escapeHtml(item.question || item.slug || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('probability', probability)}
+                ${renderPolymarketMetric('divergence', divergence)}
+                ${renderPolymarketMetric('volume', formatPolymarketCompactNumber(item.volume))}
+                ${renderPolymarketMetric('liquidity', formatPolymarketCompactNumber(item.liquidity))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">AI/rule ${escapeHtml(item.aiRuleScore ?? '--')} · rule ${escapeHtml(item.ruleScore ?? '--')} · risk ${escapeHtml(risk)}</div>
+                <div class="polymarket-action">category ${escapeHtml(item.category || '--')} · action ${escapeHtml(item.recommendedAction || 'SHADOW_REVIEW')}</div>
+                <div class="polymarket-action">flags ${escapeHtml(flags.slice(0, 4).join(' / ') || 'clear')}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(item.polymarketUrl || 'Gamma public market')} · no betting from Radar output</div>
+        </div>
+    `;
+}
+
+function updatePolymarketMarketRadar(d) {
+    const radar = getPolymarketMarketRadar(d);
+    const summaryEl = document.getElementById('polymarketRadarSummary');
+    const body = document.getElementById('polymarketRadarBody');
+    if (!body) return;
+    if (!radar || d?._polymarketMarketRadarError) {
+        if (summaryEl) summaryEl.textContent = '等待 Market Radar';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketMarketRadar.json`；Gamma 扫描只读，不触发下注。</div>';
+        return;
+    }
+    const summary = radar.summary || {};
+    if (summaryEl) {
+        summaryEl.textContent = `${radar.status || 'UNKNOWN'} | ranked ${summary.rankedMarkets || 0} | low ${summary.lowRisk || 0} / mid ${summary.mediumRisk || 0} / high ${summary.highRisk || 0}`;
+    }
+    if (radar.status === 'ERROR') {
+        body.innerHTML = `
+            <div class="polymarket-card danger">
+                <div class="polymarket-eyebrow">Gamma API</div>
+                <div class="polymarket-title">Radar unavailable</div>
+                <div class="polymarket-note">${escapeHtml(radar.error || 'Public API scan failed; keep execution disabled.')}</div>
+            </div>
+        `;
+        return;
+    }
+    const items = Array.isArray(radar.radar) ? radar.radar : [];
+    const boundaryCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">Boundary</div>
+            <div class="polymarket-title">${escapeHtml(radar.decision || 'SHADOW_ONLY_MARKET_RADAR_NO_BETTING')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('public read', radar.source?.publicReadOnly ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('wallet write', radar.source?.walletWrite ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('orders', radar.source?.orderExecution ? 'YES' : 'NO')}
+                ${renderPolymarketMetric('AI mode', radar.scoring?.aiScoringMode || 'RULE_PROXY')}
+            </div>
+            <div class="polymarket-note">这一步只给 shadow track 排队，未来执行层必须另走钱包、仓位、SL/TP 和 kill switch Gate。</div>
+        </div>
+    `;
+    body.innerHTML = [
+        boundaryCard,
+        ...items.slice(0, 8).map(renderPolymarketRadarCard),
+    ].join('') || '<div class="empty-state">Gamma scan 暂无可展示市场。</div>';
 }
 
 function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraClass = '') {
@@ -13637,6 +13756,7 @@ function updateDashboard() {
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
+    updatePolymarketMarketRadar(d);
     updatePolymarketRetunePlanner(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
