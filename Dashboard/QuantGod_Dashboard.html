@@ -6312,6 +6312,55 @@
             padding: 9px;
         }
 
+        .polymarket-evidence-audit-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 9px;
+            border-bottom: 1px solid #2c3645;
+            background: rgba(15, 23, 42, 0.72);
+        }
+
+        .polymarket-evidence-filter-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .polymarket-evidence-filter-chip {
+            appearance: none;
+            border: 1px solid rgba(148, 163, 184, 0.34);
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.9);
+            color: #9fb0c6;
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 900;
+            line-height: 1;
+            padding: 6px 8px;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+
+        .polymarket-evidence-filter-chip:hover,
+        .polymarket-evidence-filter-chip.active {
+            border-color: rgba(96, 165, 250, 0.72);
+            background: rgba(37, 99, 235, 0.22);
+            color: #dbeafe;
+        }
+
+        .polymarket-evidence-copy-button {
+            background: rgba(15, 23, 42, 0.92);
+            border-color: rgba(96, 165, 250, 0.5);
+            color: #bfdbfe;
+        }
+
+        .polymarket-evidence-row.is-filtered-out {
+            display: none;
+        }
+
         .polymarket-evidence-raw-meta {
             margin-top: 5px;
             color: #7f8ea3;
@@ -8427,6 +8476,7 @@ let paramLabBatchRouteFilter = 'ALL';
 let paramLabBatchSortMode = 'priority';
 let polymarketHistoryApiFilter = { table: 'all', query: '' };
 let polymarketUnifiedSearchFilter = { query: '' };
+const polymarketUnifiedEvidenceAuditMap = new Map();
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
 const TIMEFRAME_ORDER = {
@@ -9019,6 +9069,39 @@ async function refreshPolymarketUnifiedSearchFromControls() {
 function initPolymarketUnifiedSearchControls() {
     syncPolymarketUnifiedSearchControls();
     document.addEventListener('click', async (event) => {
+        const evidenceFilter = event.target.closest('[data-polymarket-evidence-filter]');
+        if (evidenceFilter) {
+            event.preventDefault();
+            const details = evidenceFilter.closest('.polymarket-evidence-details');
+            if (!details) return;
+            const source = String(evidenceFilter.dataset.source || 'all');
+            details.querySelectorAll('[data-polymarket-evidence-filter]').forEach((button) => {
+                button.classList.toggle('active', button === evidenceFilter);
+            });
+            details.querySelectorAll('[data-polymarket-evidence-row]').forEach((row) => {
+                const rowSource = String(row.dataset.source || '');
+                row.classList.toggle('is-filtered-out', source !== 'all' && rowSource !== source);
+            });
+            return;
+        }
+        const evidenceCopy = event.target.closest('[data-polymarket-evidence-copy]');
+        if (evidenceCopy && !evidenceCopy.disabled) {
+            event.preventDefault();
+            const label = evidenceCopy.dataset.copyLabel || evidenceCopy.textContent || '复制审计摘要';
+            const value = polymarketUnifiedEvidenceAuditMap.get(evidenceCopy.dataset.groupKey || '') || '';
+            try {
+                await copyTextToClipboard(value);
+                setCopyButtonState(evidenceCopy, 'copied', label);
+            } catch (error) {
+                console.warn('Polymarket evidence audit copy failed', error);
+                setCopyButtonState(evidenceCopy, 'failed', label);
+            } finally {
+                window.setTimeout(() => {
+                    if (evidenceCopy.isConnected) setCopyButtonState(evidenceCopy, 'idle', label);
+                }, 1500);
+            }
+            return;
+        }
         const historyJump = event.target.closest('[data-polymarket-single-history-jump]');
         if (historyJump) {
             event.preventDefault();
@@ -10231,8 +10314,80 @@ function getPolymarketUnifiedSearchJumpQuery(item = {}) {
     ).trim().slice(0, 240);
 }
 
+function getPolymarketUnifiedSearchGroupKey(item = {}, index = '') {
+    const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+    const firstEvidence = evidence.find((row) => row.marketId || row.url || row.title || row.subtitle) || {};
+    const stableKey = item.groupKey ||
+        item.marketKey ||
+        item.marketId ||
+        item.url ||
+        firstEvidence.marketId ||
+        firstEvidence.url ||
+        item.title ||
+        firstEvidence.title ||
+        getPolymarketUnifiedSearchJumpQuery(item);
+    return String(stableKey || `polymarket-search-${index || 'item'}`).trim().slice(0, 260);
+}
+
+function getPolymarketEvidenceSourceKey(row = {}) {
+    return String(row.sourceType || row.sourceLabel || 'unknown')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 80) || 'unknown';
+}
+
+function getPolymarketEvidenceSourceLabel(row = {}) {
+    return translatePolymarketToken(row.sourceLabel || row.sourceType || '证据');
+}
+
+function getPolymarketEvidenceSourceSummary(evidence = []) {
+    const sourceMap = new Map();
+    evidence.forEach((row) => {
+        const key = getPolymarketEvidenceSourceKey(row);
+        const existing = sourceMap.get(key) || { key, label: getPolymarketEvidenceSourceLabel(row), count: 0 };
+        existing.count += 1;
+        sourceMap.set(key, existing);
+    });
+    return Array.from(sourceMap.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function buildPolymarketUnifiedEvidenceAuditText(item = {}) {
+    const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+    const title = item.title || item.marketId || item.url || '--';
+    const sourceSummary = getPolymarketEvidenceSourceSummary(evidence)
+        .map((source) => `${source.label} ${source.count}`)
+        .join(' / ') || '--';
+    const header = [
+        'QuantGod Polymarket 综合证据审计摘要',
+        `市场: ${title}`,
+        `marketId: ${item.marketId || '--'}`,
+        `URL: ${item.url || '--'}`,
+        `建议: ${translatePolymarketToken(item.recommendation || '--')}`,
+        `风险: ${translatePolymarketToken(item.risk || '--')}`,
+        `评分: ${formatPolymarketScore(item.score)}`,
+        `概率: ${formatPolymarketPercent(item.probability)}`,
+        `偏离: ${formatPolymarketSignedPp(item.divergence)}`,
+        `来源: ${sourceSummary}`,
+        '边界: 只读研究；不读私钥、不写钱包、不下单、不影响 MT5'
+    ];
+    const rows = evidence.map((row, index) => {
+        const meta = [
+            row.marketId ? `marketId=${row.marketId}` : '',
+            row.url ? `url=${row.url}` : '',
+            row.track ? `track=${row.track}` : '',
+            row.probability !== undefined && row.probability !== '' ? `prob=${formatPolymarketPercent(row.probability)}` : '',
+            row.divergence !== undefined && row.divergence !== '' ? `div=${formatPolymarketSignedPp(row.divergence)}` : ''
+        ].filter(Boolean).join(' | ');
+        return `${index + 1}. [${getPolymarketEvidenceSourceLabel(row)}] 分=${formatPolymarketScore(row.score)} | 建议=${translatePolymarketToken(row.recommendation || '--')} | 风险=${translatePolymarketToken(row.risk || '--')} | 时间=${formatPolymarketTime(row.generatedAt)} | ${row.title || row.subtitle || title || '--'}${meta ? ` | ${meta}` : ''}`;
+    });
+    return `${header.join('\n')}\n\nRaw evidence:\n${rows.join('\n') || '无 raw evidence'}`;
+}
+
 function renderPolymarketUnifiedEvidenceRow(row = {}, item = {}) {
-    const source = translatePolymarketToken(row.sourceLabel || row.sourceType || '证据');
+    const source = getPolymarketEvidenceSourceLabel(row);
+    const sourceKey = getPolymarketEvidenceSourceKey(row);
     const score = formatPolymarketScore(row.score);
     const recommendation = translatePolymarketToken(row.recommendation || '--');
     const risk = translatePolymarketToken(row.risk || '--');
@@ -10246,7 +10401,7 @@ function renderPolymarketUnifiedEvidenceRow(row = {}, item = {}) {
         row.divergence !== undefined && row.divergence !== '' ? `div=${formatPolymarketSignedPp(row.divergence)}` : ''
     ].filter(Boolean).join(' · ');
     return `
-        <div class="polymarket-evidence-row">
+        <div class="polymarket-evidence-row" data-polymarket-evidence-row data-source="${escapeHtml(sourceKey)}">
             <span class="polymarket-evidence-source">${escapeHtml(source)}</span>
             · 分 ${escapeHtml(score)}
             · ${escapeHtml(recommendation)}
@@ -10266,12 +10421,25 @@ function renderPolymarketUnifiedEvidenceRows(item = {}) {
     return evidence.slice(0, 4).map((row) => renderPolymarketUnifiedEvidenceRow(row, item)).join('');
 }
 
-function renderPolymarketUnifiedEvidenceDetails(item = {}) {
+function renderPolymarketUnifiedEvidenceDetails(item = {}, index = '') {
     const evidence = Array.isArray(item.evidence) ? item.evidence : [];
     if (!evidence.length) return '';
+    const groupKey = getPolymarketUnifiedSearchGroupKey(item, index);
+    polymarketUnifiedEvidenceAuditMap.set(groupKey, buildPolymarketUnifiedEvidenceAuditText(item));
+    const sourceSummary = getPolymarketEvidenceSourceSummary(evidence);
+    const filterChips = [
+        `<button type="button" class="polymarket-evidence-filter-chip active" data-polymarket-evidence-filter data-source="all">全部 ${escapeHtml(String(evidence.length))}</button>`,
+        ...sourceSummary.map((source) => (
+            `<button type="button" class="polymarket-evidence-filter-chip" data-polymarket-evidence-filter data-source="${escapeHtml(source.key)}">${escapeHtml(source.label)} ${escapeHtml(String(source.count))}</button>`
+        ))
+    ].join('');
     return `
         <details class="polymarket-evidence-details">
             <summary>全部 raw evidence / 来源明细 ${escapeHtml(String(evidence.length))} 条</summary>
+            <div class="polymarket-evidence-audit-toolbar">
+                <div class="polymarket-evidence-filter-group">${filterChips}</div>
+                <button type="button" class="governance-feedback-copy-button polymarket-evidence-copy-button" data-polymarket-evidence-copy data-group-key="${escapeHtml(groupKey)}" data-copy-label="复制审计摘要">复制审计摘要</button>
+            </div>
             <div class="polymarket-evidence-detail-grid">
                 ${evidence.map((row) => renderPolymarketUnifiedEvidenceRow(row, item)).join('')}
             </div>
@@ -10279,7 +10447,7 @@ function renderPolymarketUnifiedEvidenceDetails(item = {}) {
     `;
 }
 
-function renderPolymarketUnifiedSearchCard(item = {}) {
+function renderPolymarketUnifiedSearchCard(item = {}, index = '') {
     const tone = getPolymarketUnifiedSearchTone(item);
     const sourceLabels = Array.isArray(item.sourceLabels) && item.sourceLabels.length
         ? item.sourceLabels
@@ -10311,7 +10479,7 @@ function renderPolymarketUnifiedSearchCard(item = {}) {
                 <div class="polymarket-action">时间 ${escapeHtml(formatPolymarketTime(item.generatedAt))}</div>
             </div>
             <div class="polymarket-evidence-list">${renderPolymarketUnifiedEvidenceRows(item)}</div>
-            ${renderPolymarketUnifiedEvidenceDetails(item)}
+            ${renderPolymarketUnifiedEvidenceDetails(item, index)}
             <div class="polymarket-search-card-actions">
                 <a class="polymarket-search-detail-link" href="#section-polymarket-analysis" data-polymarket-single-history-jump data-query="${escapeHtml(jumpQuery)}">跳到单市场分析历史</a>
             </div>
@@ -10325,6 +10493,7 @@ function updatePolymarketUnifiedSearch(d) {
     const summaryEl = document.getElementById('polymarketUnifiedSearchSummary');
     const body = document.getElementById('polymarketUnifiedSearchBody');
     if (!body) return;
+    polymarketUnifiedEvidenceAuditMap.clear();
     if (!search || d?._polymarketUnifiedSearchError) {
         if (summaryEl) summaryEl.textContent = '等待统一搜索 API';
         body.innerHTML = '<div class="empty-state">等待 `/api/polymarket/search`；统一读取 history / radar / analyze / ai-score。</div>';
@@ -10354,7 +10523,7 @@ function updatePolymarketUnifiedSearch(d) {
             <div class="polymarket-note">同一入口聚合历史库、雷达、单市场分析和 AI 评分；现在按同一 market 折叠成综合证据卡，仅用于找证据。</div>
         </div>
     `;
-    const cards = results.slice(0, 11).map(renderPolymarketUnifiedSearchCard);
+    const cards = results.slice(0, 11).map((item, index) => renderPolymarketUnifiedSearchCard(item, index));
     body.innerHTML = [boundaryCard, ...cards].join('') || '<div class="empty-state">没有匹配证据；换一个关键词试试。</div>';
 }
 
