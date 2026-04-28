@@ -8,7 +8,7 @@ The integration is research-only.
 
 - Reads `D:\polymarket\copybot.db` through SQLite `mode=ro` and `PRAGMA query_only=ON`.
 - Does not import Polymarket application modules.
-- Does not read `.env`, wallet keys, API credentials, or account secrets.
+- Reads `D:\polymarket\.env` only for the optional account-cash snapshot, redacts secret values, and never writes them to dashboard output.
 - Does not start Polymarket `main.py`, `web.py`, executor loops, canary loops, or order-send code.
 - Does not mutate MT5 EA source, live presets, account/server settings, lot size, SL/TP, kill switches, or order paths.
 
@@ -16,6 +16,8 @@ The generated file is only a dashboard evidence supplement:
 
 - `QuantGod_PolymarketResearch.json`
 - `QuantGod_PolymarketResearchLedger.csv`
+- `QuantGod_PolymarketRetunePlanner.json`
+- `QuantGod_PolymarketRetunePlanner.csv`
 
 ## Bridge
 
@@ -36,15 +38,35 @@ The bridge writes the snapshot to both:
 - HFM runtime files directory, for the MT5-local dashboard data layer.
 - `Dashboard\`, for the local `http://localhost:8080/QuantGod_Dashboard.html` static dashboard server.
 
+## Retune Planner
+
+Run:
+
+```bat
+tools\build_polymarket_retune_planner.bat
+```
+
+The planner consumes `QuantGod_PolymarketResearch.json` and emits shadow-only recommendations. It does not import Polymarket runtime modules, load wallet code, place orders, start executors, or mutate MT5.
+
+Planner outputs include:
+
+- global guardrails and blockers;
+- per experiment-key severity, score, PF, win rate, realized PnL, and issue tags;
+- shadow-only filter suggestions;
+- next shadow test names and goals;
+- explicit `liveExecutionAllowed=false` for every recommendation.
+
 ## Dashboard Surface
 
-The QuantGod dashboard now has a separate `Polymarket` navigation item and `Polymarket Research` workspace.
+The QuantGod dashboard now starts from a workspace entry page. `MT5` and `Polymarket` are selected as separate workspaces, and the left navigation only shows the active workspace plus the entry link so the MT5 equity/open-position view is not mixed with Polymarket account cash.
 
 It displays:
 
-- Safety boundary: read-only, no `.env`, no executor, no MT5 mutation.
+- Safety boundary: DB is read-only, `.env` secret values are redacted, no executor, no MT5 mutation.
+- Account snapshot: separate Polymarket cash and configured bankroll, never mixed with MT5 equity.
 - Executed live evidence.
 - No-money shadow evidence.
+- Shadow-only Retune Planner.
 - Experiment buckets by `experiment_key`.
 - Latest PnL log.
 - Risk-log event families.
@@ -58,6 +80,7 @@ The first bridge run on 2026-04-28 produced:
 - Executed: 24 closed, win rate 4.17%, PF 0.0145, realized PnL about -$9.98.
 - Shadow: 383 closed, win rate 36.29%, PF 0.7055, realized PnL about -$159.33.
 - All journal buckets: PF below 1, realized PnL negative.
+- Account snapshot: read-only CLOB cash is displayed separately from MT5; the first verified snapshot showed cash below the configured Polymarket bankroll and no open orders.
 
 The dashboard decision is therefore:
 
@@ -88,7 +111,7 @@ Not worth merging into QuantGod now:
 
 ## Next Safe Work
 
-Recommended next refactor is to add a Polymarket retune planner that consumes `QuantGod_PolymarketResearch.json` and emits candidate research ideas only, such as:
+Implemented as `tools\build_polymarket_retune_planner.py`: it consumes `QuantGod_PolymarketResearch.json` and emits candidate research ideas only, such as:
 
 - which experiment keys are retired;
 - which sample buckets need stricter filters;

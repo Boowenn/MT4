@@ -6094,6 +6094,7 @@
 
         .polymarket-summary-grid,
         .polymarket-group-grid,
+        .polymarket-retune-grid,
         .polymarket-risk-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -6102,6 +6103,10 @@
 
         .polymarket-group-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-retune-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .polymarket-risk-grid {
@@ -6218,9 +6223,160 @@
             display: none;
         }
 
+        .qd-platform-shell.workspace-home .qd-menu-item[data-workspace-link="mt5"],
+        .qd-platform-shell.workspace-home .qd-menu-item[data-workspace-link="polymarket"],
+        .qd-platform-shell.workspace-mt5 .qd-menu-item[data-workspace-link="polymarket"],
+        .qd-platform-shell.workspace-polymarket .qd-menu-item[data-workspace-link="mt5"] {
+            display: none;
+        }
+
+        .qd-menu-separator {
+            display: none;
+            margin: 8px 0 4px;
+            padding: 0 10px;
+            color: #66717e;
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .qd-platform-shell.workspace-mt5 .qd-menu-separator[data-workspace-label="mt5"],
+        .qd-platform-shell.workspace-polymarket .qd-menu-separator[data-workspace-label="polymarket"] {
+            display: block;
+        }
+
+        .workspace-entry-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .workspace-entry-card {
+            display: grid;
+            min-height: 320px;
+            padding: 24px;
+            border: 1px solid #2d3440;
+            border-radius: 10px;
+            background:
+                radial-gradient(circle at 12% 0%, rgba(19, 144, 255, 0.16), transparent 30%),
+                #171b21;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+        }
+
+        .workspace-entry-card.polymarket {
+            background:
+                radial-gradient(circle at 12% 0%, rgba(31, 199, 126, 0.14), transparent 30%),
+                #171b21;
+        }
+
+        .workspace-entry-kicker {
+            color: #8dccff;
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .workspace-entry-title {
+            margin-top: 12px;
+            color: #f8fafc;
+            font-size: 28px;
+            font-weight: 950;
+            line-height: 1.08;
+        }
+
+        .workspace-entry-copy {
+            margin-top: 12px;
+            max-width: 620px;
+            color: #9ba7b5;
+            font-size: 13px;
+            line-height: 1.65;
+        }
+
+        .workspace-entry-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .workspace-entry-metric {
+            min-width: 0;
+            padding: 12px;
+            border: 1px solid #303744;
+            border-radius: 8px;
+            background: #20242b;
+        }
+
+        .workspace-entry-metric-label {
+            color: #7f8b99;
+            font-size: 10px;
+            font-weight: 900;
+            text-transform: uppercase;
+        }
+
+        .workspace-entry-metric-value {
+            margin-top: 6px;
+            color: #f3f6fb;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 16px;
+            font-weight: 900;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .workspace-entry-actions {
+            align-self: end;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 24px;
+            padding-top: 18px;
+            border-top: 1px solid #2d3440;
+        }
+
+        .workspace-entry-note {
+            color: #7f8b99;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .workspace-entry-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            padding: 0 16px;
+            border: 1px solid #1390ff;
+            border-radius: 7px;
+            background: #1390ff;
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 900;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .workspace-entry-card.polymarket .workspace-entry-button {
+            border-color: rgba(31, 199, 126, 0.66);
+            background: #14a86d;
+        }
+
+        .workspace-entry-button:hover {
+            filter: brightness(1.08);
+        }
+
         @media (max-width: 1100px) {
+            .workspace-entry-grid {
+                grid-template-columns: 1fr;
+            }
+
             .polymarket-summary-grid,
             .polymarket-group-grid,
+            .polymarket-retune-grid,
             .polymarket-risk-grid {
                 grid-template-columns: 1fr;
             }
@@ -6282,14 +6438,17 @@
             </div>
         </div>
         <div class="qd-menu-group">
-            <div class="qd-menu-label">Command</div>
-            <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span><span><strong>AI Evidence</strong><em>总览雷达</em></span></a>
-            <a class="qd-menu-item" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span><span><strong>Strategy & Live</strong><em>策略工作台</em></span></a>
-            <a class="qd-menu-item" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>Polymarket</strong><em>外部研究</em></span></a>
-            <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span><span><strong>Indicator Market</strong><em>品种监控</em></span></a>
-            <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span><span><strong>ParamLab</strong><em>回测闭环</em></span></a>
-            <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>Trading Bot</strong><em>EA 只读</em></span></a>
-            <a class="qd-menu-item" href="#section-reports"><span class="qd-menu-icon">◫</span><span><strong>Reports</strong><em>证据报表</em></span></a>
+            <div class="qd-menu-label">Workspace</div>
+            <a class="qd-menu-item active" data-workspace-link="home" href="#section-home"><span class="qd-menu-icon">⌂</span><span><strong>Entry</strong><em>系统入口</em></span></a>
+            <div class="qd-menu-separator" data-workspace-label="mt5">MT5</div>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-overview"><span class="qd-menu-icon">▦</span><span><strong>AI Evidence</strong><em>总览雷达</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span><span><strong>Strategy & Live</strong><em>策略工作台</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-monitor"><span class="qd-menu-icon">⌁</span><span><strong>Indicator Market</strong><em>品种监控</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-research"><span class="qd-menu-icon">⌘</span><span><strong>ParamLab</strong><em>回测闭环</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>Trading Bot</strong><em>EA 只读</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-reports"><span class="qd-menu-icon">◫</span><span><strong>Reports</strong><em>证据报表</em></span></a>
+            <div class="qd-menu-separator" data-workspace-label="polymarket">Polymarket</div>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>Polymarket</strong><em>外部研究</em></span></a>
         </div>
         <div class="qd-menu-footer">
             <strong>Guardrail:</strong><br>
@@ -6306,19 +6465,19 @@
             </div>
             <div class="qd-command-actions">
                 <div class="qd-action-stat">
-                    <div class="qd-action-label">Mode</div>
+                    <div class="qd-action-label" id="qdHeroModeLabel">Mode</div>
                     <div class="qd-action-value" id="qdHeroMode">--</div>
                 </div>
                 <div class="qd-action-stat">
-                    <div class="qd-action-label">Server</div>
+                    <div class="qd-action-label" id="qdHeroServerLabel">Server</div>
                     <div class="qd-action-value" id="qdHeroServer">--</div>
                 </div>
                 <div class="qd-action-stat">
-                    <div class="qd-action-label">Equity</div>
+                    <div class="qd-action-label" id="qdHeroEquityLabel">Equity</div>
                     <div class="qd-action-value" id="qdHeroEquity">--</div>
                 </div>
                 <div class="qd-action-stat">
-                    <div class="qd-action-label">Open</div>
+                    <div class="qd-action-label" id="qdHeroOpenLabel">Open</div>
                     <div class="qd-action-value" id="qdHeroOpen">--</div>
                 </div>
             </div>
@@ -6340,19 +6499,19 @@
 
                 <div class="qd-main-metrics">
                     <div class="qd-main-metric">
-                        <div class="qd-main-metric-label">Bid / Ask</div>
+                        <div class="qd-main-metric-label" id="qdHeroPriceLabel">Bid / Ask</div>
                         <div class="qd-main-metric-value" id="qdHeroPrice">--</div>
                     </div>
                     <div class="qd-main-metric">
-                        <div class="qd-main-metric-label">Spread</div>
+                        <div class="qd-main-metric-label" id="qdHeroSpreadLabel">Spread</div>
                         <div class="qd-main-metric-value" id="qdHeroSpread">--</div>
                     </div>
                     <div class="qd-main-metric">
-                        <div class="qd-main-metric-label">Routes</div>
+                        <div class="qd-main-metric-label" id="qdHeroRoutesLabel">Routes</div>
                         <div class="qd-main-metric-value" id="qdHeroRoutes">--</div>
                     </div>
                     <div class="qd-main-metric">
-                        <div class="qd-main-metric-label">Shadow Rows</div>
+                        <div class="qd-main-metric-label" id="qdHeroShadowRowsLabel">Shadow Rows</div>
                         <div class="qd-main-metric-value" id="qdHeroShadowRows">--</div>
                     </div>
                 </div>
@@ -6409,6 +6568,68 @@
 
     <div class="page-content">
         <div class="main">
+            <section class="content-section fade-in" id="section-home" data-nav-section="home">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Workspace Entry</div>
+                        <div class="section-title">选择工作区</div>
+                        <div class="section-desc">MT5 和 Polymarket 分开管理：资金、证据、执行边界各自独立，避免把实盘 EA 口径和外部研究口径混在一起。</div>
+                    </div>
+                </div>
+                <div class="workspace-entry-grid">
+                    <article class="workspace-entry-card">
+                        <div>
+                            <div class="workspace-entry-kicker">MT5 Live Pilot</div>
+                            <div class="workspace-entry-title">HFM MT5<br>受控交易系统</div>
+                            <div class="workspace-entry-copy">进入 MA/RSI live-gated、ParamLab、Strategy Tester 队列、交易只读与 Governance Advisor。这里显示的是 HFM/MT5 账户和 0.01 EA 风控口径。</div>
+                            <div class="workspace-entry-metrics">
+                                <div class="workspace-entry-metric">
+                                    <div class="workspace-entry-metric-label">Equity</div>
+                                    <div class="workspace-entry-metric-value" id="workspaceMt5Equity">--</div>
+                                </div>
+                                <div class="workspace-entry-metric">
+                                    <div class="workspace-entry-metric-label">Open</div>
+                                    <div class="workspace-entry-metric-value" id="workspaceMt5Open">--</div>
+                                </div>
+                                <div class="workspace-entry-metric">
+                                    <div class="workspace-entry-metric-label">Mode</div>
+                                    <div class="workspace-entry-metric-value" id="workspaceMt5Mode">--</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="workspace-entry-actions">
+                            <div class="workspace-entry-note">真实交易仍只允许 EA 受控路径，不在 Dashboard 手动下单。</div>
+                            <a class="workspace-entry-button" href="#section-overview">进入 MT5</a>
+                        </div>
+                    </article>
+                    <article class="workspace-entry-card polymarket">
+                        <div>
+                            <div class="workspace-entry-kicker">Polymarket Research</div>
+                            <div class="workspace-entry-title">Polymarket<br>外部研究台</div>
+                            <div class="workspace-entry-copy">进入 D:\polymarket 只读证据、账号现金、shadow-only Retune Planner 和亏损阻断分析。这里不恢复下注执行，不和 MT5 资金混算。</div>
+                            <div class="workspace-entry-metrics">
+                                <div class="workspace-entry-metric">
+                                    <div class="workspace-entry-metric-label">Cash</div>
+                                    <div class="workspace-entry-metric-value" id="workspacePolyCash">--</div>
+                                </div>
+                                <div class="workspace-entry-metric">
+                                    <div class="workspace-entry-metric-label">Open Orders</div>
+                                    <div class="workspace-entry-metric-value" id="workspacePolyOpen">--</div>
+                                </div>
+                                <div class="workspace-entry-metric">
+                                    <div class="workspace-entry-metric-label">Retune</div>
+                                    <div class="workspace-entry-metric-value" id="workspacePolyRetune">--</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="workspace-entry-actions">
+                            <div class="workspace-entry-note">只读账号快照 + shadow-only 调参建议；不会发送 CLOB 订单。</div>
+                            <a class="workspace-entry-button" href="#section-polymarket">进入 Polymarket</a>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
             <section class="content-section fade-in" id="section-overview" data-nav-section="overview">
                 <div class="section-heading">
                     <div class="section-heading-copy">
@@ -6803,7 +7024,7 @@
                     <div class="section-heading-copy">
                         <div class="section-kicker">Polymarket Research</div>
                         <div class="section-title">Polymarket 外部研究工作台</div>
-                        <div class="section-desc">只读接入 D:\polymarket 的执行、shadow、experiment 和风险日志证据；不加载钱包、不启动执行器、不改变 MT5 EA/订单/配置。</div>
+                        <div class="section-desc">只读接入 D:\polymarket 的执行、shadow、experiment、账号现金和风险日志证据；不恢复下注、不启动执行器、不改变 MT5 EA/订单/配置。</div>
                     </div>
                     <div class="section-meta" id="polymarketSourceMeta">等待 QuantGod_PolymarketResearch.json</div>
                 </div>
@@ -6819,6 +7040,21 @@
                     <div class="panel-body">
                         <div class="polymarket-summary-grid" id="polymarketSummaryBody">
                             <div class="empty-state">等待 `QuantGod_PolymarketResearch.json`</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-green);">T</div>
+                            Retune Planner / Shadow-only Queue
+                        </div>
+                        <span class="eval-summary" id="polymarketRetuneSummary">等待 Polymarket 重调建议</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-retune-grid" id="polymarketRetuneBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketRetunePlanner.json`</div>
                         </div>
                     </div>
                 </div>
@@ -7340,6 +7576,7 @@ let pieChart = null;
 let dailyChart = null;
 let refreshInterval = null;
 let runtimeClockInterval = null;
+let activeDashboardSection = 'home';
 let runtimeClockAnchor = null;
 const LOCAL_DASHBOARD_PATH = 'QuantGod_Dashboard.json';
 const LOCAL_STRATEGY_REPORT_PATH = 'QuantGod_StrategyEvaluationReport.csv';
@@ -7364,6 +7601,7 @@ const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json
 const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
+const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -8170,7 +8408,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null,
         autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null,
         paramLabRunRecovery: baseData?.paramLabRunRecovery || previousData?.paramLabRunRecovery || null,
-        polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null
+        polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
+        polymarketRetunePlanner: baseData?.polymarketRetunePlanner || previousData?.polymarketRetunePlanner || null
     };
 
     if (!isLocalRuntime()) {
@@ -8353,6 +8592,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('Polymarket research bridge load failed.', error);
     }
 
+    try {
+        data.polymarketRetunePlanner = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RETUNE_PLANNER_PATH);
+        data._polymarketRetunePlannerError = false;
+    } catch (error) {
+        data._polymarketRetunePlannerError = true;
+        console.warn('Polymarket retune planner load failed.', error);
+    }
+
     return data;
 }
 
@@ -8444,6 +8691,10 @@ function getPolymarketResearch(d) {
     return d?.polymarketResearch || null;
 }
 
+function getPolymarketRetunePlanner(d) {
+    return d?.polymarketRetunePlanner || null;
+}
+
 function getPolymarketTone(stats = {}) {
     const pnl = Number(stats.realizedPnl || 0);
     const pf = stats.profitFactor === null || stats.profitFactor === undefined ? null : Number(stats.profitFactor);
@@ -8494,6 +8745,85 @@ function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraC
     `;
 }
 
+function renderPolymarketAccountCard(account = {}) {
+    const ok = account.authState === 'read_only_ok';
+    const cash = account.accountCash === null || account.accountCash === undefined ? '--' : formatMoney(account.accountCash);
+    const bankroll = account.bankroll === null || account.bankroll === undefined ? '--' : formatMoney(account.bankroll);
+    const delta = account.cashVsBankroll === null || account.cashVsBankroll === undefined ? '--' : formatMoney(account.cashVsBankroll);
+    return `
+        <div class="polymarket-card ${ok ? 'watch' : 'danger'}">
+            <div class="polymarket-eyebrow">Account Snapshot</div>
+            <div class="polymarket-title">Polymarket Cash ${escapeHtml(cash)}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('bankroll', bankroll)}
+                ${renderPolymarketMetric('cash - bankroll', delta)}
+                ${renderPolymarketMetric('open orders', account.openOrderCount ?? '--')}
+                ${renderPolymarketMetric('auth', account.authState || '--')}
+            </div>
+            <div class="polymarket-note">独立于 MT5 净值；funder ${escapeHtml(account.funderMasked || '--')}；只读余额/订单计数。</div>
+        </div>
+    `;
+}
+
+function renderPolymarketRetuneCard(item = {}) {
+    const metrics = item.metrics || {};
+    const tests = item.nextShadowTests || [];
+    const suggestions = item.filterSuggestions || [];
+    const issueTags = item.issueTags || [];
+    return `
+        <div class="polymarket-card ${escapeHtml(item.severity || 'watch')}">
+            <div class="polymarket-eyebrow">${escapeHtml(item.primaryAction || 'RETUNE')}</div>
+            <div class="polymarket-title">${escapeHtml(item.experimentKey || 'unknown')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('score', item.score ?? '--')}
+                ${renderPolymarketMetric('PF', formatPolymarketPf(metrics.profitFactor))}
+                ${renderPolymarketMetric('win rate', formatPolymarketPercent(metrics.winRatePct))}
+                ${renderPolymarketMetric('realized', formatMoney(metrics.realizedPnl || 0))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">route ${escapeHtml(item.routeFamily || '--')} · scope ${escapeHtml(item.marketScope || '--')} · closed ${Number(metrics.closed || 0)}</div>
+                <div class="polymarket-action">issues ${escapeHtml(issueTags.slice(0, 4).join(' / ') || '--')}</div>
+                ${suggestions.slice(0, 2).map((text) => `<div class="polymarket-action">${escapeHtml(text)}</div>`).join('')}
+                ${tests.slice(0, 2).map((test) => `<div class="polymarket-action">next ${escapeHtml(test.name || '--')}: ${escapeHtml(test.goal || '')}</div>`).join('')}
+            </div>
+            <div class="polymarket-note">shadowOnly=${item.shadowOnly ? 'true' : 'false'} · liveExecutionAllowed=${item.liveExecutionAllowed ? 'true' : 'false'}</div>
+        </div>
+    `;
+}
+
+function updatePolymarketRetunePlanner(d) {
+    const planner = getPolymarketRetunePlanner(d);
+    const summaryEl = document.getElementById('polymarketRetuneSummary');
+    const body = document.getElementById('polymarketRetuneBody');
+    if (!body) return;
+    if (!planner || d?._polymarketRetunePlannerError) {
+        if (summaryEl) summaryEl.textContent = '等待 Retune Planner';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketRetunePlanner.json`；不会恢复下注执行。</div>';
+        return;
+    }
+    const counts = planner.recommendationCounts || {};
+    if (summaryEl) {
+        summaryEl.textContent = `${planner.decision || 'SHADOW_ONLY'} | red ${counts.red || 0} / yellow ${counts.yellow || 0} / total ${counts.total || 0}`;
+    }
+    const blockers = planner.globalBlockers || [];
+    const account = planner.account || {};
+    const recommendations = planner.recommendations || [];
+    const blockerCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">Global Guard</div>
+            <div class="polymarket-title">${escapeHtml(planner.decision || 'SHADOW_ONLY_RETUNE_NO_BETTING')}</div>
+            <div class="polymarket-action-list">
+                ${(blockers.length ? blockers : ['no_live_restore_from_planner']).slice(0, 8).map((blocker) => `<div class="polymarket-action">${escapeHtml(blocker)}</div>`).join('')}
+            </div>
+            <div class="polymarket-note">账号现金 ${escapeHtml(account.accountCash === null || account.accountCash === undefined ? '--' : formatMoney(account.accountCash))}，MT5 资金不参与此计算。</div>
+        </div>
+    `;
+    body.innerHTML = [
+        blockerCard,
+        ...recommendations.slice(0, 7).map(renderPolymarketRetuneCard),
+    ].join('') || '<div class="empty-state">暂无重调建议。</div>';
+}
+
 function updatePolymarketWorkspace(d) {
     const research = getPolymarketResearch(d);
     const summaryEl = document.getElementById('polymarketSummary');
@@ -8525,6 +8855,7 @@ function updatePolymarketWorkspace(d) {
     const shadow = summary.shadow || {};
     const recentShadow = summary.recentShadow || {};
     const latestPnl = research.latestPnl || {};
+    const account = research.accountSnapshot || {};
     const decision = governance.decision || 'RESEARCH_ONLY';
     const blockers = Array.isArray(governance.blockers) ? governance.blockers : [];
     const actionList = Array.isArray(governance.nextActions) ? governance.nextActions : [];
@@ -8555,10 +8886,11 @@ function updatePolymarketWorkspace(d) {
             </div>
             <div class="polymarket-note">${escapeHtml(safety.boundary || 'Dashboard evidence only.')}</div>
         </div>
+        ${renderPolymarketAccountCard(account)}
         ${renderPolymarketStatsCard('Executed Live Evidence', 'Polymarket executed', executed, '真实执行样本只用于风险判断；当前不会恢复下注。')}
         ${renderPolymarketStatsCard('Shadow Recovery', 'No-money shadow', shadow, 'Shadow 与 experiment 必须和 executed 分开，不能单独触发实盘。')}
         <div class="polymarket-card ${Number(latestPnl.realizedPnl || 0) < 0 ? 'danger' : 'watch'}">
-            <div class="polymarket-eyebrow">Latest PnL</div>
+            <div class="polymarket-eyebrow">Local PnL Ledger</div>
             <div class="polymarket-title">${escapeHtml(formatMoney(latestPnl.realizedPnl || 0))}</div>
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('unrealized', formatMoney(latestPnl.unrealizedPnl || 0))}
@@ -8566,7 +8898,7 @@ function updatePolymarketWorkspace(d) {
                 ${renderPolymarketMetric('wins / losses', `${latestPnl.winCount ?? '--'} / ${latestPnl.lossCount ?? '--'}`)}
                 ${renderPolymarketMetric('win rate', formatPolymarketPercent(latestPnl.winRatePct))}
             </div>
-            <div class="polymarket-note">钱包/执行层亏损状态会让 Governance 保持 research-only。</div>
+            <div class="polymarket-note">这是 D 盘本地 pnl_log，不是 MT5 净值，也不是 Polymarket 账户现金。</div>
         </div>
     `;
 
@@ -11944,6 +12276,45 @@ function updateGovernanceFeedback(d) {
     bodyEl.innerHTML = rows.map(renderGovernanceFeedbackCard).join('');
 }
 
+function formatPlainUsd(value, digits = 2) {
+    return Number.isFinite(Number(value)) ? `$${Number(value).toFixed(digits)}` : '--';
+}
+
+function getPolymarketAccountSnapshot(d) {
+    const planner = getPolymarketRetunePlanner(d);
+    const research = getPolymarketResearch(d);
+    return planner?.account || research?.accountSnapshot || {};
+}
+
+function getPolymarketPlannerCounts(d) {
+    const planner = getPolymarketRetunePlanner(d);
+    return planner?.recommendationCounts || {};
+}
+
+function updateWorkspaceEntryMetrics(d) {
+    const account = getDisplayAccount(d);
+    const runtime = d?.runtime || {};
+    const polyAccount = getPolymarketAccountSnapshot(d);
+    const counts = getPolymarketPlannerCounts(d);
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    const mt5Mode = isResearchMode(d)
+        ? 'Research'
+        : isShadowRuntime(d)
+            ? 'Shadow'
+            : runtime.executionEnabled
+                ? 'Live guarded'
+                : 'Auto paused';
+    setText('workspaceMt5Equity', formatPlainUsd(account?.equity));
+    setText('workspaceMt5Open', `${Array.isArray(d?.openTrades) ? d.openTrades.length : 0} / ${Number(account.maxTotalTrades ?? account.maxTotalPositions ?? 0) || '--'}`);
+    setText('workspaceMt5Mode', mt5Mode);
+    setText('workspacePolyCash', formatPlainUsd(polyAccount.accountCash));
+    setText('workspacePolyOpen', String(polyAccount.openOrderCount ?? '--'));
+    setText('workspacePolyRetune', `${counts.red ?? 0}R / ${counts.yellow ?? 0}Y`);
+}
+
 function updateQuantDingerInspiredHero(d) {
     const advisor = getGovernanceAdvisor(d);
     const health = advisor?.systemHealth || {};
@@ -11988,6 +12359,90 @@ function updateQuantDingerInspiredHero(d) {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
     };
+    const setLabel = (id, value) => setText(id, value);
+    updateWorkspaceEntryMetrics(d);
+
+    if (activeDashboardSection === 'home') {
+        const polyAccount = getPolymarketAccountSnapshot(d);
+        const planner = getPolymarketRetunePlanner(d);
+        const counts = getPolymarketPlannerCounts(d);
+        const mt5Open = Array.isArray(d?.openTrades) ? d.openTrades.length : 0;
+        setLabel('qdHeroModeLabel', 'Mode');
+        setLabel('qdHeroServerLabel', 'MT5 Equity');
+        setLabel('qdHeroEquityLabel', 'Poly Cash');
+        setLabel('qdHeroOpenLabel', 'Open');
+        setLabel('qdHeroPriceLabel', 'MT5 Focus');
+        setLabel('qdHeroSpreadLabel', 'Poly Decision');
+        setLabel('qdHeroRoutesLabel', 'Retune Risk');
+        setLabel('qdHeroShadowRowsLabel', 'Boundary');
+        setText('qdHeroMode', 'Workspace');
+        setText('qdHeroServer', formatPlainUsd(account.equity));
+        setText('qdHeroEquity', formatPlainUsd(polyAccount.accountCash));
+        setText('qdHeroOpen', `MT5 ${mt5Open} / Poly ${polyAccount.openOrderCount ?? '--'}`);
+        setText('qdHeroSymbol', '选择 MT5 或 Polymarket');
+        setText('qdHeroBlocker', '两个工作区资金、证据和执行边界分开；Polymarket 不恢复下注执行。');
+        setText('qdHeroHealth', 'Separated');
+        setText('qdHeroRisk', 'No cross-account mixing');
+        setText('qdHeroPrice', market.symbol || '--');
+        setText('qdHeroSpread', planner?.decision || 'SHADOW_ONLY');
+        setText('qdHeroRoutes', `${counts.red ?? 0}R / ${counts.yellow ?? 0}Y`);
+        setText('qdHeroShadowRows', 'MT5 != Poly');
+        const heroPulseStatus = document.getElementById('qdHeroPulseStatus');
+        if (heroPulseStatus) {
+            heroPulseStatus.textContent = '入口';
+            heroPulseStatus.className = 'eval-summary supported';
+        }
+        setText('qdHeroPulseHealth', 'separate');
+        setText('qdHeroCandidateRows', String(counts.total ?? '--'));
+        return;
+    }
+
+    if (activeDashboardSection === 'polymarket') {
+        const research = getPolymarketResearch(d);
+        const planner = getPolymarketRetunePlanner(d);
+        const polyAccount = getPolymarketAccountSnapshot(d);
+        const counts = getPolymarketPlannerCounts(d);
+        const latestPnl = research?.latestPnl || {};
+        const authState = polyAccount.authState || 'read_only_unknown';
+        const blockers = Array.isArray(planner?.globalBlockers) ? planner.globalBlockers.slice(0, 2).join(' / ') : '';
+        setLabel('qdHeroModeLabel', 'Mode');
+        setLabel('qdHeroServerLabel', 'Account Cash');
+        setLabel('qdHeroEquityLabel', 'Bankroll');
+        setLabel('qdHeroOpenLabel', 'Open Orders');
+        setLabel('qdHeroPriceLabel', 'Local PnL');
+        setLabel('qdHeroSpreadLabel', 'Retune Risk');
+        setLabel('qdHeroRoutesLabel', 'Planner Items');
+        setLabel('qdHeroShadowRowsLabel', 'Safety');
+        setText('qdHeroMode', 'Shadow only');
+        setText('qdHeroServer', formatPlainUsd(polyAccount.accountCash));
+        setText('qdHeroEquity', formatPlainUsd(polyAccount.bankroll));
+        setText('qdHeroOpen', String(polyAccount.openOrderCount ?? '--'));
+        setText('qdHeroSymbol', 'Polymarket Research');
+        setText('qdHeroBlocker', `Decision: ${planner?.decision || research?.governance?.decision || 'RESEARCH_ONLY'}${blockers ? ` | ${blockers}` : ''}`);
+        setText('qdHeroHealth', authState === 'read_only_ok' ? 'Read-only OK' : authState);
+        setText('qdHeroRisk', 'No CLOB orders · no MT5 mutation');
+        setText('qdHeroPrice', formatMoney(latestPnl.realizedPnl || 0));
+        setText('qdHeroSpread', `${counts.red ?? 0}R / ${counts.yellow ?? 0}Y`);
+        setText('qdHeroRoutes', String(counts.total ?? '--'));
+        setText('qdHeroShadowRows', planner?.safety?.placesOrders ? 'unsafe' : 'shadow-only');
+        const heroPulseStatus = document.getElementById('qdHeroPulseStatus');
+        if (heroPulseStatus) {
+            heroPulseStatus.textContent = '只读';
+            heroPulseStatus.className = 'eval-summary supported';
+        }
+        setText('qdHeroPulseHealth', authState);
+        setText('qdHeroCandidateRows', String(counts.total ?? '--'));
+        return;
+    }
+
+    setLabel('qdHeroModeLabel', 'Mode');
+    setLabel('qdHeroServerLabel', 'Server');
+    setLabel('qdHeroEquityLabel', 'Equity');
+    setLabel('qdHeroOpenLabel', 'Open');
+    setLabel('qdHeroPriceLabel', 'Bid / Ask');
+    setLabel('qdHeroSpreadLabel', 'Spread');
+    setLabel('qdHeroRoutesLabel', 'Routes');
+    setLabel('qdHeroShadowRowsLabel', 'Shadow Rows');
 
     setText('qdHeroMode', modeText);
     setText('qdHeroServer', broker.server || account.server || '--');
@@ -12740,6 +13195,11 @@ function getValidSectionKeys() {
 }
 
 const DASHBOARD_SECTION_META = {
+    home: {
+        eyebrow: 'Workspace Entry',
+        title: '选择工作区',
+        desc: '先进入 MT5 受控交易系统或 Polymarket 外部研究台；两个资金口径、执行边界和证据闭环分开管理。'
+    },
     overview: {
         eyebrow: 'AI Evidence',
         title: '总览雷达',
@@ -12753,7 +13213,7 @@ const DASHBOARD_SECTION_META = {
     polymarket: {
         eyebrow: 'Polymarket Research',
         title: 'Polymarket 外部研究',
-        desc: '只读合并 D:\\polymarket 的 executed、shadow、experiment、PnL 和 risk_log 证据；不加载钱包、不启动执行器、不影响 MT5。'
+        desc: '只读合并 D:\\polymarket 的 executed、shadow、experiment、账号现金、PnL 和 risk_log 证据；只生成 shadow-only 重调建议，不恢复下注执行。'
     },
     monitor: {
         eyebrow: 'Indicator Market',
@@ -12800,9 +13260,16 @@ function setDashboardSection(sectionKey = '', options = {}) {
     if (!validKeys.includes(activeSection)) {
         activeSection = validKeys[0] || 'overview';
     }
+    activeDashboardSection = activeSection;
 
     const mainEl = document.querySelector('.main');
     if (mainEl) mainEl.classList.add('workspace-mode');
+    const shellEl = document.querySelector('.qd-platform-shell');
+    if (shellEl) {
+        shellEl.classList.toggle('workspace-home', activeSection === 'home');
+        shellEl.classList.toggle('workspace-polymarket', activeSection === 'polymarket');
+        shellEl.classList.toggle('workspace-mt5', activeSection !== 'home' && activeSection !== 'polymarket');
+    }
     const commandCenter = document.querySelector('.qd-command-center');
     if (commandCenter) commandCenter.classList.toggle('is-detail-section', activeSection !== 'overview');
     sections.forEach((section) => {
@@ -12820,6 +13287,7 @@ function setDashboardSection(sectionKey = '', options = {}) {
         item.classList.toggle('active', itemSection === activeSection);
     });
     updateCommandHeaderForSection(activeSection);
+    if (dashboardData) updateQuantDingerInspiredHero(dashboardData);
 
     if (options.updateHash !== false) {
         const nextHash = `#section-${activeSection}`;
@@ -12837,7 +13305,7 @@ function setDashboardSection(sectionKey = '', options = {}) {
 
 function updateSidebarActiveFromHash() {
     const hash = String(window.location.hash || '').replace(/^#section-/, '').trim();
-    return setDashboardSection(hash || 'overview', { updateHash: false, scrollTop: false });
+    return setDashboardSection(hash || 'home', { updateHash: false, scrollTop: false });
 }
 
 function initSidebarNavigation() {
@@ -13169,6 +13637,7 @@ function updateDashboard() {
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
+    updatePolymarketRetunePlanner(d);
     updateStrategyVersionOptimizerPanel(d);
     updateGovernanceFeedback(d);
     updateQuantDingerInspiredHero(d);

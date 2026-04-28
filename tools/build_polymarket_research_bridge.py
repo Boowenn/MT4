@@ -41,6 +41,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dashboard-dir", default=str(DEFAULT_DASHBOARD_DIR))
     parser.add_argument("--days", type=float, default=14.0)
     parser.add_argument("--recent-limit", type=int, default=14)
+    parser.add_argument(
+        "--skip-account-snapshot",
+        action="store_true",
+        help="Do not read <polymarket-root>/.env or call CLOB read-only balance APIs.",
+    )
     return parser.parse_args()
 
 
@@ -77,6 +82,42 @@ def safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def safe_bool_text(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def mask_address(value: str) -> str:
+    clean = str(value or "").strip()
+    if not clean:
+        return ""
+    if len(clean) <= 12:
+        return "***"
+    return f"{clean[:6]}...{clean[-4:]}"
+
+
+def parse_env_file(env_path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not env_path.exists():
+        return values
+    try:
+        lines = env_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    except OSError:
+        return values
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key] = value
+    return values
 
 
 def pct(numerator: float, denominator: float) -> float | None:
@@ -306,6 +347,109 @@ def latest_pnl(con: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def read_account_snapshot(polymarket_root: Path, skip: bool = False) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "enabled": not skip,
+        "envRead": False,
+        "readOnly": True,
+        "placesOrders": False,
+        "startsExecutor": False,
+        "authState": "skipped" if skip else "not_checked",
+        "authOk": False,
+        "accountCash": None,
+        "bankroll": None,
+        "cashVsBankroll": None,
+        "allowanceCount": 0,
+        "openOrderCount": 0,
+        "funderMasked": "",
+        "signatureType": None,
+        "dryRun": None,
+        "liveCanaryEnabled": None,
+        "operatorApproved": None,
+        "error": "",
+        "note": "Polymarket account snapshot is separate from MT5 equity and never mutates orders.",
+    }
+    if skip:
+        return snapshot
+
+    env_path = polymarket_root / ".env"
+    env = parse_env_file(env_path)
+    snapshot["envRead"] = bool(env)
+    snapshot["envPath"] = str(env_path)
+    if not env:
+        snapshot.update({"authState": "env_missing", "error": ".env missing or unreadable"})
+        return snapshot
+
+    private_key = env.get("PRIVATE_KEY", "")
+    funder = env.get("POLY_FUNDER", "")
+    signature_type = safe_int(env.get("POLY_SIGNATURE_TYPE"), 0)
+    bankroll = safe_number(env.get("BANKROLL"), 0.0)
+    snapshot.update(
+        {
+            "authState": "missing_credentials",
+            "hasPrivateKey": bool(private_key),
+            "hasFunder": bool(funder),
+            "funderMasked": mask_address(funder),
+            "signatureType": signature_type,
+            "bankroll": round(bankroll, 6),
+            "dryRun": safe_bool_text(env.get("DRY_RUN", "true")),
+            "liveCanaryEnabled": safe_bool_text(env.get("ENABLE_COPY_ARCHIVE_LIVE_CANARY", "false")),
+            "operatorApproved": safe_bool_text(env.get("COPY_ARCHIVE_LIVE_CANARY_OPERATOR_APPROVED", "false")),
+        }
+    )
+    if not private_key:
+        snapshot["error"] = "PRIVATE_KEY missing; account cash unavailable"
+        return snapshot
+    if signature_type in {1, 2} and not funder:
+        snapshot["error"] = "POLY_FUNDER missing for proxy-wallet signature"
+        return snapshot
+
+    try:
+        from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import BalanceAllowanceParams
+
+        client = ClobClient(
+            "https://clob.polymarket.com",
+            key=private_key,
+            chain_id=137,
+            signature_type=signature_type,
+            funder=funder or None,
+        )
+        client.set_api_creds(client.create_or_derive_api_creds())
+        balance_payload = client.get_balance_allowance(
+            BalanceAllowanceParams(asset_type="COLLATERAL", signature_type=signature_type)
+        ) or {}
+        account_cash = safe_number(balance_payload.get("balance")) / 1_000_000
+        allowances = balance_payload.get("allowances") or {}
+        orders = client.get_orders()
+        if isinstance(orders, list):
+            open_order_count = len(orders)
+        elif isinstance(orders, dict):
+            open_order_count = safe_int(orders.get("count"), len(orders.get("data") or []))
+        else:
+            open_order_count = 0
+        snapshot.update(
+            {
+                "authState": "read_only_ok",
+                "authOk": True,
+                "accountCash": round(account_cash, 6),
+                "cashVsBankroll": round(account_cash - bankroll, 6),
+                "allowanceCount": len(allowances),
+                "openOrderCount": open_order_count,
+                "error": "",
+            }
+        )
+    except Exception as exc:  # pragma: no cover - depends on network/CLOB auth state
+        snapshot.update(
+            {
+                "authState": "auth_error",
+                "authOk": False,
+                "error": f"{type(exc).__name__}: {str(exc)[:220]}",
+            }
+        )
+    return snapshot
+
+
 def recent_journal(con: sqlite3.Connection, limit: int) -> list[dict[str, Any]]:
     if not table_exists(con, "trade_journal"):
         return []
@@ -359,6 +503,14 @@ def build_governance(snapshot: dict[str, Any]) -> dict[str, Any]:
         blockers.append("shadow_recovery_negative")
     if safe_number(pnl_latest.get("realizedPnl")) < 0:
         blockers.append("latest_wallet_pnl_negative")
+    account = snapshot.get("accountSnapshot") or {}
+    if account.get("authState") == "read_only_ok":
+        if safe_number(account.get("accountCash")) < safe_number(account.get("bankroll")):
+            blockers.append("account_cash_below_configured_bankroll")
+        if safe_int(account.get("openOrderCount")) > 0:
+            blockers.append("polymarket_open_orders_present")
+    elif account.get("enabled"):
+        blockers.append(f"account_snapshot_{account.get('authState', 'unavailable')}")
 
     retune = []
     for item in experiments:
@@ -398,11 +550,13 @@ def unavailable_snapshot(polymarket_root: Path, db_path: Path, reason: str) -> d
         "safety": {
             "readOnly": True,
             "loadsEnv": False,
+            "readsEnvForAccountSnapshot": False,
             "startsExecutor": False,
             "placesOrders": False,
             "mutatesMt5": False,
             "boundary": "dashboard evidence only; no MT5 EA/order/config path changes",
         },
+        "accountSnapshot": read_account_snapshot(polymarket_root, skip=True),
         "error": reason,
         "summary": {
             "executed": rollup([]),
@@ -423,7 +577,13 @@ def unavailable_snapshot(polymarket_root: Path, db_path: Path, reason: str) -> d
     }
 
 
-def build_snapshot(polymarket_root: Path, db_path: Path, days: float, recent_limit: int) -> dict[str, Any]:
+def build_snapshot(
+    polymarket_root: Path,
+    db_path: Path,
+    days: float,
+    recent_limit: int,
+    skip_account_snapshot: bool = False,
+) -> dict[str, Any]:
     if not polymarket_root.exists():
         return unavailable_snapshot(polymarket_root, db_path, "polymarket_root_missing")
     if not db_path.exists():
@@ -434,6 +594,7 @@ def build_snapshot(polymarket_root: Path, db_path: Path, days: float, recent_lim
         cutoff = time.time() - (days * 86400.0)
         rows_all = aggregate_journal(con)
         rows_recent = aggregate_journal(con, "WHERE entry_timestamp >= ?", (cutoff,))
+        account_snapshot = read_account_snapshot(polymarket_root, skip=skip_account_snapshot)
         snapshot = {
             "generatedAtIso": utc_now_iso(),
             "mode": "POLYMARKET_READ_ONLY_RESEARCH_BRIDGE",
@@ -446,11 +607,13 @@ def build_snapshot(polymarket_root: Path, db_path: Path, days: float, recent_lim
             },
             "safety": {
                 "readOnly": True,
-                "loadsEnv": False,
+                "loadsEnv": bool(account_snapshot.get("envRead")),
+                "readsEnvForAccountSnapshot": bool(account_snapshot.get("envRead")),
+                "envSecretValuesRedacted": True,
                 "startsExecutor": False,
                 "placesOrders": False,
                 "mutatesMt5": False,
-                "boundary": "dashboard evidence only; no MT5 EA/order/config path changes",
+                "boundary": "dashboard evidence and read-only account cash only; no Polymarket order execution and no MT5 EA/order/config path changes",
             },
             "window": {
                 "days": days,
@@ -474,6 +637,7 @@ def build_snapshot(polymarket_root: Path, db_path: Path, days: float, recent_lim
             "risk": risk_summary(con),
             "recentJournal": recent_journal(con, max(1, recent_limit)),
             "latestPnl": latest_pnl(con),
+            "accountSnapshot": account_snapshot,
         }
         snapshot["governance"] = build_governance(snapshot)
         return snapshot
@@ -519,13 +683,20 @@ def main() -> int:
     runtime_dir = Path(args.runtime_dir)
     dashboard_dir = Path(args.dashboard_dir) if args.dashboard_dir else None
     try:
-        snapshot = build_snapshot(polymarket_root, db_path, args.days, args.recent_limit)
+        snapshot = build_snapshot(
+            polymarket_root,
+            db_path,
+            args.days,
+            args.recent_limit,
+            skip_account_snapshot=bool(args.skip_account_snapshot),
+        )
     except sqlite3.OperationalError as exc:
         snapshot = unavailable_snapshot(polymarket_root, db_path, f"sqlite_read_failed:{exc}")
     write_outputs(snapshot, OutputTargets(runtime_dir=runtime_dir, dashboard_dir=dashboard_dir))
     print(
         f"{OUTPUT_NAME}: {snapshot.get('status')} | "
         f"decision={snapshot.get('governance', {}).get('decision')} | "
+        f"account={snapshot.get('accountSnapshot', {}).get('authState', 'unknown')} | "
         f"runtime={runtime_dir}"
     )
     return 0
