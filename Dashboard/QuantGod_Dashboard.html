@@ -3008,7 +3008,347 @@
             white-space: nowrap;
         }
 
+        .qd-platform-shell {
+            max-width: 1680px;
+            margin: 18px auto 0;
+            padding: 0 24px;
+            display: grid;
+            grid-template-columns: 236px minmax(0, 1fr);
+            gap: 18px;
+            align-items: stretch;
+        }
+
+        .qd-app-menu {
+            min-height: 520px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid rgba(220, 228, 240, 0.98);
+            border-radius: 8px;
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.075);
+            padding: 18px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .qd-app-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 4px 6px 14px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        .qd-brand-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #111827;
+            color: #fff;
+            font-weight: 800;
+        }
+
+        .qd-brand-name {
+            color: #111827;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .qd-brand-sub {
+            margin-top: 2px;
+            color: #8a98a9;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .qd-menu-group {
+            display: grid;
+            gap: 6px;
+        }
+
+        .qd-menu-label {
+            padding: 0 8px 2px;
+            color: #9aa7b6;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .qd-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 40px;
+            padding: 9px 10px;
+            color: #334155;
+            text-decoration: none;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .qd-menu-item:hover,
+        .qd-menu-item.active {
+            color: #0f5ed7;
+            background: #eef6ff;
+            border-color: #cfe5ff;
+        }
+
+        .qd-menu-icon {
+            width: 20px;
+            color: #1677ff;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .qd-menu-footer {
+            margin-top: auto;
+            padding: 12px 10px 0;
+            border-top: 1px solid #edf2f7;
+            color: #8a98a9;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .qd-command-center {
+            min-width: 0;
+            display: grid;
+            gap: 14px;
+        }
+
+        .qd-command-header {
+            min-height: 118px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 22px 24px;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+            border: 1px solid rgba(220, 228, 240, 0.98);
+            border-radius: 8px;
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.065);
+        }
+
+        .qd-command-title {
+            margin-top: 10px;
+            color: #111827;
+            font-size: 28px;
+            line-height: 1.12;
+            font-weight: 800;
+        }
+
+        .qd-command-desc {
+            max-width: 760px;
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .qd-command-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(108px, 1fr));
+            gap: 10px;
+            min-width: 280px;
+        }
+
+        .qd-action-stat {
+            padding: 11px 12px;
+            border-radius: 8px;
+            background: #f8fbff;
+            border: 1px solid #e5edf7;
+        }
+
+        .qd-action-label {
+            color: #8796a8;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .qd-action-value {
+            margin-top: 4px;
+            color: #1f2937;
+            font-size: 16px;
+            font-weight: 800;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .qd-command-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.8fr);
+            gap: 14px;
+        }
+
+        .qd-main-panel {
+            padding: 22px;
+            background: #ffffff;
+            border: 1px solid #dfe7f2;
+            border-radius: 8px;
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.06);
+        }
+
+        .qd-main-panel-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+        }
+
+        .qd-primary-symbol {
+            margin-top: 12px;
+            color: #111827;
+            font-size: 34px;
+            line-height: 1.05;
+            font-weight: 800;
+        }
+
+        .qd-primary-sub {
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        .qd-analysis-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .qd-pill {
+            padding: 6px 10px;
+            border-radius: 999px;
+            color: #0f5ed7;
+            background: #eef6ff;
+            border: 1px solid #cfe5ff;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .qd-pill.warn {
+            color: #b45309;
+            background: #fff7ed;
+            border-color: #fed7aa;
+        }
+
+        .qd-main-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .qd-main-metric {
+            min-height: 74px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e5edf7;
+        }
+
+        .qd-main-metric-label {
+            color: #8796a8;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .qd-main-metric-value {
+            margin-top: 7px;
+            color: #111827;
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        .qd-evidence-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .qd-evidence-item {
+            padding: 13px;
+            border-radius: 8px;
+            background: #fbfdff;
+            border: 1px solid #e7eef7;
+        }
+
+        .qd-evidence-title {
+            color: #111827;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .qd-evidence-copy {
+            margin-top: 5px;
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.48;
+        }
+
+        .qd-side-panel {
+            display: grid;
+            gap: 14px;
+        }
+
+        #section-overview > .qd-home-grid {
+            display: none;
+        }
+
+        .app-shell {
+            max-width: 1680px;
+            grid-template-columns: minmax(0, 1fr);
+            padding: 18px 24px 32px;
+        }
+
+        .page-sidebar {
+            display: none;
+        }
+
+        .page-content {
+            min-width: 0;
+        }
+
         @media (max-width: 1100px) {
+            .qd-platform-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .qd-app-menu {
+                min-height: 0;
+                flex-direction: row;
+                align-items: center;
+                overflow-x: auto;
+            }
+
+            .qd-app-brand {
+                min-width: 190px;
+                border-bottom: 0;
+                border-right: 1px solid #edf2f7;
+                padding-bottom: 4px;
+                padding-right: 14px;
+            }
+
+            .qd-menu-group {
+                display: flex;
+                min-width: max-content;
+            }
+
+            .qd-menu-label,
+            .qd-menu-footer {
+                display: none;
+            }
+
+            .qd-command-grid {
+                grid-template-columns: 1fr;
+            }
+
             .qd-home-grid {
                 grid-template-columns: 1fr;
             }
@@ -3047,6 +3387,70 @@
             .qd-feature-grid,
             .qd-pulse-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .qd-platform-shell,
+            .app-shell {
+                padding-left: 12px;
+                padding-right: 12px;
+            }
+
+            .qd-command-header,
+            .qd-main-panel {
+                padding: 16px;
+            }
+
+            .qd-app-menu {
+                display: grid;
+                min-height: 0;
+                padding: 12px;
+            }
+
+            .qd-app-brand {
+                min-width: 0;
+                border-right: 0;
+                border-bottom: 1px solid #edf2f7;
+                padding: 2px 4px 12px;
+            }
+
+            .qd-menu-group {
+                display: flex;
+                gap: 8px;
+                overflow-x: auto;
+                padding-bottom: 4px;
+            }
+
+            .qd-menu-item {
+                min-width: 138px;
+            }
+
+            .qd-command-header,
+            .qd-main-panel-top {
+                display: grid;
+            }
+
+            .qd-command-actions,
+            .qd-main-metrics,
+            .qd-evidence-strip {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .qd-action-stat {
+                min-width: 0;
+            }
+
+            .qd-action-value {
+                font-size: 14px;
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+
+            .qd-command-title {
+                font-size: 24px;
+            }
+
+            .qd-primary-symbol {
+                font-size: 28px;
             }
         }
     </style>
@@ -3094,6 +3498,139 @@
         <span class="market-label">杠杆</span>
         <span class="market-value" id="mktLeverage">---</span>
     </div>
+</div>
+
+<div class="qd-platform-shell">
+    <aside class="qd-app-menu">
+        <div class="qd-app-brand">
+            <div class="qd-brand-mark">Q</div>
+            <div>
+                <div class="qd-brand-name">QuantGod</div>
+                <div class="qd-brand-sub">Clarity from evidence</div>
+            </div>
+        </div>
+        <div class="qd-menu-group">
+            <div class="qd-menu-label">Workspace</div>
+            <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span>AI Asset Analysis</a>
+            <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span>Indicator Market</a>
+            <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span>Strategy Lab</a>
+            <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span>Trading Bot</a>
+            <a class="qd-menu-item" href="#section-reports"><span class="qd-menu-icon">◫</span>Reports</a>
+        </div>
+        <div class="qd-menu-footer">
+            <strong>Guardrail:</strong><br>
+            0.01 live pilot · EA OrderSend only · no credential changes.
+        </div>
+    </aside>
+
+    <main class="qd-command-center">
+        <div class="qd-command-header">
+            <div>
+                <div class="qd-panel-eyebrow">Instant Analysis</div>
+                <div class="qd-command-title">AI Asset Analysis</div>
+                <div class="qd-command-desc">QuantDinger-style operator workspace for QuantGod: first decide whether the system can act, then inspect route evidence, then drill into the original ledgers below.</div>
+            </div>
+            <div class="qd-command-actions">
+                <div class="qd-action-stat">
+                    <div class="qd-action-label">Mode</div>
+                    <div class="qd-action-value" id="qdHeroMode">--</div>
+                </div>
+                <div class="qd-action-stat">
+                    <div class="qd-action-label">Server</div>
+                    <div class="qd-action-value" id="qdHeroServer">--</div>
+                </div>
+                <div class="qd-action-stat">
+                    <div class="qd-action-label">Equity</div>
+                    <div class="qd-action-value" id="qdHeroEquity">--</div>
+                </div>
+                <div class="qd-action-stat">
+                    <div class="qd-action-label">Open</div>
+                    <div class="qd-action-value" id="qdHeroOpen">--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="qd-command-grid">
+            <section class="qd-main-panel">
+                <div class="qd-main-panel-top">
+                    <div>
+                        <div class="qd-panel-eyebrow">Selected Symbol</div>
+                        <div class="qd-primary-symbol" id="qdHeroSymbol">--</div>
+                        <div class="qd-primary-sub" id="qdHeroBlocker">Waiting for local runtime evidence.</div>
+                    </div>
+                    <div class="qd-analysis-controls">
+                        <span class="qd-pill" id="qdHeroHealth">Health --</span>
+                        <span class="qd-pill warn" id="qdHeroRisk">Risk guard --</span>
+                    </div>
+                </div>
+
+                <div class="qd-main-metrics">
+                    <div class="qd-main-metric">
+                        <div class="qd-main-metric-label">Bid / Ask</div>
+                        <div class="qd-main-metric-value" id="qdHeroPrice">--</div>
+                    </div>
+                    <div class="qd-main-metric">
+                        <div class="qd-main-metric-label">Spread</div>
+                        <div class="qd-main-metric-value" id="qdHeroSpread">--</div>
+                    </div>
+                    <div class="qd-main-metric">
+                        <div class="qd-main-metric-label">Routes</div>
+                        <div class="qd-main-metric-value" id="qdHeroRoutes">--</div>
+                    </div>
+                    <div class="qd-main-metric">
+                        <div class="qd-main-metric-label">Shadow Rows</div>
+                        <div class="qd-main-metric-value" id="qdHeroShadowRows">--</div>
+                    </div>
+                </div>
+
+                <div class="qd-evidence-strip">
+                    <div class="qd-evidence-item">
+                        <div class="qd-evidence-title">Multi-horizon Evidence</div>
+                        <div class="qd-evidence-copy">Backtest, live forward, Shadow Outcome and Candidate Outcome stay separated before promotion.</div>
+                    </div>
+                    <div class="qd-evidence-item">
+                        <div class="qd-evidence-title">Route Lifecycle</div>
+                        <div class="qd-evidence-copy">MA/RSI can stay live; BB/MACD/SR remain simulation until the advisor shows enough edge.</div>
+                    </div>
+                    <div class="qd-evidence-item">
+                        <div class="qd-evidence-title">Execution Boundary</div>
+                        <div class="qd-evidence-copy">This page cannot send orders; live execution remains inside the protected EA path.</div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="qd-side-panel">
+                <div class="qd-market-pulse">
+                    <div class="qd-card-title">
+                        <span>System Pulse</span>
+                        <span class="eval-summary" id="qdHeroPulseStatus">等待</span>
+                    </div>
+                    <div class="qd-pulse-grid">
+                        <div class="qd-pulse-item">
+                            <div class="qd-pulse-label">Health</div>
+                            <div class="qd-pulse-value" id="qdHeroPulseHealth">--</div>
+                        </div>
+                        <div class="qd-pulse-item">
+                            <div class="qd-pulse-label">Candidate Rows</div>
+                            <div class="qd-pulse-value" id="qdHeroCandidateRows">--</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="qd-route-watchlist">
+                    <div class="qd-card-title">
+                        <span>Route Watchlist</span>
+                        <span class="eval-summary">Live / Sim</span>
+                    </div>
+                    <div class="qd-route-list" id="qdHeroRouteWatchlist">
+                        <div class="qd-route-item">
+                            <span class="qd-route-name">等待 Governance Advisor</span>
+                            <span class="qd-route-mode">no snapshot</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </main>
 </div>
 
 <div class="app-shell">
@@ -6217,6 +6754,29 @@ function updateQuantDingerInspiredHero(d) {
     const healthStatus = health.status || summary.healthStatus || (d?._governanceAdvisorError ? 'missing' : 'waiting');
     const missingCount = Number(summary.missingRuntimeFiles ?? health.missingFiles?.length ?? 0);
     const staleCount = Number(summary.staleRuntimeFiles ?? health.staleFiles?.length ?? 0);
+    const account = getDisplayAccount(d);
+    const broker = getBrokerAccount(d);
+    const market = d?.market || {};
+    const runtime = d?.runtime || {};
+    const priceText = `${market.bid ?? '--'} / ${market.ask ?? '--'}`;
+    const healthLabel = healthStatus === 'healthy'
+        ? 'Healthy'
+        : healthStatus === 'attention'
+            ? `${missingCount} missing / ${staleCount} stale`
+            : '--';
+    const modeText = isResearchMode(d)
+        ? 'Research'
+        : isShadowRuntime(d)
+            ? 'Shadow'
+            : runtime.executionEnabled
+                ? 'Live guarded'
+                : 'Auto paused';
+    const riskText = `0.01 · max ${Number(account.maxTotalTrades ?? account.maxTotalPositions ?? 0) || '--'}`;
+    const topBlocker = advisor?.shadow?.recentBlockers?.[0]?.[0]
+        || advisor?.shadow?.dominantBlockers?.[0]?.[0]
+        || runtime.pauseReason
+        || runtime.tradeStatus
+        || 'Waiting for signal';
 
     const pulseStatus = document.getElementById('qdPulseStatus');
     const pulseHealth = document.getElementById('qdPulseHealth');
@@ -6224,6 +6784,36 @@ function updateQuantDingerInspiredHero(d) {
     const pulseShadowRows = document.getElementById('qdPulseShadowRows');
     const pulseCandidateRows = document.getElementById('qdPulseCandidateRows');
     const routeList = document.getElementById('qdRouteWatchlist');
+    const heroRouteList = document.getElementById('qdHeroRouteWatchlist');
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+
+    setText('qdHeroMode', modeText);
+    setText('qdHeroServer', broker.server || account.server || '--');
+    setText('qdHeroEquity', Number.isFinite(Number(account.equity)) ? `$${Number(account.equity).toFixed(2)}` : '--');
+    setText('qdHeroOpen', `${Array.isArray(d?.openTrades) ? d.openTrades.length : 0} / ${Number(account.maxTotalTrades ?? account.maxTotalPositions ?? 0) || '--'}`);
+    setText('qdHeroSymbol', market.symbol || '--');
+    setText('qdHeroBlocker', `Primary blocker: ${topBlocker}`);
+    setText('qdHeroHealth', `Health ${healthLabel}`);
+    setText('qdHeroRisk', riskText);
+    setText('qdHeroPrice', priceText);
+    setText('qdHeroSpread', `${market.spread ?? '--'} 点`);
+    setText('qdHeroRoutes', String(summary.routeCount ?? routeDecisions.length ?? '--'));
+    setText('qdHeroShadowRows', String(summary.shadowRows ?? d?.shadowSignalLedger?.rows?.length ?? '--'));
+    setText('qdHeroPulseHealth', healthLabel);
+    setText('qdHeroCandidateRows', String(summary.candidateRows ?? d?.shadowCandidateLedger?.rows?.length ?? '--'));
+
+    const heroPulseStatus = document.getElementById('qdHeroPulseStatus');
+    if (heroPulseStatus) {
+        heroPulseStatus.textContent = healthStatus === 'healthy'
+            ? '健康'
+            : healthStatus === 'attention'
+                ? `注意 ${missingCount + staleCount}`
+                : '等待';
+        heroPulseStatus.className = `eval-summary ${healthStatus === 'healthy' ? 'supported' : healthStatus === 'attention' ? 'conflict' : 'waiting'}`;
+    }
 
     if (pulseStatus) {
         pulseStatus.textContent = healthStatus === 'healthy'
@@ -6244,6 +6834,25 @@ function updateQuantDingerInspiredHero(d) {
     if (pulseShadowRows) pulseShadowRows.textContent = String(summary.shadowRows ?? d?.shadowSignalLedger?.rows?.length ?? '--');
     if (pulseCandidateRows) pulseCandidateRows.textContent = String(summary.candidateRows ?? d?.shadowCandidateLedger?.rows?.length ?? '--');
 
+    const renderRouteWatchlist = () => {
+        if (!routeDecisions.length) {
+            return '<div class="qd-route-item"><span class="qd-route-name">等待 Governance Advisor</span><span class="qd-route-mode">no snapshot</span></div>';
+        }
+        return routeDecisions.slice(0, 5).map((route) => {
+            const action = governanceActionLabel(route.recommendedAction);
+            const mode = route.live ? 'LIVE 0.01' : 'SIM';
+            return `
+                <div class="qd-route-item">
+                    <span class="qd-route-name">${escapeHtml(route.label || route.key || '--')}</span>
+                    <span class="qd-route-mode">${escapeHtml(mode)} · ${escapeHtml(action)}</span>
+                </div>
+            `;
+        }).join('');
+    };
+
+    if (heroRouteList) {
+        heroRouteList.innerHTML = renderRouteWatchlist();
+    }
     if (routeList) {
         if (!routeDecisions.length) {
             routeList.innerHTML = '<div class="qd-route-item"><span class="qd-route-name">等待 Governance Advisor</span><span class="qd-route-mode">no snapshot</span></div>';
