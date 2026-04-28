@@ -89,6 +89,74 @@ class Mt5SymbolRegistryTests(unittest.TestCase):
         self.assertEqual(resolved["matchCount"], 1)
         self.assertEqual(resolved["resolved"]["brokerSymbol"], "EURUSDc")
 
+    def test_registry_contract_fields_are_stable(self):
+        payload = registry.build_registry_from_symbols(
+            [
+                {
+                    "name": "EURUSDc",
+                    "description": "Euro vs US Dollar",
+                    "path": "ForexCent\\EURUSDc",
+                    "visible": True,
+                    "selected": True,
+                    "digits": 5,
+                    "point": 0.00001,
+                    "spread": 17,
+                    "tradeMode": 4,
+                    "volumeMin": 0.01,
+                    "volumeMax": 200.0,
+                    "volumeStep": 0.01,
+                }
+            ],
+            generated_at="2026-04-28T00:00:00Z",
+        )
+        self.assertEqual(payload["mode"], "MT5_SYMBOL_REGISTRY_V1")
+        self.assertEqual(payload["endpoint"], "registry")
+        self.assertEqual(payload["safety"], registry.SAFETY)
+        self.assertIn("summary", payload)
+        self.assertIn("mappings", payload)
+        self.assertIn("assetClassCounts", payload["summary"])
+        self.assertIn("brokerSuffixCounts", payload["summary"])
+
+        row = payload["mappings"][0]
+        required_fields = {
+            "canonicalSymbol",
+            "brokerSymbol",
+            "brokerSuffix",
+            "assetClass",
+            "marketCategory",
+            "baseCurrency",
+            "quoteCurrency",
+            "description",
+            "path",
+            "visible",
+            "selected",
+            "digits",
+            "point",
+            "spread",
+            "tradeMode",
+            "volumeMin",
+            "volumeMax",
+            "volumeStep",
+            "mappingReason",
+            "confidence",
+            "aliases",
+        }
+        self.assertTrue(required_fields.issubset(row.keys()))
+        self.assertFalse(payload["safety"]["symbolSelectAllowed"])
+        self.assertFalse(payload["safety"]["orderSendAllowed"])
+
+    def test_resolve_contract_fields_are_stable(self):
+        payload = registry.build_registry_from_symbols(
+            [{"name": "USDJPYc", "description": "US Dollar vs Japanese Yen", "path": "ForexCent\\USDJPYc"}],
+            generated_at="2026-04-28T00:00:00Z",
+        )
+        resolved = registry.add_resolve_payload(payload, "USDJPYc")
+        self.assertEqual(resolved["endpoint"], "resolve")
+        self.assertEqual(resolved["querySymbol"], "USDJPYc")
+        self.assertEqual(resolved["matchCount"], 1)
+        self.assertEqual(resolved["resolved"]["canonicalSymbol"], "USDJPY")
+        self.assertEqual(resolved["matches"][0]["brokerSymbol"], "USDJPYc")
+
     def test_safety_metadata_is_read_only(self):
         self.assertTrue(registry.SAFETY["readOnly"])
         self.assertFalse(registry.SAFETY["orderSendAllowed"])
