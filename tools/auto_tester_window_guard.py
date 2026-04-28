@@ -17,6 +17,7 @@ from typing import Any
 LOCK_NAME = "QuantGod_AutoTesterWindow.lock.json"
 AUTO_TESTER_WINDOW_NAME = "QuantGod_AutoTesterWindow.json"
 AUTO_TESTER_WINDOW_LEDGER_NAME = "QuantGod_AutoTesterWindowLedger.csv"
+LIVE_DASHBOARD_NAME = "QuantGod_Dashboard.json"
 LOCK_PURPOSE = "PARAM_LAB_STRATEGY_TESTER_ONLY"
 JST = timezone(timedelta(hours=9))
 ALLOWED_PERIODS = {"M1", "M5", "M15", "M30", "H1", "H4", "D1"}
@@ -62,6 +63,21 @@ def parse_now(value: str = "") -> datetime:
     return datetime.now(timezone.utc)
 
 
+def parse_dashboard_time(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = parse_iso_datetime(text)
+    if parsed:
+        return parsed
+    for fmt in ("%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=JST)
+        except Exception:
+            continue
+    return None
+
+
 def as_float(value: Any, default: float | None = None) -> float | None:
     try:
         if value is None or value == "":
@@ -87,6 +103,129 @@ def path_under(path: Path, root: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def normalize_account_number(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
+def sum_numeric(rows: Any, key: str) -> float:
+    total = 0.0
+    if not isinstance(rows, list):
+        return total
+    for row in rows:
+        if isinstance(row, dict):
+            total += as_float(row.get(key), 0.0) or 0.0
+    return total
+
+
+def validate_live_session_compatibility(
+    *,
+    runtime_dir: Path,
+    expected_login: str = "",
+    expected_server: str = "",
+    now_utc: datetime | None = None,
+    max_snapshot_age_minutes: int = 30,
+) -> dict[str, Any]:
+    """Verify live pilot state before unattended tester execution.
+
+    This guard reads only the live dashboard artifact. It never talks to the
+    broker and never edits live state. Unknown or stale live state is treated as
+    blocked because unattended Strategy Tester launches must not race a live
+    pilot position or an unverified terminal session.
+    """
+    now = now_utc or datetime.now(timezone.utc)
+    path = runtime_dir / LIVE_DASHBOARD_NAME
+    snapshot = read_json(path)
+    runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
+    account = snapshot.get("account") if isinstance(snapshot.get("account"), dict) else {}
+    symbols = snapshot.get("symbols") if isinstance(snapshot.get("symbols"), list) else []
+    open_trades = snapshot.get("openTrades") if isinstance(snapshot.get("openTrades"), list) else []
+    strategies = snapshot.get("strategies") if isinstance(snapshot.get("strategies"), dict) else {}
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if not path.exists():
+        blockers.append("live_dashboard_snapshot_missing")
+    if not snapshot:
+        blockers.append("live_dashboard_snapshot_unreadable")
+
+    timestamp = parse_dashboard_time(snapshot.get("timestamp") or runtime.get("localTime") or runtime.get("serverTime"))
+    age_minutes: float | None = None
+    if not timestamp:
+        blockers.append("live_dashboard_timestamp_missing")
+    else:
+        age_minutes = max(0.0, (now - timestamp.astimezone(timezone.utc)).total_seconds() / 60.0)
+        if max_snapshot_age_minutes > 0 and age_minutes > max_snapshot_age_minutes:
+            blockers.append("live_dashboard_snapshot_stale")
+
+    open_trade_count = len(open_trades)
+    symbol_open_positions = int(sum_numeric(symbols, "openPositions"))
+    strategy_open_positions = int(sum_numeric(list(strategies.values()), "positions"))
+    margin_in_use = as_float(account.get("margin"), 0.0) or 0.0
+
+    if open_trade_count > 0:
+        blockers.append("open_live_positions_present")
+    if symbol_open_positions > 0:
+        blockers.append("symbol_open_positions_present")
+    if strategy_open_positions > 0:
+        blockers.append("strategy_open_positions_present")
+    if margin_in_use > 0.01:
+        blockers.append("live_account_margin_in_use")
+
+    expected_login_text = normalize_account_number(expected_login)
+    actual_login_text = normalize_account_number(account.get("number"))
+    if expected_login_text and actual_login_text and expected_login_text != actual_login_text:
+        blockers.append("live_account_number_mismatch")
+    elif expected_login_text and not actual_login_text:
+        blockers.append("live_account_number_missing")
+
+    actual_server = str(account.get("server") or runtime.get("server") or "").strip()
+    if expected_server and actual_server and actual_server != expected_server:
+        blockers.append("live_account_server_mismatch")
+    elif expected_server and not actual_server:
+        blockers.append("live_account_server_missing")
+
+    if runtime.get("connected") is not True:
+        blockers.append("live_runtime_not_connected")
+    if runtime.get("terminalConnected") is not True:
+        blockers.append("live_terminal_not_connected")
+    if runtime.get("accountAuthorized") is not True:
+        blockers.append("live_account_not_authorized")
+    if runtime.get("pilotKillSwitch") is True:
+        blockers.append("live_pilot_kill_switch_active")
+
+    trade_status = str(runtime.get("tradeStatus") or "").upper()
+    risky_markers = ("ERROR", "FAIL", "PANIC", "KILL", "UNAUTHORIZED", "DISCONNECTED")
+    if trade_status and any(marker in trade_status for marker in risky_markers):
+        blockers.append("live_trade_status_incompatible")
+    if runtime.get("livePilotMode") is not True:
+        warnings.append("live_pilot_mode_not_confirmed")
+
+    return {
+        "path": str(path),
+        "status": "ready" if not blockers else "blocked",
+        "ok": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+        "snapshotTimestamp": timestamp.isoformat() if timestamp else "",
+        "snapshotAgeMinutes": round(age_minutes, 2) if age_minutes is not None else None,
+        "maxSnapshotAgeMinutes": max_snapshot_age_minutes,
+        "openTradeCount": open_trade_count,
+        "symbolOpenPositions": symbol_open_positions,
+        "strategyOpenPositions": strategy_open_positions,
+        "marginInUse": margin_in_use,
+        "tradeStatus": runtime.get("tradeStatus", ""),
+        "connected": runtime.get("connected"),
+        "terminalConnected": runtime.get("terminalConnected"),
+        "accountAuthorized": runtime.get("accountAuthorized"),
+        "livePilotMode": runtime.get("livePilotMode"),
+        "accountNumber": actual_login_text,
+        "server": actual_server,
+    }
 
 
 def parse_key_value_file(path: Path) -> dict[str, str]:
@@ -394,6 +533,9 @@ def evaluate_execution_gate(
     now_utc: datetime | None = None,
     max_tasks: int | None = None,
     allow_outside_window: bool = False,
+    expected_login: str = "",
+    expected_server: str = "",
+    max_live_snapshot_age_minutes: int = 30,
 ) -> dict[str, Any]:
     now = now_utc or datetime.now(timezone.utc)
     effective_lock = lock_path or runtime_dir / LOCK_NAME
@@ -407,6 +549,13 @@ def evaluate_execution_gate(
         allow_outside_window=allow_outside_window,
     )
     queue = validate_scheduler_queue(scheduler, max_tasks=max_tasks)
+    live_session = validate_live_session_compatibility(
+        runtime_dir=runtime_dir,
+        expected_login=expected_login,
+        expected_server=expected_server,
+        now_utc=now,
+        max_snapshot_age_minutes=max_live_snapshot_age_minutes,
+    )
     terminal_path = hfm_root / "terminal64.exe"
     profile_root = hfm_root / "MQL5" / "Profiles" / "Tester"
     env_blockers: list[str] = []
@@ -425,6 +574,7 @@ def evaluate_execution_gate(
     blockers = []
     blockers.extend(lock["blockers"])
     blockers.extend(queue["blockers"])
+    blockers.extend(live_session["blockers"])
     blockers.extend(env_blockers)
     blockers.extend(window_blockers)
     return {
@@ -434,6 +584,7 @@ def evaluate_execution_gate(
         "window": window,
         "authorizationLock": lock,
         "queue": queue,
+        "liveSession": live_session,
         "environment": {
             "status": "ready" if not env_blockers else "blocked",
             "blockers": env_blockers,
@@ -449,5 +600,7 @@ def evaluate_execution_gate(
             "The scheduler queue must be tester-only and must not contain run-terminal by default.",
             "Generated tester configs must set AllowLiveTrading=0 and write reports under archive/param-lab/runs.",
             "Preset lot and position caps must stay at the 0.01 single-position pilot boundary.",
+            "Unattended run-terminal execution requires a fresh live dashboard snapshot with zero open live positions and no margin in use.",
+            "Live account/server/session compatibility must be confirmed before the isolated tester terminal can launch.",
         ],
     }

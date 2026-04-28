@@ -73,6 +73,12 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Authorization lock JSON required for --run-terminal. Defaults to <runtime-dir>/QuantGod_AutoTesterWindow.lock.json.",
     )
+    parser.add_argument(
+        "--max-live-snapshot-age-minutes",
+        type=int,
+        default=30,
+        help="Maximum age for QuantGod_Dashboard.json before --run-terminal is blocked.",
+    )
     return parser.parse_args()
 
 
@@ -397,6 +403,9 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             lock_path=lock_path,
             max_tasks=args.max_tasks,
             allow_outside_window=args.allow_outside_window,
+            expected_login=args.login,
+            expected_server=args.server,
+            max_live_snapshot_age_minutes=args.max_live_snapshot_age_minutes,
         )
         if not run_terminal_gate.get("canRunTerminal"):
             blockers = ", ".join(run_terminal_gate.get("blockers") or ["unknown_guard_blocker"])
@@ -585,6 +594,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "Generated presets are ParamLab tester-only files.",
             "Strategy Tester launch requires --run-terminal and --authorized-strategy-tester.",
             "Regular unattended tester runs are blocked outside the weekend tester window.",
+            "Run-terminal is blocked unless the live dashboard confirms zero open live positions, no margin in use, and compatible live account/server/session state.",
         ],
         "nextOperatorSteps": [
             "Review CONFIG_READY tasks in Governance Advisor before any Strategy Tester launch.",

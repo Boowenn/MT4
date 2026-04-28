@@ -4618,19 +4618,91 @@
             width: 112px;
         }
 
-        .trade-history-table {
-            min-width: 1040px;
+        .trade-ledger-table {
+            min-width: 1280px;
+            table-layout: fixed;
+        }
+
+        .trade-ledger-table th,
+        .trade-ledger-table td {
+            text-overflow: clip;
+        }
+
+        .trade-ledger-table td:nth-child(1),
+        .trade-ledger-table td:nth-child(4),
+        .trade-ledger-table td:nth-child(5),
+        .trade-ledger-table td:nth-child(6),
+        .trade-ledger-table td:nth-child(7),
+        .trade-ledger-table td:nth-child(8),
+        .trade-time-cell {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .trade-ledger-table .strat-tag {
+            display: inline-flex;
+            align-items: center;
+            max-width: none;
+            white-space: nowrap;
+        }
+
+        .trade-ledger-table th:nth-child(1),
+        .trade-ledger-table td:nth-child(1) {
+            width: 124px;
+            min-width: 124px;
+        }
+
+        .trade-ledger-table th:nth-child(2),
+        .trade-ledger-table td:nth-child(2) {
+            width: 104px;
+            min-width: 104px;
+        }
+
+        .trade-ledger-table th:nth-child(3),
+        .trade-ledger-table td:nth-child(3) {
+            width: 76px;
+            min-width: 76px;
+        }
+
+        .trade-ledger-table th:nth-child(4),
+        .trade-ledger-table td:nth-child(4) {
+            width: 92px;
+            min-width: 92px;
+        }
+
+        .trade-ledger-table th:nth-child(5),
+        .trade-ledger-table td:nth-child(5),
+        .trade-ledger-table th:nth-child(6),
+        .trade-ledger-table td:nth-child(6),
+        .trade-ledger-table th:nth-child(7),
+        .trade-ledger-table td:nth-child(7) {
+            width: 126px;
+            min-width: 126px;
+        }
+
+        .trade-open-table th:nth-child(8),
+        .trade-open-table td:nth-child(8),
+        .trade-history-table th:nth-child(7),
+        .trade-history-table td:nth-child(7) {
+            width: 118px;
+            min-width: 118px;
+        }
+
+        .trade-open-table th:nth-child(9),
+        .trade-open-table td:nth-child(9),
+        .trade-history-table th:nth-child(8),
+        .trade-history-table td:nth-child(8) {
+            width: 210px;
+            min-width: 210px;
         }
 
         .trade-history-table th:last-child,
         .trade-history-table td:last-child {
-            width: 174px;
-            min-width: 174px;
+            width: 204px;
+            min-width: 204px;
         }
 
         .trade-time-cell {
             color: var(--text-secondary);
-            font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
             white-space: nowrap;
             overflow: visible;
@@ -6650,7 +6722,18 @@
                         </div>
                         <div class="panel-body" style="padding: 0;">
                             <div class="table-wrapper">
-                                <table>
+                                <table class="trade-ledger-table trade-open-table">
+                                    <colgroup>
+                                        <col style="width: 124px;">
+                                        <col style="width: 104px;">
+                                        <col style="width: 76px;">
+                                        <col style="width: 92px;">
+                                        <col style="width: 126px;">
+                                        <col style="width: 126px;">
+                                        <col style="width: 126px;">
+                                        <col style="width: 118px;">
+                                        <col style="width: 210px;">
+                                    </colgroup>
                                     <thead>
                                         <tr>
                                             <th>订单号</th>
@@ -6682,7 +6765,18 @@
                         </div>
                         <div class="panel-body" style="padding: 0;">
                             <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
-                                <table class="trade-history-table">
+                                <table class="trade-ledger-table trade-history-table">
+                                    <colgroup>
+                                        <col style="width: 124px;">
+                                        <col style="width: 104px;">
+                                        <col style="width: 76px;">
+                                        <col style="width: 92px;">
+                                        <col style="width: 126px;">
+                                        <col style="width: 126px;">
+                                        <col style="width: 118px;">
+                                        <col style="width: 210px;">
+                                        <col style="width: 204px;">
+                                    </colgroup>
                                     <thead>
                                         <tr>
                                             <th>订单号</th>
@@ -9018,6 +9112,14 @@ function formatLots(value) {
     return num.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function formatTradePrice(value, symbol = '') {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return '--';
+    const normalizedSymbol = String(symbol || '').toUpperCase();
+    const digits = normalizedSymbol.includes('JPY') ? 3 : (normalizedSymbol.includes('XAU') ? 2 : 5);
+    return num.toFixed(digits);
+}
+
 function summarizeResearchWindowTrades(trades) {
     const strategyNet = {};
     const summary = {
@@ -10320,12 +10422,19 @@ function updateAutoTesterWindowPanel(d) {
     const excludedCount = Number(summary.executorExcludedCount || excludedRows.length || 0);
     const redSkipped = Number(summary.redSkippedCount || 0);
     const isolationMode = summary.isolationMode || windowState?.testerIsolation?.mode || 'SHARED_TERMINAL';
+    const liveSession = gate.liveSession || windowState.liveSession || {};
+    const liveOk = Boolean(summary.liveSessionOk ?? liveSession.ok);
+    const openLivePositions = Number(summary.openLivePositions ?? liveSession.openTradeCount ?? 0);
+    const liveAge = summary.liveSnapshotAgeMinutes ?? liveSession.snapshotAgeMinutes;
+    const liveAgeText = Number.isFinite(Number(liveAge)) ? `${Number(liveAge).toFixed(1)}m` : '--';
     summaryEl.textContent = `${canRun ? '可运行' : '阻断'} | executor ${selectedRows.length}/${summary.sourceQueueCount || rows.length || 0} | skip ${excludedCount}`;
-    metaEl.textContent = `Mode ${mode} · ${windowState.generatedAtIso || '--'}；executor 先读 Recovery 红黄绿和预算，再把过滤后的 plan 交给 runner。tester=${isolationMode}`;
+    metaEl.textContent = `Mode ${mode} · ${windowState.generatedAtIso || '--'}；executor 先读 Recovery 红黄绿和预算，再把过滤后的 plan 交给 runner。tester=${isolationMode}；live=${liveSession.status || '--'} / open=${openLivePositions} / age=${liveAgeText}`;
     countersEl.innerHTML = [
         `<span class="table-badge ${summary.windowOk ? 'status-live' : 'status-warn'}">window ${summary.windowOk ? 'OK' : 'NO'}</span>`,
         `<span class="table-badge ${summary.lockOk ? 'status-live' : 'status-warn'}">lock ${summary.lockOk ? 'OK' : 'NO'}</span>`,
         `<span class="table-badge ${summary.queueOk ? 'status-live' : 'status-danger'}">queue ${summary.queueOk ? 'OK' : 'NO'}</span>`,
+        `<span class="table-badge ${liveOk ? 'status-live' : 'status-danger'}">live ${liveOk ? 'OK' : 'BLOCK'}</span>`,
+        `<span class="table-badge ${openLivePositions ? 'status-danger' : 'status-live'}">open ${openLivePositions}</span>`,
         `<span class="table-badge ${summary.environmentOk ? 'status-live' : 'status-danger'}">profile ${summary.environmentOk ? 'OK' : 'NO'}</span>`,
         `<span class="table-badge ${summary.isolationOk ? 'status-live' : 'status-warn'}">isolation ${summary.isolationOk ? 'OK' : 'NO'}</span>`,
         `<span class="table-badge ${redSkipped ? 'status-danger' : 'status-live'}">red skip ${redSkipped}</span>`,
@@ -13587,6 +13696,10 @@ function updateOpenTrades(trades) {
         html += `<tr class="table-group-row"><td colspan="9">${symbol}</td></tr>`;
         entries.forEach(t => {
             const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+            const strategyLabel = config.label || t.strategy || '--';
+            const openPrice = formatTradePrice(t.openPrice, t.symbol);
+            const slPrice = formatTradePrice(t.sl, t.symbol);
+            const tpPrice = formatTradePrice(t.tp, t.symbol);
             const lotsLabel = researchMode
                 ? `${formatLots(t.lots)} / 实盘 ${formatLots(t.actualLots)}`
                 : formatLots(t.lots);
@@ -13595,11 +13708,11 @@ function updateOpenTrades(trades) {
                 <td>${t.symbol || '--'}</td>
                 <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
                 <td>${lotsLabel}</td>
-                <td>${t.openPrice}</td>
-                <td>${t.sl}</td>
-                <td>${t.tp}</td>
+                <td title="${openPrice}">${openPrice}</td>
+                <td title="${slPrice}">${slPrice}</td>
+                <td title="${tpPrice}">${tpPrice}</td>
                 <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
-                <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
+                <td><span class="strat-tag ${config.cssClass}" title="${escapeHtml(strategyLabel)}">${escapeHtml(strategyLabel)}</span></td>
             </tr>`;
         });
     });
@@ -13631,6 +13744,9 @@ function updateClosedTrades(trades) {
         html += `<tr class="table-group-row"><td colspan="9">${symbol}</td></tr>`;
         entries.forEach(t => {
             const config = STRATEGY_CONFIG[t.strategy] || { cssClass: '', label: t.strategy };
+            const strategyLabel = config.label || t.strategy || '--';
+            const openPrice = formatTradePrice(t.openPrice, t.symbol);
+            const closePrice = formatTradePrice(t.closePrice, t.symbol);
             const lotsLabel = researchMode
                 ? `${formatLots(t.lots)} / 实盘 ${formatLots(t.actualLots)}`
                 : formatLots(t.lots);
@@ -13639,10 +13755,10 @@ function updateClosedTrades(trades) {
                 <td>${t.symbol || '--'}</td>
                 <td class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${tradeTypeLabel(t.type)}</td>
                 <td>${lotsLabel}</td>
-                <td>${t.openPrice}</td>
-                <td>${t.closePrice}</td>
+                <td title="${openPrice}">${openPrice}</td>
+                <td title="${closePrice}">${closePrice}</td>
                 <td class="profit-cell ${t.profit >= 0 ? 'positive' : 'negative'}">${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}</td>
-                <td><span class="strat-tag ${config.cssClass}">${config.label}</span></td>
+                <td><span class="strat-tag ${config.cssClass}" title="${escapeHtml(strategyLabel)}">${escapeHtml(strategyLabel)}</span></td>
                 <td class="trade-time-cell">${t.closeTime}</td>
             </tr>`;
         });

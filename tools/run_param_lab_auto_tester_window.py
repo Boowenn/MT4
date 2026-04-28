@@ -130,6 +130,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--watch-interval-seconds", type=int, default=30)
     parser.add_argument("--watch-timeout-seconds", type=int, default=900)
+    parser.add_argument(
+        "--max-live-snapshot-age-minutes",
+        type=int,
+        default=30,
+        help="Maximum age for QuantGod_Dashboard.json before run-terminal is blocked by the live-session guard.",
+    )
     return parser.parse_args()
 
 
@@ -193,6 +199,8 @@ def command_for_runner(
         args.server,
         "--auto-tester-lock",
         str(lock_path),
+        "--max-live-snapshot-age-minutes",
+        str(args.max_live_snapshot_age_minutes),
     ]
     if args.from_date:
         command.extend(["--from-date", args.from_date])
@@ -565,6 +573,9 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         now_utc=now,
         max_tasks=effective_max_tasks,
         allow_outside_window=args.allow_outside_window,
+        expected_login=args.login,
+        expected_server=args.server,
+        max_live_snapshot_age_minutes=args.max_live_snapshot_age_minutes,
     )
     if not isolation.get("ok"):
         gate["blockers"].extend(isolation.get("blockers") or [])
@@ -633,6 +644,9 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "windowOk": bool(gate.get("window", {}).get("ok")),
         "lockOk": bool(gate.get("authorizationLock", {}).get("ok")),
         "queueOk": bool(gate.get("queue", {}).get("ok")),
+        "liveSessionOk": bool(gate.get("liveSession", {}).get("ok")),
+        "openLivePositions": int(gate.get("liveSession", {}).get("openTradeCount") or 0),
+        "liveSnapshotAgeMinutes": gate.get("liveSession", {}).get("snapshotAgeMinutes"),
         "environmentOk": gate.get("environment", {}).get("status") == "ready",
         "isolationOk": bool(isolation.get("ok")),
         "isolationMode": isolation.get("mode", ""),
@@ -684,6 +698,7 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "Red Run Recovery drilldown candidates are excluded before runner launch and do not consume automatic retries.",
             "Continuous watcher can poll reports during an authorized tester window after a guarded run.",
             "Default tester root is repo/runtime/HFM_MT5_Tester_Isolated and shared live HFM root is blocked unless --allow-shared-tester is explicit.",
+            "Run-terminal stays blocked while QuantGod_Dashboard.json reports any live open position, margin in use, stale dashboard state, or account/server/session mismatch.",
         ],
     }
     write_json(output_path, status)

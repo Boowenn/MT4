@@ -23,6 +23,7 @@ Implemented:
 - Backtest budget / experiment control: AUTO_TESTER_WINDOW enforces per-route, per-parameter-family, and per-failure-family budgets before the runner sees the queue. Optional overrides can be supplied with `QuantGod_ParamLabBacktestBudget.json`; defaults stay conservative.
 - Continuous watcher bridge: AUTO_TESTER_WINDOW can run Report Watcher in a bounded polling loop after a guarded Strategy Tester run, so reports can be parsed during the same authorized tester window.
 - Isolated tester terminal/profile support: AUTO_TESTER_WINDOW now defaults to `runtime/HFM_MT5_Tester_Isolated`, requires an isolated root unless `--allow-shared-tester` is explicit, and can be prepared by `tools/prepare_isolated_mt5_tester.py`; this lets future tester execution target an isolated terminal/profile instead of the live HFM installation.
+- No-open-position / live-session compatibility gate: AUTO_TESTER_WINDOW and the underlying ParamLab runner read the live `QuantGod_Dashboard.json` snapshot before any unattended `--run-terminal`; tester execution stays blocked while live open positions, margin usage, stale dashboard state, account/server mismatch, disconnected terminal state, or kill-switch state are detected.
 
 Current live-trading boundary:
 
@@ -57,12 +58,12 @@ Implemented safety gates before `-RunTerminal`:
 - ParamLab config must set `AllowLiveTrading=0`, `AllowDllImport=0`, `Optimization=0`, `ShutdownTerminal=1`, and a report path under `archive/param-lab/runs/`.
 - Candidate presets must keep `PilotLotSize<=0.01`, `PilotMaxTotalPositions<=1`, and `PilotMaxPositionsPerSymbol<=1`.
 - Tester profile is validated against the generated ParamLab preset immediately before terminal launch.
+- Live dashboard snapshot must be fresh and compatible: zero `openTrades`, zero symbol/strategy positions, no margin in use, expected account/server, connected terminal/account, and no pilot kill switch.
 - Live preset is not copied over, mutated, or used as the output target.
 - Report output path is unique per candidate/version.
 
 Remaining runner work:
 
-- Add no-open-position policy before unattended weekday or live-session tester automation.
 - Add stronger terminal timeout vs tester-failure classification after real guarded runs exist.
 - Keep the physical isolated tester directory refreshed with `tools/prepare_isolated_mt5_tester.py` after EA/source/preset updates.
 
@@ -187,9 +188,8 @@ The recommended target is:
 ## Suggested Implementation Order
 
 1. Prepare an isolated tester terminal/profile directory if fully unattended tester runs should happen while the live pilot is also open.
-2. Add explicit no-open-position / live-session compatibility policy before unattended execution.
-3. After the next authorized tester window produces reports, add timeout-vs-tester-failure classification and min-trade/drawdown budget rules.
+2. After the next authorized tester window produces reports, add timeout-vs-tester-failure classification and min-trade/drawdown budget rules.
 
 ## Immediate Next Step
 
-Use the isolated tester root in `runtime/HFM_MT5_Tester_Isolated` as the guarded runner target. Auto Scheduler chooses the next tester-only batch, Run Recovery marks red/yellow/green risk, AUTO_TESTER_WINDOW removes red and over-budget candidates before runner launch, and Report Watcher can poll continuously during an authorized tester window. The next safety step before unattended weekday-style use is a no-open-position policy.
+Use the isolated tester root in `runtime/HFM_MT5_Tester_Isolated` as the guarded runner target. Auto Scheduler chooses the next tester-only batch, Run Recovery marks red/yellow/green risk, AUTO_TESTER_WINDOW removes red and over-budget candidates before runner launch, verifies the live session has no open positions or margin usage, and Report Watcher can poll continuously during an authorized tester window. The next safety step after real guarded runs exist is terminal-timeout vs tester-failure classification.
