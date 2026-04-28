@@ -926,6 +926,237 @@
             font-size: 11px;
         }
 
+        .strategy-workspace-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.9rem;
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid var(--border);
+            background: #f8fbff;
+        }
+
+        .strategy-workspace-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .strategy-workspace-tabs {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .strategy-workspace-tab {
+            appearance: none;
+            border: 1px solid #dbe5f1;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #475569;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1;
+            padding: 0.48rem 0.72rem;
+            transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+        }
+
+        .strategy-workspace-tab:hover,
+        .strategy-workspace-tab.active {
+            border-color: #93c5fd;
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+
+        .strategy-workspace-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .strategy-workspace-card {
+            display: grid;
+            gap: 0.9rem;
+            min-width: 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 1rem;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+        }
+
+        .strategy-workspace-card.supported {
+            border-color: rgba(16, 185, 129, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #fbfffd 100%);
+        }
+
+        .strategy-workspace-card.waiting {
+            border-color: rgba(245, 158, 11, 0.28);
+            background: linear-gradient(180deg, #ffffff 0%, #fffdf7 100%);
+        }
+
+        .strategy-workspace-card.conflict {
+            border-color: rgba(239, 68, 68, 0.24);
+            background: linear-gradient(180deg, #ffffff 0%, #fffafa 100%);
+        }
+
+        .strategy-workspace-card-top,
+        .strategy-workspace-title-row,
+        .strategy-workspace-badges,
+        .strategy-workspace-action-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+
+        .strategy-workspace-card-top {
+            justify-content: space-between;
+        }
+
+        .strategy-workspace-title-row {
+            align-items: flex-start;
+        }
+
+        .strategy-workspace-dot {
+            flex: 0 0 auto;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-top: 0.35rem;
+        }
+
+        .strategy-workspace-title {
+            color: var(--text-primary);
+            font-size: 15px;
+            font-weight: 900;
+            line-height: 1.2;
+        }
+
+        .strategy-workspace-sub {
+            margin-top: 0.18rem;
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .strategy-workspace-badges {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .strategy-workspace-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.5rem;
+        }
+
+        .strategy-workspace-metric {
+            min-width: 0;
+            border: 1px solid #e8eef7;
+            border-radius: 8px;
+            background: #f8fafc;
+            padding: 0.65rem;
+        }
+
+        .strategy-workspace-metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .strategy-workspace-metric-value {
+            margin-top: 0.24rem;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 900;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+
+        .strategy-workspace-metric-note {
+            margin-top: 0.18rem;
+            color: var(--text-secondary);
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        .strategy-workspace-lanes {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+
+        .strategy-workspace-lane {
+            min-width: 0;
+            border: 1px solid #e8eef7;
+            border-radius: 8px;
+            background: #fbfdff;
+            padding: 0.75rem;
+        }
+
+        .strategy-workspace-lane-title {
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .strategy-workspace-lane-copy {
+            margin-top: 0.35rem;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .strategy-workspace-chip-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            margin-top: 0.45rem;
+        }
+
+        .strategy-workspace-action-row {
+            flex-wrap: wrap;
+            justify-content: space-between;
+            border-top: 1px solid #edf2f7;
+            padding-top: 0.75rem;
+        }
+
+        .strategy-workspace-link,
+        .strategy-workspace-focus {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 30px;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 900;
+            text-decoration: none;
+        }
+
+        .strategy-workspace-focus {
+            border: 1px solid #bfdbfe;
+            background: #eff6ff;
+            color: #1d4ed8;
+            cursor: pointer;
+            padding: 0.4rem 0.7rem;
+        }
+
+        .strategy-workspace-link {
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            color: #475569;
+            padding: 0.38rem 0.62rem;
+        }
+
         .radar-label {
             color: var(--text-muted);
             font-size: 11px;
@@ -2703,6 +2934,7 @@
             .mt5-shadow-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .mt5-shadow-grid { grid-template-columns: 1fr; }
             .strategy-cards { grid-template-columns: 1fr; }
+            .strategy-workspace-grid { grid-template-columns: 1fr; }
             .eval-card-times { flex-basis: 180px; }
             .research-suggestion-grid { grid-template-columns: 1fr; }
             .research-window-grid { grid-template-columns: 1fr; }
@@ -2725,6 +2957,10 @@
             .eval-card-grid { grid-template-columns: 1fr; }
             .regime-heatmap-toolbar { align-items: flex-start; }
             .research-suggestion-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .strategy-workspace-toolbar { align-items: flex-start; flex-direction: column; }
+            .strategy-workspace-tabs { justify-content: flex-start; }
+            .strategy-workspace-metrics,
+            .strategy-workspace-lanes { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 768px) {
@@ -4238,6 +4474,7 @@
         <div class="qd-menu-group">
             <div class="qd-menu-label">Workspace</div>
             <a class="qd-menu-item active" href="#section-overview"><span class="qd-menu-icon">▦</span>总览分析</a>
+            <a class="qd-menu-item" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span>策略工作台</a>
             <a class="qd-menu-item" href="#section-monitor"><span class="qd-menu-icon">⌁</span>指标行情</a>
             <a class="qd-menu-item" href="#section-research"><span class="qd-menu-icon">⌘</span>策略实验室</a>
             <a class="qd-menu-item" href="#section-trades"><span class="qd-menu-icon">⇄</span>交易机器人</a>
@@ -4393,29 +4630,36 @@
                     <span class="sidebar-link-sub">资金、倒计时、执行雷达</span>
                 </span>
             </a>
-            <a class="sidebar-link" href="#section-monitor" data-section-link="monitor">
+            <a class="sidebar-link" href="#section-strategy-workspace" data-section-link="strategy-workspace">
                 <span class="sidebar-link-index">02</span>
+                <span class="sidebar-link-copy">
+                    <span class="sidebar-link-title">策略</span>
+                    <span class="sidebar-link-sub">MA/RSI/BB/MACD/SR 路线</span>
+                </span>
+            </a>
+            <a class="sidebar-link" href="#section-monitor" data-section-link="monitor">
+                <span class="sidebar-link-index">03</span>
                 <span class="sidebar-link-copy">
                     <span class="sidebar-link-title">监控</span>
                     <span class="sidebar-link-sub">品种总览、策略状态</span>
                 </span>
             </a>
             <a class="sidebar-link" href="#section-trades" data-section-link="trades">
-                <span class="sidebar-link-index">03</span>
+                <span class="sidebar-link-index">04</span>
                 <span class="sidebar-link-copy">
                     <span class="sidebar-link-title">交易</span>
                     <span class="sidebar-link-sub">当前持仓、历史交易</span>
                 </span>
             </a>
             <a class="sidebar-link" href="#section-research" data-section-link="research">
-                <span class="sidebar-link-index">04</span>
+                <span class="sidebar-link-index">05</span>
                 <span class="sidebar-link-copy">
                     <span class="sidebar-link-title">研究</span>
                     <span class="sidebar-link-sub">研究建议、Regime 热力图</span>
                 </span>
             </a>
             <a class="sidebar-link" href="#section-reports" data-section-link="reports">
-                <span class="sidebar-link-index">05</span>
+                <span class="sidebar-link-index">06</span>
                 <span class="sidebar-link-copy">
                     <span class="sidebar-link-title">报表</span>
                     <span class="sidebar-link-sub">策略评估、收益分布</span>
@@ -4704,6 +4948,38 @@
                         <div class="research-window-meta" id="governanceAdvisorMeta">借鉴 QuantDinger 的策略生命周期视图，把回测、实盘、Shadow、Candidate、Manual Alpha 合成升降级建议；只读证据，不发送订单。</div>
                         <div class="backtest-compare-grid" id="governanceAdvisorBody">
                             <div class="empty-state">等待 `QuantGod_GovernanceAdvisor.json`</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="content-section fade-in" id="section-strategy-workspace" data-nav-section="strategy-workspace">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Strategy Workspace</div>
+                        <div class="section-title">策略路线工作台</div>
+                        <div class="section-desc">把 MA/RSI/BB/MACD/SR 拆成独立路线档案：当前 live/candidate 权限、forward 表现、参数版本、ParamLab 批次和 Governance 下一步放在同一屏。</div>
+                    </div>
+                    <div class="section-meta">只读路线管理视图；不会启动 Strategy Tester，也不会改 live preset。</div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">S</div>
+                            Strategy Workspace
+                        </div>
+                        <span class="eval-summary" id="strategyWorkspaceSummary">等待路线工作台</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="strategy-workspace-toolbar">
+                            <div class="strategy-workspace-meta" id="strategyWorkspaceMeta">
+                                选择一条路线后，下方证据卡、ParamLab、Governance 与图表会同步聚焦。
+                            </div>
+                            <div class="strategy-workspace-tabs" id="strategyWorkspaceTabs"></div>
+                        </div>
+                        <div class="strategy-workspace-grid" id="strategyWorkspaceBody">
+                            <div class="empty-state">等待 MA/RSI/BB/MACD/SR 路线证据</div>
                         </div>
                     </div>
                 </div>
@@ -5167,6 +5443,8 @@ const STRATEGY_CONFIG = {
     'QuantGod/Other':  { label: 'QuantGod 其他', shortLabel: 'QG', color: '#22c55e', dotColor: '#22c55e', cssClass: 'strat-quantgod' }
 };
 
+const CORE_ROUTE_KEYS = ['MA_Cross', 'RSI_Reversal', 'BB_Triple', 'MACD_Divergence', 'SR_Breakout'];
+
 const STATUS_META = {
     READY:                    { label: '就绪',             tone: 'status-info',   cardTone: 'card-positive' },
     WAIT_SIGNAL:              { label: '等待信号',         tone: 'status-info',   cardTone: '' },
@@ -5263,6 +5541,7 @@ function setRouteStrategyFilter(strategy) {
     updateManualAlphaLedger(dashboardData);
     updateGovernanceAdvisor(dashboardData);
     updateParamLabBatchPanel(dashboardData);
+    updateStrategyWorkspace(dashboardData);
     updateStrategyCards(dashboardData);
     updateStrategyEvaluationTable(dashboardData);
     updateResearchSuggestions(dashboardData);
@@ -7839,6 +8118,277 @@ function updateParamLabBatchPanel(d) {
     </table>`;
 }
 
+function getCoreRouteKeysForCurrentFilter() {
+    return isRouteStrategyFiltered() && CORE_ROUTE_KEYS.includes(routeStrategyFilter)
+        ? [routeStrategyFilter]
+        : CORE_ROUTE_KEYS.slice();
+}
+
+function findGovernanceRouteDecision(advisor, strategyKey) {
+    const decisions = Array.isArray(advisor?.routeDecisions) ? advisor.routeDecisions : [];
+    return decisions.find((route) => (route?.strategy || route?.key) === strategyKey) || null;
+}
+
+function strategyWorkspaceToneClass(row) {
+    const tone = governanceToneForAction(row?.action, row?.decision?.tone);
+    if (tone === 'supported' || row?.live) return 'supported';
+    if (tone === 'conflict') return 'conflict';
+    return 'waiting';
+}
+
+function strategyWorkspaceBadgeTone(row) {
+    if (row?.live) return 'status-live';
+    if (row?.action === 'RETUNE_SIM' || row?.action === 'DEMOTE_REVIEW') return 'status-warn';
+    return 'status-muted';
+}
+
+function strategyWorkspaceActionTone(action) {
+    if (action === 'KEEP_LIVE' || action === 'PROMOTION_REVIEW') return 'status-live';
+    if (action === 'DEMOTE_REVIEW' || action === 'RETUNE_SIM') return 'status-danger';
+    if (action === 'KEEP_LIVE_WATCH') return 'status-warn';
+    return 'status-info';
+}
+
+function getStrategyWorkspaceActionText(row) {
+    const action = row?.action || 'KEEP_SIM_COLLECT';
+    const state = row?.batchState || {};
+    if (action === 'DEMOTE_REVIEW') return '实盘证据转弱时优先降级，遗留仓位交给降级退出保护；新单保持关闭。';
+    if (action === 'RETUNE_SIM') return '继续 simulation/backtest，先让 ParamLab 生成下一批参数再评分。';
+    if (action === 'PROMOTION_REVIEW') return '候选路线进入升实盘复核，但仍要通过 0.01、单仓、SL/TP 与 order-send 风控。';
+    if (action === 'KEEP_LIVE') return '保持 0.01 live forward 采样，继续观察 PF、胜率、保护与 order-send 稳定性。';
+    if (state.key === 'ready') return '下一步在授权 Strategy Tester 窗口运行 ParamLab 批次，不改 live preset。';
+    if (state.key === 'waiting_report') return '等待 Strategy Tester 报告出现后，用 Results Parser 回灌统一结果账本。';
+    if (state.key === 'scored') return '结果已经回灌，交给 Governance Advisor 按参数版本排序。';
+    return '保持 candidate/simulation 采样，等待更多候选后验和参数候选。';
+}
+
+function buildStrategyWorkspaceRows(d) {
+    const advisor = getGovernanceAdvisor(d);
+    const opportunitySummaryMap = getOpportunitySummaryMap(d);
+    const focusSymbol = getFocusSymbol(d);
+    const labTop = advisor?.paramLab?.topByRoute || {};
+    const resultTop = advisor?.paramLabResults?.topByRoute || {};
+
+    return getCoreRouteKeysForCurrentFilter().map((strategyKey) => {
+        const config = STRATEGY_CONFIG[strategyKey] || { label: strategyKey, shortLabel: strategyKey, color: '#64748b' };
+        const decision = findGovernanceRouteDecision(advisor, strategyKey);
+        const live = Boolean(decision?.live);
+        const strat = d?.strategies?.[strategyKey] || {};
+        const closedTrades = (Array.isArray(d?.closedTrades) ? d.closedTrades : []).filter((trade) => trade.strategy === strategyKey);
+        const closedWins = closedTrades.filter((trade) => Number(trade.profit || 0) > 0).length;
+        const reportRow = getStrategyEvaluationRow(d, strategyKey, focusSymbol);
+        const diagnostic = getDiagnostic(d, strategyKey);
+        const diagnosticMeta = getStatusMeta(diagnostic.status);
+        const liveForward = decision?.liveForward || {};
+        const candidateSamples = decision?.candidateSamples || {};
+        const paramOptimization = decision?.paramOptimization || {};
+        const paramLab = labTop[strategyKey] || decision?.paramLab || {};
+        const paramLabResult = resultTop[strategyKey] || decision?.paramLabResult || {};
+        const batchState = getParamLabBatchState(paramLab, paramLabResult);
+        const metrics = paramLabResult.metrics || paramLab.metrics || {};
+        const fallbackNet = closedTrades.reduce((sum, trade) => sum + Number(trade.profit || 0), 0);
+        const fallbackWinRate = closedTrades.length ? closedWins / closedTrades.length * 100 : null;
+        const liveWinRate = Number.isFinite(Number(liveForward.winRatePct)) ? Number(liveForward.winRatePct) : fallbackWinRate;
+        const livePf = Number.isFinite(Number(liveForward.profitFactor))
+            ? Number(liveForward.profitFactor)
+            : (Number.isFinite(Number(reportRow?.profitFactor)) ? Number(reportRow.profitFactor) : null);
+        const liveNet = Number.isFinite(Number(liveForward.netProfitUSC))
+            ? Number(liveForward.netProfitUSC)
+            : (Number.isFinite(Number(reportRow?.netProfit)) ? Number(reportRow.netProfit) : fallbackNet);
+
+        return {
+            strategyKey,
+            config,
+            decision,
+            action: decision?.recommendedAction || (live ? 'KEEP_LIVE_WATCH' : 'KEEP_SIM_COLLECT'),
+            live,
+            strat,
+            reportRow,
+            diagnostic,
+            diagnosticMeta,
+            opportunity: opportunitySummaryMap[strategyKey] || buildOpportunitySummary([]),
+            liveForward: {
+                closedTrades: Number.isFinite(Number(liveForward.closedTrades)) ? Number(liveForward.closedTrades) : closedTrades.length,
+                winRatePct: liveWinRate,
+                profitFactor: livePf,
+                netProfitUSC: liveNet
+            },
+            candidateSamples,
+            paramOptimization,
+            paramLab,
+            paramLabResult,
+            batchState,
+            paramMetrics: metrics,
+            blockers: Array.isArray(decision?.blockers) ? decision.blockers : []
+        };
+    });
+}
+
+function renderStrategyWorkspaceTabs(rows) {
+    const allActive = !isRouteStrategyFiltered();
+    const routeCountText = rows.length === CORE_ROUTE_KEYS.length ? '全部' : `${rows.length}/${CORE_ROUTE_KEYS.length}`;
+    const allButton = `<button type="button" class="strategy-workspace-tab ${allActive ? 'active' : ''}" onclick="setRouteStrategyFilter('ALL')" data-route-strategy="ALL">${escapeHtml(routeCountText)}</button>`;
+    const buttons = CORE_ROUTE_KEYS.map((key) => {
+        const active = routeStrategyFilter === key;
+        const config = STRATEGY_CONFIG[key] || {};
+        return `<button type="button" class="strategy-workspace-tab ${active ? 'active' : ''}" onclick="setRouteStrategyFilter('${escapeHtml(key)}')" data-route-strategy="${escapeHtml(key)}">${escapeHtml(config.shortLabel || key)}</button>`;
+    });
+    return [allButton, ...buttons].join('');
+}
+
+function renderStrategyWorkspaceMetric(label, value, note = '') {
+    return `
+        <div class="strategy-workspace-metric">
+            <div class="strategy-workspace-metric-label">${escapeHtml(label)}</div>
+            <div class="strategy-workspace-metric-value">${escapeHtml(value)}</div>
+            <div class="strategy-workspace-metric-note">${escapeHtml(note || '--')}</div>
+        </div>
+    `;
+}
+
+function renderStrategyWorkspaceLane(title, copy, chips = []) {
+    const chipHtml = chips.length
+        ? `<div class="strategy-workspace-chip-row">${chips.join('')}</div>`
+        : '';
+    return `
+        <div class="strategy-workspace-lane">
+            <div class="strategy-workspace-lane-title">${escapeHtml(title)}</div>
+            <div class="strategy-workspace-lane-copy">${escapeHtml(copy)}</div>
+            ${chipHtml}
+        </div>
+    `;
+}
+
+function renderStrategyWorkspaceCard(row) {
+    const config = row.config;
+    const tone = strategyWorkspaceToneClass(row);
+    const modeText = row.live ? 'LIVE 0.01' : 'SIM/CANDIDATE';
+    const live = row.liveForward || {};
+    const candidate = row.candidateSamples || {};
+    const param = row.paramOptimization || {};
+    const result = row.paramLabResult || {};
+    const resultMetrics = row.paramMetrics || {};
+    const reportRow = row.reportRow || {};
+    const batchState = row.batchState || {};
+    const liveWinText = formatPercentValue(live.winRatePct, 1);
+    const livePfText = formatProfitFactor(live.profitFactor);
+    const liveNetText = Number.isFinite(Number(live.netProfitUSC)) ? formatMoney(live.netProfitUSC, 2) : '--';
+    const candidateRows = Number(candidate.horizonRows ?? candidate.ledgerRows ?? 0);
+    const candidateWin = Number.isFinite(Number(candidate.winRatePct)) ? formatPercentValue(candidate.winRatePct, 1) : '--';
+    const candidateAvg = Number.isFinite(Number(candidate.avgSignedPips)) ? `${Number(candidate.avgSignedPips).toFixed(1)}p` : '--';
+    const resultScore = result.grade && result.grade !== 'PENDING_REPORT'
+        ? `${formatParamLabNumber(result.resultScore, 1)} / ${result.grade}`
+        : `${formatParamLabNumber(row.paramLab?.score ?? param.score, 1)} plan`;
+    const runtimeLabel = reportRow.runtimeLabel || row.strat.state || (row.strat.active === false ? 'PAUSED' : 'ON');
+    const runtimeTone = getRuntimeBadgeTone(reportRow.runtimeLabel, reportRow.active ?? (row.strat.active !== false));
+    const regimeText = reportRow.regime
+        ? `${reportRow.symbol || '--'} ${reportRow.timeframe || '--'} ${translateRegime(reportRow.regime)}`
+        : '等待策略评估报表';
+    const blockerText = row.blockers.length ? row.blockers.join(' / ') : '无硬性 blocker';
+    const opp = row.opportunity || {};
+    const opportunityText = opp.count
+        ? `Opportunity ${opp.count} 条；Bias 命中 ${formatPercentValue(opp.biasHitRate, 0)}；Long/Short ${formatSignedPips(opp.avgLongClose)} / ${formatSignedPips(opp.avgShortClose)}`
+        : 'Opportunity label 仍在等待样本。';
+    const paramText = param.candidateId
+        ? `${param.variant || '--'} @ ${param.symbol || '--'} ${param.timeframe || ''}；${param.parameterSummary || '参数摘要待补齐'}`
+        : '等待 QuantGod_ParamOptimizationPlan.json 生成候选参数。';
+    const resultText = result.candidateId
+        ? `Score ${formatParamLabNumber(result.resultScore, 1)} / ${result.grade || '--'}；PF ${formatParamLabNumber(resultMetrics.profitFactor, 2)}；胜率 ${hasParamLabNumber(resultMetrics.winRate) ? formatPercentValue(resultMetrics.winRate, 1) : '--'}；交易 ${hasParamLabNumber(resultMetrics.closedTrades) ? resultMetrics.closedTrades : '--'}`
+        : batchState.next || '等待 ParamLab 任务和结果回灌。';
+    const authorityText = row.live
+        ? '当前允许在原 EA 0.01 live-gated 路径内采样；仍受单仓、SL/TP、spread/session/news/cooldown/order-send 全部风控约束。'
+        : '当前仅 candidate/backtest/simulation；不发送真实订单，不改变 live switch。';
+    const liveOpenText = row.decision?.openPosition?.openTrades
+        ? `持仓 ${row.decision.openPosition.openTrades} / 浮动 ${formatMoney(row.decision.openPosition.floatingProfitUSC || 0, 2)}`
+        : '无该路线遗留持仓';
+    const nextText = getStrategyWorkspaceActionText(row);
+    const labStatusText = `${batchState.label || '--'} · ${batchState.next || '--'}`;
+
+    return `
+        <article class="strategy-workspace-card ${tone}">
+            <div class="strategy-workspace-card-top">
+                <div class="strategy-workspace-title-row">
+                    <span class="strategy-workspace-dot" style="background:${escapeHtml(config.color || '#64748b')}"></span>
+                    <div>
+                        <div class="strategy-workspace-title">${escapeHtml(config.shortLabel || row.strategyKey)} · ${escapeHtml(config.label || row.strategyKey)}</div>
+                        <div class="strategy-workspace-sub">${escapeHtml(regimeText)}</div>
+                    </div>
+                </div>
+                <div class="strategy-workspace-badges">
+                    <span class="table-badge ${strategyWorkspaceBadgeTone(row)}">${escapeHtml(modeText)}</span>
+                    <span class="table-badge ${strategyWorkspaceActionTone(row.action)}">${escapeHtml(governanceActionLabel(row.action))}</span>
+                    <span class="table-badge ${runtimeTone}">${escapeHtml(runtimeLabel)}</span>
+                </div>
+            </div>
+
+            <div class="strategy-workspace-metrics">
+                ${renderStrategyWorkspaceMetric('Live Forward', `${live.closedTrades ?? 0} / PF ${livePfText}`, `胜率 ${liveWinText} · 净 ${liveNetText}`)}
+                ${renderStrategyWorkspaceMetric('Candidate', `${candidateRows} / ${candidate.ledgerRows ?? 0}`, `60m 胜率 ${candidateWin} · 均值 ${candidateAvg}`)}
+                ${renderStrategyWorkspaceMetric('ParamLab', batchState.label || '--', resultScore)}
+                ${renderStrategyWorkspaceMetric('Runtime', row.diagnosticMeta.label || '--', `Score ${Number(row.diagnostic.score || 0).toFixed(0)}/100 · ${translateDiagnosticReason(row.diagnostic.reason || reportRow.reason || '')}`)}
+            </div>
+
+            <div class="strategy-workspace-lanes">
+                ${renderStrategyWorkspaceLane('当前权限', authorityText, [
+                    `<span class="table-badge ${row.live ? 'status-live' : 'status-muted'}">${escapeHtml(liveOpenText)}</span>`,
+                    `<span class="table-badge status-info">0.01 / 单仓</span>`
+                ])}
+                ${renderStrategyWorkspaceLane('证据状态', `${opportunityText} blocker: ${blockerText}`, [
+                    `<span class="table-badge ${row.blockers.length ? 'status-warn' : 'status-live'}">${escapeHtml(row.blockers.length ? '有 blocker' : '无硬反证')}</span>`,
+                    `<span class="table-badge status-muted">${escapeHtml(reportRow.lastEvalTime ? `评估 ${reportRow.lastEvalTime}` : '评估 --')}</span>`
+                ])}
+                ${renderStrategyWorkspaceLane('参数版本', paramText, [
+                    `<span class="table-badge ${batchState.tone || 'status-muted'}">${escapeHtml(labStatusText)}</span>`
+                ])}
+                ${renderStrategyWorkspaceLane('结果/下一步', `${resultText}。${nextText}`, [
+                    `<span class="table-badge ${strategyWorkspaceActionTone(row.action)}">${escapeHtml(governanceActionLabel(row.action))}</span>`
+                ])}
+            </div>
+
+            <div class="strategy-workspace-action-row">
+                <button type="button" class="strategy-workspace-focus" onclick="setRouteStrategyFilter('${escapeHtml(row.strategyKey)}')">聚焦这条路线</button>
+                <div class="strategy-workspace-badges">
+                    <a class="strategy-workspace-link" href="#section-research">ParamLab</a>
+                    <a class="strategy-workspace-link" href="#section-monitor">监控卡</a>
+                    <a class="strategy-workspace-link" href="#section-reports">评估表</a>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function updateStrategyWorkspace(d) {
+    const summaryEl = document.getElementById('strategyWorkspaceSummary');
+    const metaEl = document.getElementById('strategyWorkspaceMeta');
+    const tabsEl = document.getElementById('strategyWorkspaceTabs');
+    const bodyEl = document.getElementById('strategyWorkspaceBody');
+    if (!summaryEl || !metaEl || !tabsEl || !bodyEl) return;
+
+    const advisor = getGovernanceAdvisor(d);
+    const rows = buildStrategyWorkspaceRows(d);
+    const allRows = (() => {
+        const previousFilter = routeStrategyFilter;
+        routeStrategyFilter = 'ALL';
+        const builtRows = buildStrategyWorkspaceRows(d);
+        routeStrategyFilter = previousFilter;
+        return builtRows;
+    })();
+    const liveCount = allRows.filter((row) => row.live).length;
+    const simCount = allRows.length - liveCount;
+    const promotionCount = allRows.filter((row) => row.action === 'PROMOTION_REVIEW').length;
+    const retuneCount = allRows.filter((row) => row.action === 'RETUNE_SIM' || row.action === 'DEMOTE_REVIEW').length;
+    const scopedLabel = getRouteStrategyFilterLabel();
+
+    summaryEl.textContent = `${scopedLabel} | live ${liveCount} / sim ${simCount} / promotion ${promotionCount} / retune ${retuneCount}`;
+    metaEl.textContent = advisor
+        ? `Governance ${advisor.generatedAtIso || '--'}；本工作台只读聚合路线证据、参数版本和下一步，不启动 Strategy Tester，不写 live preset。`
+        : '等待 QuantGod_GovernanceAdvisor.json；仍可显示本地策略评估与候选样本占位。';
+    tabsEl.innerHTML = renderStrategyWorkspaceTabs(rows);
+    bodyEl.innerHTML = rows.length
+        ? rows.map(renderStrategyWorkspaceCard).join('')
+        : `<div class="empty-state">${escapeHtml(scopedLabel)} 当前没有策略路线工作台数据</div>`;
+}
+
 function updateQuantDingerInspiredHero(d) {
     const advisor = getGovernanceAdvisor(d);
     const health = advisor?.systemHealth || {};
@@ -8628,6 +9178,7 @@ function updateSidebarSummary(d) {
 function updateSidebarActiveLink() {
     const sections = Array.from(document.querySelectorAll('.content-section[data-nav-section]'));
     const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
+    const menuItems = Array.from(document.querySelectorAll('.qd-menu-item[href^="#section-"]'));
     if (!sections.length || !links.length) return;
 
     let activeSection = sections[0].dataset.navSection || '';
@@ -8641,6 +9192,10 @@ function updateSidebarActiveLink() {
     links.forEach((link) => {
         link.classList.toggle('active', link.dataset.sectionLink === activeSection);
     });
+    menuItems.forEach((item) => {
+        const itemSection = String(item.getAttribute('href') || '').replace(/^#section-/, '');
+        item.classList.toggle('active', itemSection === activeSection);
+    });
 }
 
 function updateSidebarActiveFromHash() {
@@ -8648,10 +9203,15 @@ function updateSidebarActiveFromHash() {
     if (!hash) return false;
 
     const links = Array.from(document.querySelectorAll('.sidebar-link[data-section-link]'));
+    const menuItems = Array.from(document.querySelectorAll('.qd-menu-item[href^="#section-"]'));
     if (!links.some((link) => link.dataset.sectionLink === hash)) return false;
 
     links.forEach((link) => {
         link.classList.toggle('active', link.dataset.sectionLink === hash);
+    });
+    menuItems.forEach((item) => {
+        const itemSection = String(item.getAttribute('href') || '').replace(/^#section-/, '');
+        item.classList.toggle('active', itemSection === hash);
     });
     return true;
 }
@@ -8972,6 +9532,7 @@ function updateDashboard() {
     updateManualAlphaLedger(d);
     updateGovernanceAdvisor(d);
     updateParamLabBatchPanel(d);
+    updateStrategyWorkspace(d);
     updateQuantDingerInspiredHero(d);
     updateStrategyCards(d);
     updateStrategyEvaluationTable(d);

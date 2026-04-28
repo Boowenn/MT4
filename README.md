@@ -58,6 +58,7 @@ The MT5 work is intentionally split into phases:
 - includes a controlled ParamLab Runner that materializes the ranked candidates into tester-only `.set` and `.ini` files, records `QuantGod_ParamLabStatus.json`, and only launches MT5 Strategy Tester when explicitly run with the Strategy Tester authorization flags
 - includes a ParamLab Results Parser that scans ParamLab archives after Strategy Tester has produced reports, writes `QuantGod_ParamLabResults.json` / `QuantGod_ParamLabResultsLedger.csv`, scores each parameter version by PF, win rate, net profit, trade count, and drawdown, then feeds those scores back into Governance Advisor
 - includes a read-only Dashboard ParamLab batch panel that turns `QuantGod_ParamLabStatus.json` and `QuantGod_ParamLabResults.json` into an execution queue view: `可在授权窗口运行`, `已运行`, `等待报告`, and `已评分`, with the matching tester-only command and report/config paths visible before weekend Strategy Tester sessions
+- includes a read-only Dashboard Strategy Workspace that gives `MA_Cross`, `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` their own route cards with live/candidate authority, forward samples, candidate outcomes, ParamLab state, scored parameter versions, blockers, and the next Governance Advisor action
 - includes a Shadow Signal Ledger that records every M15 pilot evaluation, signal, and blocked opportunity into `QuantGod_ShadowSignalLedger.csv` for faster learning without increasing live risk
 - includes a Shadow Outcome Ledger that labels those shadow events after 15/30/60 minutes in `QuantGod_ShadowOutcomeLedger.csv`, so range-blocked and no-trade opportunities can be judged by post-outcome evidence before any route change
 - includes Shadow Candidate Router V1, a research layer that records MA continuation/range-soft candidates plus RSI, Bollinger, MACD, and support/resistance route candidates without enabling new live routes by default
@@ -73,7 +74,7 @@ Live route promotion and demotion are now evidence-driven automation decisions. 
 
 The repo also includes a QuantDinger-inspired local Governance Advisor and light dashboard shell. It borrows the useful product ideas of a strategy lifecycle view, a clean app-style sidebar/header, a health snapshot with file freshness/circuit-style evidence states, and an offline parameter-candidate loop. QuantGod's broker boundary stays intact: `tools/build_param_optimization_plan.py` writes `QuantGod_ParamOptimizationPlan.json`, `tools/run_param_lab.py` prepares tester-only ParamLab tasks and writes `QuantGod_ParamLabStatus.json`, `tools/collect_param_lab_results.py` parses completed tester reports into `QuantGod_ParamLabResults.json`, then `tools/build_governance_advisor.py` reads local HFM Files evidence and writes `QuantGod_GovernanceAdvisor.json` for dashboard review. These tools are read-only with respect to live trading: they never store credentials, open live positions, overwrite the live preset, or bypass the existing EA `OrderSend` guards. ParamLab can launch Strategy Tester only when explicitly called with `--run-terminal --authorized-strategy-tester`, and the default path is config-only.
 
-The dashboard home Route Watchlist is also the main strategy focus control. Clicking `MA`, `RSI`, `BB`, `MACD`, or `SR` filters the evidence cards, strategy cards, regime research, and charts to that route; clicking `All routes` returns to the full-system view. This is a read-only review filter and does not change live switches or EA execution permissions.
+The dashboard home Route Watchlist and the Strategy Workspace tabs are the main strategy focus controls. Clicking `MA`, `RSI`, `BB`, `MACD`, or `SR` filters the evidence cards, strategy workspace, strategy cards, regime research, and charts to that route; clicking `All routes` returns to the full-system view. This is a read-only review filter and does not change live switches or EA execution permissions.
 
 ## Strategies
 
@@ -387,6 +388,7 @@ The dashboard shows:
 
 - virtual research balance / equity / floating P&L / drawdown
 - real broker-account balance / equity as reference
+- a Strategy Workspace for MA/RSI/BB/MACD/SR that combines route authority, forward samples, ParamLab batch/result state, blockers, and Governance Advisor next steps without launching MT5 or changing live presets
 - per-symbol grouped strategy status
 - open trades and closed trades
 - research equity curve

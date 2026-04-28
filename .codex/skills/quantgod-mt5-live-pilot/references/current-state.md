@@ -100,6 +100,7 @@ Responsibilities:
 - Explain that monitor-section focus with a breadcrumb, so the operator can tell whether the current highlight came from a research suggestion card or from a heatmap cell
 - Render the Governance Advisor overview card from `QuantGod_GovernanceAdvisor.json`, showing route lifecycle actions, live-forward stats, candidate outcome evidence, open-position pressure, blockers, and guardrail reminders
 - Render a read-only ParamLab batch panel from Governance Advisor's `ParamLabStatus` and `ParamLabResults` summaries, showing which tester-only parameter tasks are ready for an authorized Strategy Tester window, which have run, which are waiting for reports, and which are already scored. The panel may display suggested commands and report/config paths, but it must not launch MT5 or mutate the live preset from the browser.
+- Render a read-only Strategy Workspace for `MA_Cross`, `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout`, giving each route an independent card with live/candidate authority, forward samples, candidate outcomes, ParamLab batch/result state, blockers, and Governance Advisor next steps. The workspace can focus dashboard evidence by route, but it must not launch MT5, mutate live presets, or change EA execution permissions.
 
 ### Data Layer
 
