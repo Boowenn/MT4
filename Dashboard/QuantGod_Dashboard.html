@@ -7541,7 +7541,7 @@
                         <div class="section-title">Gamma 公共市场扫描</div>
                         <div class="section-desc">只读扫描活跃市场，按概率、成交量、流动性、偏离度和规则评分生成 shadow track；不碰钱包、不下注。</div>
                     </div>
-                    <div class="section-meta">QuantGod_PolymarketMarketRadar.json / csv</div>
+                    <div class="section-meta">Worker V2 + QuantGod_PolymarketMarketRadar.json</div>
                 </div>
 
                 <div class="panel">
@@ -7565,6 +7565,21 @@
                         </div>
                         <div class="polymarket-search-grid" id="polymarketUnifiedSearchBody">
                             <div class="empty-state">等待 `/api/polymarket/search`；统一读取 history / radar / analyze / ai-score。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-mint);">W</div>
+                            批量雷达 Worker V2
+                        </div>
+                        <span class="eval-summary" id="polymarketRadarWorkerSummary">等待 Worker V2</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-group-grid" id="polymarketRadarWorkerBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketRadarWorkerV2.json`；默认单轮只读扫描，不下注。</div>
                         </div>
                     </div>
                 </div>
@@ -8447,6 +8462,7 @@ const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
 const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
+const LOCAL_POLYMARKET_RADAR_WORKER_PATH = 'QuantGod_PolymarketRadarWorkerV2.json';
 const LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_PATH = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const LOCAL_POLYMARKET_SINGLE_MARKET_ANALYSIS_LEDGER_PATH = 'QuantGod_PolymarketSingleMarketAnalysisLedger.csv';
 const LOCAL_POLYMARKET_RETUNE_PLANNER_PATH = 'QuantGod_PolymarketRetunePlanner.json';
@@ -8457,6 +8473,7 @@ const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
 const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
 const POLYMARKET_RADAR_API_PATH = '/api/polymarket/radar';
+const POLYMARKET_RADAR_WORKER_API_PATH = '/api/polymarket/radar-worker';
 const POLYMARKET_ANALYZE_HISTORY_API_PATH = '/api/polymarket/analyze/history';
 const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
 const POLYMARKET_SEARCH_API_PATH = '/api/polymarket/search';
@@ -9897,6 +9914,22 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.polymarketRadarWorker = await loadPolymarketApiJson(POLYMARKET_RADAR_WORKER_API_PATH);
+        data._polymarketRadarWorkerError = false;
+        data._polymarketRadarWorkerSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketRadarWorker = await loadLocalJsonSupplement(LOCAL_POLYMARKET_RADAR_WORKER_PATH);
+            data._polymarketRadarWorkerError = false;
+            data._polymarketRadarWorkerSource = 'file';
+        } catch (fileError) {
+            data._polymarketRadarWorkerError = true;
+            data._polymarketRadarWorkerSource = 'unavailable';
+            console.warn('Polymarket radar worker API/file load failed.', apiError, fileError);
+        }
+    }
+
+    try {
         const analyzeHistory = await loadPolymarketApiJson(POLYMARKET_ANALYZE_HISTORY_API_PATH);
         data.polymarketAnalyzeHistoryApi = analyzeHistory;
         data.polymarketSingleMarketAnalysis = analyzeHistory.latest || data.polymarketSingleMarketAnalysis || null;
@@ -10086,6 +10119,10 @@ function getPolymarketMarketRadar(d) {
     return d?.polymarketMarketRadar || null;
 }
 
+function getPolymarketRadarWorker(d) {
+    return d?.polymarketRadarWorker || null;
+}
+
 function getPolymarketUnifiedSearch(d) {
     return d?.polymarketUnifiedSearch || null;
 }
@@ -10192,6 +10229,12 @@ function translatePolymarketToken(value) {
         WOULD_EXIT_EXIT_BEFORE_RESOLUTION: '本应结算前退出',
         AMBIGUOUS_TP_SL_TRIGGER: '止盈止损触发顺序不确定',
         SHADOW_ONLY_MARKET_RADAR_NO_BETTING: '只做影子雷达，不下注',
+        SHADOW_ONLY_BATCH_RADAR_WORKER_NO_BETTING: '批量雷达 Worker：只做影子队列，不下注',
+        SHADOW_ONLY_ANALYSIS_QUEUE_NO_BETTING: '影子分析队列：不下注',
+        SHADOW_ONLY_NO_WALLET_WRITE: '影子模式：不写钱包',
+        SHADOW_ANALYSIS_READY: '可进入影子分析',
+        RUN_SINGLE_MARKET_ANALYSIS_OR_AI_SCORE_REVIEW: '下一步跑单市场分析或 AI 复核',
+        POLYMARKET_OPPORTUNITY_RADAR_WORKER_V2: '批量机会雷达 Worker V2',
         AI_SCORE_ONLY_NO_BETTING: 'AI 评分只读：不下注',
         AI_SCORE_ONLY_NO_WALLET_WRITE: 'AI 评分只读：不写钱包',
         READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE: '统一证据搜索只读：不写钱包',
@@ -10525,6 +10568,99 @@ function updatePolymarketUnifiedSearch(d) {
     `;
     const cards = results.slice(0, 11).map((item, index) => renderPolymarketUnifiedSearchCard(item, index));
     body.innerHTML = [boundaryCard, ...cards].join('') || '<div class="empty-state">没有匹配证据；换一个关键词试试。</div>';
+}
+
+function renderPolymarketRadarWorkerQueueCard(item = {}) {
+    const tone = String(item.risk || '').toLowerCase() === 'low' ? 'good' : 'watch';
+    const priority = item.priorityScore === null || item.priorityScore === undefined ? '--' : Number(item.priorityScore).toFixed(1);
+    const scoreDelta = item.aiRuleScoreDelta === null || item.aiRuleScoreDelta === undefined
+        ? '--'
+        : `${Number(item.aiRuleScoreDelta) >= 0 ? '+' : ''}${Number(item.aiRuleScoreDelta).toFixed(1)}`;
+    const probDelta = item.probabilityDelta === null || item.probabilityDelta === undefined
+        ? '--'
+        : `${Number(item.probabilityDelta) >= 0 ? '+' : ''}${Number(item.probabilityDelta).toFixed(1)}pp`;
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(item.queueState || 'SHADOW_ANALYSIS_READY'))}</div>
+            <div class="polymarket-title">${escapeHtml(item.question || item.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('优先级', priority)}
+                ${renderPolymarketMetric('AI/规则分', item.aiRuleScore ?? '--')}
+                ${renderPolymarketMetric('分数变化', scoreDelta)}
+                ${renderPolymarketMetric('概率变化', probDelta)}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">路线 ${escapeHtml(item.suggestedShadowTrack || '--')} · 观察次数 ${escapeHtml(item.seenCount ?? '--')}</div>
+                <div class="polymarket-action">下一步 ${escapeHtml(translatePolymarketToken(item.nextAction || 'RUN_SINGLE_MARKET_ANALYSIS_OR_AI_SCORE_REVIEW'))}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(item.polymarketUrl || 'Gamma public market')} · 队列只生成研究任务，不下注。</div>
+        </div>
+    `;
+}
+
+function updatePolymarketRadarWorker(d) {
+    const worker = getPolymarketRadarWorker(d);
+    const summaryEl = document.getElementById('polymarketRadarWorkerSummary');
+    const body = document.getElementById('polymarketRadarWorkerBody');
+    if (!body) return;
+    if (!worker || d?._polymarketRadarWorkerError) {
+        if (summaryEl) summaryEl.textContent = '等待 Worker V2';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketRadarWorkerV2.json`；默认单轮只读扫描，不下注。</div>';
+        return;
+    }
+    const summary = worker.summary || {};
+    const workerMeta = worker.worker || {};
+    const safety = worker.safety || {};
+    const queue = Array.isArray(worker.candidateQueue) ? worker.candidateQueue : [];
+    if (summaryEl) {
+        const sourceLabel = d?._polymarketRadarWorkerSource === 'api' || worker._api?.endpoint ? 'API' : '文件';
+        summaryEl.textContent = `${sourceLabel} | ${worker.status || 'UNKNOWN'} | 周期 ${workerMeta.cyclesCompleted || 0}/${workerMeta.cyclesRequested || 0} | 去重市场 ${summary.uniqueMarkets || 0} | 队列 ${summary.candidateQueueSize || queue.length || 0}`;
+    }
+    const boundaryCard = `
+        <div class="polymarket-card ${worker.status === 'ERROR' ? 'danger' : 'good'}">
+            <div class="polymarket-eyebrow">Worker 执行边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(worker.decision || 'SHADOW_ONLY_BATCH_RADAR_WORKER_NO_BETTING'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('下单', safety.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', safety.canMutateMt5 ? '是' : '否')}
+                ${renderPolymarketMetric('运行模式', workerMeta.defaultMode || '--')}
+            </div>
+            <div class="polymarket-note">${escapeHtml(safety.reason || '只刷新公共市场证据和影子分析队列。')}</div>
+        </div>
+    `;
+    const trendCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">趋势缓存</div>
+            <div class="polymarket-title">新增 / 复现 / 变强 / 变弱</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('新增', summary.newMarkets ?? '--')}
+                ${renderPolymarketMetric('复现', summary.recurringMarkets ?? '--')}
+                ${renderPolymarketMetric('分数变强', summary.scoreImproved ?? '--')}
+                ${renderPolymarketMetric('分数变弱', summary.scoreDeteriorated ?? '--')}
+            </div>
+            <div class="polymarket-note">缓存 ${escapeHtml(worker.trend?.cacheFile || 'QuantGod_PolymarketRadarTrendCache.json')}；重复出现且变强的市场优先进入单市场分析。</div>
+        </div>
+    `;
+    const topCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">本轮扫描</div>
+            <div class="polymarket-title">${escapeHtml(summary.topMarket || '暂无 top market')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('唯一市场', summary.uniqueMarkets ?? '--')}
+                ${renderPolymarketMetric('重复折叠', summary.duplicateMarkets ?? '--')}
+                ${renderPolymarketMetric('队列候选', summary.candidateQueueSize ?? '--')}
+                ${renderPolymarketMetric('最高分', summary.topScore ?? '--')}
+            </div>
+            <div class="polymarket-note">Worker 会同步刷新 V1 雷达文件，但不会触发钱包、CLOB 或 MT5。</div>
+        </div>
+    `;
+    body.innerHTML = [
+        boundaryCard,
+        trendCard,
+        topCard,
+        ...queue.slice(0, 6).map(renderPolymarketRadarWorkerQueueCard),
+    ].join('') || '<div class="empty-state">Worker V2 暂无候选。</div>';
 }
 
 function renderPolymarketRadarCard(item = {}) {
@@ -16274,6 +16410,7 @@ function updateDashboard() {
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
     updatePolymarketUnifiedSearch(d);
+    updatePolymarketRadarWorker(d);
     updatePolymarketMarketRadar(d);
     updatePolymarketAiScore(d);
     updatePolymarketSingleMarketAnalysis(d);

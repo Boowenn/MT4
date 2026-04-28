@@ -10,6 +10,7 @@ const repoRoot = path.resolve(rootDir, '..');
 const defaultRuntimeDir = 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
 const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
 const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
+const polymarketRadarWorkerName = 'QuantGod_PolymarketRadarWorkerV2.json';
 const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
 const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
@@ -20,6 +21,7 @@ const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders'
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
 const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
+  polymarketRadarWorkerName,
   polymarketAiScoreName,
   polymarketSingleMarketAnalysisName
 ]);
@@ -1145,6 +1147,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar') {
     handlePolymarketReadOnlyJson(req, res, polymarketRadarName, '/api/polymarket/radar');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar-worker') {
+    handlePolymarketReadOnlyJson(req, res, polymarketRadarWorkerName, '/api/polymarket/radar-worker');
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {

@@ -18,6 +18,11 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketResearchLedger.csv`
 - `QuantGod_PolymarketMarketRadar.json`
 - `QuantGod_PolymarketMarketRadar.csv`
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarWorkerV2.csv`
+- `QuantGod_PolymarketRadarTrendCache.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketRadarCandidateQueue.csv`
 - `QuantGod_PolymarketSingleMarketAnalysis.json`
 - `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
 - `QuantGod_PolymarketRetunePlanner.json`
@@ -72,6 +77,45 @@ Current radar behavior is deliberately `SHADOW_ONLY_MARKET_RADAR_NO_BETTING`:
 - no MT5 mutation.
 
 If Polymarket execution is added later, it should be a separate promoted module gated by Strategy Version Registry, Governance Advisor, bankroll isolation, position sizing, per-market max loss, take-profit/stop-loss exit rules, order-send audit, and a kill switch. The radar is the discovery layer, not the execution layer.
+
+## Batch Opportunity Radar V2 / Worker
+
+Run:
+
+```bat
+tools\run_polymarket_radar_worker_v2.bat
+```
+
+Optional bounded worker form:
+
+```bat
+set QG_POLYMARKET_RADAR_WORKER_CYCLES=4
+set QG_POLYMARKET_RADAR_WORKER_INTERVAL_SECONDS=900
+tools\run_polymarket_radar_worker_v2.bat
+```
+
+Worker V2 wraps Gamma Radar V1 with a controlled cadence, trend cache, market deduplication, and a shadow-only candidate queue. The default is one cycle, so normal manual use refreshes evidence once and exits. Longer runs are bounded by `--max-cycles`; there is no unbounded daemon by default.
+
+It writes:
+
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarWorkerV2.csv`
+- `QuantGod_PolymarketRadarTrendCache.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketRadarCandidateQueue.csv`
+
+It also refreshes the V1 `QuantGod_PolymarketMarketRadar.json/csv` outputs with Worker trend annotations, so the existing dashboard radar remains compatible.
+
+The queue state is `SHADOW_ANALYSIS_READY` only. It is for single-market analysis or AI score review, not execution:
+
+- no `.env` load;
+- no private key reads;
+- no wallet writes;
+- no CLOB order calls;
+- no executor/canary start;
+- no MT5 mutation.
+
+This closes the QuantDinger-style batch-radar gap without restoring Polymarket betting. Any future real order executor must still pass the separate Execution Gate, dry-run outcome evidence, bankroll budget, TP/SL rules, and explicit canary controls.
 
 ## Single Market AI Analysis V1
 

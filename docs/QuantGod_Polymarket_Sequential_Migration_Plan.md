@@ -18,9 +18,17 @@ Next item after this commit: `Batch Opportunity Radar V2 / Worker`.
 
 ## 2. Batch Opportunity Radar V2 / Worker
 
-Status: pending.
+Status: completed in this branch.
 
-Target: turn one-shot Gamma Radar V1 into a controlled worker that can refresh active markets on a cadence, cache trend deltas, deduplicate markets, and enqueue analysis candidates without wallet execution.
+- Added `tools/run_polymarket_radar_worker_v2.py` and `.bat`.
+- Worker V2 wraps Gamma Radar V1 with bounded cycles, default one-shot mode, trend cache, deduplication, and a shadow-only analysis queue.
+- Writes `QuantGod_PolymarketRadarWorkerV2.json/csv`, `QuantGod_PolymarketRadarTrendCache.json`, and `QuantGod_PolymarketRadarCandidateQueue.json/csv`.
+- Refreshes compatible V1 radar output with trend annotations so the existing dashboard radar keeps working.
+- Dashboard now has a read-only Worker V2 panel and `/api/polymarket/radar-worker`.
+- Safety remains research-only: no env/secret load, no wallet write, no order execution, no executor start, no MT5 mutation.
+- Verified with offline seed radar, live Gamma small batch, trend-cache recurrence pass, Python syntax check, Node syntax check, dashboard inline script syntax check, and `/api/polymarket/radar-worker` smoke test.
+
+Next item after this commit: `Historical Analysis Library` polish for Worker V2 trend/queue persistence.
 
 ## 3. Historical Analysis Library
 
