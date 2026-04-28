@@ -44,9 +44,15 @@ Next item after this commit: `Search / History API` facade polish over the now-p
 
 ## 4. Search / History API
 
-Status: mostly done, pending Worker V2 facade polish.
+Status: completed in this branch.
 
-Target: keep `history/radar/analyze/history/ai-score/search` read-only and extend facades only after new worker/history fields exist.
+- Extended `/api/polymarket/search` to treat persisted Worker V2 evidence as first-class grouped evidence.
+- Split Worker V2 rows into a dedicated `worker` section and summary count while keeping ordinary history rows separate.
+- Worker run/trend/queue rows now contribute source labels, risk/recommendation, score, probability, probability delta, trend direction, candidate id, queue state, next action, and run id to the comprehensive evidence card.
+- The Dashboard raw evidence drawer and copyable audit summary now expose Worker V2 queue/trend fields, so folded search cards stay auditable without opening the SQLite view manually.
+- Safety remains research-only: no private-key read, no wallet write, no CLOB order call, no executor start, no MT5 mutation.
+
+Next item after this commit: `Cross-Market Linkage`.
 
 ## 5. Cross-Market Linkage
 

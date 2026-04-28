@@ -605,25 +605,75 @@ function compactAnalysisResult(row = {}) {
   };
 }
 
+function isWorkerHistoryType(historyType = '') {
+  return ['worker-runs', 'worker-trends', 'worker-queue'].includes(String(historyType || '').trim());
+}
+
+function isWorkerHistoryRow(row = {}) {
+  return isWorkerHistoryType(row.historyType);
+}
+
+function getHistorySourceLabel(historyType = '') {
+  const normalized = String(historyType || '').trim();
+  if (normalized === 'worker-runs') return 'Worker 批次';
+  if (normalized === 'worker-trends') return '趋势缓存';
+  if (normalized === 'worker-queue') return '雷达队列';
+  if (normalized === 'opportunities') return '机会历史';
+  if (normalized === 'analyses') return '分析历史';
+  if (normalized === 'simulations') return '模拟历史';
+  if (normalized === 'runs') return '构建批次';
+  if (normalized === 'snapshots') return '研究快照';
+  return '历史库';
+}
+
 function compactHistoryResult(row = {}) {
+  const historyType = firstDefined(row.historyType, 'history');
+  const workerRow = isWorkerHistoryType(historyType);
+  const workerSubtitle = firstDefined(
+    row.nextAction,
+    row.queueState,
+    row.trendDirection,
+    row.status,
+    row.decision,
+    row.schemaVersion
+  );
   return {
-    sourceType: firstDefined(row.historyType, 'history'),
-    sourceLabel: '历史库',
-    title: firstDefined(row.question, row.query, row.marketId, row.runId, row.mode, '--'),
-    subtitle: firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
+    sourceType: workerRow ? historyType : firstDefined(row.historyType, 'history'),
+    sourceLabel: getHistorySourceLabel(historyType),
+    title: firstDefined(row.question, row.query, row.topMarket, row.marketId, row.runId, row.mode, '--'),
+    subtitle: workerRow
+      ? workerSubtitle
+      : firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
     marketId: firstDefined(row.marketId),
     url: firstDefined(row.polymarketUrl, row.url),
     generatedAt: firstDefined(row.generatedAt, row.seenAt, row.lastSeenAt, row.firstSeenAt),
-    risk: firstDefined(row.risk),
-    recommendation: firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
+    risk: firstDefined(row.risk, row.topRisk),
+    recommendation: workerRow
+      ? firstDefined(row.nextAction, row.queueState, row.status, row.decision, 'WORKER_EVIDENCE')
+      : firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
     track: firstDefined(row.suggestedShadowTrack, row.track, row.source),
-    probability: firstDefined(row.probability, row.marketProbability),
-    divergence: firstDefined(row.divergence),
-    score: numericScore(row.aiRuleScore, row.ruleScore, row.confidence, row.executedPf),
+    probability: firstDefined(row.probability, row.marketProbability, row.lastProbability),
+    divergence: firstDefined(row.divergence, row.probabilityDelta),
+    score: numericScore(row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.executedPf),
     detail: {
-      historyType: firstDefined(row.historyType),
+      historyType,
       source: firstDefined(row.source),
-      rawType: 'history'
+      rawType: workerRow ? 'worker-history' : 'history',
+      runId: firstDefined(row.runId),
+      candidateId: firstDefined(row.candidateId),
+      queueState: firstDefined(row.queueState),
+      executionMode: firstDefined(row.executionMode),
+      nextAction: firstDefined(row.nextAction),
+      trendDirection: firstDefined(row.trendDirection),
+      seenCount: firstDefined(row.seenCount),
+      staleCycles: firstDefined(row.staleCycles),
+      probabilityDelta: firstDefined(row.probabilityDelta),
+      aiRuleScoreDelta: firstDefined(row.aiRuleScoreDelta),
+      volume24hDelta: firstDefined(row.volume24hDelta),
+      candidateQueueSize: firstDefined(row.candidateQueueSize),
+      uniqueMarkets: firstDefined(row.uniqueMarkets),
+      recurringMarkets: firstDefined(row.recurringMarkets),
+      newMarkets: firstDefined(row.newMarkets)
     }
   };
 }
@@ -957,13 +1007,23 @@ async function handlePolymarketSearch(req, res) {
       : [];
 
     const historyPayload = historyResult.payload || {};
-    const historyRows = query
+    const rawHistoryRows = query
       ? (historyPayload.search?.rows || [])
       : [
           ...(historyPayload.recent?.opportunities || []),
           ...(historyPayload.recent?.analyses || []),
           ...(historyPayload.recent?.simulations || []),
         ].slice(0, limit);
+    const workerRows = query
+      ? rawHistoryRows.filter(isWorkerHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['worker-runs'] || historyPayload.recent?.workerRuns || []),
+          ...(historyPayload.recent?.['worker-trends'] || historyPayload.recent?.workerTrends || []),
+          ...(historyPayload.recent?.['worker-queue'] || historyPayload.recent?.workerQueue || []),
+        ].slice(0, limit);
+    const historyRows = query
+      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row)).slice(0, limit)
+      : rawHistoryRows;
     const analysisRows = normalizeAnalyzeHistoryRows(
       analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
     );
@@ -1001,18 +1061,20 @@ async function handlePolymarketSearch(req, res) {
       radar: radarItems.map((item) => compactRadarResult(item, radar?.generatedAt)),
       aiScore: aiScoreItems.map((item) => compactAiScoreResult(item, aiScore?.generatedAt)),
       analyses: [...latestAnalysisRows, ...analysisRows].slice(0, limit).map(compactAnalysisResult),
+      worker: workerRows.slice(0, limit).map(compactHistoryResult),
       history: historyRows.slice(0, limit).map(compactHistoryResult)
     };
     const rawSearchResults = sortSearchResults([
       ...sections.radar,
       ...sections.aiScore,
       ...sections.analyses,
+      ...sections.worker,
       ...sections.history
     ]);
     const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
 
     sendJson(res, 200, {
-      mode: 'POLYMARKET_SEARCH_API_V2_GROUPED_MARKET_EVIDENCE',
+      mode: 'POLYMARKET_SEARCH_API_V3_WORKER_EVIDENCE_GROUPS',
       status: errors.length ? 'PARTIAL' : 'OK',
       generatedAt: new Date().toISOString(),
       source: 'quantgod_dashboard_local_api',
@@ -1026,6 +1088,7 @@ async function handlePolymarketSearch(req, res) {
         radarMatches: sections.radar.length,
         aiScoreMatches: sections.aiScore.length,
         analysisMatches: sections.analyses.length,
+        workerMatches: sections.worker.length,
         historyMatches: sections.history.length,
         historyTotalRows: historyPayload.summary?.totalRows || 0
       },

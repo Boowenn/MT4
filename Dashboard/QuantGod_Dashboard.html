@@ -10241,6 +10241,7 @@ function translatePolymarketToken(value) {
         AI_SCORE_ONLY_NO_BETTING: 'AI 评分只读：不下注',
         AI_SCORE_ONLY_NO_WALLET_WRITE: 'AI 评分只读：不写钱包',
         READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE: '统一证据搜索只读：不写钱包',
+        WORKER_EVIDENCE: 'Worker 证据',
         POLYMARKET_AI_SCORE_V1: '历史 AI 评分 V1',
         SHADOW_REVIEW_PRIORITY: '优先进入影子复核',
         WATCH_SHADOW_AND_COLLECT_OUTCOME: '继续影子观察并收集后验',
@@ -10275,6 +10276,9 @@ function translatePolymarketToken(value) {
         low: '低',
         medium: '中',
         high: '高',
+        flat: '横盘',
+        up: '上升',
+        down: '下降',
         green: '绿灯',
         yellow: '黄灯',
         red: '红灯',
@@ -10419,10 +10423,19 @@ function buildPolymarketUnifiedEvidenceAuditText(item = {}) {
         '边界: 只读研究；不读私钥、不写钱包、不下单、不影响 MT5'
     ];
     const rows = evidence.map((row, index) => {
+        const detail = row.detail || {};
         const meta = [
             row.marketId ? `marketId=${row.marketId}` : '',
             row.url ? `url=${row.url}` : '',
             row.track ? `track=${row.track}` : '',
+            detail.runId ? `run=${detail.runId}` : '',
+            detail.candidateId ? `candidate=${detail.candidateId}` : '',
+            detail.queueState ? `queue=${translatePolymarketToken(detail.queueState)}` : '',
+            detail.trendDirection ? `trend=${translatePolymarketToken(detail.trendDirection)}` : '',
+            detail.seenCount !== undefined && detail.seenCount !== '' ? `seen=${detail.seenCount}` : '',
+            detail.probabilityDelta !== undefined && detail.probabilityDelta !== '' ? `probDelta=${formatPolymarketSignedPp(detail.probabilityDelta)}` : '',
+            detail.aiRuleScoreDelta !== undefined && detail.aiRuleScoreDelta !== '' ? `scoreDelta=${formatPolymarketScore(detail.aiRuleScoreDelta)}` : '',
+            detail.nextAction ? `next=${translatePolymarketToken(detail.nextAction)}` : '',
             row.probability !== undefined && row.probability !== '' ? `prob=${formatPolymarketPercent(row.probability)}` : '',
             row.divergence !== undefined && row.divergence !== '' ? `div=${formatPolymarketSignedPp(row.divergence)}` : ''
         ].filter(Boolean).join(' | ');
@@ -10439,10 +10452,19 @@ function renderPolymarketUnifiedEvidenceRow(row = {}, item = {}) {
     const risk = translatePolymarketToken(row.risk || '--');
     const time = formatPolymarketTime(row.generatedAt);
     const title = row.title || row.subtitle || item.title || '--';
+    const detail = row.detail || {};
     const rawMeta = [
         row.marketId ? `marketId=${row.marketId}` : '',
         row.url ? `url=${row.url}` : '',
         row.track ? `track=${row.track}` : '',
+        detail.runId ? `run=${detail.runId}` : '',
+        detail.candidateId ? `candidate=${detail.candidateId}` : '',
+        detail.queueState ? `queue=${translatePolymarketToken(detail.queueState)}` : '',
+        detail.trendDirection ? `trend=${translatePolymarketToken(detail.trendDirection)}` : '',
+        detail.seenCount !== undefined && detail.seenCount !== '' ? `seen=${detail.seenCount}` : '',
+        detail.probabilityDelta !== undefined && detail.probabilityDelta !== '' ? `probDelta=${formatPolymarketSignedPp(detail.probabilityDelta)}` : '',
+        detail.aiRuleScoreDelta !== undefined && detail.aiRuleScoreDelta !== '' ? `scoreDelta=${formatPolymarketScore(detail.aiRuleScoreDelta)}` : '',
+        detail.nextAction ? `next=${translatePolymarketToken(detail.nextAction)}` : '',
         row.probability !== undefined && row.probability !== '' ? `prob=${formatPolymarketPercent(row.probability)}` : '',
         row.divergence !== undefined && row.divergence !== '' ? `div=${formatPolymarketSignedPp(row.divergence)}` : ''
     ].filter(Boolean).join(' · ');
@@ -10553,7 +10575,7 @@ function updatePolymarketUnifiedSearch(d) {
     if (summaryEl) {
         const sourceLabel = d?._polymarketUnifiedSearchSource === 'api' || search.source === 'quantgod_dashboard_local_api' ? 'API' : '文件';
         const activeQuery = query ? `关键词 ${query}` : '最近/高分证据';
-        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 雷达/分析/历史/AI ${summary.radarMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
+        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 雷达/Worker/分析/历史/AI ${summary.radarMatches || 0}/${summary.workerMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
     }
     const safety = search.safety || {};
     const boundaryCard = `
