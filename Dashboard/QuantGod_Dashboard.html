@@ -3543,6 +3543,8 @@
         .chart-container,
         .research-window-card,
         .backtest-compare-card,
+        .research-suggestion-card,
+        .eval-card,
         .mt5-shadow-subpanel {
             background: #ffffff;
             border-color: #dfe7f2;
@@ -3567,7 +3569,13 @@
         .research-window-metric,
         .backtest-metric,
         .research-suggestion-metric,
-        .regime-heatmap-metric {
+        .regime-heatmap-metric,
+        .eval-card-times,
+        .eval-block,
+        .symbol-strategy-action-detail-item,
+        .strategy-opportunity-stat,
+        .strategy-stat,
+        .mt5-shadow-subpanel-header {
             background: #f8fbff;
             border: 1px solid #e5edf7;
             color: #1f2937;
@@ -3605,7 +3613,9 @@
         }
 
         .regime-filter-chip,
-        .mt5-shadow-pill {
+        .mt5-shadow-pill,
+        .regime-heatmap-flag,
+        .research-confidence-badge {
             background: #f8fbff;
             border-color: #dbeafe;
             color: #334155;
@@ -3654,6 +3664,125 @@
         .regime-heatmap-cell.neutral {
             background: #f8fbff !important;
             border-color: #dbeafe;
+        }
+
+        .research-suggestion-card {
+            border-radius: 8px;
+        }
+
+        .research-suggestion-card.keep {
+            background: linear-gradient(180deg, #ffffff 0%, #f7fffb 100%);
+            border-color: #bbf7d0;
+        }
+
+        .research-suggestion-card.reduce {
+            background: linear-gradient(180deg, #ffffff 0%, #fffaf0 100%);
+            border-color: #fed7aa;
+        }
+
+        .research-suggestion-card.pause {
+            background: linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+            border-color: #fecaca;
+        }
+
+        .research-suggestion-card.is-focused {
+            border-color: #93c5fd;
+            box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12), 0 10px 24px rgba(15, 23, 42, 0.05);
+        }
+
+        .research-confidence-badge {
+            background: #f1f5f9;
+            border-color: #dce6f2;
+            color: #64748b;
+        }
+
+        .research-suggestion-symbol,
+        .eval-card-symbol,
+        .eval-block-hero,
+        .eval-mini-item-value,
+        .strategy-stat-value,
+        .symbol-strategy-action-detail-value,
+        .strategy-opportunity-value {
+            color: #111827;
+        }
+
+        .research-suggestion-subline,
+        .eval-card-subline,
+        .eval-card-time-meta,
+        .eval-block-subhero,
+        .eval-block-note,
+        .eval-mini-item-meta,
+        .eval-summary,
+        .strategy-context-meta,
+        .diag-reason,
+        .symbol-strategy-action-detail-key {
+            color: #64748b;
+        }
+
+        .strategy-health,
+        .strategy-context,
+        .strategy-opportunity {
+            border-color: #e5edf7;
+        }
+
+        .diag-bar {
+            background: #e5edf7;
+        }
+
+        .eval-card {
+            border-radius: 8px;
+        }
+
+        .eval-card-header {
+            border-bottom-color: #e5edf7;
+        }
+
+        .eval-card:hover,
+        .research-suggestion-card:hover {
+            border-color: #b9d7ff;
+            transform: translateY(-1px);
+        }
+
+        .table-wrapper {
+            background: #ffffff;
+            border: 1px solid #dfe7f2;
+            border-radius: 8px;
+            overflow: auto;
+        }
+
+        table {
+            color: #1f2937;
+        }
+
+        th {
+            background: #f8fbff;
+            color: #64748b;
+            border-bottom-color: #dfe7f2;
+        }
+
+        td {
+            color: #1f2937;
+            border-bottom-color: #edf2f7;
+        }
+
+        tr:hover td {
+            background: #f6faff;
+        }
+
+        .table-group-row td {
+            background: #eef6ff;
+            color: #0f5ed7;
+            border-color: #d6eaff;
+        }
+
+        .empty-state {
+            background: #fbfdff;
+            color: #64748b;
+        }
+
+        .footer {
+            background: #ffffff;
+            border-top-color: #dfe7f2;
         }
 
         @media (max-width: 1100px) {
@@ -9344,7 +9473,7 @@ function initCharts() {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-            legend: { labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } } }
+            legend: { labels: { color: '#64748b', font: { family: 'Inter', size: 11 } } }
         }
     };
 
@@ -9356,16 +9485,18 @@ function initCharts() {
         options: {
             ...chartDefaults,
             scales: {
-                x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(42,58,78,0.5)' } },
-                y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 11 }, callback: v => '$' + v }, grid: { color: 'rgba(42,58,78,0.5)' } }
+                x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(203, 213, 225, 0.55)' } },
+                y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 11 }, callback: v => '$' + v }, grid: { color: 'rgba(203, 213, 225, 0.55)' } }
             },
             plugins: {
                 ...chartDefaults.plugins,
                 legend: { display: false },
                 tooltip: {
-                    backgroundColor: '#1a2332',
-                    borderColor: '#2a3a4e',
+                    backgroundColor: '#ffffff',
+                    borderColor: '#dfe7f2',
                     borderWidth: 1,
+                    titleColor: '#111827',
+                    bodyColor: '#1f2937',
                     titleFont: { family: 'Inter' },
                     bodyFont: { family: 'JetBrains Mono' },
                     callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) }
@@ -9390,7 +9521,7 @@ function initCharts() {
                 ...chartDefaults.plugins,
                 legend: {
                     position: 'right',
-                    labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 10 }
+                    labels: { color: '#64748b', font: { family: 'Inter', size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 10 }
                 }
             }
         }
@@ -9405,7 +9536,7 @@ function initCharts() {
             ...chartDefaults,
             scales: {
                 x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
-                y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 11 }, callback: v => '$' + v }, grid: { color: 'rgba(42,58,78,0.5)' } }
+                y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 11 }, callback: v => '$' + v }, grid: { color: 'rgba(203, 213, 225, 0.55)' } }
             },
             plugins: {
                 ...chartDefaults.plugins,
@@ -9475,7 +9606,7 @@ function updatePieChart(d) {
     pieChart.data.datasets = [{
         data: Object.values(stratProfits),
         backgroundColor: stratColors,
-        borderColor: '#1a2332',
+        borderColor: '#ffffff',
         borderWidth: 3
     }];
     pieChart.update('none');
@@ -9562,7 +9693,7 @@ function updatePieChart(d) {
     pieChart.data.datasets = [{
         data: Object.values(stratProfits),
         backgroundColor: stratColors,
-        borderColor: '#1a2332',
+        borderColor: '#ffffff',
         borderWidth: 3
     }];
     pieChart.update('none');
