@@ -25,6 +25,7 @@ PARAM_OPTIMIZATION_NAME = "QuantGod_ParamOptimizationPlan.json"
 PARAM_LAB_STATUS_NAME = "QuantGod_ParamLabStatus.json"
 PARAM_LAB_RESULTS_NAME = "QuantGod_ParamLabResults.json"
 PARAM_LAB_REPORT_WATCHER_NAME = "QuantGod_ParamLabReportWatcher.json"
+AUTO_TESTER_WINDOW_NAME = "QuantGod_AutoTesterWindow.json"
 STRATEGY_VERSION_REGISTRY_NAME = "QuantGod_StrategyVersionRegistry.json"
 OPTIMIZER_V2_NAME = "QuantGod_OptimizerV2Plan.json"
 VERSION_PROMOTION_GATE_NAME = "QuantGod_VersionPromotionGate.json"
@@ -43,6 +44,7 @@ RUNTIME_FILE_HEALTH = [
     ("param_lab", PARAM_LAB_STATUS_NAME, 7 * 24 * 60 * 60),
     ("param_lab_results", PARAM_LAB_RESULTS_NAME, 7 * 24 * 60 * 60),
     ("param_lab_report_watcher", PARAM_LAB_REPORT_WATCHER_NAME, 7 * 24 * 60 * 60),
+    ("auto_tester_window", AUTO_TESTER_WINDOW_NAME, 7 * 24 * 60 * 60),
     ("strategy_version_registry", STRATEGY_VERSION_REGISTRY_NAME, 7 * 24 * 60 * 60),
     ("optimizer_v2", OPTIMIZER_V2_NAME, 7 * 24 * 60 * 60),
     ("version_promotion_gate", VERSION_PROMOTION_GATE_NAME, 7 * 24 * 60 * 60),
@@ -624,6 +626,49 @@ def summarize_param_lab_report_watcher(watcher: dict[str, Any]) -> dict[str, Any
     }
 
 
+def summarize_auto_tester_window(window: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(window, dict) or not window:
+        return {
+            "status": "missing",
+            "mode": "",
+            "canRunTerminal": False,
+            "runTerminalRequested": False,
+            "runAttempted": False,
+            "selectedTaskCount": 0,
+            "queueCount": 0,
+            "windowOk": False,
+            "lockOk": False,
+            "queueOk": False,
+            "environmentOk": False,
+            "blockerCount": 0,
+            "blockers": ["auto_tester_window_missing"],
+            "runTerminal": False,
+            "livePresetMutation": False,
+        }
+    summary = window.get("summary") if isinstance(window.get("summary"), dict) else {}
+    gate = window.get("gate") if isinstance(window.get("gate"), dict) else {}
+    return {
+        "status": "ready",
+        "generatedAtIso": window.get("generatedAtIso", ""),
+        "mode": window.get("mode", summary.get("mode", "EVALUATE_ONLY")),
+        "canRunTerminal": bool(summary.get("canRunTerminal")),
+        "runTerminalRequested": bool(summary.get("runTerminalRequested")),
+        "runAttempted": bool(summary.get("runAttempted")),
+        "selectedTaskCount": int(summary.get("selectedTaskCount") or 0),
+        "queueCount": int(summary.get("queueCount") or 0),
+        "windowOk": bool(summary.get("windowOk")),
+        "lockOk": bool(summary.get("lockOk")),
+        "queueOk": bool(summary.get("queueOk")),
+        "environmentOk": bool(summary.get("environmentOk")),
+        "blockerCount": int(summary.get("blockerCount") or 0),
+        "blockers": gate.get("blockers") if isinstance(gate.get("blockers"), list) else [],
+        "configOnlyCommand": window.get("configOnlyCommand", ""),
+        "guardedRunCommand": window.get("guardedRunCommand", ""),
+        "runTerminal": bool(summary.get("runTerminal")),
+        "livePresetMutation": False,
+    }
+
+
 def summarize_strategy_version_registry(registry: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(registry, dict) or not registry:
         return {
@@ -1126,6 +1171,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_lab_status = read_json(runtime_dir / PARAM_LAB_STATUS_NAME)
     param_lab_results_doc = read_json(runtime_dir / PARAM_LAB_RESULTS_NAME)
     param_lab_report_watcher_doc = read_json(runtime_dir / PARAM_LAB_REPORT_WATCHER_NAME)
+    auto_tester_window_doc = read_json(runtime_dir / AUTO_TESTER_WINDOW_NAME)
     strategy_version_registry_doc = read_json(runtime_dir / STRATEGY_VERSION_REGISTRY_NAME)
     optimizer_v2_doc = read_json(runtime_dir / OPTIMIZER_V2_NAME)
     version_promotion_gate_doc = read_json(runtime_dir / VERSION_PROMOTION_GATE_NAME)
@@ -1142,6 +1188,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
     param_lab = summarize_param_lab(param_lab_status)
     param_lab_results = summarize_param_lab_results(param_lab_results_doc)
     param_lab_report_watcher = summarize_param_lab_report_watcher(param_lab_report_watcher_doc)
+    auto_tester_window = summarize_auto_tester_window(auto_tester_window_doc)
     strategy_version_registry = summarize_strategy_version_registry(strategy_version_registry_doc)
     optimizer_v2 = summarize_optimizer_v2(optimizer_v2_doc)
     version_promotion_gate = summarize_version_promotion_gate(version_promotion_gate_doc)
@@ -1216,6 +1263,8 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "paramLabReportWatcherParsed": param_lab_report_watcher["parsedReportCount"],
             "paramLabReportWatcherPending": param_lab_report_watcher["pendingReportCount"],
             "paramLabReportWatcherMalformed": param_lab_report_watcher["malformedReportCount"],
+            "autoTesterWindowCanRun": auto_tester_window["canRunTerminal"],
+            "autoTesterWindowBlockers": auto_tester_window["blockerCount"],
             "strategyVersionCount": strategy_version_registry["routeCount"],
             "optimizerV2Proposals": optimizer_v2["proposalCount"],
             "optimizerV2WaitingReport": optimizer_v2["waitingReportCount"],
@@ -1239,6 +1288,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         "paramLab": param_lab,
         "paramLabResults": param_lab_results,
         "paramLabReportWatcher": param_lab_report_watcher,
+        "autoTesterWindow": auto_tester_window,
         "strategyVersionRegistry": strategy_version_registry,
         "optimizerV2": optimizer_v2,
         "versionPromotionGate": version_promotion_gate,
@@ -1253,6 +1303,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "Use ParamLabReportWatcher to discover landed Strategy Tester reports, then use ParamLabResults as the parameter-version ranking source; pending or malformed reports are not promotion evidence.",
             "Use VersionPromotionGate as dry-run promotion/demotion review; it never mutates live switches by itself.",
             "Use ParamLabAutoScheduler as the config-only queue for the next tester-only batch; it never adds -RunTerminal.",
+            "Use AUTO_TESTER_WINDOW as the only guarded run-terminal bridge; it requires the tester window, an authorization lock, tester-only queue, and profile/config validation.",
             "Use this JSON as advisory evidence only; do not bypass EA live switches or risk guards.",
         ],
     }

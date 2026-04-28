@@ -21,6 +21,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from auto_tester_window_guard import (
+    LOCK_NAME,
+    evaluate_execution_gate,
+    read_json as read_guard_json,
+    validate_materialized_task,
+    validate_tester_profile_matches,
+)
+
 
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HFM_ROOT = Path(r"C:\Program Files\HFM Metatrader 5")
@@ -58,7 +66,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-outside-window",
         action="store_true",
-        help="Allow --run-terminal outside the regular weekend tester window when explicitly authorized.",
+        help="Allow --run-terminal outside the regular weekend tester window only when the authorization lock allows it.",
+    )
+    parser.add_argument(
+        "--auto-tester-lock",
+        default="",
+        help="Authorization lock JSON required for --run-terminal. Defaults to <runtime-dir>/QuantGod_AutoTesterWindow.lock.json.",
     )
     return parser.parse_args()
 
@@ -370,11 +383,24 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
     if not plan:
         raise FileNotFoundError(f"Param optimization plan not found or unreadable: {plan_path}")
 
+    run_terminal_gate: dict[str, Any] = {}
     if args.run_terminal:
         if not args.authorized_strategy_tester:
             raise RuntimeError("--run-terminal requires --authorized-strategy-tester.")
-        if not args.allow_outside_window and not in_regular_tester_window():
-            raise RuntimeError("--run-terminal is outside the regular weekend Strategy Tester window.")
+        lock_path = Path(args.auto_tester_lock) if args.auto_tester_lock else runtime_dir / LOCK_NAME
+        scheduler_doc = read_guard_json(plan_path)
+        run_terminal_gate = evaluate_execution_gate(
+            scheduler=scheduler_doc,
+            runtime_dir=runtime_dir,
+            hfm_root=hfm_root,
+            repo_root=repo_root,
+            lock_path=lock_path,
+            max_tasks=args.max_tasks,
+            allow_outside_window=args.allow_outside_window,
+        )
+        if not run_terminal_gate.get("canRunTerminal"):
+            blockers = ", ".join(run_terminal_gate.get("blockers") or ["unknown_guard_blocker"])
+            raise RuntimeError(f"--run-terminal blocked by AUTO_TESTER_WINDOW guard: {blockers}")
 
     terminal = hfm_root / "terminal64.exe"
     hfm_presets = hfm_root / "MQL5" / "Presets"
@@ -443,6 +469,23 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             encoding="ascii",
         )
 
+        materialized_guard = validate_materialized_task(
+            {
+                "candidateId": candidate_id,
+                "routeKey": route_key,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "configPath": str(config_path),
+                "presetPath": str(local_preset),
+                "hfmPresetPath": str(hfm_preset),
+            },
+            repo_root=repo_root,
+            hfm_root=hfm_root,
+        )
+        if not materialized_guard.get("ok"):
+            blockers = ", ".join(materialized_guard.get("blockers") or ["unknown_materialized_guard_blocker"])
+            raise RuntimeError(f"Materialized tester task failed AUTO_TESTER_WINDOW guard for {candidate_id}: {blockers}")
+
         profile_synced = False
         terminal_exit_code: int | None = None
         runner_status = "CONFIG_READY"
@@ -451,6 +494,10 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
                 raise FileNotFoundError(f"HFM terminal not found: {terminal}")
             tester_profile = hfm_tester_profiles / "QuantGod_MultiStrategy.set"
             profile_synced = sync_tester_profile(hfm_preset, tester_profile)
+            profile_guard = validate_tester_profile_matches(tester_profile, hfm_preset)
+            if not profile_guard.get("ok"):
+                blockers = ", ".join(profile_guard.get("blockers") or ["unknown_profile_guard_blocker"])
+                raise RuntimeError(f"Tester profile failed AUTO_TESTER_WINDOW guard for {candidate_id}: {blockers}")
             if profile_synced:
                 shutil.copy2(tester_profile, hfm_tester_profiles / preset_name)
             process = subprocess.run([str(terminal), f"/config:{config_path}"], check=False)
@@ -479,6 +526,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "testerProfileSynced": profile_synced,
             "terminalExitCode": terminal_exit_code,
             "metrics": metrics,
+            "materializedGuard": materialized_guard,
             "livePresetMutation": False,
         }
         task_results.append(result)
@@ -528,6 +576,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
         "selectedTaskCount": len(task_results),
         "rankMode": args.rank_mode,
         "summary": summary,
+        "autoTesterWindowGate": run_terminal_gate,
         "topByRoute": top_by_route,
         "tasks": task_results,
         "hardGuards": [

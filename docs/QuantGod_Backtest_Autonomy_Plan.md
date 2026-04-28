@@ -7,7 +7,7 @@ This plan tracks the remaining QuantDinger-inspired pieces that have not been fu
 Implemented:
 
 - Param Optimization Plan: proposes tester-only parameter candidates and task metadata.
-- ParamLab Runner: materializes tester-only `.set` and `.ini` files, with Strategy Tester launch guarded by explicit authorization flags.
+- ParamLab Runner: materializes tester-only `.set` and `.ini` files; direct Strategy Tester launch now also requires AUTO_TESTER_WINDOW lock/window/profile/config validation.
 - ParamLab Report Watcher: discovers completed tester reports, scores PF, win rate, net profit, trade count, and drawdown, writes `QuantGod_ParamLabReportWatcher.json`, and updates the unified results ledger.
 - ParamLab batch dashboard: shows runnable, waiting-report, scored, and route-filtered task state.
 - Strategy Workspace: gives MA/RSI/BB/MACD/SR independent route cards.
@@ -17,6 +17,7 @@ Implemented:
 - Optimizer V2: proposes next-generation tester-only parameters linked to parent strategy versions.
 - Version Promotion Gate dry-run: writes `QuantGod_VersionPromotionGate.json` and `QuantGod_VersionPromotionGateLedger.csv`, judging each current route version and optimizer proposal by `versionId` without changing live switches.
 - ParamLab Auto Scheduler config-only: writes `QuantGod_ParamLabAutoScheduler.json` and `QuantGod_ParamLabAutoSchedulerLedger.csv`, translating Gate `WAIT_REPORT`, `RETUNE`, and `WAIT_FORWARD` evidence into the next route-balanced tester-only queue without adding `-RunTerminal`.
+- AUTO_TESTER_WINDOW guarded execution layer: writes `QuantGod_AutoTesterWindow.json` and `QuantGod_AutoTesterWindowLedger.csv`; default mode is evaluation-only, and run-terminal execution is blocked unless the Strategy Tester window, authorization lock, tester-only queue, HFM terminal/profile target, ParamLab config, report path, lot size, and position caps all pass.
 
 Current live-trading boundary:
 
@@ -40,21 +41,30 @@ Feasibility:
 - It should be implemented as tester-only automation, not live-trading automation.
 - The safe version should run only in an authorized tester window or explicit user-authorized session.
 
-Required safety gates before `-RunTerminal`:
+Implemented safety gates before `-RunTerminal`:
 
-- No unmanaged live-risk anomaly.
-- Either no open positions, or an explicitly approved rule that tester can run in an isolated terminal without disturbing live pilot.
 - HFM terminal path verified.
-- Tester profile path verified: `C:\Program Files\HFM Metatrader 5\MQL5\Profiles\Tester`.
-- Config path, preset path, report path, and run ID verified.
-- Lockfile proves no other ParamLab or MT5 tester run is active.
+- Tester profile root verified: `C:\Program Files\HFM Metatrader 5\MQL5\Profiles\Tester`.
+- Authorization lock file required: `QuantGod_AutoTesterWindow.lock.json`.
+- Lock must be for `PARAM_LAB_STRATEGY_TESTER_ONLY`, authorized, tester-only, run-terminal allowed, not expired, and pinned to the expected HFM/runtime paths when those fields are present.
+- Regular Strategy Tester window required by default; outside-window override requires both the CLI flag and a lock that explicitly allows it.
+- Auto Scheduler queue must be tester-only, must not include `-RunTerminal` by default, and must not declare live-preset mutation.
+- ParamLab config must set `AllowLiveTrading=0`, `AllowDllImport=0`, `Optimization=0`, `ShutdownTerminal=1`, and a report path under `archive/param-lab/runs/`.
+- Candidate presets must keep `PilotLotSize<=0.01`, `PilotMaxTotalPositions<=1`, and `PilotMaxPositionsPerSymbol<=1`.
+- Tester profile is validated against the generated ParamLab preset immediately before terminal launch.
 - Live preset is not copied over, mutated, or used as the output target.
 - Report output path is unique per candidate/version.
+
+Remaining runner work:
+
+- Add no-open-position / isolated-terminal policy before unattended weekday or live-session tester automation.
+- Add retry/budget controls and continuous polling.
+- Add stronger terminal timeout vs tester-failure classification.
 
 Proposed mode names:
 
 - `AUTOPLAN_ONLY`: current default; generates candidates, scheduler queue, and configs, no tester launch.
-- `AUTO_TESTER_WINDOW`: automatic Strategy Tester run, but only during allowed backtest window or explicit authorization.
+- `AUTO_TESTER_WINDOW`: implemented as a guarded Strategy Tester bridge; default is evaluation-only, and `--run-terminal` requires lock/window/profile/config validation.
 - `AUTO_TESTER_ISOLATED`: future stronger mode that runs against an isolated tester terminal/profile so live pilot remains untouched.
 - `AUTO_PROMOTION_DRY_RUN`: creates version promotion recommendations only.
 - `AUTO_LIVE_SWITCH`: not recommended now; would require a separate explicit rule change and stronger evidence gates.
@@ -163,11 +173,11 @@ The recommended target is:
 
 ## Suggested Implementation Order
 
-1. Implement `AUTO_TESTER_WINDOW` mode with lockfile and terminal/profile validation.
-2. Add Dashboard run-history panel.
-3. Add retry/budget controls.
-4. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
+1. Add Dashboard run-history panel with run ID, child process exit code, terminal/report state, and guard blockers.
+2. Add retry/budget controls.
+3. Re-evaluate whether isolated tester terminal support is needed before allowing unattended tester runs while live pilot is open.
+4. Add explicit no-open-position / live-session compatibility policy before unattended execution.
 
 ## Immediate Next Step
 
-Build `AUTO_TESTER_WINDOW` next. Auto Scheduler now chooses the next tester-only batch without launching MT5, and Report Watcher now discovers/report-scores landed tester reports. The remaining gap for full automation is a guarded Strategy Tester execution mode with a lockfile, verified terminal/profile targets, explicit weekend/authorization checks, and no live-preset mutation.
+Build the run-history / recovery layer next. Auto Scheduler chooses the next tester-only batch, AUTO_TESTER_WINDOW now gates whether it may run, and Report Watcher discovers/report-scores landed tester reports. The remaining gap for comfortable full automation is transparent run history plus retry/budget controls, not live-risk expansion.

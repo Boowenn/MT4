@@ -5301,6 +5301,27 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(14,165,233,0.15); color: var(--accent-blue);">G</div>
+                            AUTO_TESTER_WINDOW 守护
+                        </div>
+                        <span class="eval-summary" id="autoTesterWindowSummary">等待守护状态</span>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="paramlab-batch-toolbar">
+                            <div class="paramlab-batch-meta" id="autoTesterWindowMeta">
+                                只在授权 Strategy Tester 窗口、锁文件、tester-only 队列和 profile/config 校验全部通过时允许带 -RunTerminal。
+                            </div>
+                            <div class="paramlab-batch-counters" id="autoTesterWindowCounters"></div>
+                        </div>
+                        <div class="table-wrapper report-table-wrapper paramlab-batch-table" id="autoTesterWindowBody">
+                            <div class="empty-state">等待 QuantGod_AutoTesterWindow.json</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-orange);">N</div>
                             昨晚 vs 今天
                         </div>
@@ -5923,6 +5944,7 @@ const LOCAL_OPTIMIZER_V2_PATH = 'QuantGod_OptimizerV2Plan.json';
 const LOCAL_VERSION_PROMOTION_GATE_PATH = 'QuantGod_VersionPromotionGate.json';
 const LOCAL_PARAM_LAB_AUTO_SCHEDULER_PATH = 'QuantGod_ParamLabAutoScheduler.json';
 const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json';
+const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const OPPORTUNITY_RECENT_WINDOW = 20;
@@ -6071,6 +6093,7 @@ function setRouteStrategyFilter(strategy) {
     updateGovernanceAdvisor(dashboardData);
     updateParamLabBatchPanel(dashboardData);
     updateParamLabAutoSchedulerPanel(dashboardData);
+    updateAutoTesterWindowPanel(dashboardData);
     updateParamLabReportWatcherPanel(dashboardData);
     updateStrategyWorkspace(dashboardData);
     updateStrategyVersionOptimizerPanel(dashboardData);
@@ -6724,7 +6747,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         optimizerV2: baseData?.optimizerV2 || previousData?.optimizerV2 || null,
         versionPromotionGate: baseData?.versionPromotionGate || previousData?.versionPromotionGate || null,
         paramLabAutoScheduler: baseData?.paramLabAutoScheduler || previousData?.paramLabAutoScheduler || null,
-        paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null
+        paramLabReportWatcher: baseData?.paramLabReportWatcher || previousData?.paramLabReportWatcher || null,
+        autoTesterWindow: baseData?.autoTesterWindow || previousData?.autoTesterWindow || null
     };
 
     if (!isLocalRuntime()) {
@@ -6883,6 +6907,14 @@ async function attachSupplementalData(baseData, previousData = null) {
         console.warn('ParamLab report watcher load failed.', error);
     }
 
+    try {
+        data.autoTesterWindow = await loadLocalJsonSupplement(LOCAL_AUTO_TESTER_WINDOW_PATH);
+        data._autoTesterWindowError = false;
+    } catch (error) {
+        data._autoTesterWindowError = true;
+        console.warn('AUTO_TESTER_WINDOW load failed.', error);
+    }
+
     return data;
 }
 
@@ -6960,6 +6992,10 @@ function getParamLabAutoScheduler(d) {
 
 function getParamLabReportWatcher(d) {
     return d?.paramLabReportWatcher || d?.governanceAdvisor?.paramLabReportWatcher || null;
+}
+
+function getAutoTesterWindow(d) {
+    return d?.autoTesterWindow || d?.governanceAdvisor?.autoTesterWindow || null;
 }
 
 function getFocusSymbol(d) {
@@ -9076,6 +9112,94 @@ function updateParamLabAutoSchedulerPanel(d) {
     </table>`;
 }
 
+function renderAutoTesterWindowTaskRow(task) {
+    const routeKey = task?.routeKey || 'UNKNOWN';
+    const candidateId = task?.candidateId || '--';
+    const taskOk = task?.testerOnly && !task?.livePresetMutation && !task?.runTerminalDefault;
+    return `<tr>
+        <td class="paramlab-route-cell">
+            <div class="paramlab-route-name">${escapeHtml(strategyShortLabel(routeKey))} · ${escapeHtml(strategyLabel(routeKey))}</div>
+            <div class="paramlab-route-sub">${escapeHtml(task?.symbol || '--')} / ${escapeHtml(task?.timeframe || '--')}</div>
+        </td>
+        <td>
+            <span class="table-badge ${taskOk ? 'status-live' : 'status-danger'}">${taskOk ? 'tester-only' : '需阻断'}</span>
+            <div class="paramlab-path">${escapeHtml(candidateId)}</div>
+        </td>
+        <td>
+            <span class="paramlab-path">action: ${escapeHtml(task?.scheduleAction || '--')}</span>
+            <span class="paramlab-path">source: ${escapeHtml(task?.sourceDecision || '--')}</span>
+        </td>
+        <td>
+            <span class="paramlab-path">runTerminalDefault: ${task?.runTerminalDefault ? 'true' : 'false'}</span>
+            <span class="paramlab-path">livePresetMutation: ${task?.livePresetMutation ? 'true' : 'false'}</span>
+        </td>
+    </tr>`;
+}
+
+function updateAutoTesterWindowPanel(d) {
+    const summaryEl = document.getElementById('autoTesterWindowSummary');
+    const metaEl = document.getElementById('autoTesterWindowMeta');
+    const countersEl = document.getElementById('autoTesterWindowCounters');
+    const bodyEl = document.getElementById('autoTesterWindowBody');
+    if (!summaryEl || !metaEl || !countersEl || !bodyEl) return;
+
+    const windowState = getAutoTesterWindow(d);
+    if (!windowState || windowState.status === 'missing') {
+        summaryEl.textContent = '等待守护状态';
+        metaEl.textContent = '等待 QuantGod_AutoTesterWindow.json；默认只评估，不启动 MT5。';
+        countersEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="empty-state">等待 AUTO_TESTER_WINDOW 守护输出</div>';
+        return;
+    }
+
+    const summary = windowState.summary || windowState;
+    const gate = windowState.gate || {};
+    const rows = Array.isArray(windowState.selectedTasks) ? windowState.selectedTasks : [];
+    const filteredRows = isRouteStrategyFiltered()
+        ? rows.filter((task) => (task?.routeKey || task?.strategy) === routeStrategyFilter)
+        : rows;
+    const blockers = Array.isArray(gate.blockers)
+        ? gate.blockers
+        : (Array.isArray(windowState.blockers) ? windowState.blockers : []);
+    const canRun = Boolean(summary.canRunTerminal || windowState.canRunTerminal);
+    const mode = windowState.mode || summary.mode || 'EVALUATE_ONLY';
+    summaryEl.textContent = `${canRun ? '可运行' : '阻断'} | 队列 ${filteredRows.length}/${summary.queueCount || rows.length || 0} | blockers ${blockers.length}`;
+    metaEl.textContent = `Mode ${mode} · ${windowState.generatedAtIso || '--'}；带 -RunTerminal 必须 window/lock/queue/profile/config 全绿。`;
+    countersEl.innerHTML = [
+        `<span class="table-badge ${summary.windowOk ? 'status-live' : 'status-warn'}">window ${summary.windowOk ? 'OK' : 'NO'}</span>`,
+        `<span class="table-badge ${summary.lockOk ? 'status-live' : 'status-warn'}">lock ${summary.lockOk ? 'OK' : 'NO'}</span>`,
+        `<span class="table-badge ${summary.queueOk ? 'status-live' : 'status-danger'}">queue ${summary.queueOk ? 'OK' : 'NO'}</span>`,
+        `<span class="table-badge ${summary.environmentOk ? 'status-live' : 'status-danger'}">profile ${summary.environmentOk ? 'OK' : 'NO'}</span>`
+    ].join('');
+
+    if (!filteredRows.length) {
+        bodyEl.innerHTML = `<div class="empty-state">${escapeHtml(isRouteStrategyFiltered() ? strategyLabel(routeStrategyFilter) : '全部路线')} 当前没有 AUTO_TESTER_WINDOW 队列任务。${escapeHtml(blockers.slice(0, 4).join(' / ') || '')}</div>`;
+        return;
+    }
+
+    bodyEl.innerHTML = `<table>
+        <colgroup>
+            <col style="width: 24%;">
+            <col style="width: 24%;">
+            <col style="width: 28%;">
+            <col style="width: 24%;">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>路线</th>
+                <th>候选</th>
+                <th>调度来源</th>
+                <th>硬保护</th>
+            </tr>
+        </thead>
+        <tbody>${filteredRows.map(renderAutoTesterWindowTaskRow).join('')}</tbody>
+    </table>
+    <div class="paramlab-batch-toolbar">
+        <div class="paramlab-batch-meta">blockers: ${escapeHtml(blockers.slice(0, 8).join(' / ') || '--')}</div>
+        <div class="governance-feedback-actions">${renderCopyButton(windowState.guardedRunCommand || '', '复制 guarded run', '无运行命令')}</div>
+    </div>`;
+}
+
 function getParamLabReportWatcherRows(d) {
     const watcher = getParamLabReportWatcher(d);
     const rows = Array.isArray(watcher?.watchedResults)
@@ -11018,6 +11142,7 @@ function updateDashboard() {
     updateGovernanceAdvisor(d);
     updateParamLabBatchPanel(d);
     updateParamLabAutoSchedulerPanel(d);
+    updateAutoTesterWindowPanel(d);
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updateStrategyVersionOptimizerPanel(d);
