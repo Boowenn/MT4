@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.13"
+#property version   "3.14"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.13-mt5-rsi-fast-exit";
+input string DashboardBuild      = "QuantGod-v3.14-mt5-rsi-failfast";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -34,6 +34,13 @@ input double PilotRsiBreakevenLockPips    = 1.0;
 input double PilotRsiTrailingStartPips    = 8.0;
 input double PilotRsiTrailingDistancePips = 3.5;
 input double PilotRsiTrailingStepPips     = 0.5;
+input bool   EnablePilotRsiFailFastProtect = true;
+input int    PilotRsiFailFastMinAgeMinutes = 120;
+input double PilotRsiFailFastMinLossPips   = 8.0;
+input double PilotRsiFailFastMaxLossUSC    = 1.20;
+input double PilotRsiFailFastStopBufferPips = 2.5;
+input double PilotRsiFailFastStepPips      = 0.5;
+input bool   PilotRsiFailFastCloseOnMaxLoss = false;
 input bool   EnablePilotBBH1Candidate = true;
 input bool   EnablePilotBBH1Live      = false;
 input ENUM_TIMEFRAMES PilotBBTimeframe = PERIOD_H1;
@@ -3576,6 +3583,125 @@ void ManageDemotedPilotRouteExits()
    }
 }
 
+void ManagePilotRsiFailFastStops()
+{
+   if(!EnablePilotRsiFailFastProtect)
+      return;
+
+   bool pipsTriggerOn = (PilotRsiFailFastMinLossPips > 0.0);
+   bool cashTriggerOn = (PilotRsiFailFastMaxLossUSC > 0.0);
+   bool tightenOn = (PilotRsiFailFastStopBufferPips > 0.0 && (pipsTriggerOn || cashTriggerOn));
+   bool closeOn = (PilotRsiFailFastCloseOnMaxLoss && cashTriggerOn);
+   if(!tightenOn && !closeOn)
+      return;
+
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+      if(!IsPilotRsiPositionComment(comment))
+         continue;
+
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      int ageMinutes = (int)MathMax(0, (long)(CurrentServerTime() - openTime) / 60);
+      if(ageMinutes < MathMax(0, PilotRsiFailFastMinAgeMinutes))
+         continue;
+
+      double pip = PipSize(symbol);
+      double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      if(pip <= 0.0 || point <= 0.0)
+         continue;
+
+      MqlTick tick;
+      ZeroMemory(tick);
+      if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+         continue;
+
+      long positionType = PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentSL = PositionGetDouble(POSITION_SL);
+      double currentTP = PositionGetDouble(POSITION_TP);
+      double netProfit = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      double adversePips = 0.0;
+      if(positionType == POSITION_TYPE_BUY)
+         adversePips = (openPrice - tick.bid) / pip;
+      else if(positionType == POSITION_TYPE_SELL)
+         adversePips = (tick.ask - openPrice) / pip;
+      else
+         continue;
+
+      bool pipsTriggered = (pipsTriggerOn && adversePips >= MathAbs(PilotRsiFailFastMinLossPips));
+      bool cashTriggered = (cashTriggerOn && netProfit <= -MathAbs(PilotRsiFailFastMaxLossUSC));
+      if(!pipsTriggered && !cashTriggered)
+         continue;
+
+      if(closeOn && cashTriggered)
+      {
+         g_trade.SetExpertMagicNumber(PilotMagic);
+         g_trade.SetDeviationInPoints(PilotDeviationPoints);
+         g_trade.SetTypeFillingBySymbol(symbol);
+         bool closed = g_trade.PositionClose(ticket);
+         Print("QuantGod MT5 RSI failfast close ticket=", ticket,
+               " symbol=", symbol,
+               " age=", ageMinutes, "m",
+               " adversePips=", DoubleToString(adversePips, 1),
+               " net=", DoubleToString(netProfit, 2),
+               " routeProtect=RSI_FAILFAST",
+               " ok=", (closed ? "true" : "false"),
+               " retcode=", g_trade.ResultRetcode());
+         continue;
+      }
+
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      int freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+      double minDistance = (double)MathMax(stopsLevel, freezeLevel) * point + point;
+      double bufferDistance = MathMax(MathMax(0.1, PilotRsiFailFastStopBufferPips) * pip, minDistance);
+      double stepDistance = MathMax(0.1, PilotRsiFailFastStepPips) * pip;
+      double targetSL = 0.0;
+      bool shouldModify = false;
+
+      if(positionType == POSITION_TYPE_BUY)
+      {
+         targetSL = NormalizeDouble(tick.bid - bufferDistance, digits);
+         if(currentSL > 0.0 && currentSL >= targetSL - stepDistance)
+            continue;
+         if(targetSL > tick.bid - minDistance)
+            continue;
+         shouldModify = true;
+      }
+      else if(positionType == POSITION_TYPE_SELL)
+      {
+         targetSL = NormalizeDouble(tick.ask + bufferDistance, digits);
+         if(currentSL > 0.0 && currentSL <= targetSL + stepDistance)
+            continue;
+         if(targetSL < tick.ask + minDistance)
+            continue;
+         shouldModify = true;
+      }
+
+      if(shouldModify && ModifyPilotPositionStops(ticket, symbol, targetSL, currentTP))
+      {
+         Print("QuantGod MT5 RSI failfast stop tightened ticket=", ticket,
+               " symbol=", symbol,
+               " age=", ageMinutes, "m",
+               " adversePips=", DoubleToString(adversePips, 1),
+               " net=", DoubleToString(netProfit, 2),
+               " routeProtect=RSI_FAILFAST",
+               " newSL=", DoubleToString(targetSL, digits),
+               " trigger=", (cashTriggered ? "cash" : "pips"));
+      }
+   }
+}
+
 void ManagePilotBreakevenStops()
 {
    bool baseBreakevenOn = (EnablePilotBreakevenProtect && PilotBreakevenTriggerPips > 0.0);
@@ -3862,6 +3988,8 @@ void RunPilotExecutionLoop()
       ClosePilotPositions(g_pilotKillReason);
    ManageDemotedPilotRouteExits();
    ManageManualSafetyGuard();
+   if(!g_pilotKillSwitch)
+      ManagePilotRsiFailFastStops();
    if(!g_pilotKillSwitch)
       ManagePilotBreakevenStops();
    for(int i = 0; i < ArraySize(g_symbols); i++)
