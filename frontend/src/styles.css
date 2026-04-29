@@ -250,33 +250,6 @@ nav {
   background: rgba(129, 151, 178, 0.22);
 }
 
-.user-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 0 10px 0 5px;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(129, 151, 178, 0.18);
-  border-radius: 999px;
-}
-
-.user-chip span {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  color: #07111d;
-  background: #e9f5ff;
-  border-radius: 999px;
-  font-weight: 900;
-}
-
-.user-chip strong {
-  font-size: 12px;
-}
-
 .eyebrow {
   margin: 0 0 7px;
   color: var(--blue);
@@ -1235,8 +1208,36 @@ h2 {
 
 .ai-watch-rail {
   max-height: 520px;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 3px;
+}
+
+.ai-watch-item {
+  box-sizing: border-box;
+  min-height: 74px;
+}
+
+.ai-watch-item span {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-watch-item em {
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px 6px;
+  overflow: hidden;
+  color: #8fd0ff;
+  background: rgba(31, 155, 255, 0.12);
+  border: 1px solid rgba(31, 155, 255, 0.28);
+  border-radius: 5px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-feature-card {
@@ -2253,14 +2254,18 @@ h2 {
 .status-chip {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   min-height: 24px;
   padding: 3px 8px;
+  overflow: hidden;
   color: #b8c7d9;
   background: rgba(148, 163, 184, 0.12);
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 6px;
   font-size: 12px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pill.blue,
@@ -2365,7 +2370,8 @@ h2 {
 
 .table-panel {
   padding: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 .table-panel.embedded {
@@ -2837,7 +2843,6 @@ body {
 }
 
 .icon-button,
-.user-chip,
 .search-box,
 .inline-form,
 .mini-row,
@@ -3218,13 +3223,18 @@ body {
 .strategy-version-strip span {
   min-width: 0;
   padding: 10px;
-  overflow: hidden;
   color: #a9b7ca;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
   background: #20262f;
   border: 1px solid #303946;
   border-radius: 8px;
+}
+
+.strategy-version-strip .strategy-advice {
+  color: #cfe3ff;
 }
 
 .route-tree .lane-row.selected {

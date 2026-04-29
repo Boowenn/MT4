@@ -525,6 +525,83 @@ function normalizeParamState(row) {
   return String(first(row?.state, row?.status, row?.resultState, row?.grade, row?.queueState, row?.riskColor, '')).toUpperCase();
 }
 
+function compactStatusLabel(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '--';
+  const key = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  const exact = {
+    CONFIG_ONLY: '仅配置',
+    CONFIG_READY: '可运行',
+    RUN_PENDING_REPORT_FIRST: '等报告',
+    WAIT_REPORT: '等报告',
+    WAITING_REPORT: '等报告',
+    PENDING_REPORT: '等报告',
+    FILE_ONLY_REPORT_WATCHER: '报告文件',
+    FILE_ONLY_RUN_HISTORY: '运行历史',
+    EVALUATE_ONLY: '只评估',
+    MT5_RESEARCH_STATS: 'MT5研究',
+    POLYMARKET_AI_SCORE: 'AI评分',
+    POLYMARKET_MARKET_RADAR: '市场雷达',
+    POLYMARKET_SINGLE_MARKET: '单市场',
+    POLYMARKET_HISTORY_API: '历史API',
+    EXISTING_PARAMLAB_TASKS: '已有任务',
+    OK: '正常',
+    READY: '可运行',
+    PARSED: '已解析',
+    SCORED: '已评分',
+    PROMOTION: '可晋级',
+    DEMOTION: '降级',
+    RETUNE: '重调',
+    QUARANTINE: '隔离',
+    LOCKED: '锁定',
+    RED: '红灯',
+    YELLOW: '黄灯',
+    GREEN: '绿灯'
+  };
+  if (exact[key]) return exact[key];
+  if (key.includes('AI_SCOR')) return 'AI评分';
+  if (key.includes('MARKET_RADAR')) return '市场雷达';
+  if (key.includes('SINGLE_MARKET')) return '单市场';
+  if (key.includes('RESEARCH_STATS')) return '研究统计';
+  if (key.includes('REPORT_WATCH')) return '报告文件';
+  if (key.includes('RUN_HIST')) return '运行历史';
+  if (key.includes('REPORT')) return '等报告';
+  if (key.includes('HISTORY')) return '历史';
+  if (key.includes('PARAMLAB')) return '参数任务';
+  if (key.includes('POLYMARKET')) return 'Polymarket证据';
+  if (key.includes('RESEARCH')) return '研究统计';
+  if (key.includes('EVALUATE')) return '评估';
+  return humanEvidenceLabel(raw);
+}
+
+function aiSourceLabel(value) {
+  const raw = String(first(value, '')).trim();
+  const key = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  if (key.includes('AI_SCORE')) return 'AI';
+  if (key.includes('PARAMLAB')) return '参数';
+  if (key.includes('SEARCH') || raw.includes('综合')) return '综合';
+  if (key.includes('RADAR')) return '雷达';
+  if (key.includes('HISTORY')) return '历史';
+  return shortText(raw || '证据', 8);
+}
+
+function compactInsightDetail(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '等待证据';
+  const key = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  const exact = {
+    KEEP_DRY_RUN_UNTIL_POLICY_PASS: '保持模拟，等待策略通过',
+    WORKER_EVIDENCE: 'Worker 证据',
+    SHADOW_REVIEW: 'Shadow 复核',
+    CANARY_LOCKED: '哨兵锁定',
+    EVIDENCE_BLOCKED: '证据不足',
+    CLOSED_LOSS_QUARANTINE: '亏损隔离'
+  };
+  if (exact[key]) return exact[key];
+  if (/[A-Z0-9]+_[A-Z0-9_]+/.test(raw)) return compactStatusLabel(raw);
+  return raw;
+}
+
 function paramRowText(row) {
   return [
     normalizeParamState(row),
@@ -918,7 +995,7 @@ const mt5FocusMeta = computed(() => ({
   overview: {
     eyebrow: 'MT5 总览 / 入场证据',
     title: 'MT5 执行态势与入场证据',
-    body: '把旧页总览雷达迁回 Vue：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要下钻到路线或持仓。',
+    body: '把旧页总览雷达迁回 Vue：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要查看路线或持仓详情。',
     badge: '只读'
   },
   strategy: {
@@ -1484,23 +1561,23 @@ const aiEngineCards = computed(() => {
 
 const aiInsightRows = computed(() => [
   ...searchGroups.value.map((row) => ({
-    source: first(row.source, row.type, '综合搜索'),
+    source: aiSourceLabel(first(row.source, row.type, '综合搜索')),
     title: first(row.title, row.market, row.question, row.marketId),
-    detail: first(row.summary, row.reason, row.recommendation, row.decision),
+    detail: compactInsightDetail(first(row.summary, row.reason, row.recommendation, row.decision)),
     tone: marketRiskTone(row),
     target: 'polymarket'
   })),
   ...aiScores.value.map((row) => ({
-    source: 'AI Score',
+    source: 'AI',
     title: marketTitle(row),
     detail: `评分 ${first(row.score, row.aiScore, '--')} · ${first(row.recommendation, row.action, row.risk, '观察')}`,
     tone: marketRiskTone(row),
     target: 'polymarket'
   })),
   ...paramVisibleTasks.value.slice(0, 4).map((row) => ({
-    source: 'ParamLab',
+    source: '参数',
     title: first(row.candidateId, row.versionId, row.taskId),
-    detail: `${first(row.state, row.status, 'tester-only')} · score ${first(row.score, row.grade, '--')}`,
+    detail: `${compactStatusLabel(first(row.state, row.status, 'tester-only'))} · score ${first(row.score, row.grade, '--')}`,
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
   })),
@@ -1697,10 +1774,6 @@ onBeforeUnmount(() => {
           <button class="icon-button" type="button" title="ParamLab / 设置" @click="handleTopAction('settings')">
             <Settings :size="16" />
           </button>
-          <div class="user-chip">
-            <span>Q</span>
-            <strong>OWNER</strong>
-          </div>
         </div>
       </header>
 
@@ -1789,7 +1862,7 @@ onBeforeUnmount(() => {
                 <h2>QuantGod Analysis Engine</h2>
                 <p>多源证据驱动：MT5 实盘样本、Strategy Tester、Polymarket Gamma、历史库与治理建议。</p>
                 <div class="console-actions">
-                  <button type="button" @click="setActive('mt5')"><Plus :size="14" />MT5 下钻</button>
+                  <button type="button" @click="setActive('mt5')"><Plus :size="14" />MT5 详情</button>
                   <button type="button" @click="setActive('polymarket', 'analysis')">单市场分析</button>
                   <button type="button" @click="setActive('reports')">证据报表</button>
                 </div>
@@ -1974,15 +2047,16 @@ onBeforeUnmount(() => {
               v-for="row in aiInsightRows.slice(0, 7)"
               :key="`${row.source}-${row.title}`"
               type="button"
-              class="rail-item compact"
+              class="rail-item compact ai-watch-item"
               :class="row.tone"
+              :title="`${row.title} · ${row.detail}`"
               @click="setActive(row.target)"
             >
               <span>
                 <strong>{{ shortText(row.title, 42) }}</strong>
                 <small>{{ shortText(row.detail, 64) }}</small>
+                <em>{{ row.source }}</em>
               </span>
-              <b>{{ row.source }}</b>
             </button>
             <div v-if="!aiInsightRows.length" class="rail-empty">等待 AI 历史、雷达或 ParamLab 证据。</div>
           </aside>
@@ -2053,7 +2127,7 @@ onBeforeUnmount(() => {
         <div v-if="state.mt5Focus === 'strategy'" class="toolbar dense-toolbar">
           <div>
             <p class="eyebrow">路线筛选</p>
-            <h2>路线筛选与证据下钻</h2>
+            <h2>路线筛选与证据详情</h2>
           </div>
           <div class="route-tabs compact">
             <button
@@ -2247,7 +2321,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="strategy-version-strip">
               <span>参数候选：{{ routeParamText(primaryRoute) }}</span>
-              <span>下一步：{{ shortText(first(primaryRoute.feedback?.nextStep, primaryRoute.paramLabResult?.promotionReadiness, primaryRoute.recommendedAction), 150) }}</span>
+              <span class="strategy-advice">下一步：{{ first(primaryRoute.feedback?.nextStep, primaryRoute.paramLabResult?.promotionReadiness, primaryRoute.recommendedAction, '等待下一步建议') }}</span>
             </div>
           </section>
 
@@ -2353,7 +2427,7 @@ onBeforeUnmount(() => {
               当前持仓 {{ row.openPosition.openTrades }}，浮动 {{ money(row.openPosition.floatingProfitUSC) }}，先按原风控与保护处理。
             </p>
             <p v-else class="route-param">当前无该路线持仓。</p>
-            <p class="route-param">下一步：{{ shortText(first(row.feedback?.nextStep, row.paramLabResult?.promotionReadiness, row.recommendedAction), 130) }}</p>
+            <p class="route-param">下一步：{{ first(row.feedback?.nextStep, row.paramLabResult?.promotionReadiness, row.recommendedAction, '等待下一步建议') }}</p>
           </article>
           <article v-if="!mt5Routes.length" class="panel empty">当前没有可展示的 MT5 路线证据，等待运行文件或只读桥刷新。</article>
         </div>
@@ -2814,7 +2888,7 @@ onBeforeUnmount(() => {
               <tr v-for="task in paramVisibleTasks" :key="first(task.candidateId, task.taskId, task.versionId)">
                 <td>{{ shortText(first(task.candidateId, task.versionId, task.name), 42) }}</td>
                 <td>{{ first(task.route, task.strategy, task.symbol, '--') }}</td>
-                <td><span class="pill">{{ first(task.state, task.status, task.resultState, '--') }}</span></td>
+                <td><span class="pill" :title="first(task.state, task.status, task.resultState, '--')">{{ compactStatusLabel(first(task.state, task.status, task.resultState, '--')) }}</span></td>
                 <td>{{ first(task.score, task.grade, task.profitFactor, '--') }}</td>
                 <td>{{ shortText(first(task.reportPath, task.report, task.configPath), 64) }}</td>
               </tr>
@@ -2867,7 +2941,7 @@ onBeforeUnmount(() => {
               <span>{{ card.name }}</span>
               <b class="pill">{{ card.count }}</b>
             </div>
-            <p>{{ shortText(first(card.payload?.decision, card.payload?.status, card.payload?.mode, '等待证据'), 140) }}</p>
+            <p>{{ shortText(compactStatusLabel(first(card.payload?.decision, card.payload?.status, card.payload?.mode, '等待证据')), 140) }}</p>
             <small>{{ card.file }} · generatedAt: {{ first(card.payload?.generatedAtIso, card.payload?.generatedAt, '--') }}</small>
           </article>
         </div>
@@ -2880,7 +2954,7 @@ onBeforeUnmount(() => {
             { label: '文件/API', value: (r) => r.file, width: '260px' },
             { label: '时间', value: (r) => r.generatedAt, width: '220px' },
             { label: '数量', value: (r) => r.count, width: '90px' },
-            { label: '状态', value: (r) => r.state, width: '160px', badge: true },
+            { label: '状态', value: (r) => compactStatusLabel(r.state), width: '110px', badge: true },
             { label: '备注', value: (r) => r.note, max: 160 }
           ]"
           empty="暂无证据文件。"
@@ -2909,7 +2983,7 @@ onBeforeUnmount(() => {
               { label: 'Regime', value: (r) => first(r.Regime, r.regime, r.MarketRegime), width: '150px' },
               { label: '样本', value: (r) => first(r.Samples, r.Trades, r.samples), width: '80px' },
               { label: 'PF / Win', value: (r) => `${first(r.PF, r.ProfitFactor, '--')} / ${first(r.WinRate, r.winRate, '--')}`, width: '120px' },
-              { label: '状态', value: (r) => first(r.State, r.status, r.Decision), badge: true }
+              { label: '状态', value: (r) => compactStatusLabel(first(r.State, r.status, r.Decision)), width: '110px', badge: true }
             ]"
             empty="暂无 Regime 评估切片。"
           />

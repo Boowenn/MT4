@@ -46,7 +46,9 @@ function cellClass(row, column) {
         <tbody>
           <tr v-for="(row, index) in rows" :key="first(row?.id, row?.candidateId, row?.marketId, row?.ticket, row?.versionId, index)">
             <td v-for="column in columns" :key="column.label" :class="cellClass(row, column)" :title="String(first(cellValue(row, column), '--'))">
-              <span v-if="column.badge" class="pill">{{ first(cellValue(row, column), '--') }}</span>
+              <span v-if="column.badge" class="pill" :title="String(first(cellValue(row, column), '--'))">
+                {{ shortText(first(cellValue(row, column), '--'), column.max || 18) }}
+              </span>
               <span v-else>{{ shortText(first(cellValue(row, column), '--'), column.max || 72) }}</span>
             </td>
           </tr>
