@@ -31,6 +31,7 @@ import EvidenceDrawer from './components/EvidenceDrawer.vue';
 
 const workspaces = [
   { id: 'home', label: '总控台', sub: '机会雷达', icon: Gauge, desc: 'MT5、ParamLab 与 Polymarket 的统一只读操作台' },
+  { id: 'ai', label: 'AI 工作台', sub: '分析引擎', icon: Activity, desc: '对照 QuantDinger 的 AI 分析入口：即时分析、机会雷达、历史记忆与下一步建议' },
   { id: 'mt5', label: 'MT5 策略', sub: '实盘监控', icon: LineChart, desc: '路线、持仓、风控、手动样本与 EA 审计' },
   { id: 'polymarket', label: 'Polymarket', sub: '研究治理', icon: Network, desc: '市场雷达、AI 评分、小额哨兵契约与历史证据' },
   { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList, desc: 'tester-only 队列、报告回灌、恢复风险与守护窗口' },
@@ -80,6 +81,23 @@ const mt5NavItems = [
   { id: 'reports', focus: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3 }
 ];
 
+const mt5FocusByHash = {
+  mt5: 'overview',
+  'mt5-overview': 'overview',
+  'section-mt5': 'overview',
+  'section-mt5-overview': 'overview',
+  'mt5-strategy': 'strategy',
+  'section-mt5-strategy': 'strategy',
+  'mt5-trades': 'trades',
+  'section-mt5-trades': 'trades'
+};
+
+const mt5HashByFocus = {
+  overview: 'mt5',
+  strategy: 'mt5-strategy',
+  trades: 'mt5-trades'
+};
+
 const polymarketNavItems = [
   { id: 'polymarket', focus: 'overview', label: '治理总览', sub: '账户与边界', icon: Network },
   { id: 'polymarket', focus: 'browser', label: '市场浏览', sub: '目录 / 详情', icon: ClipboardList },
@@ -128,6 +146,12 @@ function normalizeWorkspace(id) {
 }
 
 function parseWorkspaceHash(hash) {
+  if (mt5FocusByHash[hash]) {
+    return {
+      active: 'mt5',
+      mt5Focus: mt5FocusByHash[hash]
+    };
+  }
   if (polymarketFocusByHash[hash]) {
     return {
       active: 'polymarket',
@@ -143,6 +167,10 @@ function hashForActive(active, focus = '') {
     const polymarketFocus = focus || state.polymarketFocus || 'overview';
     return `#${polymarketHashByFocus[polymarketFocus] || 'polymarket'}`;
   }
+  if (active === 'mt5') {
+    const mt5Focus = focus || state.mt5Focus || 'overview';
+    return `#${mt5HashByFocus[mt5Focus] || 'mt5'}`;
+  }
   return `#${active}`;
 }
 
@@ -151,7 +179,7 @@ function syncActiveFromHash() {
   const parsed = parseWorkspaceHash(hash);
   state.active = parsed.active;
   if (workspaceDomainFor(state.active) === 'mt5') {
-    state.mt5Focus = mt5DefaultFocus[state.active] || state.mt5Focus || 'overview';
+    state.mt5Focus = parsed.mt5Focus || mt5DefaultFocus[state.active] || state.mt5Focus || 'overview';
   }
   if (state.active === 'polymarket') {
     state.polymarketFocus = parsed.polymarketFocus || state.polymarketFocus || 'overview';
@@ -1126,8 +1154,100 @@ const operatorRadarCards = computed(() => {
   if (state.active === 'polymarket') return [...polyCards, paramCards[paramCards.length - 1]];
   if (state.active === 'paramlab') return [...paramCards, mt5Cards[1]];
   if (state.active === 'mt5') return [...mt5Cards, paramCards[1], paramCards[2], paramCards[paramCards.length - 1]];
+  if (state.active === 'ai') return [...polyCards.slice(0, 3), ...mt5Cards.slice(0, 2), paramCards[0]];
   return [...mt5Cards, ...polyCards.slice(0, 2), paramCards[paramCards.length - 1]];
 });
+
+const aiEngineCards = computed(() => {
+  const topScore = aiScores.value[0] || {};
+  const topRadar = radarRows.value[0] || {};
+  const topRoute = primaryRoute.value;
+  const topTask = paramVisibleTasks.value[0] || {};
+  return [
+    {
+      label: 'AI 市场分析',
+      value: first(topScore.score, topScore.aiScore, '--'),
+      detail: shortText(first(topScore.recommendation, topScore.action, topScore.risk, '等待 Polymarket AI 评分'), 42),
+      tone: marketRiskTone(topScore)
+    },
+    {
+      label: '机会雷达',
+      value: pctPoint(first(topRadar.probability, topRadar.marketProbability)),
+      detail: shortText(first(topRadar.market, topRadar.title, topRadar.question, '等待 Gamma 雷达'), 42),
+      tone: 'green'
+    },
+    {
+      label: 'MT5 路线',
+      value: shortText(first(topRoute.route, topRoute.strategy, topRoute.label, '--'), 18),
+      detail: `PF ${first(topRoute.liveForward?.profitFactor, topRoute.profitFactor, '--')} / ${routeActionLabel(topRoute)}`,
+      tone: routeToneClass(topRoute) || 'blue'
+    },
+    {
+      label: '回测反馈',
+      value: first(topTask.score, topTask.grade, '--'),
+      detail: shortText(first(topTask.state, topTask.status, topTask.candidateId, '等待 ParamLab 候选'), 42),
+      tone: normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue'
+    }
+  ];
+});
+
+const aiInsightRows = computed(() => [
+  ...searchGroups.value.map((row) => ({
+    source: first(row.source, row.type, '综合搜索'),
+    title: first(row.title, row.market, row.question, row.marketId),
+    detail: first(row.summary, row.reason, row.recommendation, row.decision),
+    tone: marketRiskTone(row),
+    target: 'polymarket'
+  })),
+  ...aiScores.value.map((row) => ({
+    source: 'AI Score',
+    title: marketTitle(row),
+    detail: `评分 ${first(row.score, row.aiScore, '--')} · ${first(row.recommendation, row.action, row.risk, '观察')}`,
+    tone: marketRiskTone(row),
+    target: 'polymarket'
+  })),
+  ...paramVisibleTasks.value.slice(0, 4).map((row) => ({
+    source: 'ParamLab',
+    title: first(row.candidateId, row.versionId, row.taskId),
+    detail: `${first(row.state, row.status, 'tester-only')} · score ${first(row.score, row.grade, '--')}`,
+    tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
+    target: 'paramlab'
+  })),
+  ...mt5Routes.value.slice(0, 4).map((row) => ({
+    source: routeShortName(row),
+    title: first(row.label, row.route, row.strategy, row.versionId),
+    detail: `${routeActionLabel(row)} · blocker ${routeBlockerText(row)}`,
+    tone: routeToneClass(row) || 'blue',
+    target: 'mt5'
+  }))
+].slice(0, 12));
+
+const aiProviderCards = computed(() => [
+  {
+    title: '即时分析',
+    body: '汇总 MT5 路线、ParamLab 结果、Polymarket Gamma 与历史 AI score，输出可审计建议。',
+    tag: 'Instant Analysis',
+    target: 'reports'
+  },
+  {
+    title: '机会雷达',
+    body: '像 QuantDinger 的 radar 一样横向扫描市场，但当前只做研究和 shadow track，不写钱包。',
+    tag: 'Opportunity Radar',
+    target: 'polymarket'
+  },
+  {
+    title: '回测反馈',
+    body: '把 ParamLab 的 PF、胜率、净收益、回撤和失败原因转成下一轮参数建议。',
+    tag: 'Backtest Feedback',
+    target: 'paramlab'
+  },
+  {
+    title: '历史记忆',
+    body: '保存单市场分析、综合证据卡和执行模拟后验，后续用于评分校准。',
+    tag: 'Analysis Memory',
+    target: 'polymarket'
+  }
+]);
 
 const watchlistItems = computed(() => [
   ...mt5Routes.value.slice(0, 5).map((row) => ({
@@ -1196,6 +1316,18 @@ onBeforeUnmount(() => {
           <span>
             <strong>Entry</strong>
             <small>系统入口</small>
+          </span>
+        </button>
+        <button
+          class="nav-item"
+          :class="{ active: state.active === 'ai' }"
+          type="button"
+          @click="setActive('ai')"
+        >
+          <Activity :size="18" />
+          <span>
+            <strong>AI 工作台</strong>
+            <small>分析引擎</small>
           </span>
         </button>
 
@@ -1444,6 +1576,126 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <section v-if="state.active === 'ai'" class="stack page-ai">
+        <div class="workbench-hero ai-hero">
+          <article class="hero-copy">
+            <div class="panel-title split">
+              <span class="eyebrow">AI Analysis Engine / 独立工作台</span>
+              <b class="pill blue">RESEARCH ONLY</b>
+            </div>
+            <h2>即时分析、机会雷达、历史记忆与回测反馈</h2>
+            <p>
+              按 QuantDinger 的 AI 系列入口重排，但保留 QuantGod 边界：AI 只读汇总证据、解释风险、提出下一步参数/市场建议，不直接改 MT5、不写 Polymarket 钱包。
+            </p>
+            <div class="console-actions left-actions">
+              <button type="button" @click="setActive('polymarket', 'radar')"><Target :size="14" />机会雷达</button>
+              <button type="button" @click="setActive('polymarket', 'analysis')">单市场分析</button>
+              <button type="button" @click="setActive('paramlab')">回测反馈</button>
+            </div>
+          </article>
+          <article class="ai-status-grid">
+            <div v-for="card in aiEngineCards" :key="card.label" class="ai-status-card" :class="card.tone">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+              <small>{{ card.detail }}</small>
+            </div>
+          </article>
+        </div>
+
+        <article class="ai-engine-shell">
+          <aside class="ai-feature-rail">
+            <button
+              v-for="item in aiProviderCards"
+              :key="item.title"
+              type="button"
+              class="ai-feature-card"
+              @click="setActive(item.target)"
+            >
+              <span>{{ item.tag }}</span>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.body }}</small>
+            </button>
+          </aside>
+
+          <div class="analysis-console ai-console">
+            <div class="console-grid-bg"></div>
+            <div class="console-core">
+              <span>AI-POWERED</span>
+              <h2>QuantGod AI 研究引擎</h2>
+              <p>把市场概率、MT5 route blocker、ParamLab 分数、历史分析和执行模拟后验压缩成一张研究决策面板。</p>
+              <div class="inline-form ai-query-form">
+                <input v-model="state.query" type="search" placeholder="输入市场、品种、路线或候选 ID 后刷新证据" @keyup.enter="refresh" />
+                <button type="button" @click="refresh">刷新证据</button>
+              </div>
+            </div>
+          </div>
+
+          <aside class="ai-watch-rail">
+            <div class="rail-title">
+              <span><Layers :size="15" /> AI Watchlist</span>
+              <small>{{ aiInsightRows.length }} 条</small>
+            </div>
+            <button
+              v-for="row in aiInsightRows.slice(0, 7)"
+              :key="`${row.source}-${row.title}`"
+              type="button"
+              class="rail-item compact"
+              :class="row.tone"
+              @click="setActive(row.target)"
+            >
+              <span>
+                <strong>{{ shortText(row.title, 42) }}</strong>
+                <small>{{ shortText(row.detail, 64) }}</small>
+              </span>
+              <b>{{ row.source }}</b>
+            </button>
+            <div v-if="!aiInsightRows.length" class="rail-empty">等待 AI 历史、雷达或 ParamLab 证据。</div>
+          </aside>
+        </article>
+
+        <div class="card-grid three">
+          <article class="panel dense">
+            <div class="panel-title split">
+              <span>Polymarket AI 研究</span>
+              <small>{{ aiScores.length }} score</small>
+            </div>
+            <div class="poly-score-stack">
+              <div v-for="row in aiScores.slice(0, 4)" :key="first(row.marketId, row.title, row.question)" class="score-line">
+                <strong>{{ shortText(marketTitle(row), 70) }}</strong>
+                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ first(row.recommendation, row.action, row.risk, '观察') }}</span>
+              </div>
+              <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
+            </div>
+          </article>
+          <article class="panel dense">
+            <div class="panel-title split">
+              <span>MT5 路线解释</span>
+              <small>{{ mt5Routes.length }} route</small>
+            </div>
+            <div class="lane-stack ai-route-stack">
+              <button v-for="lane in mt5RouteLaneCards" :key="`ai-${lane.route}`" class="lane-row" :class="lane.tone" type="button" @click="setActive('mt5', 'strategy')">
+                <strong>{{ lane.route }}</strong>
+                <span>{{ lane.count }} 版本 · live {{ lane.live }}</span>
+                <small>{{ lane.blocker }}</small>
+              </button>
+            </div>
+          </article>
+          <article class="panel dense">
+            <div class="panel-title split">
+              <span>下一步队列</span>
+              <small>{{ actionQueueItems.length }} item</small>
+            </div>
+            <div class="history-list">
+              <button v-for="item in actionQueueItems.slice(0, 5)" :key="`ai-action-${item.title}`" type="button" @click="setActive(item.target)">
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.sub }} · {{ item.value }}</span>
+              </button>
+              <div v-if="!actionQueueItems.length" class="rail-empty">暂无待处理建议。</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section v-if="state.active === 'mt5'" class="stack page-mt5" :data-focus="state.mt5Focus">
         <div class="workbench-hero mt5-hero">
           <article class="hero-copy">
@@ -1463,7 +1715,7 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div class="toolbar dense-toolbar">
+        <div v-if="state.mt5Focus === 'strategy'" class="toolbar dense-toolbar">
           <div>
             <p class="eyebrow">路线筛选</p>
             <h2>路线筛选与证据下钻</h2>
@@ -1481,7 +1733,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="mt5-command-grid">
+        <div v-if="state.mt5Focus === 'overview'" class="mt5-command-grid">
           <article class="panel overview-radar mt5-radar-board">
             <div class="panel-title split">
               <span>执行雷达</span>
@@ -1535,7 +1787,42 @@ onBeforeUnmount(() => {
           empty="当前没有 MT5 持仓，或只读桥未返回 positions。"
         />
 
-        <div class="strategy-card-grid">
+        <div v-if="state.mt5Focus === 'trades'" class="card-grid three">
+          <article class="panel dense">
+            <div class="panel-title split">
+              <span>交易边界</span>
+              <b class="pill green">只读</b>
+            </div>
+            <p>这里只看 EA / 人工单快照，不改订单、不强平、不调整 live switch。人工单与 EA 单仍分开统计。</p>
+            <div class="mini-row">
+              <span>持仓 {{ mt5Positions.length }}</span>
+              <span>最大单仓 {{ first(mt5.value.snapshot?.maxTotalPositions, mt5.value.snapshot?.risk?.maxTotalPositions, 1) }}</span>
+              <span>手数 0.01</span>
+            </div>
+          </article>
+          <article class="panel dense">
+            <div class="panel-title split">
+              <span>当前焦点路线</span>
+              <b class="pill blue">{{ routeActionLabel(primaryRoute) }}</b>
+            </div>
+            <p>{{ shortText(routeWhyText(primaryRoute), 160) }}</p>
+            <div class="mini-row secondary">
+              <span>{{ routeShortName(primaryRoute) }}</span>
+              <span>PF {{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, '--') }}</span>
+              <span>{{ routeBlockerText(primaryRoute) }}</span>
+            </div>
+          </article>
+          <article class="panel dense">
+            <div class="panel-title split">
+              <span>审计入口</span>
+              <b class="pill amber">ledger</b>
+            </div>
+            <p>需要查看完整 ledger、shadow、outcome、手动样本时，切到证据报表；这里保留交易页的紧凑快照。</p>
+            <button class="ghost-button small" type="button" @click="setActive('reports')">打开证据报表</button>
+          </article>
+        </div>
+
+        <div v-if="state.mt5Focus === 'strategy'" class="strategy-card-grid">
           <article v-for="row in mt5Routes" :key="first(row.versionId, row.route, row.name)" class="panel dense">
             <div class="panel-title split">
               <span>{{ first(row.label, row.route, row.strategy, row.name, row.versionId) }}</span>
@@ -1564,7 +1851,7 @@ onBeforeUnmount(() => {
           <article v-if="!mt5Routes.length" class="panel empty">当前没有可展示的 MT5 路线证据，等待运行文件或只读桥刷新。</article>
         </div>
 
-        <Mt5DeepPanels :mt5="mt5" :positions="mt5Positions" :routes="mt5Routes" />
+        <Mt5DeepPanels v-if="state.mt5Focus === 'strategy'" :mt5="mt5" :positions="mt5Positions" :routes="mt5Routes" />
       </section>
 
       <section v-if="state.active === 'polymarket'" class="stack page-polymarket" :data-focus="state.polymarketFocus">
@@ -1604,7 +1891,7 @@ onBeforeUnmount(() => {
           </div>
         </article>
 
-        <article v-if="state.polymarketFocus !== 'analysis'" class="poly-filter-shell">
+        <article v-if="state.polymarketFocus === 'browser'" class="poly-filter-shell">
           <div class="poly-filter-head">
             <div>
               <p class="eyebrow">Prediction Market Browser</p>
@@ -1695,24 +1982,69 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div v-else class="poly-cockpit-grid qd-poly-grid">
+        <div v-else-if="state.polymarketFocus === 'overview'" class="poly-overview-grid">
+          <article class="panel poly-governance-overview">
+            <div class="panel-title split">
+              <span>治理总览</span>
+              <small>账户 / 钱包 / 自动治理边界</small>
+            </div>
+            <div class="governance-lanes">
+              <div v-for="row in governanceRows.slice(0, 5)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
+                <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
+                <span>{{ shortText(first(row.market, row.title, row.reason, row.marketId), 110) }}</span>
+              </div>
+              <div v-if="!governanceRows.length" class="rail-empty">暂无自动治理建议；保持只读与模拟执行。</div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-title split">
+              <span>跨市场风险联动</span>
+              <small>{{ crossRows.length }} 条</small>
+            </div>
+            <div class="radar-ticker">
+              <div v-for="row in crossRows.slice(0, 5)" :key="first(row.eventTitle, row.marketId)" class="radar-ticker-item">
+                <span>{{ shortText(first(row.eventTitle, row.market, row.marketId), 66) }}</span>
+                <strong>{{ first(row.primaryRiskTag, row.macroRiskState, row.category, '风险') }}</strong>
+                <small>{{ shortText(first(row.linkedMt5Symbols?.join?.(', '), row.reason, row.matchedKeywords?.join?.(', ')), 92) }}</small>
+              </div>
+              <div v-if="!crossRows.length" class="rail-empty">暂无 USD / JPY / XAU / 宏观联动证据。</div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-title split">
+              <span>批量扫描 Worker</span>
+              <small>{{ workerQueue.length }} 条</small>
+            </div>
+            <div class="history-list">
+              <button v-for="row in workerQueue.slice(0, 5)" :key="first(row.candidateId, row.marketId)" type="button" @click="setActive('polymarket', 'radar')">
+                <strong>{{ shortText(first(row.market, row.title, row.question, row.marketId), 66) }}</strong>
+                <span>评分 {{ first(row.aiRuleScore, row.score, '--') }} · {{ first(row.suggestedShadowTrack, row.executionMode, row.category, 'shadow') }}</span>
+              </button>
+              <div v-if="!workerQueue.length" class="rail-empty">暂无 worker 队列。</div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-title split">
+              <span>最近 AI 评分</span>
+              <small>{{ aiScores.length }} score</small>
+            </div>
+            <div class="poly-score-stack">
+              <div v-for="row in aiScores.slice(0, 4)" :key="first(row.marketId, row.title, row.question)" class="score-line">
+                <strong>{{ shortText(marketTitle(row), 64) }}</strong>
+                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ first(row.action, row.recommendation, row.risk, '观察') }}</span>
+              </div>
+              <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
+            </div>
+          </article>
+        </div>
+
+        <div v-else-if="state.polymarketFocus === 'browser'" class="poly-cockpit-grid qd-poly-grid">
           <article class="panel poly-market-console">
             <div class="panel-title split">
-              <span>{{ state.polymarketFocus === 'execution' ? '执行模拟边界' : '机会雷达 / 市场浏览' }}</span>
+              <span>市场浏览 / Gamma 目录</span>
               <small>Gamma API + 历史库 + AI score</small>
             </div>
-            <div v-if="state.polymarketFocus === 'execution'" class="canary-contract-grid">
-              <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="canary-card">
-                <div>
-                  <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 76) }}</strong>
-                  <span>{{ first(row.canaryState, row.decision, '模拟') }}</span>
-                </div>
-                <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
-                <p>{{ shortText(first(row.blockers?.join?.(' / '), row.blocker, row.exitRule, '钱包锁定，等待模拟后验。'), 120) }}</p>
-              </div>
-              <div v-if="!canaryRows.length" class="rail-empty">暂无小额哨兵契约；真实钱包仍保持锁定。</div>
-            </div>
-            <div v-else class="market-browser-grid">
+            <div class="market-browser-grid">
               <button
                 v-for="market in polyVisibleMarkets"
                 :key="first(market.marketId, market.slug, market.question)"
@@ -1763,42 +2095,114 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div class="panel evidence-console">
-          <div class="panel-title split">
-            <span>统一搜索综合证据卡</span>
-            <small>{{ searchGroups.length }} 条</small>
-          </div>
-          <div class="route-tabs compact evidence-mode-tabs">
-            <button
-              v-for="mode in ['综合证据', 'Radar', '历史分析', 'AI Score']"
-              :key="mode"
-              type="button"
-              :class="{ selected: polyEvidenceMode === mode }"
-              @click="polyEvidenceMode = mode"
-            >
-              {{ mode }}
-            </button>
-          </div>
-          <div class="evidence-list">
-            <div v-for="group in searchGroups" :key="first(group.marketId, group.id, group.title)" class="evidence-row">
-              <strong>{{ shortText(first(group.title, group.market, group.question, group.marketId), 92) }}</strong>
-              <span>{{ shortText(first(group.summary, group.reason, group.recommendation, group.decision), 180) }}</span>
-              <small>{{ first(group.source, group.sources?.join?.(', '), group.type, '综合证据') }}</small>
+        <div v-else-if="state.polymarketFocus === 'radar'" class="poly-radar-workbench">
+          <article class="panel poly-radar-main">
+            <div class="panel-title split">
+              <span>机会雷达 / Gamma 扫描</span>
+              <small>{{ radarRows.length }} 条</small>
             </div>
-            <div v-if="!searchGroups.length" class="empty">没有搜索结果；可以在右上角输入关键词后刷新。</div>
-          </div>
+            <div class="poly-radar-grid">
+              <article v-for="row in radarRows" :key="first(row.marketId, row.slug, row.title)" class="panel dense radar-evidence-card" :class="marketRiskTone(row)">
+                <div class="panel-title split">
+                  <span>{{ shortText(marketTitle(row), 74) }}</span>
+                  <b class="pill">{{ pctPoint(first(row.probability, row.marketProbability)) }}</b>
+                </div>
+                <p>{{ shortText(first(row.reason, row.summary, row.recommendation, row.suggestedShadowTrack, '等待 shadow-only 研究'), 130) }}</p>
+                <div class="mini-row">
+                  <span>成交 {{ money(first(row.volume24h, row.volume, row.volumeUsd)) }}</span>
+                  <span>流动性 {{ money(first(row.liquidity, row.liquidityUsd, row.clobLiquidityUsd)) }}</span>
+                  <span>评分 {{ first(row.aiRuleScore, row.score, '--') }}</span>
+                </div>
+              </article>
+              <article v-if="!radarRows.length" class="panel empty">暂无 Gamma radar 快照。</article>
+            </div>
+          </article>
+          <article class="panel poly-side-console">
+            <div class="panel-title split">
+              <span>Worker / 趋势缓存</span>
+              <small>{{ workerQueue.length }} queue</small>
+            </div>
+            <div class="history-list">
+              <button v-for="row in workerQueue" :key="first(row.candidateId, row.marketId)" type="button">
+                <strong>{{ shortText(first(row.market, row.title, row.question, row.candidateId), 72) }}</strong>
+                <span>{{ first(row.cacheState, row.trendState, row.suggestedShadowTrack, 'shadow queue') }} · score {{ first(row.aiRuleScore, row.score, '--') }}</span>
+              </button>
+              <div v-if="!workerQueue.length" class="rail-empty">暂无长期 worker 队列。</div>
+            </div>
+          </article>
         </div>
 
-        <PolymarketDeepPanels
-          :polymarket="poly"
-          :radar-rows="radarRows"
-          :search-groups="searchGroups"
-          :ai-scores="aiScores"
-          :governance-rows="governanceRows"
-          :canary-rows="canaryRows"
-          :cross-rows="crossRows"
-          :worker-queue="workerQueue"
-        />
+        <div v-else-if="state.polymarketFocus === 'execution'" class="poly-cockpit-grid qd-poly-grid">
+          <article class="panel poly-market-console">
+            <div class="panel-title split">
+              <span>执行模拟边界</span>
+              <small>Gate + dry-run + watcher</small>
+            </div>
+            <div class="canary-contract-grid">
+              <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="canary-card">
+                <div>
+                  <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 76) }}</strong>
+                  <span>{{ first(row.canaryState, row.decision, '模拟') }}</span>
+                </div>
+                <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
+                <p>{{ shortText(first(row.blockers?.join?.(' / '), row.blocker, row.exitRule, '钱包锁定，等待模拟后验。'), 120) }}</p>
+              </div>
+              <div v-if="!canaryRows.length" class="rail-empty">暂无小额哨兵契约；真实钱包仍保持锁定。</div>
+            </div>
+          </article>
+          <article class="panel poly-side-console">
+            <div class="panel-title split">
+              <span>真钱边界</span>
+              <b class="pill red">LOCKED</b>
+            </div>
+            <p>真实钱包 executor 仍未启用。这里只验证准入、单笔金额、止盈止损、最大日亏、撤单/退出和 ledger 审计契约。</p>
+            <div class="governance-lanes compact-governance">
+              <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
+                <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
+                <span>{{ shortText(first(row.reason, row.blockers?.join?.(', '), row.market), 86) }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div v-else class="poly-ledger-workbench">
+          <div class="panel evidence-console">
+            <div class="panel-title split">
+              <span>统一搜索综合证据卡</span>
+              <small>{{ searchGroups.length }} 条</small>
+            </div>
+            <div class="route-tabs compact evidence-mode-tabs">
+              <button
+                v-for="mode in ['综合证据', 'Radar', '历史分析', 'AI Score']"
+                :key="mode"
+                type="button"
+                :class="{ selected: polyEvidenceMode === mode }"
+                @click="polyEvidenceMode = mode"
+              >
+                {{ mode }}
+              </button>
+            </div>
+            <div class="evidence-list">
+              <div v-for="group in searchGroups" :key="first(group.marketId, group.id, group.title)" class="evidence-row">
+                <strong>{{ shortText(first(group.title, group.market, group.question, group.marketId), 92) }}</strong>
+                <span>{{ shortText(first(group.summary, group.reason, group.recommendation, group.decision), 180) }}</span>
+                <small>{{ first(group.source, group.sources?.join?.(', '), group.type, '综合证据') }}</small>
+              </div>
+              <div v-if="!searchGroups.length" class="empty">没有搜索结果；可以在右上角输入关键词后刷新。</div>
+            </div>
+          </div>
+
+          <PolymarketDeepPanels
+            :polymarket="poly"
+            :radar-rows="radarRows"
+            :search-groups="searchGroups"
+            :ai-scores="aiScores"
+            :governance-rows="governanceRows"
+            :canary-rows="canaryRows"
+            :cross-rows="crossRows"
+            :worker-queue="workerQueue"
+          />
+        </div>
       </section>
 
       <section v-if="state.active === 'paramlab'" class="stack page-paramlab">

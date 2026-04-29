@@ -1136,6 +1136,118 @@ h2 {
   gap: 12px;
 }
 
+.ai-hero {
+  grid-template-columns: minmax(0, 0.92fr) minmax(520px, 1.08fr);
+}
+
+.ai-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.ai-status-card,
+.ai-feature-card {
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(28, 36, 47, 0.98), rgba(17, 24, 32, 0.98));
+  border: 1px solid rgba(129, 151, 178, 0.2);
+  border-radius: 10px;
+}
+
+.ai-status-card span,
+.ai-status-card strong,
+.ai-status-card small,
+.ai-feature-card span,
+.ai-feature-card strong,
+.ai-feature-card small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-status-card span,
+.ai-feature-card span {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-status-card strong {
+  margin: 8px 0 4px;
+  color: #f5f9ff;
+  font-size: 22px;
+}
+
+.ai-status-card small,
+.ai-feature-card small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.ai-status-card.green,
+.ai-feature-card.green {
+  border-color: rgba(51, 217, 154, 0.36);
+}
+
+.ai-status-card.amber {
+  border-color: rgba(255, 184, 77, 0.38);
+}
+
+.ai-status-card.red {
+  border-color: rgba(255, 107, 134, 0.46);
+}
+
+.ai-engine-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.ai-feature-rail,
+.ai-watch-rail {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.ai-feature-card {
+  min-height: 118px;
+  text-align: left;
+}
+
+.ai-feature-card strong {
+  margin: 8px 0 6px;
+  color: #f4f9ff;
+  font-size: 16px;
+}
+
+.ai-console {
+  min-height: 420px;
+}
+
+.ai-query-form {
+  margin: 20px auto 0;
+  max-width: 720px;
+}
+
+.left-actions {
+  justify-content: flex-start;
+}
+
+.ai-route-stack .lane-row {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
 .paramlab-hero {
   grid-template-columns: minmax(0, 0.72fr) minmax(560px, 1.28fr);
 }
@@ -1278,6 +1390,31 @@ h2 {
 
 .poly-filter-row {
   justify-content: flex-start;
+}
+
+.poly-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.poly-radar-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.7fr);
+  gap: 12px;
+}
+
+.poly-radar-main {
+  min-width: 0;
+}
+
+.poly-radar-main .poly-radar-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.poly-ledger-workbench {
+  display: grid;
+  gap: 14px;
 }
 
 .poly-local-search {
