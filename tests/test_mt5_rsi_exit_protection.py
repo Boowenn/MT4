@@ -12,7 +12,7 @@ BACKTEST_EURUSD_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_EU
 class Mt5RsiExitProtectionTests(unittest.TestCase):
     def test_ea_has_rsi_only_fast_exit_inputs(self):
         text = EA_PATH.read_text(encoding="utf-8")
-        self.assertIn('DashboardBuild      = "QuantGod-v3.16-mt5-non-rsi-live-auth-lock"', text)
+        self.assertIn('DashboardBuild      = "QuantGod-v3.17-mt5-startup-entry-guard"', text)
         self.assertIn("input bool   EnablePilotRsiFastExitProtect = true;", text)
         self.assertIn("input int    PilotRsiProtectMinAgeMinutes = 10;", text)
         self.assertIn("input double PilotRsiBreakevenTriggerPips = 5.0;", text)
@@ -58,6 +58,24 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PilotRsiRangeTightBuyOnly && IsRangeTightRegimeLabel(regime.label)", text)
         self.assertIn("RSI H1 SELL blocked in", text)
 
+    def test_startup_entry_guard_blocks_new_orders_after_ea_reload(self):
+        text = EA_PATH.read_text(encoding="utf-8")
+        self.assertIn("input bool   EnablePilotStartupEntryGuard = true;", text)
+        self.assertIn("input int    PilotStartupEntryMinWaitMinutes = 15;", text)
+        self.assertIn("input bool   PilotStartupEntryWaitNextH1Bar = true;", text)
+        self.assertIn("datetime g_pilotStartupTime = 0;", text)
+        self.assertIn("datetime g_pilotStartupLocalTime = 0;", text)
+        self.assertIn("datetime g_pilotStartupH1BarTime = 0;", text)
+        self.assertIn("void ArmPilotStartupEntryGuard()", text)
+        self.assertIn("bool PilotStartupEntryGuardBlocks(string symbol, string &reason)", text)
+        self.assertIn("PilotStartupEntryGuardWaitingForNextH1(symbol)", text)
+        self.assertIn("currentH1 <= g_pilotStartupH1BarTime", text)
+        self.assertIn("PilotStartupEntryGuardBlocks(symbol, startupReason)", text)
+        self.assertIn('"STARTUP_GUARD"', text)
+        self.assertIn("startupBlocks", text)
+        self.assertIn("startup entry guard strategy=", text)
+        self.assertIn("pilotStartupEntryGuardActive", text)
+
     def test_route_live_switches_are_rechecked_at_order_send(self):
         text = EA_PATH.read_text(encoding="utf-8")
         self.assertIn("bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice, string strategyKey)", text)
@@ -101,8 +119,11 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
 
     def test_live_preset_is_downshifted_to_usdjpy_rsi_iteration(self):
         text = LIVE_PRESET_PATH.read_text(encoding="utf-8")
-        self.assertIn("DashboardBuild=QuantGod-v3.16-mt5-non-rsi-live-auth-lock", text)
+        self.assertIn("DashboardBuild=QuantGod-v3.17-mt5-startup-entry-guard", text)
         self.assertIn("Watchlist=USDJPY", text)
+        self.assertIn("EnablePilotStartupEntryGuard=true", text)
+        self.assertIn("PilotStartupEntryMinWaitMinutes=15", text)
+        self.assertIn("PilotStartupEntryWaitNextH1Bar=true", text)
         self.assertIn("EnablePilotMA=false", text)
         self.assertIn("EnablePilotRsiH1Live=true", text)
         self.assertIn("EnablePilotBBH1Live=false", text)
@@ -145,7 +166,10 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
 
     def test_eurusd_backtest_only_authorizes_non_rsi_legacy_routes_in_tester(self):
         text = BACKTEST_EURUSD_PATH.read_text(encoding="utf-8")
-        self.assertIn("DashboardBuild=QuantGod-v3.16-mt5-non-rsi-live-auth-lock-backtest", text)
+        self.assertIn("DashboardBuild=QuantGod-v3.17-mt5-startup-entry-guard-backtest", text)
+        self.assertIn("EnablePilotStartupEntryGuard=false", text)
+        self.assertIn("PilotStartupEntryMinWaitMinutes=0", text)
+        self.assertIn("PilotStartupEntryWaitNextH1Bar=false", text)
         self.assertIn("EnablePilotBBH1Live=true", text)
         self.assertIn("EnablePilotMacdH1Live=true", text)
         self.assertIn("EnablePilotSRM15Live=true", text)

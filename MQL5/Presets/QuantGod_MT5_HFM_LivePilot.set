@@ -1,4 +1,4 @@
-DashboardBuild=QuantGod-v3.16-mt5-non-rsi-live-auth-lock
+DashboardBuild=QuantGod-v3.17-mt5-startup-entry-guard
 Watchlist=USDJPY
 PreferredSymbolSuffix=AUTO
 ShadowMode=false
@@ -7,6 +7,9 @@ RefreshIntervalSec=5
 ClosedTradeLimit=100
 HistoryLookbackDays=30
 EnablePilotAutoTrading=true
+EnablePilotStartupEntryGuard=true
+PilotStartupEntryMinWaitMinutes=15
+PilotStartupEntryWaitNextH1Bar=true
 EnablePilotMA=false
 EnablePilotRsiH1Candidate=true
 EnablePilotRsiH1Live=true

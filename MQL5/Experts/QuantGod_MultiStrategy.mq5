@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.16"
+#property version   "3.17"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.16-mt5-non-rsi-live-auth-lock";
+input string DashboardBuild      = "QuantGod-v3.17-mt5-startup-entry-guard";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -18,6 +18,9 @@ input int    RefreshIntervalSec  = 5;
 input int    ClosedTradeLimit    = 50;
 input int    HistoryLookbackDays = 30;
 input bool   EnablePilotAutoTrading   = false;
+input bool   EnablePilotStartupEntryGuard = true;
+input int    PilotStartupEntryMinWaitMinutes = 15;
+input bool   PilotStartupEntryWaitNextH1Bar = true;
 input bool   EnablePilotMA            = true;
 input bool   EnablePilotRsiH1Candidate = true;
 input bool   EnablePilotRsiH1Live      = false;
@@ -195,6 +198,7 @@ struct PilotTelemetrySnapshot
    int      inPositionBlocks;
    int      regimeBlocks;
    int      cooldownBlocks;
+   int      startupBlocks;
    int      orderSent;
    int      orderFailed;
    datetime lastEvalTime;
@@ -374,6 +378,9 @@ int g_usdTrackedEventKinds[];
 int g_usdTrackedEventImportance[];
 NewsFilterState g_newsState;
 datetime g_lastNewsRefresh = 0;
+datetime g_pilotStartupTime = 0;
+datetime g_pilotStartupLocalTime = 0;
+datetime g_pilotStartupH1BarTime = 0;
 
 enum ENUM_USD_NEWS_KIND
 {
@@ -692,6 +699,81 @@ datetime CurrentServerTime()
    if(value <= 0)
       value = TimeLocal();
    return value;
+}
+
+datetime CurrentHourStart(datetime value)
+{
+   MqlDateTime parts;
+   TimeToStruct(value, parts);
+   parts.min = 0;
+   parts.sec = 0;
+   return StructToTime(parts);
+}
+
+void ArmPilotStartupEntryGuard()
+{
+   g_pilotStartupTime = CurrentServerTime();
+   g_pilotStartupLocalTime = TimeLocal();
+   g_pilotStartupH1BarTime = 0;
+   string symbol = g_focusSymbol;
+   if(StringLen(symbol) <= 0 && ArraySize(g_symbols) > 0)
+      symbol = g_symbols[0];
+   if(StringLen(symbol) > 0)
+      g_pilotStartupH1BarTime = iTime(symbol, PERIOD_H1, 0);
+   if(g_pilotStartupH1BarTime <= 0)
+      g_pilotStartupH1BarTime = CurrentHourStart(g_pilotStartupTime);
+}
+
+int PilotStartupEntryGuardRemainingMinutes()
+{
+   if(!EnablePilotStartupEntryGuard || PilotStartupEntryMinWaitMinutes <= 0 || g_pilotStartupTime <= 0)
+      return 0;
+   datetime now = TimeLocal();
+   datetime start = g_pilotStartupLocalTime > 0 ? g_pilotStartupLocalTime : g_pilotStartupTime;
+   int elapsedSeconds = (int)MathMax(0, (long)(now - start));
+   int requiredSeconds = MathMax(0, PilotStartupEntryMinWaitMinutes) * 60;
+   if(elapsedSeconds >= requiredSeconds)
+      return 0;
+   return (int)MathCeil((double)(requiredSeconds - elapsedSeconds) / 60.0);
+}
+
+bool PilotStartupEntryGuardWaitingForNextH1(string symbol)
+{
+   if(!EnablePilotStartupEntryGuard || !PilotStartupEntryWaitNextH1Bar)
+      return false;
+   if(g_pilotStartupH1BarTime <= 0)
+      return true;
+   datetime currentH1 = 0;
+   if(StringLen(symbol) > 0)
+      currentH1 = iTime(symbol, PERIOD_H1, 0);
+   if(currentH1 <= 0)
+      currentH1 = CurrentHourStart(CurrentServerTime());
+   return (currentH1 <= g_pilotStartupH1BarTime);
+}
+
+bool PilotStartupEntryGuardBlocks(string symbol, string &reason)
+{
+   reason = "";
+   if(!EnablePilotStartupEntryGuard || !IsPilotLiveMode())
+      return false;
+
+   int waitMinutes = PilotStartupEntryGuardRemainingMinutes();
+   bool waitH1 = PilotStartupEntryGuardWaitingForNextH1(symbol);
+   if(waitMinutes <= 0 && !waitH1)
+      return false;
+
+   reason = "Pilot startup entry guard active";
+   if(waitH1)
+      reason += ": waiting for next H1 bar after EA reload";
+   if(waitMinutes > 0)
+   {
+      if(waitH1)
+         reason += "; ";
+      else
+         reason += ": ";
+      reason += "minimum wait " + IntegerToString(waitMinutes) + "m remaining";
+   }
+   return true;
 }
 
 void ResetNewsFilterState()
@@ -1476,6 +1558,7 @@ void ResetPilotTelemetryForIndex(int index, int dayKey)
    g_pilotTelemetry[index].inPositionBlocks = 0;
    g_pilotTelemetry[index].regimeBlocks = 0;
    g_pilotTelemetry[index].cooldownBlocks = 0;
+   g_pilotTelemetry[index].startupBlocks = 0;
    g_pilotTelemetry[index].orderSent = 0;
    g_pilotTelemetry[index].orderFailed = 0;
    g_pilotTelemetry[index].lastEvalTime = 0;
@@ -1531,6 +1614,7 @@ string BuildPilotTelemetryJson(int index)
    json += "\"inPositionBlocks\": " + IntegerToString(telemetry.inPositionBlocks) + ", ";
    json += "\"regimeBlocks\": " + IntegerToString(telemetry.regimeBlocks) + ", ";
    json += "\"cooldownBlocks\": " + IntegerToString(telemetry.cooldownBlocks) + ", ";
+   json += "\"startupBlocks\": " + IntegerToString(telemetry.startupBlocks) + ", ";
    json += "\"orderSent\": " + IntegerToString(telemetry.orderSent) + ", ";
    json += "\"orderFailed\": " + IntegerToString(telemetry.orderFailed) + ", ";
    json += "\"lastEvalTime\": \"" + JsonEscape(FormatDateTime(telemetry.lastEvalTime, true)) + "\", ";
@@ -3515,6 +3599,18 @@ bool ProcessLegacyPilotRoute(string strategyKey, string symbol, int symbolIndex,
       return true;
    }
 
+   string startupReason = "";
+   if(PilotStartupEntryGuardBlocks(symbol, startupReason))
+   {
+      states[symbolIndex].status = "STARTUP_GUARD";
+      states[symbolIndex].reason = reason + " | " + startupReason;
+      g_pilotTelemetry[symbolIndex].startupBlocks++;
+      UpdatePilotTelemetrySnapshot(symbolIndex, states[symbolIndex].status, states[symbolIndex].reason, direction);
+      Print("QuantGod MT5 pilot order blocked: startup entry guard strategy=", strategyKey,
+            " symbol=", symbol, " reason=", startupReason);
+      return true;
+   }
+
    if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice, strategyKey))
    {
       states[symbolIndex].status = (direction > 0) ? "BUY_ORDER_SENT" : "SELL_ORDER_SENT";
@@ -4342,6 +4438,18 @@ void RunPilotExecutionLoop()
          g_pilotTelemetry[i].newsFiltered++;
          UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
          AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, "NEWS_DIRECTION_FILTER", "BLOCKED", g_maRuntimeStates[i].reason);
+         continue;
+      }
+      string startupReason = "";
+      if(PilotStartupEntryGuardBlocks(symbol, startupReason))
+      {
+         g_maRuntimeStates[i].status = "STARTUP_GUARD";
+         g_maRuntimeStates[i].reason = reason + " | " + startupReason;
+         g_pilotTelemetry[i].startupBlocks++;
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason, direction);
+         AppendShadowSignalLedgerForCurrentBar(symbol, i, signalStatus, direction, score, "STARTUP_GUARD", "BLOCKED", g_maRuntimeStates[i].reason);
+         Print("QuantGod MT5 pilot order blocked: startup entry guard strategy=MA_Cross symbol=", symbol,
+               " reason=", startupReason);
          continue;
       }
       if(SendPilotMarketOrder(symbol, direction, slPrice, tpPrice, "MA_Cross"))
@@ -5755,6 +5863,8 @@ void ExportDashboard()
    int focusTickAge = 0;
    if(connected && focusTick.time > 0)
       focusTickAge = (int)MathMax(0, (long)(serverClock - (datetime)focusTick.time));
+   string startupGuardReason = "";
+   bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupGuardReason);
 
    string json = "{\r\n";
    json += "  \"timestamp\": \"" + FormatDateTime(TimeLocal(), true) + "\",\r\n";
@@ -5766,6 +5876,14 @@ void ExportDashboard()
    json += "    \"readOnlyMode\": " + JsonBool(ReadOnlyMode) + ",\r\n";
    json += "    \"executionEnabled\": " + JsonBool(!ReadOnlyMode) + ",\r\n";
    json += "    \"livePilotMode\": " + JsonBool(IsPilotLiveMode()) + ",\r\n";
+   json += "    \"pilotStartupEntryGuard\": " + JsonBool(EnablePilotStartupEntryGuard) + ",\r\n";
+   json += "    \"pilotStartupEntryGuardActive\": " + JsonBool(startupGuardActive) + ",\r\n";
+   json += "    \"pilotStartupEntryGuardReason\": \"" + JsonEscape(startupGuardReason) + "\",\r\n";
+   json += "    \"pilotStartupEntryMinWaitMinutes\": " + IntegerToString(PilotStartupEntryMinWaitMinutes) + ",\r\n";
+   json += "    \"pilotStartupEntryWaitNextH1Bar\": " + JsonBool(PilotStartupEntryWaitNextH1Bar) + ",\r\n";
+   json += "    \"pilotStartupTime\": \"" + JsonEscape(g_pilotStartupTime > 0 ? FormatDateTime(g_pilotStartupTime, true) : "") + "\",\r\n";
+   json += "    \"pilotStartupLocalTime\": \"" + JsonEscape(g_pilotStartupLocalTime > 0 ? FormatDateTime(g_pilotStartupLocalTime, true) : "") + "\",\r\n";
+   json += "    \"pilotStartupH1BarTime\": \"" + JsonEscape(g_pilotStartupH1BarTime > 0 ? FormatDateTime(g_pilotStartupH1BarTime, true) : "") + "\",\r\n";
    json += "    \"nonRsiLegacyLiveAuthorization\": " + JsonBool(NonRsiLegacyLiveAuthorizationActive()) + ",\r\n";
    json += "    \"nonRsiLegacyLiveAuthorizationState\": \"" + JsonEscape(NonRsiLegacyLiveAuthorizationState()) + "\",\r\n";
    json += "    \"pilotKillSwitch\": " + JsonBool(g_pilotKillSwitch) + ",\r\n";
@@ -5857,6 +5975,14 @@ void ExportDashboard()
    string statusFile = "build=" + DashboardBuild + "\r\n";
    statusFile += "tradeStatus=" + tradeStatus + "\r\n";
    statusFile += "livePilotMode=" + (IsPilotLiveMode() ? "true" : "false") + "\r\n";
+   statusFile += "pilotStartupEntryGuard=" + (EnablePilotStartupEntryGuard ? "true" : "false") + "\r\n";
+   statusFile += "pilotStartupEntryGuardActive=" + (startupGuardActive ? "true" : "false") + "\r\n";
+   statusFile += "pilotStartupEntryGuardReason=" + startupGuardReason + "\r\n";
+   statusFile += "pilotStartupEntryMinWaitMinutes=" + IntegerToString(PilotStartupEntryMinWaitMinutes) + "\r\n";
+   statusFile += "pilotStartupEntryWaitNextH1Bar=" + (PilotStartupEntryWaitNextH1Bar ? "true" : "false") + "\r\n";
+   statusFile += "pilotStartupTime=" + (g_pilotStartupTime > 0 ? FormatDateTime(g_pilotStartupTime, true) : "") + "\r\n";
+   statusFile += "pilotStartupLocalTime=" + (g_pilotStartupLocalTime > 0 ? FormatDateTime(g_pilotStartupLocalTime, true) : "") + "\r\n";
+   statusFile += "pilotStartupH1BarTime=" + (g_pilotStartupH1BarTime > 0 ? FormatDateTime(g_pilotStartupH1BarTime, true) : "") + "\r\n";
    statusFile += "nonRsiLegacyLiveAuthorization=" + (NonRsiLegacyLiveAuthorizationActive() ? "true" : "false") + "\r\n";
    statusFile += "nonRsiLegacyLiveAuthorizationState=" + NonRsiLegacyLiveAuthorizationState() + "\r\n";
    statusFile += "pilotKillSwitch=" + (g_pilotKillSwitch ? "true" : "false") + "\r\n";
@@ -5911,15 +6037,20 @@ void ExportDashboard()
 int OnInit()
 {
    InitializeWatchlist();
+   ArmPilotStartupEntryGuard();
    LoadTrackedUsdCalendarEvents();
    RefreshNewsFilterState(true);
    EventSetTimer(MathMax(1, RefreshIntervalSec));
    ExportDashboard();
+   string startupReason = "";
+   bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupReason);
    Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,
          " watchlist=", g_resolvedWatchlist, " suffix=", g_detectedSuffix,
          " readOnly=", (ReadOnlyMode ? "true" : "false"),
          " livePilot=", (IsPilotLiveMode() ? "true" : "false"),
-         " nonRsiLegacyLiveAuthorization=", NonRsiLegacyLiveAuthorizationState());
+         " nonRsiLegacyLiveAuthorization=", NonRsiLegacyLiveAuthorizationState(),
+         " startupEntryGuard=", (startupGuardActive ? "ACTIVE" : "CLEAR"),
+         " startupReason=", startupReason);
    return(INIT_SUCCEEDED);
 }
 
