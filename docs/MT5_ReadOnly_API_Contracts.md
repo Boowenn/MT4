@@ -4,6 +4,10 @@ This document defines the stable local Dashboard API contracts for the MT5
 read-only bridge and symbol registry. These APIs are observation surfaces only.
 They must never send orders, close positions, cancel orders, select symbols,
 store credentials, mutate presets, or change EA live-trading permissions.
+Guarded trading operations, account profiles, the pending-order worker, and the
+local platform store are separate and documented in
+`docs/MT5_Trading_Control_Contracts.md`; they must not be added to the
+`/api/mt5-readonly/*` namespace.
 
 ## Hard Safety Contract
 

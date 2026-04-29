@@ -1,9 +1,11 @@
 # MT5 Pending-Order Worker Design
 
-This is a design document only. The current branch must not add a Python
-pending-order worker, order endpoint, close endpoint, cancel endpoint, or any
-other trading path. The MT5 Dashboard APIs remain read-only until this design
-is explicitly approved and implemented in a separate branch.
+This document started as the design gate for the highest-risk MT5 migration.
+The guarded implementation now exists in `tools/mt5_pending_order_worker.py`
+and `tools/mt5_trading_client.py`, but it remains locked by default:
+`dryRun=true`, `killSwitch=true`, `ownerMode=EA_ONLY`, and live MT5 mutation
+requires the explicit authorization lock described below. The original
+read-only APIs remain read-only and separate.
 
 ## Scope
 
@@ -15,11 +17,12 @@ Potential future scope:
   realized outcomes.
 - Write an immutable audit ledger before and after every external MT5 action.
 
-Non-goals:
+Still out of scope for the worker:
 
 - No market orders in the worker.
-- No `/api/mt5-readonly/order`, `/api/mt5-readonly/close`, or cancel route.
-- No credential storage in the Dashboard.
+- No `/api/mt5-readonly/order`, `/api/mt5-readonly/close`, or cancel route;
+  mutation endpoints live under `/api/mt5/*` and are guarded separately.
+- No password persistence in the Dashboard.
 - No mutation of live EA presets.
 - No competing trading authority between EA and Python.
 
@@ -34,8 +37,9 @@ one active owner for live MT5 order placement:
 - `EA_AND_PY_SPLIT`: only allowed if route/symbol ownership is locked in a
   signed config and both sides enforce it.
 
-The first implementation should start with `EA_ONLY` plus dry-run ledger
-replay. Moving to `PY_PENDING_ONLY` requires a separate release gate.
+The implemented default starts with `EA_ONLY` plus dry-run ledger replay. Moving
+to `PY_PENDING_ONLY` still requires a signed authorization lock and operator
+approval.
 
 ## Kill Switch
 
@@ -44,8 +48,9 @@ All order mutation must be blocked unless every switch is green:
 - `QG_MT5_PENDING_WORKER_ENABLED=true`
 - `QG_MT5_PENDING_WORKER_DRY_RUN=false`
 - `QG_MT5_PENDING_AUTH_LOCK_PATH` exists and contains the expected lock token.
-- Dashboard safety status says `orderSendAllowed=false` for read-only APIs and
-  does not expose mutation endpoints.
+- Dashboard safety status says `orderSendAllowed=false` for read-only APIs; any
+  mutation endpoint must live under the guarded `/api/mt5/*` bridge and pass
+  this same lock.
 - A local operator lock file confirms this host owns MT5 trading for the target
   account, server, route, and symbol.
 

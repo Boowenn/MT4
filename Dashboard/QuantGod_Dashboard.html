@@ -7986,6 +7986,110 @@
                     </div>
                 </div>
 
+                <div class="panel" style="margin-bottom: 1rem;">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.15); color: var(--accent-amber);">TC</div>
+                            MT5 交易控制
+                        </div>
+                        <span class="eval-summary" id="mt5TradingControlSummary">等待交易控制状态</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="mt5-shadow-panel">
+                            <div class="mt5-shadow-meta" id="mt5TradingControlMeta">
+                                等待 /api/mt5/status；默认 dry-run，实盘 mutation 需要 env、config、授权锁和审计同时通过。
+                            </div>
+                            <div class="mt5-shadow-note" id="mt5TradingControlPills">
+                                <span class="mt5-shadow-pill">dry-run default</span>
+                                <span class="mt5-shadow-pill">audit ledger</span>
+                                <span class="mt5-shadow-pill">auth lock required</span>
+                            </div>
+                            <div class="mt5-shadow-metrics" id="mt5TradingControlMetrics">
+                                <div class="mt5-shadow-metric">
+                                    <div class="mt5-shadow-metric-label">Trading</div>
+                                    <div class="mt5-shadow-metric-value">LOCKED</div>
+                                    <div class="mt5-shadow-metric-meta">等待 guarded bridge</div>
+                                </div>
+                            </div>
+                            <div class="mt5-shadow-subpanel" style="margin-bottom: 12px;">
+                                <div class="mt5-shadow-subpanel-header">
+                                    <div class="mt5-shadow-subpanel-title">Account Profile / Login Gate</div>
+                                    <div class="mt5-shadow-subpanel-meta">profile 不保存密码，login 只读锁态下会审计阻断</div>
+                                </div>
+                                <div class="mt5-shadow-subpanel-body">
+                                    <div class="strategy-workspace-action-row">
+                                        <input class="polymarket-history-api-input" id="mt5ProfileId" type="text" value="hfm-live" aria-label="Profile ID" style="min-width: 120px;">
+                                        <input class="polymarket-history-api-input" id="mt5ProfileLogin" type="number" value="186054398" aria-label="Account login" style="min-width: 130px;">
+                                        <input class="polymarket-history-api-input" id="mt5ProfileServer" type="text" value="HFMarketsGlobal-Live12" aria-label="Server" style="min-width: 190px;">
+                                        <input class="polymarket-history-api-input" id="mt5ProfileTerminal" type="text" value="C:\Program Files\HFM Metatrader 5\terminal64.exe" aria-label="Terminal path" style="min-width: 260px;">
+                                        <input class="polymarket-history-api-input" id="mt5ProfilePasswordEnv" type="text" value="QG_MT5_HFM_PASSWORD" aria-label="Password env var" style="min-width: 170px;">
+                                        <button type="button" class="qd-route-button" id="mt5ProfileSaveButton">Save Profile</button>
+                                        <button type="button" class="qd-route-button" id="mt5ProfileLoginButton">Login</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dashboard-grid mt5-shadow-grid">
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">Dry-Run Order Ticket</div>
+                                        <div class="mt5-shadow-subpanel-meta">发送到 /api/mt5/order</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="strategy-workspace-action-row">
+                                            <input class="polymarket-history-api-input" id="mt5TradeRoute" type="text" value="MA_Cross" aria-label="Route" style="min-width: 110px;">
+                                            <input class="polymarket-history-api-input" id="mt5TradeSymbol" type="text" value="EURUSDc" aria-label="Symbol" style="min-width: 110px;">
+                                            <select class="polymarket-history-api-select" id="mt5TradeSide" aria-label="Side">
+                                                <option value="buy">BUY</option>
+                                                <option value="sell">SELL</option>
+                                            </select>
+                                            <select class="polymarket-history-api-select" id="mt5TradeOrderType" aria-label="Order type">
+                                                <option value="buy_limit">BUY LIMIT</option>
+                                                <option value="sell_limit">SELL LIMIT</option>
+                                                <option value="buy">BUY MARKET</option>
+                                                <option value="sell">SELL MARKET</option>
+                                            </select>
+                                            <input class="polymarket-history-api-input" id="mt5TradeLots" type="number" value="0.01" step="0.01" min="0" aria-label="Lots" style="width: 82px;">
+                                            <input class="polymarket-history-api-input" id="mt5TradePrice" type="number" value="0" step="0.00001" aria-label="Price" style="width: 112px;">
+                                            <input class="polymarket-history-api-input" id="mt5TradeSl" type="number" value="0" step="0.00001" aria-label="SL" style="width: 112px;">
+                                            <input class="polymarket-history-api-input" id="mt5TradeTp" type="number" value="0" step="0.00001" aria-label="TP" style="width: 112px;">
+                                            <label class="mt5-shadow-pill" style="display: inline-flex; gap: 6px; align-items: center;">
+                                                <input id="mt5TradeDryRun" type="checkbox" checked>
+                                                dry-run
+                                            </label>
+                                            <button type="button" class="qd-route-button" id="mt5TradeOrderButton">Order</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt5-shadow-subpanel">
+                                    <div class="mt5-shadow-subpanel-header">
+                                        <div class="mt5-shadow-subpanel-title">Ticket Ops</div>
+                                        <div class="mt5-shadow-subpanel-meta">close / cancel 均走同一授权锁</div>
+                                    </div>
+                                    <div class="mt5-shadow-subpanel-body">
+                                        <div class="strategy-workspace-action-row">
+                                            <input class="polymarket-history-api-input" id="mt5TicketInput" type="number" value="0" min="0" aria-label="Ticket" style="min-width: 140px;">
+                                            <input class="polymarket-history-api-input" id="mt5TicketLots" type="number" value="0" min="0" step="0.01" aria-label="Close lots" style="width: 88px;">
+                                            <button type="button" class="qd-route-button" id="mt5TradeCloseButton">Close</button>
+                                            <button type="button" class="qd-route-button" id="mt5TradeCancelButton">Cancel</button>
+                                            <button type="button" class="qd-route-button" id="mt5PendingWorkerRunButton">Run Worker</button>
+                                            <button type="button" class="qd-route-button" id="mt5AdaptiveStageButton">Stage Adaptive</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt5-shadow-subpanel">
+                                <div class="mt5-shadow-subpanel-header">
+                                    <div class="mt5-shadow-subpanel-title">Audit / Platform</div>
+                                    <div class="mt5-shadow-subpanel-meta" id="mt5TradingAuditMeta">等待审计状态</div>
+                                </div>
+                                <div class="mt5-shadow-subpanel-body">
+                                    <pre id="mt5TradingActionResult" style="white-space: pre-wrap; margin: 0; font-size: 12px; color: var(--text-muted);">等待操作结果</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="trades-grid">
                     <div class="panel">
                         <div class="panel-header">
@@ -8502,6 +8606,17 @@ const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
 const POLYMARKET_SEARCH_API_PATH = '/api/polymarket/search';
 const MT5_READONLY_SNAPSHOT_API_PATH = '/api/mt5-readonly/snapshot';
 const MT5_SYMBOL_REGISTRY_API_PATH = '/api/mt5-symbol-registry';
+const MT5_TRADING_STATUS_API_PATH = '/api/mt5/status';
+const MT5_TRADING_PROFILE_API_PATH = '/api/mt5/profile';
+const MT5_TRADING_LOGIN_API_PATH = '/api/mt5/login';
+const MT5_TRADING_ORDER_API_PATH = '/api/mt5/order';
+const MT5_TRADING_CLOSE_API_PATH = '/api/mt5/close';
+const MT5_TRADING_CANCEL_API_PATH = '/api/mt5/cancel';
+const MT5_PENDING_WORKER_STATUS_API_PATH = '/api/mt5-pending-worker/status';
+const MT5_PENDING_WORKER_RUN_API_PATH = '/api/mt5-pending-worker/run';
+const MT5_PLATFORM_STATUS_API_PATH = '/api/mt5-platform/status';
+const MT5_ADAPTIVE_CONTROL_STATUS_API_PATH = '/api/mt5-adaptive-control/status';
+const MT5_ADAPTIVE_CONTROL_RUN_API_PATH = '/api/mt5-adaptive-control/run';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
 const DASHBOARD_API_STORAGE_KEY = 'quantgod.cloudApiUrl';
 const POLYMARKET_SINGLE_MARKET_INPUT_KEY = 'quantgod.polymarketSingleMarketInput';
@@ -9691,6 +9806,10 @@ async function attachSupplementalData(baseData, previousData = null) {
         mt5SymbolRegistry: baseData?.mt5SymbolRegistry || previousData?.mt5SymbolRegistry || null,
         mt5ResearchStats: baseData?.mt5ResearchStats || previousData?.mt5ResearchStats || null,
         mt5BackendBacktest: baseData?.mt5BackendBacktest || previousData?.mt5BackendBacktest || null,
+        mt5TradingControl: baseData?.mt5TradingControl || previousData?.mt5TradingControl || null,
+        mt5PendingWorker: baseData?.mt5PendingWorker || previousData?.mt5PendingWorker || null,
+        mt5PlatformState: baseData?.mt5PlatformState || previousData?.mt5PlatformState || null,
+        mt5AdaptiveControl: baseData?.mt5AdaptiveControl || previousData?.mt5AdaptiveControl || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
@@ -9921,6 +10040,38 @@ async function attachSupplementalData(baseData, previousData = null) {
     } catch (error) {
         data._mt5SymbolRegistryError = true;
         console.warn('MT5 symbol registry load failed.', error);
+    }
+
+    try {
+        data.mt5TradingControl = await loadDashboardApiJson(MT5_TRADING_STATUS_API_PATH);
+        data._mt5TradingControlError = false;
+    } catch (error) {
+        data._mt5TradingControlError = true;
+        console.warn('MT5 trading control load failed.', error);
+    }
+
+    try {
+        data.mt5PendingWorker = await loadDashboardApiJson(MT5_PENDING_WORKER_STATUS_API_PATH);
+        data._mt5PendingWorkerError = false;
+    } catch (error) {
+        data._mt5PendingWorkerError = true;
+        console.warn('MT5 pending worker status load failed.', error);
+    }
+
+    try {
+        data.mt5PlatformState = await loadDashboardApiJson(MT5_PLATFORM_STATUS_API_PATH);
+        data._mt5PlatformStateError = false;
+    } catch (error) {
+        data._mt5PlatformStateError = true;
+        console.warn('MT5 platform state load failed.', error);
+    }
+
+    try {
+        data.mt5AdaptiveControl = await loadDashboardApiJson(MT5_ADAPTIVE_CONTROL_STATUS_API_PATH);
+        data._mt5AdaptiveControlError = false;
+    } catch (error) {
+        data._mt5AdaptiveControlError = true;
+        console.warn('MT5 adaptive control load failed.', error);
     }
 
     try {
@@ -16041,6 +16192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPolymarketUnifiedSearchControls();
     initResearchJumpLinks();
     initMonitorJumpLinks();
+    initMt5TradingControls();
     loadData();
     refreshInterval = setInterval(loadData, 5000);
     runtimeClockInterval = setInterval(() => {
@@ -16360,6 +16512,7 @@ function updateDashboard() {
     updateSidebarSummary(d);
     updateMt5SymbolRegistryPanel(d);
     updateMt5ReadOnlyBridgePanel(d);
+    updateMt5TradingControlPanel(d);
     updateMt5ShadowJournalPanel(d);
 
     const footer = document.querySelector('.footer');
@@ -17254,6 +17407,186 @@ function updateMt5ReadOnlyBridgePanel(d) {
             </tr>
         `).join('');
     }
+}
+
+function updateMt5TradingControlPanel(d) {
+    const summaryEl = document.getElementById('mt5TradingControlSummary');
+    const metaEl = document.getElementById('mt5TradingControlMeta');
+    const pillsEl = document.getElementById('mt5TradingControlPills');
+    const metricsEl = document.getElementById('mt5TradingControlMetrics');
+    const auditMetaEl = document.getElementById('mt5TradingAuditMeta');
+    if (!summaryEl || !metaEl || !pillsEl || !metricsEl || !auditMetaEl) return;
+
+    const control = d?.mt5TradingControl || null;
+    const worker = d?.mt5PendingWorker || null;
+    const platform = d?.mt5PlatformState || null;
+    const adaptive = d?.mt5AdaptiveControl || null;
+    const unavailable = control?.error || (d?._mt5TradingControlError ? '/api/mt5/status 暂不可用' : '等待 /api/mt5/status');
+    if (!control || control.ok === false) {
+        summaryEl.textContent = '交易控制不可用';
+        metaEl.textContent = unavailable;
+        pillsEl.innerHTML = '<span class="mt5-shadow-pill">dry-run default</span><span class="mt5-shadow-pill">orderSend=false</span><span class="mt5-shadow-pill">auth lock required</span>';
+        metricsEl.innerHTML = `
+            <div class="mt5-shadow-metric">
+                <div class="mt5-shadow-metric-label">Trading</div>
+                <div class="mt5-shadow-metric-value">UNAVAILABLE</div>
+                <div class="mt5-shadow-metric-meta">${escapeHtml(unavailable)}</div>
+            </div>`;
+        auditMetaEl.textContent = '等待平台/审计状态';
+        return;
+    }
+
+    const safety = control.safety || {};
+    const config = control.config || {};
+    const auth = control.authLock || {};
+    const profileCount = Array.isArray(control.profiles?.profiles) ? control.profiles.profiles.length : 0;
+    const workerSummary = worker?.summary || {};
+    const platformSummary = platform?.summary || {};
+    const adaptiveSummary = adaptive?.summary || {};
+    const liveAllowed = !!safety.orderSendAllowed;
+    const statusText = liveAllowed ? 'LIVE ARMED' : (safety.dryRun ? 'DRY-RUN' : 'LOCKED');
+
+    summaryEl.textContent = `${statusText} | owner ${safety.ownerMode || config.ownerMode || 'EA_ONLY'} | profiles ${profileCount}`;
+    metaEl.textContent = [
+        `config=${config._configPath || '--'}`,
+        `auth=${auth.ok ? 'OK' : (auth.reasons || []).join(',') || 'missing'}`,
+        `audit=${control.auditLedger || '--'}`
+    ].join(' | ');
+    pillsEl.innerHTML = [
+        `<span class="mt5-shadow-pill">${safety.tradingEnabled ? 'config enabled' : 'config locked'}</span>`,
+        `<span class="mt5-shadow-pill">${safety.envEnabled ? 'env enabled' : 'env locked'}</span>`,
+        `<span class="mt5-shadow-pill">${safety.killSwitch ? 'kill switch ON' : 'kill switch OFF'}</span>`,
+        `<span class="mt5-shadow-pill">${safety.dryRun ? 'dry-run' : 'live requested'}</span>`,
+        `<span class="mt5-shadow-pill">orderSend=${liveAllowed ? 'true' : 'false'}</span>`
+    ].join('');
+
+    const metrics = [
+        { label: 'Bridge', value: statusText, meta: `mode ${control.mode || '--'}` },
+        { label: 'Owner', value: safety.ownerMode || config.ownerMode || '--', meta: safety.killSwitch ? (config.killReason || 'kill switch') : 'kill switch clear' },
+        { label: 'Auth Lock', value: auth.ok ? 'OK' : 'BLOCKED', meta: auth.ok ? `${auth.lockId || '--'} expires ${auth.expiresAtIso || '--'}` : ((auth.reasons || []).join(', ') || 'missing') },
+        { label: 'Worker', value: String(workerSummary.processed ?? 0), meta: `accepted ${workerSummary.accepted ?? 0} / rejected ${workerSummary.rejected ?? 0} / skipped ${workerSummary.skipped ?? 0}` },
+        { label: 'Platform DB', value: String(platformSummary.auditEvents ?? 0), meta: `operators ${platformSummary.operators ?? 0} / live events ${platformSummary.liveAllowedEvents ?? 0}` },
+        { label: 'Adaptive', value: String(adaptiveSummary.actions ?? 0), meta: `blocked ${adaptiveSummary.blocked ?? 0} / staging ${adaptiveSummary.stagingPresetPath ? 'ready' : 'waiting'}` },
+        { label: 'Profiles', value: String(profileCount), meta: 'passwords are not persisted' }
+    ];
+    metricsEl.innerHTML = metrics.map((item) => `
+        <div class="mt5-shadow-metric">
+            <div class="mt5-shadow-metric-label">${escapeHtml(item.label)}</div>
+            <div class="mt5-shadow-metric-value">${escapeHtml(item.value)}</div>
+            <div class="mt5-shadow-metric-meta">${escapeHtml(item.meta)}</div>
+        </div>
+    `).join('');
+    auditMetaEl.textContent = `worker=${worker?.mode || 'waiting'} | platform=${platform?.mode || 'waiting'} | adaptive=${adaptive?.mode || 'waiting'} | db=${platform?.databasePath || '--'}`;
+}
+
+function getMt5TradingFormPayload() {
+    const orderType = document.getElementById('mt5TradeOrderType')?.value || 'buy_limit';
+    const side = document.getElementById('mt5TradeSide')?.value || (orderType.startsWith('sell') ? 'sell' : 'buy');
+    return {
+        route: document.getElementById('mt5TradeRoute')?.value || 'MA_Cross',
+        symbol: document.getElementById('mt5TradeSymbol')?.value || 'EURUSDc',
+        side,
+        orderType,
+        lots: Number(document.getElementById('mt5TradeLots')?.value || 0),
+        price: Number(document.getElementById('mt5TradePrice')?.value || 0),
+        sl: Number(document.getElementById('mt5TradeSl')?.value || 0),
+        tp: Number(document.getElementById('mt5TradeTp')?.value || 0),
+        dryRun: document.getElementById('mt5TradeDryRun')?.checked !== false,
+        source: 'dashboard_ticket_panel'
+    };
+}
+
+function getMt5ProfilePayload() {
+    return {
+        profileId: document.getElementById('mt5ProfileId')?.value || 'hfm-live',
+        accountLogin: Number(document.getElementById('mt5ProfileLogin')?.value || 0),
+        server: document.getElementById('mt5ProfileServer')?.value || '',
+        terminalPath: document.getElementById('mt5ProfileTerminal')?.value || '',
+        passwordEnvVar: document.getElementById('mt5ProfilePasswordEnv')?.value || '',
+        dryRun: document.getElementById('mt5TradeDryRun')?.checked !== false,
+        source: 'dashboard_profile_panel'
+    };
+}
+
+async function postMt5TradingJson(url, payload) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify(payload || {})
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+}
+
+function setMt5TradingResult(payload) {
+    const resultEl = document.getElementById('mt5TradingActionResult');
+    if (!resultEl) return;
+    resultEl.textContent = JSON.stringify(payload, null, 2);
+}
+
+function initMt5TradingControls() {
+    document.addEventListener('click', async (event) => {
+        const profileSaveButton = event.target.closest('#mt5ProfileSaveButton');
+        const profileLoginButton = event.target.closest('#mt5ProfileLoginButton');
+        const orderButton = event.target.closest('#mt5TradeOrderButton');
+        const closeButton = event.target.closest('#mt5TradeCloseButton');
+        const cancelButton = event.target.closest('#mt5TradeCancelButton');
+        const workerButton = event.target.closest('#mt5PendingWorkerRunButton');
+        const adaptiveButton = event.target.closest('#mt5AdaptiveStageButton');
+        if (!profileSaveButton && !profileLoginButton && !orderButton && !closeButton && !cancelButton && !workerButton && !adaptiveButton) return;
+        event.preventDefault();
+        try {
+            if (profileSaveButton) {
+                setMt5TradingResult({ status: 'saving_profile_metadata' });
+                const result = await postMt5TradingJson(MT5_TRADING_PROFILE_API_PATH, getMt5ProfilePayload());
+                setMt5TradingResult(result);
+                return;
+            }
+            if (profileLoginButton) {
+                setMt5TradingResult({ status: 'sending_login_gate_check' });
+                const result = await postMt5TradingJson(MT5_TRADING_LOGIN_API_PATH, getMt5ProfilePayload());
+                setMt5TradingResult(result);
+                return;
+            }
+            if (orderButton) {
+                setMt5TradingResult({ status: 'sending_order_dry_run' });
+                const result = await postMt5TradingJson(MT5_TRADING_ORDER_API_PATH, getMt5TradingFormPayload());
+                setMt5TradingResult(result);
+                return;
+            }
+            if (closeButton) {
+                const ticket = Number(document.getElementById('mt5TicketInput')?.value || 0);
+                const lots = Number(document.getElementById('mt5TicketLots')?.value || 0);
+                const payload = { ticket, lots, dryRun: document.getElementById('mt5TradeDryRun')?.checked !== false, source: 'dashboard_ticket_panel' };
+                setMt5TradingResult({ status: 'sending_close_dry_run', ticket });
+                const result = await postMt5TradingJson(MT5_TRADING_CLOSE_API_PATH, payload);
+                setMt5TradingResult(result);
+                return;
+            }
+            if (cancelButton) {
+                const ticket = Number(document.getElementById('mt5TicketInput')?.value || 0);
+                const payload = { ticket, orderTicket: ticket, dryRun: document.getElementById('mt5TradeDryRun')?.checked !== false, source: 'dashboard_ticket_panel' };
+                setMt5TradingResult({ status: 'sending_cancel_dry_run', ticket });
+                const result = await postMt5TradingJson(MT5_TRADING_CANCEL_API_PATH, payload);
+                setMt5TradingResult(result);
+                return;
+            }
+            if (workerButton) {
+                setMt5TradingResult({ status: 'running_pending_worker_dry_run' });
+                const result = await postMt5TradingJson(`${MT5_PENDING_WORKER_RUN_API_PATH}?dryRun=true`, {});
+                setMt5TradingResult(result);
+                return;
+            }
+            if (adaptiveButton) {
+                setMt5TradingResult({ status: 'staging_adaptive_controls' });
+                const result = await postMt5TradingJson(`${MT5_ADAPTIVE_CONTROL_RUN_API_PATH}?applyStaging=true`, {});
+                setMt5TradingResult(result);
+            }
+        } catch (error) {
+            setMt5TradingResult({ ok: false, error: error.message || String(error) });
+        }
+    });
 }
 
 function updateMt5ShadowJournalPanel(d) {

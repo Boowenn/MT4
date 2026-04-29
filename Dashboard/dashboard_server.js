@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 
 const host = process.env.QG_DASHBOARD_HOST || '127.0.0.1';
@@ -16,10 +17,18 @@ const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarke
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
 const mt5BackendBacktestScript = path.join(repoRoot, 'tools', 'run_mt5_backend_backtest_loop.py');
+const mt5TradingClientScript = path.join(repoRoot, 'tools', 'mt5_trading_client.py');
+const mt5PendingWorkerScript = path.join(repoRoot, 'tools', 'mt5_pending_order_worker.py');
+const mt5PlatformStoreScript = path.join(repoRoot, 'tools', 'mt5_platform_store.py');
+const mt5AdaptiveControlScript = path.join(repoRoot, 'tools', 'mt5_adaptive_control_executor.py');
 const polymarketHistoryTables = new Set(['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots']);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
+const mt5TradingEndpoints = new Set(['status', 'profiles', 'save-profile', 'login', 'order', 'close', 'cancel']);
 const mt5BackendBacktestName = 'QuantGod_MT5BackendBacktest.json';
+const mt5PendingWorkerName = 'QuantGod_MT5PendingOrderWorker.json';
+const mt5PlatformStateName = 'QuantGod_MT5PlatformState.json';
+const mt5AdaptiveControlName = 'QuantGod_MT5AdaptiveControlActions.json';
 const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
   polymarketAiScoreName,
@@ -55,7 +64,7 @@ function sendJson(res, statusCode, payload) {
     Pragma: 'no-cache',
     Expires: '0',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type'
   }, JSON.stringify(payload, null, 2));
 }
@@ -80,7 +89,15 @@ function readRequestBody(req, maxBytes = 64 * 1024) {
 
 function safeJsonPayload(text) {
   try {
-    const payload = JSON.parse(String(text || '{}').replace(/^\uFEFF/, ''));
+    let normalized = String(text || '{}').replace(/^\uFEFF/, '').trim();
+    if ((normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('"') && normalized.endsWith('"'))) {
+      normalized = normalized.slice(1, -1);
+    }
+    normalized = normalized.replace(/\\"/g, '"');
+    let payload = JSON.parse(normalized || '{}');
+    if (typeof payload === 'string') {
+      payload = JSON.parse(payload);
+    }
     return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   } catch (_) {
     return {};
@@ -204,6 +221,18 @@ function runJsonPython(script, args = [], timeoutMs = 15000) {
       }
     });
   });
+}
+
+async function runJsonPythonPayload(script, args = [], payload = {}, timeoutMs = 15000) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qg-mt5-payload-'));
+  const payloadPath = path.join(tempDir, 'payload.json');
+  fs.writeFileSync(payloadPath, JSON.stringify(payload || {}, null, 2), 'utf8');
+  try {
+    return await runJsonPython(script, [...args, '--payload-file', payloadPath], timeoutMs);
+  } finally {
+    try { fs.unlinkSync(payloadPath); } catch (_) {}
+    try { fs.rmdirSync(tempDir); } catch (_) {}
+  }
 }
 
 function readQuantGodJsonFile(fileName) {
@@ -559,6 +588,300 @@ async function handleMt5BackendBacktest(req, res, forceRun = false) {
       cancelAllowed: false,
       livePresetMutationAllowed: false,
       mutatesMt5: false
+    }
+  });
+}
+
+function mt5TradingEndpointFromPath(pathPart) {
+  const base = pathPart.replace(/^\/api\/mt5-trading\/?/, '').replace(/^\/api\/mt5\/?/, '');
+  if (!base || base === 'status') return 'status';
+  if (base === 'profile') return 'save-profile';
+  if (base === 'account-profiles') return 'profiles';
+  const first = base.split('/').filter(Boolean)[0] || 'status';
+  return first === 'profile' ? 'save-profile' : first;
+}
+
+function buildMt5TradingArgs(endpoint) {
+  return ['--endpoint', endpoint, '--runtime-dir', defaultRuntimeDir];
+}
+
+async function handleMt5Trading(req, res, endpoint, extraPayload = {}) {
+  const normalized = endpoint === 'profile' ? 'save-profile' : endpoint;
+  if (!mt5TradingEndpoints.has(normalized)) {
+    sendJson(res, 404, {
+      ok: false,
+      status: 'NOT_FOUND',
+      endpoint: normalized,
+      error: 'unsupported_mt5_trading_endpoint',
+      supportedEndpoints: Array.from(mt5TradingEndpoints).sort(),
+      safety: {
+        readOnly: false,
+        dryRun: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false,
+        auditLedgerRequired: true,
+        mutatesMt5: false
+      }
+    });
+    return;
+  }
+
+  try {
+    let payload = { ...extraPayload };
+    if (req.method === 'POST' || req.method === 'DELETE') {
+      const raw = await readRequestBody(req, 128 * 1024).catch(() => '');
+      payload = { ...safeJsonPayload(raw), ...payload };
+    }
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    if (['1', 'true', 'yes'].includes(String(parsed.searchParams.get('dryRun') || '').toLowerCase())) {
+      payload.dryRun = true;
+    }
+    const result = ['status', 'profiles'].includes(normalized)
+      ? await runJsonPython(mt5TradingClientScript, buildMt5TradingArgs(normalized), 15000)
+      : await runJsonPythonPayload(mt5TradingClientScript, buildMt5TradingArgs(normalized), payload, 20000);
+    if (!result.ok) {
+      sendJson(res, 200, {
+        ok: false,
+        status: 'UNAVAILABLE',
+        endpoint: normalized,
+        error: result.stderr || result.reason || 'mt5_trading_bridge_failed',
+        detail: result,
+        safety: {
+          readOnly: false,
+          dryRun: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          credentialStorageAllowed: false,
+          livePresetMutationAllowed: false,
+          auditLedgerRequired: true,
+          mutatesMt5: false
+        }
+      });
+      return;
+    }
+    const body = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    sendJson(res, 200, {
+      ...body,
+      _api: {
+        service: 'quantgod_dashboard_mt5_trading_bridge',
+        endpoint: `/api/mt5/${normalized}`,
+        script: mt5TradingClientScript,
+        readOnly: false,
+        guardedMutation: true,
+        auditLedgerRequired: true,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false
+      }
+    });
+  } catch (error) {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'UNAVAILABLE',
+      endpoint: normalized,
+      error: error.message || String(error),
+      safety: {
+        readOnly: false,
+        dryRun: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        credentialStorageAllowed: false,
+        livePresetMutationAllowed: false,
+        auditLedgerRequired: true,
+        mutatesMt5: false
+      }
+    });
+  }
+}
+
+function buildMt5PendingWorkerArgs(parsedUrl, payloadPath = '') {
+  const params = parsedUrl.searchParams;
+  const maxIntents = clampMt5ReadonlyLimit(params.get('maxIntents') || params.get('max_intents'), 20, 100);
+  const args = ['--runtime-dir', defaultRuntimeDir, '--max-intents', String(maxIntents)];
+  if (['1', 'true', 'yes'].includes(String(params.get('dryRun') || '').toLowerCase())) {
+    args.push('--dry-run');
+  }
+  if (payloadPath) {
+    args.push('--intents', payloadPath);
+  }
+  return args;
+}
+
+async function handleMt5PendingWorker(req, res, forceRun = false) {
+  const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+  const target = path.join(defaultRuntimeDir, mt5PendingWorkerName);
+  if (!forceRun && req.method === 'GET' && fs.existsSync(target)) {
+    try {
+      const payload = JSON.parse(fs.readFileSync(target, 'utf8').replace(/^\uFEFF/, ''));
+      sendJson(res, 200, {
+        ...payload,
+        _api: {
+          service: 'quantgod_dashboard_mt5_pending_order_worker',
+          endpoint: '/api/mt5-pending-worker/status',
+          filePath: target,
+          guardedMutation: true,
+          auditLedgerRequired: true
+        }
+      });
+      return;
+    } catch (_) {}
+  }
+
+  let tempDir = '';
+  let intentsPath = '';
+  try {
+    if (req.method === 'POST') {
+      const body = safeJsonPayload(await readRequestBody(req, 256 * 1024).catch(() => ''));
+      if (Array.isArray(body.intents) || Array.isArray(body.orders)) {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qg-mt5-intents-'));
+        intentsPath = path.join(tempDir, 'intents.json');
+        fs.writeFileSync(intentsPath, JSON.stringify(body, null, 2), 'utf8');
+      }
+    }
+    const result = await runJsonPython(mt5PendingWorkerScript, buildMt5PendingWorkerArgs(parsed, intentsPath), 60000);
+    if (!result.ok) {
+      sendJson(res, 200, {
+        ok: false,
+        status: 'UNAVAILABLE',
+        endpoint: '/api/mt5-pending-worker/run',
+        error: result.stderr || result.reason || 'mt5_pending_worker_failed',
+        detail: result,
+        safety: {
+          readOnly: false,
+          dryRun: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          auditLedgerRequired: true,
+          mutatesMt5: false
+        }
+      });
+      return;
+    }
+    const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    sendJson(res, 200, {
+      ...payload,
+      _api: {
+        service: 'quantgod_dashboard_mt5_pending_order_worker',
+        endpoint: '/api/mt5-pending-worker/run',
+        script: mt5PendingWorkerScript,
+        guardedMutation: true,
+        auditLedgerRequired: true
+      }
+    });
+  } finally {
+    if (intentsPath) {
+      try { fs.unlinkSync(intentsPath); } catch (_) {}
+    }
+    if (tempDir) {
+      try { fs.rmdirSync(tempDir); } catch (_) {}
+    }
+  }
+}
+
+async function handleMt5PlatformStore(req, res) {
+  try {
+    let args = ['--runtime-dir', defaultRuntimeDir];
+    if (req.method === 'POST') {
+      const payload = safeJsonPayload(await readRequestBody(req, 64 * 1024).catch(() => ''));
+      if (payload.operatorId || payload.displayName || payload.role) {
+        args = [...args, '--operator-json', JSON.stringify(payload)];
+      }
+    }
+    const result = await runJsonPython(mt5PlatformStoreScript, args, 20000);
+    if (!result.ok) {
+      sendJson(res, 200, {
+        ok: false,
+        status: 'UNAVAILABLE',
+        error: result.stderr || result.reason || 'mt5_platform_store_failed',
+        detail: result,
+        safety: {
+          readOnly: false,
+          controlPlaneOnly: true,
+          orderSendAllowed: false,
+          closeAllowed: false,
+          cancelAllowed: false,
+          mutatesMt5: false
+        }
+      });
+      return;
+    }
+    const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    sendJson(res, 200, {
+      ...payload,
+      _api: {
+        service: 'quantgod_dashboard_mt5_platform_store',
+        endpoint: '/api/mt5-platform/status',
+        script: mt5PlatformStoreScript,
+        controlPlaneOnly: true,
+        orderSendAllowed: false
+      }
+    });
+  } catch (error) {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'UNAVAILABLE',
+      error: error.message || String(error)
+    });
+  }
+}
+
+async function handleMt5AdaptiveControl(req, res, forceRun = false) {
+  const target = path.join(defaultRuntimeDir, mt5AdaptiveControlName);
+  if (!forceRun && req.method === 'GET' && fs.existsSync(target)) {
+    try {
+      const payload = JSON.parse(fs.readFileSync(target, 'utf8').replace(/^\uFEFF/, ''));
+      sendJson(res, 200, {
+        ...payload,
+        _api: {
+          service: 'quantgod_dashboard_mt5_adaptive_control',
+          endpoint: '/api/mt5-adaptive-control/status',
+          filePath: target,
+          guardedMutation: true,
+          livePresetMutationAllowed: false
+        }
+      });
+      return;
+    } catch (_) {}
+  }
+  const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+  const applyStaging = forceRun || ['1', 'true', 'yes'].includes(String(parsed.searchParams.get('applyStaging') || parsed.searchParams.get('staging') || '').toLowerCase());
+  const applyLive = ['1', 'true', 'yes'].includes(String(parsed.searchParams.get('applyLive') || parsed.searchParams.get('live') || '').toLowerCase());
+  const args = ['--runtime-dir', defaultRuntimeDir, '--repo-root', repoRoot];
+  if (applyStaging) args.push('--apply-staging');
+  if (applyLive) args.push('--apply-live');
+  const result = await runJsonPython(mt5AdaptiveControlScript, args, 30000);
+  if (!result.ok) {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'UNAVAILABLE',
+      error: result.stderr || result.reason || 'mt5_adaptive_control_failed',
+      detail: result,
+      safety: {
+        readOnly: false,
+        adaptiveControlExecutor: true,
+        orderSendAllowed: false,
+        closeAllowed: false,
+        cancelAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesMt5: false
+      }
+    });
+    return;
+  }
+  const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+  sendJson(res, 200, {
+    ...payload,
+    _api: {
+      service: 'quantgod_dashboard_mt5_adaptive_control',
+      endpoint: applyStaging ? '/api/mt5-adaptive-control/run' : '/api/mt5-adaptive-control/status',
+      script: mt5AdaptiveControlScript,
+      guardedMutation: true,
+      auditLedgerRequired: true
     }
   });
 }
@@ -1253,6 +1576,43 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-backtest-loop/run') {
     handleMt5BackendBacktest(req, res, true);
+    return;
+  }
+  if ((req.method === 'GET' || req.method === 'POST') && (requestUrl.split('?')[0] === '/api/mt5-platform/status' || requestUrl.split('?')[0] === '/api/mt5-platform/operator')) {
+    handleMt5PlatformStore(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-pending-worker/status') {
+    handleMt5PendingWorker(req, res, false);
+    return;
+  }
+  if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/mt5-pending-worker/run') {
+    handleMt5PendingWorker(req, res, true);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-adaptive-control/status') {
+    handleMt5AdaptiveControl(req, res, false);
+    return;
+  }
+  if (req.method === 'POST' && requestUrl.split('?')[0] === '/api/mt5-adaptive-control/run') {
+    handleMt5AdaptiveControl(req, res, true);
+    return;
+  }
+  if ((req.method === 'GET' || req.method === 'POST') && (requestUrl.split('?')[0] === '/api/mt5-trading' || requestUrl.split('?')[0].startsWith('/api/mt5-trading/'))) {
+    const pathPart = requestUrl.split('?')[0];
+    const endpoint = pathPart === '/api/mt5-trading' ? 'status' : mt5TradingEndpointFromPath(pathPart);
+    handleMt5Trading(req, res, endpoint);
+    return;
+  }
+  if ((req.method === 'GET' || req.method === 'POST') && (requestUrl.split('?')[0] === '/api/mt5' || requestUrl.split('?')[0].startsWith('/api/mt5/'))) {
+    const pathPart = requestUrl.split('?')[0];
+    const endpoint = pathPart === '/api/mt5' ? 'status' : mt5TradingEndpointFromPath(pathPart);
+    handleMt5Trading(req, res, endpoint);
+    return;
+  }
+  if (req.method === 'DELETE' && requestUrl.split('?')[0].startsWith('/api/mt5/order/')) {
+    const ticket = path.basename(requestUrl.split('?')[0]);
+    handleMt5Trading(req, res, 'cancel', { ticket, orderTicket: ticket });
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {
