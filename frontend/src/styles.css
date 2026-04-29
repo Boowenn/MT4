@@ -2549,6 +2549,368 @@ tbody tr:hover td {
   border: 1px solid rgba(255, 107, 134, 0.35);
 }
 
+/* QuantDinger-style dark workbench polish pass. */
+:root {
+  --bg: #111111;
+  --panel: #1b1b1b;
+  --panel-2: #202020;
+  --line: #303030;
+  --line-soft: rgba(255, 255, 255, 0.08);
+  --text: #f3f3f3;
+  --muted: #a1a1aa;
+  --faint: #6f7480;
+  --blue: #1e9bff;
+  --blue-soft: rgba(30, 155, 255, 0.15);
+  --shadow: none;
+}
+
+body {
+  background: #111111;
+}
+
+.app-shell {
+  grid-template-columns: 224px minmax(0, 1fr);
+  background: #111111;
+}
+
+.sidebar {
+  gap: 13px;
+  padding: 12px 0 0;
+  background: #080808;
+  border-right: 1px solid #181818;
+  box-shadow: none;
+}
+
+.brand {
+  min-height: 54px;
+  padding: 0 18px 12px;
+  border-bottom-color: #171717;
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  color: #111;
+  background: #f5f5f5;
+  border-radius: 3px;
+  font-size: 15px;
+}
+
+.brand strong {
+  color: #f5f5f5;
+  font-size: 18px;
+}
+
+.brand span {
+  color: #7d8490;
+  font-size: 11px;
+}
+
+.nav-structured {
+  padding: 0 0 8px;
+}
+
+.nav-separator {
+  margin: 14px 18px 6px;
+  color: #6d727c;
+  font-size: 11px;
+}
+
+.nav-item {
+  min-height: 42px;
+  padding: 7px 18px;
+  color: #b7bcc6;
+  border: 0;
+  border-radius: 0;
+}
+
+.nav-item svg {
+  color: #aab4c3;
+}
+
+.nav-item strong {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.nav-item small {
+  color: #6f7480;
+  font-size: 11px;
+}
+
+.nav-item:hover {
+  color: #fff;
+  background: #141414;
+}
+
+.nav-item.active {
+  color: #fff;
+  background: #1e9bff;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.nav-item.active svg,
+.nav-item.active small {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.sidebar-footer {
+  margin: auto 14px 14px;
+  padding: 12px 10px;
+  background: #0d0d0d;
+  border-color: #1c1c1c;
+  border-radius: 4px;
+}
+
+.workspace {
+  padding: 0 20px 44px;
+  background: #111111;
+}
+
+.topbar {
+  min-height: 54px;
+  margin: 0 -20px 18px;
+  padding: 0 20px;
+  background: #121212;
+  border-bottom: 1px solid #181818;
+  backdrop-filter: none;
+}
+
+.topbar .eyebrow,
+.topbar-subtitle {
+  display: none;
+}
+
+.topbar h1 {
+  margin: 0;
+  color: #e8e8e8;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.top-actions {
+  gap: 8px;
+}
+
+.icon-button,
+.user-chip,
+.search-box,
+.inline-form,
+.mini-row,
+.select-control {
+  background: #1f1f1f;
+  border-color: #2d2d2d;
+  border-radius: 6px;
+}
+
+.search-box input,
+.inline-form input {
+  color: #f3f3f3;
+}
+
+.ghost-button,
+.route-tabs button,
+.console-actions button {
+  background: #1e1e1e;
+  border-color: #303030;
+  border-radius: 6px;
+}
+
+.ghost-button:hover,
+.route-tabs button:hover,
+.console-actions button:hover {
+  background: #252525;
+  border-color: #1e9bff;
+}
+
+.workspace-main {
+  gap: 14px;
+}
+
+.workbench-hero {
+  gap: 12px;
+}
+
+.hero-copy,
+.hero-metrics,
+.param-lane-board,
+.panel,
+.hero-panel,
+.table-panel,
+.qd-radar-section,
+.qd-workspace-card {
+  background: #1b1b1b;
+  border-color: #2b2b2b;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.hero-copy,
+.hero-metrics,
+.panel,
+.data-table-card {
+  padding: 14px;
+}
+
+.hero-copy h2 {
+  color: #f4f4f5;
+  font-size: 21px;
+}
+
+.hero-copy p,
+.panel p {
+  color: #9ea4af;
+}
+
+.micro-metric,
+.ai-status-card,
+.ai-feature-card,
+.lane-row,
+.param-lane,
+.metric,
+.asset-pool-mini,
+.qd-watchlist-panel,
+.qd-radar-card,
+.qd-market-card,
+.radar-item {
+  background: #20242b;
+  border-color: #313741;
+  border-radius: 8px;
+}
+
+.micro-metric strong,
+.metric strong,
+.ai-status-card strong,
+.qd-card-metrics b {
+  color: #f6f7fb;
+}
+
+.ai-radar-section {
+  padding: 18px 18px 12px;
+}
+
+.ai-radar-track {
+  grid-template-columns: repeat(6, minmax(172px, 1fr));
+}
+
+.ai-radar-section + .ai-hero {
+  margin-top: 0;
+}
+
+.ai-hero {
+  grid-template-columns: minmax(0, 0.86fr) minmax(520px, 1.14fr);
+}
+
+.ai-engine-shell {
+  grid-template-columns: 248px minmax(0, 1fr) 292px;
+  min-height: 520px;
+}
+
+.analysis-console {
+  background: #16191e;
+  border-color: #2a3038;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.console-grid-bg {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.console-core h2 {
+  color: #f6f6f6;
+  font-size: 28px;
+}
+
+.console-core p {
+  color: #8e949f;
+}
+
+.console-core > span {
+  color: #65c3ff;
+  background: rgba(30, 155, 255, 0.14);
+  border-color: rgba(30, 155, 255, 0.34);
+}
+
+.ai-feature-rail,
+.ai-watch-rail {
+  padding: 0;
+}
+
+.ai-feature-card {
+  min-height: 112px;
+}
+
+.rail-item,
+.history-list button,
+.score-line {
+  background: #20242b;
+  border-color: #313741;
+  border-radius: 8px;
+}
+
+.page-mt5[data-focus="trades"] .workbench-hero {
+  grid-template-columns: minmax(0, 0.8fr) minmax(520px, 1.2fr);
+}
+
+.page-mt5[data-focus="trades"] .hero-copy,
+.page-mt5[data-focus="trades"] .hero-metrics {
+  background: #1d1d1d;
+}
+
+.page-mt5[data-focus="trades"] .card-grid.three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.data-table-card,
+.table-panel {
+  background: #171a1f;
+}
+
+table {
+  min-width: 920px;
+}
+
+th {
+  color: #d8e8ff;
+  background: #111820;
+  border-bottom-color: #3a3f46;
+}
+
+td {
+  color: #b5bfcc;
+  background: #15191f;
+}
+
+tbody tr:nth-child(even) td {
+  background: #1b2027;
+}
+
+tbody tr:hover td {
+  background: #17304a;
+}
+
+.pill {
+  border-radius: 6px;
+}
+
+.operator-strip {
+  margin-bottom: 14px;
+}
+
+.operator-card {
+  min-height: 82px;
+  background: #1b1b1b;
+  border-color: #2b2b2b;
+  border-radius: 10px;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

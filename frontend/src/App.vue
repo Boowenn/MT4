@@ -1408,7 +1408,7 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <div class="operator-strip">
+      <div v-if="state.active === 'home'" class="operator-strip">
         <button
           v-for="card in operatorRadarCards"
           :key="card.label"
@@ -1577,6 +1577,45 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-if="state.active === 'ai'" class="stack page-ai">
+        <article class="qd-radar-section ai-radar-section">
+          <div class="qd-radar-header">
+            <div>
+              <h2>AI Opportunity Radar</h2>
+              <p>像 QuantDinger 首屏一样先看横向机会，再进入单市场、ParamLab 或路线证据。</p>
+            </div>
+            <button class="ghost-button small" type="button" @click="refresh">
+              <RefreshCw :size="14" :class="{ spin: state.loading }" />
+              刷新
+            </button>
+          </div>
+          <div class="qd-radar-track ai-radar-track">
+            <button
+              v-for="card in operatorRadarCards"
+              :key="`ai-radar-${card.label}`"
+              type="button"
+              class="qd-radar-card"
+              :class="card.tone"
+              @click="setActive(card.target)"
+            >
+              <div class="qd-card-head">
+                <strong>{{ card.title }}</strong>
+                <span>{{ card.label }}</span>
+              </div>
+              <div class="qd-card-metrics">
+                <span>
+                  <small>状态</small>
+                  <b>{{ card.meta }}</b>
+                </span>
+                <span>
+                  <small>动作</small>
+                  <b>{{ card.tone === 'red' ? '先处理风险' : card.tone === 'amber' ? '等待证据' : '可继续研究' }}</b>
+                </span>
+              </div>
+              <p>{{ card.target === 'polymarket' ? 'Gamma / AI score / dry-run 证据' : card.target === 'paramlab' ? 'tester-only 参数闭环' : 'MT5 只读与路线治理' }}</p>
+            </button>
+          </div>
+        </article>
+
         <div class="workbench-hero ai-hero">
           <article class="hero-copy">
             <div class="panel-title split">
@@ -1796,7 +1835,7 @@ onBeforeUnmount(() => {
             <p>这里只看 EA / 人工单快照，不改订单、不强平、不调整 live switch。人工单与 EA 单仍分开统计。</p>
             <div class="mini-row">
               <span>持仓 {{ mt5Positions.length }}</span>
-              <span>最大单仓 {{ first(mt5.value.snapshot?.maxTotalPositions, mt5.value.snapshot?.risk?.maxTotalPositions, 1) }}</span>
+              <span>最大单仓 {{ first(mt5.snapshot?.maxTotalPositions, mt5.snapshot?.risk?.maxTotalPositions, 1) }}</span>
               <span>手数 0.01</span>
             </div>
           </article>
