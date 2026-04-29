@@ -40,6 +40,20 @@ The MA live route keeps the original base protection:
 - `PilotTrailingStartPips=10.0`
 - `PilotTrailingDistancePips=5.0`
 
+## Follow-Up Failfast Guard
+
+The fast-exit change protects profits, but it does not help when an RSI reversal never gets into profit. The follow-up `v3.14` guard adds an RSI-only failfast layer for `QG_RSI_Rev` positions:
+
+- `EnablePilotRsiFailFastProtect=true`
+- `PilotRsiFailFastMinAgeMinutes=120`
+- `PilotRsiFailFastMinLossPips=8.0`
+- `PilotRsiFailFastMaxLossUSC=1.20`
+- `PilotRsiFailFastStopBufferPips=2.5`
+- `PilotRsiFailFastStepPips=0.5`
+- `PilotRsiFailFastCloseOnMaxLoss=false`
+
+This first tightens the existing SL near the current price and logs `routeProtect=RSI_FAILFAST`. It does not enable a Python trading path, does not increase lot size, and does not change the MA route. Direct failfast close remains a disabled preset switch for separate review.
+
 ## Promotion / Demotion / Iteration
 
 No strategy should be newly promoted to live today.
