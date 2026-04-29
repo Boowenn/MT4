@@ -12,18 +12,21 @@ import {
   Search,
   ShieldCheck,
   Target,
+  TrendingUp,
   WalletCards
 } from 'lucide-vue-next';
 import { loadDashboardState, submitPolymarketRequest } from './services/api';
 import Mt5DeepPanels from './components/Mt5DeepPanels.vue';
 import ParamLabDeepPanels from './components/ParamLabDeepPanels.vue';
 import PolymarketDeepPanels from './components/PolymarketDeepPanels.vue';
+import TrendVisuals from './components/TrendVisuals.vue';
 
 const workspaces = [
   { id: 'home', label: '入口', sub: '双工作台', icon: Gauge },
   { id: 'mt5', label: 'MT5', sub: '策略与实盘', icon: LineChart },
   { id: 'polymarket', label: 'Polymarket', sub: '研究与治理', icon: Network },
   { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList },
+  { id: 'charts', label: '趋势图表', sub: '可视化迁移', icon: TrendingUp },
   { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3 }
 ];
 
@@ -472,6 +475,22 @@ onBeforeUnmount(() => {
         </div>
 
         <ParamLabDeepPanels :mt5="mt5" :tasks="paramTasks" />
+      </section>
+
+      <section v-if="state.active === 'charts'" class="stack">
+        <TrendVisuals
+          :mt5="mt5"
+          :polymarket="poly"
+          :routes="mt5Routes"
+          :positions="mt5Positions"
+          :param-tasks="paramTasks"
+          :radar-rows="radarRows"
+          :ai-scores="aiScores"
+          :governance-rows="governanceRows"
+          :canary-rows="canaryRows"
+          :cross-rows="crossRows"
+          :worker-queue="workerQueue"
+        />
       </section>
 
       <section v-if="state.active === 'reports'" class="stack">

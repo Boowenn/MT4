@@ -517,6 +517,188 @@ h2 {
   margin-top: 0;
 }
 
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.viz-card {
+  min-width: 0;
+  min-height: 280px;
+  padding: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+    #151b23;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.viz-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.viz-head h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.viz-stat {
+  display: grid;
+  gap: 3px;
+  min-width: 96px;
+  text-align: right;
+}
+
+.viz-stat strong {
+  color: var(--text);
+  font-size: 20px;
+}
+
+.viz-stat span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.spark-shell {
+  height: 190px;
+  padding: 12px;
+  background:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px),
+    #101720;
+  background-size: 32px 32px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.spark-shell svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.spark-area {
+  opacity: 0.16;
+}
+
+.spark-area.blue {
+  fill: var(--blue);
+}
+
+.spark-area.green {
+  fill: var(--green);
+}
+
+.spark-area.amber {
+  fill: var(--amber);
+}
+
+.spark-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.spark-line.blue,
+.spark-dot.blue {
+  stroke: var(--blue);
+}
+
+.spark-line.green,
+.spark-dot.green {
+  stroke: var(--green);
+}
+
+.spark-line.amber,
+.spark-dot.amber {
+  stroke: var(--amber);
+}
+
+.spark-dot {
+  fill: #101720;
+  stroke-width: 2;
+}
+
+.bar-list {
+  display: grid;
+  gap: 10px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.72fr) minmax(160px, 1fr) 70px;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+}
+
+.bar-label {
+  min-width: 0;
+}
+
+.bar-label strong,
+.bar-label small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-label strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.bar-label small {
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.bar-track {
+  height: 10px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 999px;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.bar-fill.positive {
+  background: linear-gradient(90deg, var(--blue), var(--green));
+}
+
+.bar-fill.negative {
+  margin-left: auto;
+  background: linear-gradient(90deg, var(--amber), var(--red));
+}
+
+.bar-row b {
+  color: var(--text);
+  font-size: 13px;
+  text-align: right;
+}
+
+.viz-empty {
+  min-height: 178px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
 table {
   width: 100%;
   min-width: 760px;
@@ -632,6 +814,7 @@ td {
   .metric-grid.four,
   .card-grid,
   .section-grid,
+  .viz-grid,
   .drawer-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
