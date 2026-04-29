@@ -19,12 +19,19 @@ The Vue workbench is now the primary operator surface at `http://localhost:8080/
 
 The legacy page must not be fully frozen while the Vue workbench still feels materially weaker for daily operation.
 
+## Review Cycle Evidence
+
+2026-04-29 JST read-only review:
+
+- Normal Vue monitoring cycle: PASS. `/vue/#home`, `/vue/#mt5`, `/vue/#polymarket`, `/vue/#paramlab`, `/vue/#charts`, and `/vue/#reports` loaded without dashboard fetch errors. The MT5 page showed the fresh HFM snapshot with account `186054398`, server `HFMarketsGlobal-Live12`, status `CONNECTED`, equity around `$10000.03`, and zero open positions at the time of review.
+- ParamLab / Strategy Tester review: PARTIAL PASS. Vue showed the ParamLab batch filters, route filters, Report Watcher, Run Recovery, AUTO_TESTER_WINDOW, MT5ResearchStats, charts, and evidence report tables. The local evidence still has `runTerminal=false`, `parsedReportCount=0`, `pendingReportCount=35`, and `AUTO_TESTER_WINDOW.canRunTerminal=false`, so this was a read-only queue/report review rather than a real Strategy Tester execution window review.
+- Freeze decision: DO NOT FREEZE YET. Vue is usable for the daily monitoring surface, but the final archive gate still requires one allowed Strategy Tester / ParamLab report-return cycle where a tester report is produced, watched, parsed, scored, and reviewed from Vue without opening the legacy HTML page.
+
 Current parity priorities:
 
-- Home must be denser than a landing screen and show live MT5 / ParamLab / Polymarket operational focus.
-- MT5 route cards must show actual live-forward, candidate, blocker, ParamLab, and next-step evidence instead of placeholder dashes.
-- ParamLab and charts must survive one review cycle without requiring operators to open the old HTML page.
-- Any remaining missing old-page detail must be either migrated or explicitly marked obsolete here.
+- Complete one allowed Strategy Tester / ParamLab report-return cycle and confirm Vue covers queue, watcher, parsed result, score, recovery, and chart/report review without opening the old HTML page.
+- Keep watching for operator-only gaps in MT5 route cards, ParamLab filters, trend charts, and evidence report tables during live use.
+- Any remaining missing old-page detail must be either migrated or explicitly marked obsolete here before final freeze.
 
 ## Legacy `QuantGod_Dashboard.html` Status
 
@@ -33,6 +40,7 @@ Current parity priorities:
 It remains available as a fallback and is not frozen yet. Keep it until:
 
 - The Vue workbench is used through at least one normal monitoring cycle and one Strategy Tester / ParamLab review cycle.
+- The Strategy Tester / ParamLab review must include a real report-return path, not just a config-only or waiting-report queue inspection.
 - Any missing operator-only detail from the legacy page is either migrated or explicitly marked obsolete.
 - The local dashboard server, README, and automation notes point to `/vue/` as the default view while retaining the legacy page as fallback.
 
