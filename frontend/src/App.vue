@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import {
   Activity,
   BarChart3,
@@ -15,6 +15,9 @@ import {
   WalletCards
 } from 'lucide-vue-next';
 import { loadDashboardState, submitPolymarketRequest } from './services/api';
+import Mt5DeepPanels from './components/Mt5DeepPanels.vue';
+import ParamLabDeepPanels from './components/ParamLabDeepPanels.vue';
+import PolymarketDeepPanels from './components/PolymarketDeepPanels.vue';
 
 const workspaces = [
   { id: 'home', label: '入口', sub: '双工作台', icon: Gauge },
@@ -40,6 +43,23 @@ const state = reactive({
 
 const routeFilters = ['全部', 'MA', 'RSI', 'BB', 'MACD', 'SR'];
 const activeRoute = ref('全部');
+
+function normalizeWorkspace(id) {
+  return workspaces.some((item) => item.id === id) ? id : 'home';
+}
+
+function syncActiveFromHash() {
+  const hash = window.location.hash.replace(/^#\/?/, '');
+  state.active = normalizeWorkspace(hash || 'home');
+}
+
+function setActive(id) {
+  state.active = normalizeWorkspace(id);
+  const nextHash = state.active === 'home' ? '' : `#${state.active}`;
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+  }
+}
 
 function arrayFrom(value, keys = []) {
   if (Array.isArray(value)) return value;
@@ -202,7 +222,15 @@ const reportCards = computed(() => [
   { name: 'Canary Contract', payload: poly.value.canary, count: canaryRows.value.length }
 ]);
 
-onMounted(refresh);
+onMounted(() => {
+  syncActiveFromHash();
+  window.addEventListener('hashchange', syncActiveFromHash);
+  refresh();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('hashchange', syncActiveFromHash);
+});
 </script>
 
 <template>
@@ -223,7 +251,7 @@ onMounted(refresh);
           class="nav-item"
           :class="{ active: state.active === item.id }"
           type="button"
-          @click="state.active = item.id"
+          @click="setActive(item.id)"
         >
           <component :is="item.icon" :size="18" />
           <span>
@@ -269,8 +297,8 @@ onMounted(refresh);
             Polymarket 默认不碰真钱，MT5 继续沿用现有 EA 风控边界。
           </p>
           <div class="route-tabs">
-            <button type="button" @click="state.active = 'mt5'">进入 MT5 工作台</button>
-            <button type="button" @click="state.active = 'polymarket'">进入 Polymarket 工作台</button>
+            <button type="button" @click="setActive('mt5')">进入 MT5 工作台</button>
+            <button type="button" @click="setActive('polymarket')">进入 Polymarket 工作台</button>
           </div>
         </article>
 
@@ -331,6 +359,8 @@ onMounted(refresh);
           </article>
           <article v-if="!mt5Routes.length" class="panel empty">当前没有可展示的 MT5 路线证据，等待运行文件或只读桥刷新。</article>
         </div>
+
+        <Mt5DeepPanels :mt5="mt5" :positions="mt5Positions" :routes="mt5Routes" />
       </section>
 
       <section v-if="state.active === 'polymarket'" class="stack">
@@ -396,6 +426,17 @@ onMounted(refresh);
             <div v-if="!searchGroups.length" class="empty">没有搜索结果；可以在右上角输入关键词后刷新。</div>
           </div>
         </div>
+
+        <PolymarketDeepPanels
+          :polymarket="poly"
+          :radar-rows="radarRows"
+          :search-groups="searchGroups"
+          :ai-scores="aiScores"
+          :governance-rows="governanceRows"
+          :canary-rows="canaryRows"
+          :cross-rows="crossRows"
+          :worker-queue="workerQueue"
+        />
       </section>
 
       <section v-if="state.active === 'paramlab'" class="stack">
@@ -429,6 +470,8 @@ onMounted(refresh);
             </tbody>
           </table>
         </div>
+
+        <ParamLabDeepPanels :mt5="mt5" :tasks="paramTasks" />
       </section>
 
       <section v-if="state.active === 'reports'" class="stack">
