@@ -356,6 +356,52 @@ h2 {
   padding: 14px 16px;
 }
 
+.split-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.split-panel > * {
+  min-width: 0;
+}
+
+.split-panel .route-tabs {
+  justify-content: flex-end;
+  max-width: 720px;
+}
+
+.filter-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.select-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.select-control select {
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.select-control option {
+  color: var(--text);
+  background: var(--panel);
+}
+
 .data-table-card {
   padding: 14px;
 }
@@ -386,6 +432,10 @@ h2 {
 
 .metric-grid.four {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .metric-grid.compact .metric {

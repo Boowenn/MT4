@@ -20,6 +20,8 @@ import Mt5DeepPanels from './components/Mt5DeepPanels.vue';
 import ParamLabDeepPanels from './components/ParamLabDeepPanels.vue';
 import PolymarketDeepPanels from './components/PolymarketDeepPanels.vue';
 import TrendVisuals from './components/TrendVisuals.vue';
+import DataTable from './components/DataTable.vue';
+import EvidenceDrawer from './components/EvidenceDrawer.vue';
 
 const workspaces = [
   { id: 'home', label: '入口', sub: '双工作台', icon: Gauge },
@@ -46,6 +48,9 @@ const state = reactive({
 
 const routeFilters = ['全部', 'MA', 'RSI', 'BB', 'MACD', 'SR'];
 const activeRoute = ref('全部');
+const paramTaskFilter = ref('全部');
+const paramRouteFilter = ref('全部');
+const paramSortMode = ref('优先级');
 
 const routeDisplayMap = {
   MA_CROSS: 'MA',
@@ -153,6 +158,91 @@ function routeToneClass(row) {
   return '';
 }
 
+function normalizeParamState(row) {
+  return String(first(row?.state, row?.status, row?.resultState, row?.grade, row?.queueState, row?.riskColor, '')).toUpperCase();
+}
+
+function paramRowText(row) {
+  return [
+    normalizeParamState(row),
+    row?.candidateId,
+    row?.versionId,
+    row?.taskId,
+    row?.route,
+    row?.strategy,
+    row?.symbol,
+    row?.failureReason,
+    row?.stopReason,
+    row?.reason,
+    row?.reportPath,
+    row?.configPath,
+    row?.riskColor,
+    row?.color
+  ].filter(Boolean).join(' ').toUpperCase();
+}
+
+function paramRouteLabel(row) {
+  const text = paramRowText(row);
+  const route = Object.entries(routeDisplayMap).find(([needle]) => text.includes(needle))?.[1];
+  if (route) return route;
+  if (text.includes('MA_') || text.includes('MA CROSS') || text.includes('MA-CROSS')) return 'MA';
+  if (text.includes('RSI')) return 'RSI';
+  if (text.includes('BB') || text.includes('BOLLINGER')) return 'BB';
+  if (text.includes('MACD')) return 'MACD';
+  if (text.includes('SR_') || text.includes('BREAKOUT')) return 'SR';
+  return '其他';
+}
+
+function paramMatchesFilter(row, filter) {
+  if (filter === '全部') return true;
+  const text = paramRowText(row);
+  if (filter === '等待报告') return text.includes('WAIT') || text.includes('PENDING_REPORT') || text.includes('REPORT');
+  if (filter === '已评分') return text.includes('SCORED') || text.includes('PARSED') || text.includes('PROMOTION') || text.includes('GRADE');
+  if (filter === '可运行') return text.includes('CONFIG_READY') || text.includes('RUN_PENDING') || text.includes('READY');
+  if (filter === '红灯') return text.includes('RED') || text.includes('EXHAUSTED') || text.includes('MALFORMED');
+  if (filter === '黄灯') return text.includes('YELLOW') || text.includes('WAIT') || text.includes('RETRY');
+  return true;
+}
+
+function paramMatchesRoute(row, filter) {
+  return filter === '全部' || paramRouteLabel(row) === filter;
+}
+
+function paramTaskScore(row) {
+  return asNumber(first(row?.score, row?.grade, row?.resultScore, row?.profitFactor, row?.pf)) ?? Number.NEGATIVE_INFINITY;
+}
+
+function paramTaskTime(row) {
+  const value = first(row?.updatedAt, row?.generatedAt, row?.createdAt, row?.time, row?.timestamp, row?.lastSeenAt, '');
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function paramTaskPriority(row) {
+  const text = paramRowText(row);
+  if (text.includes('RED') || text.includes('EXHAUSTED') || text.includes('MALFORMED')) return 0;
+  if (text.includes('CONFIG_READY') || text.includes('RUN_PENDING') || text.includes('READY')) return 1;
+  if (text.includes('WAIT') || text.includes('PENDING_REPORT') || text.includes('REPORT')) return 2;
+  if (text.includes('RETUNE') || text.includes('QUARANTINE')) return 3;
+  if (text.includes('PARSED') || text.includes('SCORED') || text.includes('GRADE')) return 4;
+  return 5;
+}
+
+function sortParamTasks(rows, mode) {
+  return [...rows].sort((a, b) => {
+    if (mode === '评分高') return paramTaskScore(b) - paramTaskScore(a);
+    if (mode === '最近') return paramTaskTime(b) - paramTaskTime(a);
+    if (mode === '路线') return paramRouteLabel(a).localeCompare(paramRouteLabel(b));
+    return paramTaskPriority(a) - paramTaskPriority(b)
+      || paramRouteLabel(a).localeCompare(paramRouteLabel(b))
+      || paramTaskTime(b) - paramTaskTime(a);
+  });
+}
+
+function summaryValue(payload, key, fallback = '--') {
+  return first(payload?.summary?.[key], payload?.[key], fallback);
+}
+
 async function refresh() {
   state.loading = true;
   state.error = '';
@@ -213,13 +303,105 @@ const mt5Routes = computed(() => {
   }).slice(0, 10);
 });
 
-const paramTasks = computed(() => {
+const rawParamTasks = computed(() => {
   const status = mt5.value.paramStatus || {};
   const results = mt5.value.paramResults || {};
+  const scheduler = mt5.value.paramAutoScheduler || {};
+  const watcher = mt5.value.paramReportWatcher || {};
   return [
     ...arrayFrom(status, ['tasks', 'queue', 'candidates', 'batch']),
-    ...arrayFrom(results, ['results', 'scoredResults'])
-  ].slice(0, 12);
+    ...arrayFrom(results, ['results', 'scoredResults']),
+    ...arrayFrom(scheduler, ['selectedTasks', 'backtestTasks']),
+    ...arrayFrom(watcher, ['watchedResults', 'reportFiles'])
+  ].slice(0, 80);
+});
+
+const paramTasks = computed(() => rawParamTasks.value.slice(0, 12));
+
+const paramFilterOptions = computed(() => ['全部', '等待报告', '已评分', '可运行', '红灯', '黄灯'].map((filter) => ({
+  label: filter,
+  count: rawParamTasks.value.filter((row) => paramMatchesRoute(row, paramRouteFilter.value) && paramMatchesFilter(row, filter)).length
+})));
+
+const paramRouteOptions = computed(() => {
+  const baseRows = rawParamTasks.value.filter((row) => paramMatchesFilter(row, paramTaskFilter.value));
+  const counts = new Map();
+  for (const row of baseRows) {
+    const label = paramRouteLabel(row);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return ['全部', 'MA', 'RSI', 'BB', 'MACD', 'SR', '其他']
+    .map((label) => ({
+      label,
+      count: label === '全部' ? baseRows.length : (counts.get(label) || 0)
+    }))
+    .filter((item) => item.label === '全部' || item.count > 0);
+});
+
+const paramVisibleTasks = computed(() => sortParamTasks(rawParamTasks.value
+  .filter((row) => paramMatchesFilter(row, paramTaskFilter.value))
+  .filter((row) => paramMatchesRoute(row, paramRouteFilter.value)), paramSortMode.value)
+  .slice(0, 18));
+
+const autoSchedulerRows = computed(() => {
+  const scheduler = mt5.value.paramAutoScheduler || {};
+  return [
+    ...arrayFrom(scheduler, ['selectedTasks']),
+    ...arrayFrom(scheduler, ['backtestTasks'])
+  ].slice(0, 16);
+});
+
+const reportWatcherRows = computed(() => arrayFrom(mt5.value.paramReportWatcher, ['watchedResults', 'reportFiles', 'rows']).slice(0, 16));
+const runRecoveryRows = computed(() => arrayFrom(mt5.value.runRecovery, ['candidateDrilldown', 'recoveryQueue', 'runs', 'rows']).slice(0, 16));
+const autoTesterRows = computed(() => [
+  ...arrayFrom(mt5.value.autoTesterWindow, ['selectedTasks']),
+  ...arrayFrom(mt5.value.autoTesterWindow, ['excludedTasks'])
+].slice(0, 16));
+const mt5ResearchRows = computed(() => arrayFrom(mt5.value.mt5ResearchStats, ['rows']).slice(0, 16));
+const tradingAuditRows = computed(() => arrayFrom(mt5.value.ledgers?.tradingAudit).slice(0, 12));
+const manualAlphaRows = computed(() => arrayFrom(mt5.value.ledgers?.manualAlpha).slice(0, 12));
+const strategyEvaluationRows = computed(() => arrayFrom(mt5.value.ledgers?.strategyEvaluation).slice(0, 12));
+const regimeEvaluationRows = computed(() => arrayFrom(mt5.value.ledgers?.regimeEvaluation).slice(0, 12));
+
+const paramLabDashboardCards = computed(() => {
+  const status = mt5.value.paramStatus || {};
+  const results = mt5.value.paramResults || {};
+  const scheduler = mt5.value.paramAutoScheduler || {};
+  const watcher = mt5.value.paramReportWatcher || {};
+  const recovery = mt5.value.runRecovery || {};
+  const tester = mt5.value.autoTesterWindow || {};
+  return [
+    {
+      label: '候选队列',
+      value: summaryValue(scheduler, 'queueCount', rawParamTasks.value.length),
+      detail: `等待报告 ${summaryValue(scheduler, 'waitReportQueueCount')} / 重调 ${summaryValue(scheduler, 'retuneQueueCount')}`
+    },
+    {
+      label: '结果回灌',
+      value: summaryValue(results, 'parsedReportCount', summaryValue(watcher, 'parsedReportCount')),
+      detail: `待报告 ${summaryValue(results, 'pendingReportCount', summaryValue(watcher, 'pendingReportCount'))} / malformed ${summaryValue(results, 'malformedReportCount', summaryValue(watcher, 'malformedReportCount'))}`
+    },
+    {
+      label: '恢复风险',
+      value: `${summaryValue(recovery, 'riskRedCount', 0)}R / ${summaryValue(recovery, 'riskYellowCount', 0)}Y`,
+      detail: `重试 ${summaryValue(recovery, 'retryCount', 0)} / 最近停止 ${summaryValue(recovery, 'latestStopReason')}`
+    },
+    {
+      label: '守护窗口',
+      value: summaryValue(tester, 'canRunTerminal', false) ? '可运行' : '锁定',
+      detail: `blocker ${summaryValue(tester, 'blockerCount', 0)} / 持仓 ${summaryValue(tester, 'openLivePositions', 0)}`
+    },
+    {
+      label: 'Config 状态',
+      value: summaryValue(status, 'configReadyCount', 0),
+      detail: `runTerminal=${first(status?.runTerminal, status?.summary?.runTerminal, false)} / selected ${summaryValue(status, 'selectedTaskCount', status?.selectedTaskCount)}`
+    },
+    {
+      label: '研究切片',
+      value: summaryValue(mt5.value.mt5ResearchStats, 'sliceCount', mt5ResearchRows.value.length),
+      detail: `closed ${summaryValue(mt5.value.mt5ResearchStats, 'closedTrades', '--')} / ready ${summaryValue(mt5.value.mt5ResearchStats, 'readySlices', '--')}`
+    }
+  ];
 });
 
 const radarRows = computed(() => {
@@ -320,13 +502,25 @@ const homeFocusCards = computed(() => {
 });
 
 const reportCards = computed(() => [
-  { name: 'ParamLab', payload: mt5.value.paramStatus, count: paramTasks.value.length },
-  { name: '回测结果', payload: mt5.value.backtest, count: arrayFrom(mt5.value.backtest, ['results', 'summaries']).length },
-  { name: 'Run Recovery', payload: mt5.value.runRecovery, count: arrayFrom(mt5.value.runRecovery, ['runs', 'recoveryRows']).length },
-  { name: 'Polymarket History', payload: poly.value.history, count: first(poly.value.history?.summary?.totalRows, poly.value.history?.rows?.length, '--') },
-  { name: 'AI Score', payload: poly.value.aiScore, count: aiScores.value.length },
-  { name: 'Canary Contract', payload: poly.value.canary, count: canaryRows.value.length }
+  { name: 'ParamLab 队列', payload: mt5.value.paramStatus, count: paramTasks.value.length, file: 'QuantGod_ParamLabStatus.json' },
+  { name: 'Report Watcher', payload: mt5.value.paramReportWatcher, count: reportWatcherRows.value.length, file: 'QuantGod_ParamLabReportWatcher.json' },
+  { name: 'Run Recovery', payload: mt5.value.runRecovery, count: runRecoveryRows.value.length, file: 'QuantGod_ParamLabRunRecovery.json' },
+  { name: 'Auto Tester Gate', payload: mt5.value.autoTesterWindow, count: autoTesterRows.value.length, file: 'QuantGod_AutoTesterWindow.json' },
+  { name: 'MT5 研究统计', payload: mt5.value.mt5ResearchStats, count: mt5ResearchRows.value.length, file: 'QuantGod_MT5ResearchStats.json' },
+  { name: 'Governance Advisor', payload: mt5.value.governance, count: mt5Routes.value.length, file: 'QuantGod_GovernanceAdvisor.json' },
+  { name: 'Polymarket History', payload: poly.value.history, count: first(poly.value.history?.summary?.totalRows, poly.value.history?.rows?.length, '--'), file: 'SQLite/API' },
+  { name: 'AI Score', payload: poly.value.aiScore, count: aiScores.value.length, file: 'QuantGod_PolymarketAiScoreV1.json' },
+  { name: 'Canary Contract', payload: poly.value.canary, count: canaryRows.value.length, file: 'QuantGod_PolymarketCanaryExecutorContract.json' }
 ]);
+
+const reportEvidenceRows = computed(() => reportCards.value.map((card) => ({
+  name: card.name,
+  file: card.file,
+  generatedAt: first(card.payload?.generatedAtIso, card.payload?.generatedAt, card.payload?._api?.filePath, '--'),
+  count: card.count,
+  state: first(card.payload?.status, card.payload?.mode, card.payload?.summary?.status, card.payload?._api?.service, '--'),
+  note: first(card.payload?.note, card.payload?.summary?.latestStopReason, card.payload?.summary?.topCandidateId, card.payload?.decisionGate, '--')
+})));
 
 onMounted(() => {
   syncActiveFromHash();
@@ -591,9 +785,59 @@ onBeforeUnmount(() => {
           <div>
             <p class="eyebrow">ParamLab</p>
             <h2>参数候选、回测队列与恢复状态</h2>
+            <p class="muted">对照旧页补齐 Auto Scheduler、Report Watcher、Run Recovery 和守护窗口状态；这里只读展示，不启动 Strategy Tester。</p>
           </div>
           <div class="status-chip">tester-only / guarded</div>
         </div>
+
+        <div class="metric-grid three compact">
+          <div v-for="card in paramLabDashboardCards" :key="card.label" class="metric">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.detail }}</small>
+          </div>
+        </div>
+
+        <div class="panel dense split-panel">
+          <div>
+            <div class="panel-title">周末执行清单筛选</div>
+            <p class="muted">按旧页的批次口径聚合 queue / results / watcher；红灯 candidate 只显示风险，不消耗自动重试次数。</p>
+          </div>
+          <div class="filter-stack">
+            <div class="route-tabs compact">
+              <button
+                v-for="filter in paramFilterOptions"
+                :key="filter.label"
+                type="button"
+                :class="{ selected: paramTaskFilter === filter.label }"
+                @click="paramTaskFilter = filter.label"
+              >
+                {{ filter.label }} {{ filter.count }}
+              </button>
+            </div>
+            <div class="route-tabs compact">
+              <button
+                v-for="route in paramRouteOptions"
+                :key="route.label"
+                type="button"
+                :class="{ selected: paramRouteFilter === route.label }"
+                @click="paramRouteFilter = route.label"
+              >
+                {{ route.label }} {{ route.count }}
+              </button>
+              <label class="select-control">
+                <span>排序</span>
+                <select v-model="paramSortMode">
+                  <option>优先级</option>
+                  <option>评分高</option>
+                  <option>最近</option>
+                  <option>路线</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+
         <div class="table-panel">
           <table>
             <thead>
@@ -606,19 +850,27 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="task in paramTasks" :key="first(task.candidateId, task.taskId, task.versionId)">
+              <tr v-for="task in paramVisibleTasks" :key="first(task.candidateId, task.taskId, task.versionId)">
                 <td>{{ shortText(first(task.candidateId, task.versionId, task.name), 42) }}</td>
                 <td>{{ first(task.route, task.strategy, task.symbol, '--') }}</td>
                 <td><span class="pill">{{ first(task.state, task.status, task.resultState, '--') }}</span></td>
                 <td>{{ first(task.score, task.grade, task.profitFactor, '--') }}</td>
                 <td>{{ shortText(first(task.reportPath, task.report, task.configPath), 64) }}</td>
               </tr>
-              <tr v-if="!paramTasks.length"><td colspan="5">暂无 ParamLab 队列或结果。</td></tr>
+              <tr v-if="!paramVisibleTasks.length"><td colspan="5">当前筛选没有 ParamLab 队列或结果。</td></tr>
             </tbody>
           </table>
         </div>
 
-        <ParamLabDeepPanels :mt5="mt5" :tasks="paramTasks" />
+        <ParamLabDeepPanels
+          :mt5="mt5"
+          :tasks="paramVisibleTasks"
+          :auto-scheduler-rows="autoSchedulerRows"
+          :report-watcher-rows="reportWatcherRows"
+          :run-recovery-rows="runRecoveryRows"
+          :auto-tester-rows="autoTesterRows"
+          :research-rows="mt5ResearchRows"
+        />
       </section>
 
       <section v-if="state.active === 'charts'" class="stack">
@@ -634,6 +886,10 @@ onBeforeUnmount(() => {
           :canary-rows="canaryRows"
           :cross-rows="crossRows"
           :worker-queue="workerQueue"
+          :auto-scheduler="mt5.paramAutoScheduler"
+          :report-watcher="mt5.paramReportWatcher"
+          :auto-tester-window="mt5.autoTesterWindow"
+          :research-stats="mt5.mt5ResearchStats"
         />
       </section>
 
@@ -651,9 +907,82 @@ onBeforeUnmount(() => {
               <b class="pill">{{ card.count }}</b>
             </div>
             <p>{{ shortText(first(card.payload?.decision, card.payload?.status, card.payload?.mode, '等待证据'), 140) }}</p>
-            <small>generatedAt: {{ first(card.payload?.generatedAt, '--') }}</small>
+            <small>{{ card.file }} · generatedAt: {{ first(card.payload?.generatedAtIso, card.payload?.generatedAt, '--') }}</small>
           </article>
         </div>
+
+        <DataTable
+          title="证据文件新鲜度"
+          :rows="reportEvidenceRows"
+          :columns="[
+            { label: '证据', value: (r) => r.name, width: '180px' },
+            { label: '文件/API', value: (r) => r.file, width: '260px' },
+            { label: '时间', value: (r) => r.generatedAt, width: '220px' },
+            { label: '数量', value: (r) => r.count, width: '90px' },
+            { label: '状态', value: (r) => r.state, width: '160px', badge: true },
+            { label: '备注', value: (r) => r.note, max: 160 }
+          ]"
+          empty="暂无证据文件。"
+        />
+
+        <div class="card-grid">
+          <DataTable
+            title="策略评估表"
+            :rows="strategyEvaluationRows"
+            :columns="[
+              { label: '策略', value: (r) => first(r.Strategy, r.strategy, r.Route), width: '170px' },
+              { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '110px' },
+              { label: '样本', value: (r) => first(r.Trades, r.trades, r.Samples), width: '80px' },
+              { label: 'PF', value: (r) => first(r.ProfitFactor, r.PF, r.pf), width: '90px' },
+              { label: '胜率', value: (r) => first(r.WinRate, r.winRate), width: '90px' },
+              { label: '净收益', value: (r) => first(r.NetProfit, r.netProfit), width: '100px' }
+            ]"
+            empty="暂无策略评估表。"
+          />
+          <DataTable
+            title="Regime 评估切片"
+            :rows="regimeEvaluationRows"
+            :columns="[
+              { label: '策略', value: (r) => first(r.Strategy, r.strategy, r.Route), width: '150px' },
+              { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '110px' },
+              { label: 'Regime', value: (r) => first(r.Regime, r.regime, r.MarketRegime), width: '150px' },
+              { label: '样本', value: (r) => first(r.Samples, r.Trades, r.samples), width: '80px' },
+              { label: 'PF / Win', value: (r) => `${first(r.PF, r.ProfitFactor, '--')} / ${first(r.WinRate, r.winRate, '--')}`, width: '120px' },
+              { label: '状态', value: (r) => first(r.State, r.status, r.Decision), badge: true }
+            ]"
+            empty="暂无 Regime 评估切片。"
+          />
+        </div>
+
+        <div class="card-grid">
+          <DataTable
+            title="MT5 交易审计"
+            :rows="tradingAuditRows"
+            :columns="[
+              { label: '时间', value: (r) => first(r.Time, r.time, r.timestamp), width: '180px' },
+              { label: '票据', value: (r) => first(r.Ticket, r.ticket), width: '100px' },
+              { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '100px' },
+              { label: '动作', value: (r) => first(r.Action, r.action, r.Event), width: '120px', badge: true },
+              { label: '策略', value: (r) => first(r.Strategy, r.strategy, r.Route), max: 100 },
+              { label: '备注', value: (r) => first(r.Reason, r.reason, r.Message), max: 130 }
+            ]"
+            empty="暂无 MT5 审计记录。"
+          />
+          <DataTable
+            title="Manual Alpha Ledger"
+            :rows="manualAlphaRows"
+            :columns="[
+              { label: '时间', value: (r) => first(r.Time, r.time, r.OpenTime, r.CloseTime), width: '180px' },
+              { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '100px' },
+              { label: '方向', value: (r) => first(r.Direction, r.direction, r.Type), width: '90px', badge: true },
+              { label: '净值', value: (r) => first(r.NetProfit, r.Profit, r.netProfit), width: '100px' },
+              { label: 'Regime', value: (r) => first(r.Regime, r.regime), width: '120px' },
+              { label: '备注', value: (r) => first(r.Note, r.note, r.Reason), max: 130 }
+            ]"
+            empty="暂无人工交易样本。"
+          />
+        </div>
+
         <div class="panel">
           <div class="panel-title">Polymarket 市场浏览</div>
           <div class="table-panel embedded">
@@ -673,6 +1002,13 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div class="drawer-grid">
+          <EvidenceDrawer title="Governance Advisor raw" :payload="mt5.governance" />
+          <EvidenceDrawer title="AutoTesterWindow raw" :payload="mt5.autoTesterWindow" />
+          <EvidenceDrawer title="MT5ResearchStats raw" :payload="mt5.mt5ResearchStats" />
+          <EvidenceDrawer title="Polymarket AI raw" :payload="poly.aiScore" />
         </div>
       </section>
     </main>

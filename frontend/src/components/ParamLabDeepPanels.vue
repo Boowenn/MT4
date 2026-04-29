@@ -6,11 +6,40 @@ import { arrayFrom, first, money, pct } from '../utils/format';
 
 const props = defineProps({
   mt5: { type: Object, default: () => ({}) },
-  tasks: { type: Array, default: () => [] }
+  tasks: { type: Array, default: () => [] },
+  autoSchedulerRows: { type: Array, default: () => [] },
+  reportWatcherRows: { type: Array, default: () => [] },
+  runRecoveryRows: { type: Array, default: () => [] },
+  autoTesterRows: { type: Array, default: () => [] },
+  researchRows: { type: Array, default: () => [] }
 });
 
 const scoredRows = computed(() => arrayFrom(props.mt5.paramResults, ['results', 'scoredResults', 'rows']).slice(0, 16));
-const recoveryRows = computed(() => arrayFrom(props.mt5.runRecovery, ['runs', 'recoveryRows', 'candidateRisks', 'rows']).slice(0, 16));
+const recoveryRows = computed(() => (props.runRecoveryRows.length
+  ? props.runRecoveryRows
+  : arrayFrom(props.mt5.runRecovery, ['candidateDrilldown', 'recoveryQueue', 'runs', 'recoveryRows', 'candidateRisks', 'rows'])).slice(0, 16));
+
+const autoSchedulerRows = computed(() => (props.autoSchedulerRows.length
+  ? props.autoSchedulerRows
+  : [
+      ...arrayFrom(props.mt5.paramAutoScheduler, ['selectedTasks']),
+      ...arrayFrom(props.mt5.paramAutoScheduler, ['backtestTasks'])
+    ]).slice(0, 16));
+
+const reportWatcherRows = computed(() => (props.reportWatcherRows.length
+  ? props.reportWatcherRows
+  : arrayFrom(props.mt5.paramReportWatcher, ['watchedResults', 'reportFiles', 'rows'])).slice(0, 16));
+
+const autoTesterRows = computed(() => (props.autoTesterRows.length
+  ? props.autoTesterRows
+  : [
+      ...arrayFrom(props.mt5.autoTesterWindow, ['selectedTasks']),
+      ...arrayFrom(props.mt5.autoTesterWindow, ['excludedTasks'])
+    ]).slice(0, 16));
+
+const researchRows = computed(() => (props.researchRows.length
+  ? props.researchRows
+  : arrayFrom(props.mt5.mt5ResearchStats, ['rows'])).slice(0, 16));
 </script>
 
 <template>
@@ -38,6 +67,28 @@ const recoveryRows = computed(() => arrayFrom(props.mt5.runRecovery, ['runs', 'r
 
     <div class="card-grid">
       <DataTable
+        title="Auto Scheduler 安全队列"
+        :rows="autoSchedulerRows"
+        :columns="[
+          { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.taskId), width: '210px' },
+          { label: '路线', value: (r) => first(r.route, r.strategy, r.symbol), width: '130px' },
+          { label: '触发', value: (r) => first(r.gateDecision, r.reason, r.queueReason, r.state), width: '160px', badge: true },
+          { label: '命令', value: (r) => first(r.command, r.testerOnlyCommand, r.configPath), max: 140 }
+        ]"
+        empty="暂无 Auto Scheduler 队列。"
+      />
+      <DataTable
+        title="Report Watcher 回灌"
+        :rows="reportWatcherRows"
+        :columns="[
+          { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.taskId), width: '210px' },
+          { label: '状态', value: (r) => first(r.resultState, r.state, r.status, r.matchType), width: '120px', badge: true },
+          { label: 'PF', value: (r) => first(r.profitFactor, r.pf), width: '80px' },
+          { label: '报告', value: (r) => first(r.reportPath, r.path, r.source), max: 150 }
+        ]"
+        empty="暂无 Report Watcher 记录。"
+      />
+      <DataTable
         title="评分回灌"
         :rows="scoredRows"
         :columns="[
@@ -60,12 +111,39 @@ const recoveryRows = computed(() => arrayFrom(props.mt5.runRecovery, ['runs', 'r
         ]"
         empty="暂无失败恢复聚合。"
       />
+      <DataTable
+        title="AUTO_TESTER_WINDOW 守护"
+        :rows="autoTesterRows"
+        :columns="[
+          { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.taskId), width: '210px' },
+          { label: '状态', value: (r) => first(r.gateState, r.state, r.status, r.reason), width: '150px', badge: true },
+          { label: '路线', value: (r) => first(r.route, r.strategy, r.symbol), width: '130px' },
+          { label: '阻断/备注', value: (r) => first(r.blocker, r.stopReason, r.reason, r.excludedReason), max: 140 }
+        ]"
+        empty="暂无守护窗口任务。"
+      />
+      <DataTable
+        title="MT5 闭环研究统计"
+        :rows="researchRows"
+        :columns="[
+          { label: '路线', value: (r) => first(r.route, r.Route, r.strategy), width: '160px' },
+          { label: '品种', value: (r) => first(r.canonicalSymbol, r.symbol, r.Symbol), width: '110px' },
+          { label: 'Regime', value: (r) => first(r.marketRegime, r.regime, r.Regime), width: '130px' },
+          { label: '样本', value: (r) => first(r.closedTrades, r.samples, r.tradeCount), width: '80px' },
+          { label: 'PF / Win', value: (r) => `${first(r.profitFactor, r.pf, '--')} / ${pct(first(r.winRate, r.winRatePct))}`, width: '120px' },
+          { label: '状态', value: (r) => first(r.state, r.status, r.recommendation), badge: true }
+        ]"
+        empty="暂无 MT5 研究切片。"
+      />
     </div>
 
     <div class="drawer-grid">
       <EvidenceDrawer title="ParamLab status raw" :payload="mt5.paramStatus" />
       <EvidenceDrawer title="ParamLab results raw" :payload="mt5.paramResults" />
+      <EvidenceDrawer title="Auto scheduler raw" :payload="mt5.paramAutoScheduler" />
+      <EvidenceDrawer title="Report watcher raw" :payload="mt5.paramReportWatcher" />
       <EvidenceDrawer title="Run recovery raw" :payload="mt5.runRecovery" />
+      <EvidenceDrawer title="Auto tester window raw" :payload="mt5.autoTesterWindow" />
     </div>
   </section>
 </template>

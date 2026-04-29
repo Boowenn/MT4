@@ -2,7 +2,7 @@
 
 Updated: 2026-04-29
 
-Status: READ-ONLY ARCHIVE CANDIDATE ACTIVE, FINAL FREEZE BLOCKED BY VUE PARITY POLISH
+Status: VUE PARITY POLISH ACTIVE, LEGACY FALLBACK RETAINED AND NOT FROZEN
 
 ## Current Vue Coverage
 
@@ -11,6 +11,8 @@ The Vue workbench is now the primary operator surface at `http://localhost:8080/
 - Workspace shell: MT5, Polymarket, ParamLab, reports, and chart/trend workspaces are available through sidebar navigation without long-page scrolling.
 - Deep evidence panels: MT5 positions/routes, Polymarket radar/search/AI/canary/cross-linkage, and ParamLab queue/result details have Vue equivalents.
 - Chart/trend visuals: the old single-file dashboard chart layer has Vue coverage for MT5 Shadow blocker distribution, Shadow Outcome 15/30/60 minute posterior pips, Candidate route speed, MFE/MAE trend, ParamLab score/PF trend, Polymarket radar score/probability trend, AI score trend, Canary state, automatic governance actions, and cross-market risk tags.
+- ParamLab parity: the Vue ParamLab page now mirrors the old page's batch workflow more closely with queue/result/watcher aggregation, status filters, route filters, priority/score/time sorting, Auto Scheduler, Report Watcher, Run Recovery, AUTO_TESTER_WINDOW, and MT5ResearchStats drilldowns.
+- Evidence report parity: the Vue reports page now includes evidence freshness, Strategy Evaluation, Regime Evaluation, MT5 trading audit, Manual Alpha, and raw drawers for Governance, AutoTesterWindow, MT5ResearchStats, Polymarket AI, and Canary contract evidence.
 - Data boundary: all Vue chart panels read existing JSON/CSV evidence only. They do not mutate MT5 execution, Polymarket wallet state, EA presets, or tester queues.
 
 ## Vue Parity Polish Before Freeze
@@ -26,9 +28,9 @@ Current parity priorities:
 
 ## Legacy `QuantGod_Dashboard.html` Status
 
-`Dashboard/QuantGod_Dashboard.html` is now an active read-only archive candidate.
+`Dashboard/QuantGod_Dashboard.html` remains an active fallback page.
 
-It remains available as a fallback, but it should not receive new product features. Keep it until:
+It remains available as a fallback and is not frozen yet. Keep it until:
 
 - The Vue workbench is used through at least one normal monitoring cycle and one Strategy Tester / ParamLab review cycle.
 - Any missing operator-only detail from the legacy page is either migrated or explicitly marked obsolete.
@@ -39,7 +41,7 @@ It remains available as a fallback, but it should not receive new product featur
 - `Dashboard/start_dashboard.bat` opens `/vue/` by default.
 - `Dashboard/QuantGod_Dashboard.html` displays a visible archive-candidate banner and links operators back to `/vue/`.
 - New UI work belongs in `frontend/src/**` and is published through `Dashboard/vue-dist/**`.
-- The legacy HTML may receive only emergency display or fallback fixes.
+- The legacy HTML may receive emergency display/fallback fixes while Vue parity is still being verified.
 - The legacy HTML must not become the default launcher target again unless Vue is temporarily unavailable.
 
 ## Final Archive Gate
