@@ -2,6 +2,8 @@
 
 Updated: 2026-04-29
 
+Status: READ-ONLY ARCHIVE CANDIDATE ACTIVE
+
 ## Current Vue Coverage
 
 The Vue workbench is now the primary operator surface at `http://localhost:8080/vue/`.
@@ -13,17 +15,32 @@ The Vue workbench is now the primary operator surface at `http://localhost:8080/
 
 ## Legacy `QuantGod_Dashboard.html` Status
 
-`Dashboard/QuantGod_Dashboard.html` should remain available as a read-only fallback for now.
+`Dashboard/QuantGod_Dashboard.html` is now an active read-only archive candidate.
 
-It is ready to be treated as an archive candidate, but not deleted yet. Keep it until:
+It remains available as a fallback, but it should not receive new product features. Keep it until:
 
 - The Vue workbench is used through at least one normal monitoring cycle and one Strategy Tester / ParamLab review cycle.
 - Any missing operator-only detail from the legacy page is either migrated or explicitly marked obsolete.
 - The local dashboard server, README, and automation notes point to `/vue/` as the default view while retaining the legacy page as fallback.
 
-## Proposed Archive Rule
+## Candidate Period Rules
 
-After the checks above pass, freeze `QuantGod_Dashboard.html` as read-only:
+- `Dashboard/start_dashboard.bat` opens `/vue/` by default.
+- `Dashboard/QuantGod_Dashboard.html` displays a visible archive-candidate banner and links operators back to `/vue/`.
+- New UI work belongs in `frontend/src/**` and is published through `Dashboard/vue-dist/**`.
+- The legacy HTML may receive only emergency display or fallback fixes.
+- The legacy HTML must not become the default launcher target again unless Vue is temporarily unavailable.
+
+## Final Archive Gate
+
+Freeze `QuantGod_Dashboard.html` as a fully read-only archive only after:
+
+- One normal monitoring cycle confirms the Vue workbench has the needed MT5/Polymarket/ParamLab operator evidence.
+- One Strategy Tester / ParamLab review confirms `/vue/#paramlab` and `/vue/#charts` cover the old workflow.
+- Any missing detail is migrated or explicitly declared obsolete in this document.
+- The fallback link remains available for recovery.
+
+After the checks above pass:
 
 - Do not add new features to the single-file page.
 - Apply only emergency display fixes if the Vue bundle cannot load.

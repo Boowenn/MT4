@@ -94,7 +94,7 @@ The dashboard home Route Watchlist and the Strategy Workspace tabs are the main 
 
 The left dashboard sidebar is a workbench switcher, not a long-page jump list. Clicking `概览`, `策略`, `监控`, `交易`, `研究`, or `报表` hides the other dashboard sections and shows only the selected workspace while keeping the hash URL for direct links.
 
-The new Vue workbench lives at `http://localhost:8080/vue/`. It is the engineering-forward replacement shell for the old single-file dashboard: MT5, Polymarket, ParamLab, trend charts, and reports are separated into app-style workspaces while the original `QuantGod_Dashboard.html` remains available as a fallback during the migration. The Vue shell now includes deep detail components for MT5 positions/governance/backtests, Polymarket radar/AI/canary/governance/linkage/history, ParamLab queue/results/recovery evidence, and a read-only chart/trend workspace for MT5 Shadow/Candidate outcomes, ParamLab score trends, and Polymarket radar/AI/canary/governance distributions. The migration/archive status is tracked in `docs/QuantGod_Dashboard_Vue_Migration_Status.md`.
+The new Vue workbench lives at `http://localhost:8080/vue/`. It is the default operator surface and engineering-forward replacement shell for the old single-file dashboard: MT5, Polymarket, ParamLab, trend charts, and reports are separated into app-style workspaces while the original `QuantGod_Dashboard.html` remains available only as a read-only archive-candidate fallback. The Vue shell now includes deep detail components for MT5 positions/governance/backtests, Polymarket radar/AI/canary/governance/linkage/history, ParamLab queue/results/recovery evidence, and a read-only chart/trend workspace for MT5 Shadow/Candidate outcomes, ParamLab score trends, and Polymarket radar/AI/canary/governance distributions. The migration/archive status is tracked in `docs/QuantGod_Dashboard_Vue_Migration_Status.md`.
 
 Backtest-loop autonomy planning lives in `docs/QuantGod_Backtest_Autonomy_Plan.md`. It tracks the remaining QuantDinger-inspired pieces, explains which parts of the backtest loop can become fully automatic, and keeps live-preset mutation outside the default automation boundary.
 
@@ -187,7 +187,7 @@ This will:
 - delegate to the HFM MT5 launcher
 - start the local dashboard server
 - keep Cloudflare sync off unless you explicitly create an enable file
-- open `http://localhost:8080/QuantGod_Dashboard.html` with a cache-busting timestamp
+- open `http://localhost:8080/vue/` with a cache-busting timestamp
 
 Direct MT5 launcher:
 
@@ -363,16 +363,16 @@ If you only want the dashboard server:
     Dashboard\start_dashboard.bat
 ```
 
-Then open either the legacy dashboard:
-
-```text
-http://localhost:8080/QuantGod_Dashboard.html
-```
-
-or the Vue workbench:
+Then open the Vue workbench:
 
 ```text
 http://localhost:8080/vue/
+```
+
+The legacy single-file dashboard is kept only as a read-only archive-candidate fallback:
+
+```text
+http://localhost:8080/QuantGod_Dashboard.html
 ```
 
 ## Optional Cloudflare Deployment
