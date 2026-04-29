@@ -3402,8 +3402,12 @@ tbody tr:hover td {
 
 .calendar-mini-item,
 .ai-watch-item.rail-item {
+  box-sizing: border-box;
   display: block;
   width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: auto;
   padding: 8px 9px;
   text-align: left;
   background: #20242b;
@@ -3412,6 +3416,8 @@ tbody tr:hover td {
 }
 
 .calendar-mini-item {
+  display: grid;
+  gap: 4px;
   color: var(--text);
 }
 
@@ -3432,6 +3438,7 @@ tbody tr:hover td {
   color: #eff6ff;
   font-size: 12px;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .calendar-mini-item small,
@@ -3440,6 +3447,7 @@ tbody tr:hover td {
   color: var(--muted);
   font-size: 10.5px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .calendar-mini-item small {
@@ -3459,14 +3467,21 @@ tbody tr:hover td {
 
 .ai-watch-item span {
   display: grid;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
 }
 
 .ai-watch-item em {
   margin-top: 2px;
   justify-self: start;
   max-width: 100%;
+  overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.ai-watch-item.rail-item {
+  margin-top: 10px;
+  overflow: visible;
 }
 
 .poly-real-summary,
