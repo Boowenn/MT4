@@ -436,10 +436,37 @@ const mt5Account = computed(() => {
 
 const mt5Positions = computed(() => {
   const snap = mt5.value.snapshot || {};
-  return arrayFrom(snap.positions, ['positions', 'openPositions'])
-    .concat(arrayFrom(snap.snapshot?.positions, ['positions']))
-    .concat(arrayFrom(mt5.value.latest?.positions, ['positions']));
+  const latest = mt5.value.latest || {};
+  const rows = [
+    ...arrayFrom(snap.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(snap.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(snap.trades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(snap.snapshot?.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(snap.snapshot?.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(latest.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(latest.openPositions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(latest.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(latest.open_trades, ['items', 'positions', 'openPositions', 'openTrades', 'trades'])
+  ];
+  const seen = new Set();
+  return rows.filter((row, index) => {
+    const key = first(
+      row?.ticket,
+      row?.Ticket,
+      row?.identifier,
+      row?.positionTicket,
+      row?.position_ticket,
+      row?.order,
+      row?.Order,
+      `${first(row?.symbol, row?.Symbol, 'row')}-${first(row?.timeIso, row?.time, row?.openTime, index)}`
+    );
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 });
+
+const focusedPosition = computed(() => mt5Positions.value[0] || {});
 
 const allMt5Routes = computed(() => {
   const gov = mt5.value.governance || {};
@@ -1807,6 +1834,167 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </article>
+        </div>
+
+        <div v-if="state.mt5Focus === 'trades'" class="qd-terminal-layout mt5-trade-workbench">
+          <aside class="panel dense qd-left-list">
+            <div class="panel-title split">
+              <span>持仓列表</span>
+              <b class="pill green">{{ mt5Positions.length }} 单</b>
+            </div>
+            <div class="account-strip">
+              <span>
+                <small>服务器</small>
+                <strong>{{ first(mt5Account.server, 'HFM 只读桥') }}</strong>
+              </span>
+              <span>
+                <small>净值</small>
+                <strong>{{ money(first(mt5Account.equity, mt5.latest?.equity)) }}</strong>
+              </span>
+            </div>
+            <div class="position-list">
+              <button
+                v-for="row in mt5Positions"
+                :key="first(row.ticket, row.identifier, row.timeIso)"
+                type="button"
+                class="position-row"
+              >
+                <span>
+                  <strong>{{ first(row.symbol, row.Symbol) }}</strong>
+                  <small>#{{ first(row.ticket, row.identifier, row.order) }} · {{ first(row.comment, row.route, row.strategy, 'EA / manual') }}</small>
+                </span>
+                <b :class="{ loss: asNumber(first(row.profit, row.pnl, row.unrealizedPnl)) < 0 }">
+                  {{ money(first(row.profit, row.pnl, row.unrealizedPnl)) }}
+                </b>
+              </button>
+              <div v-if="!mt5Positions.length" class="rail-empty">只读桥没有返回持仓；请优先检查 MT5 bridge / latest snapshot。</div>
+            </div>
+          </aside>
+
+          <section class="panel dense qd-center-stage trade-focus-card">
+            <div class="panel-title split">
+              <span>交易只读工作台</span>
+              <b class="pill blue">READ ONLY</b>
+            </div>
+            <div class="trade-ticket-head">
+              <div>
+                <p class="eyebrow">当前焦点持仓</p>
+                <h2>{{ first(focusedPosition.symbol, focusedPosition.Symbol, '暂无持仓') }}</h2>
+                <small>{{ first(focusedPosition.comment, focusedPosition.route, focusedPosition.strategy, '等待持仓证据') }}</small>
+              </div>
+              <strong :class="{ loss: asNumber(first(focusedPosition.profit, focusedPosition.pnl, focusedPosition.unrealizedPnl)) < 0 }">
+                {{ money(first(focusedPosition.profit, focusedPosition.pnl, focusedPosition.unrealizedPnl)) }}
+              </strong>
+            </div>
+            <div class="trade-metric-grid">
+              <span><small>方向</small><b>{{ first(focusedPosition.type, focusedPosition.direction, focusedPosition.side, '--') }}</b></span>
+              <span><small>手数</small><b>{{ first(focusedPosition.volume, focusedPosition.lots, focusedPosition.Volume, '--') }}</b></span>
+              <span><small>开仓</small><b>{{ first(focusedPosition.priceOpen, focusedPosition.price_open, focusedPosition.openPrice, '--') }}</b></span>
+              <span><small>现价</small><b>{{ first(focusedPosition.priceCurrent, focusedPosition.price_current, focusedPosition.currentPrice, '--') }}</b></span>
+              <span><small>SL</small><b>{{ first(focusedPosition.sl, focusedPosition.stopLoss, '--') }}</b></span>
+              <span><small>TP</small><b>{{ first(focusedPosition.tp, focusedPosition.takeProfit, '--') }}</b></span>
+            </div>
+            <div class="readonly-action-strip">
+              <button type="button" class="locked-action">下单锁定</button>
+              <button type="button" class="locked-action">手动强平锁定</button>
+              <button type="button" class="ghost-button small" @click="setActive('reports')">查看审计报表</button>
+            </div>
+          </section>
+
+          <aside class="panel dense qd-right-rail trade-audit-rail">
+            <div class="panel-title split">
+              <span>风险与审计</span>
+              <b class="pill amber">ledger</b>
+            </div>
+            <div class="audit-stack">
+              <div class="audit-row">
+                <small>交易边界</small>
+                <strong>0.01 pilot / 单仓 / 只读页面</strong>
+                <span>页面不触发 order-send，也不改变 live switch。</span>
+              </div>
+              <div class="audit-row">
+                <small>焦点路线</small>
+                <strong>{{ routeShortName(primaryRoute) }} · {{ routeActionLabel(primaryRoute) }}</strong>
+                <span>{{ shortText(routeWhyText(primaryRoute), 120) }}</span>
+              </div>
+              <div class="audit-row">
+                <small>主要 blocker</small>
+                <strong>{{ routeBlockerText(primaryRoute) }}</strong>
+                <span>需要回看完整 ledger 时进入证据报表。</span>
+              </div>
+            </div>
+            <div class="history-list compact-history">
+              <button v-for="row in tradingAuditRows.slice(0, 4)" :key="first(row.time, row.ticket, row.eventId)" type="button">
+                <strong>{{ shortText(first(row.event, row.action, row.route, row.comment), 48) }}</strong>
+                <span>{{ shortText(first(row.time, row.timeIso, row.symbol, row.result), 56) }}</span>
+              </button>
+              <div v-if="!tradingAuditRows.length" class="rail-empty">暂无交易审计 ledger 行。</div>
+            </div>
+          </aside>
+        </div>
+
+        <div v-if="state.mt5Focus === 'strategy'" class="qd-terminal-layout strategy-workbench">
+          <aside class="panel dense qd-left-list route-tree-panel">
+            <div class="panel-title split">
+              <span>路线树</span>
+              <b class="pill blue">MA / RSI / BB / MACD / SR</b>
+            </div>
+            <div class="lane-stack route-tree">
+              <button
+                v-for="lane in mt5RouteLaneCards"
+                :key="lane.route"
+                class="lane-row"
+                :class="[lane.tone, { selected: activeRoute === lane.route }]"
+                type="button"
+                @click="activeRoute = lane.route"
+              >
+                <strong>{{ lane.route }}</strong>
+                <span>{{ lane.count }} 版本 · live {{ lane.live }}</span>
+                <small>PF {{ lane.pf }} · {{ lane.blocker }}</small>
+              </button>
+            </div>
+          </aside>
+
+          <section class="panel dense qd-center-stage strategy-stage">
+            <div class="panel-title split">
+              <span>策略实盘工作台</span>
+              <b class="pill" :class="routeToneClass(primaryRoute)">{{ routeActionLabel(primaryRoute) }}</b>
+            </div>
+            <div class="strategy-focus-head">
+              <div>
+                <p class="eyebrow">{{ routeShortName(primaryRoute) }}</p>
+                <h2>{{ first(primaryRoute.label, primaryRoute.route, primaryRoute.strategy, primaryRoute.name, primaryRoute.versionId, '等待路线证据') }}</h2>
+                <small>{{ shortText(routeWhyText(primaryRoute), 150) }}</small>
+              </div>
+              <button class="ghost-button small" type="button" @click="setActive('paramlab')">ParamLab</button>
+            </div>
+            <div class="strategy-performance-grid">
+              <span><small>Live PF</small><b>{{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, primaryRoute.pf, '--') }}</b></span>
+              <span><small>胜率</small><b>{{ pct(first(primaryRoute.liveForward?.winRatePct, primaryRoute.winRate, primaryRoute.win_rate)) }}</b></span>
+              <span><small>实盘样本</small><b>{{ first(primaryRoute.liveForward?.closedTrades, primaryRoute.liveForward?.trades, '--') }}</b></span>
+              <span><small>净收益</small><b>{{ money(primaryRoute.liveForward?.netProfitUSC) }}</b></span>
+              <span><small>候选样本</small><b>{{ first(primaryRoute.candidateSamples?.rows, primaryRoute.candidateSamples?.ledgerRows, '--') }}</b></span>
+              <span><small>阻断</small><b>{{ shortText(routeBlockerText(primaryRoute), 36) }}</b></span>
+            </div>
+            <div class="strategy-version-strip">
+              <span>参数候选：{{ routeParamText(primaryRoute) }}</span>
+              <span>下一步：{{ shortText(first(primaryRoute.feedback?.nextStep, primaryRoute.paramLabResult?.promotionReadiness, primaryRoute.recommendedAction), 150) }}</span>
+            </div>
+          </section>
+
+          <aside class="panel dense qd-right-rail strategy-evidence-rail">
+            <div class="panel-title split">
+              <span>证据轨</span>
+              <b class="pill amber">只读</b>
+            </div>
+            <div class="history-list compact-history">
+              <button v-for="row in mt5Routes.slice(0, 6)" :key="first(row.versionId, row.route, row.name)" type="button">
+                <strong>{{ shortText(first(row.label, row.route, row.strategy, row.name, row.versionId), 52) }}</strong>
+                <span>PF {{ first(row.liveForward?.profitFactor, row.profitFactor, row.pf, '--') }} · {{ routeActionLabel(row) }}</span>
+              </button>
+              <div v-if="!mt5Routes.length" class="rail-empty">当前没有可展示的 MT5 路线证据。</div>
+            </div>
+          </aside>
         </div>
 
         <DataTable

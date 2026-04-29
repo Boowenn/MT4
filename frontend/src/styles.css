@@ -2855,6 +2855,243 @@ body {
   border-radius: 8px;
 }
 
+.qd-terminal-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.qd-left-list,
+.qd-right-rail,
+.qd-center-stage {
+  min-width: 0;
+  background: #1a1d23;
+  border-color: #2d3540;
+}
+
+.qd-left-list,
+.qd-right-rail {
+  max-height: 620px;
+  overflow: auto;
+}
+
+.account-strip,
+.trade-metric-grid,
+.strategy-performance-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.account-strip {
+  grid-template-columns: 1fr;
+  margin-bottom: 10px;
+}
+
+.account-strip span,
+.trade-metric-grid span,
+.strategy-performance-grid span {
+  min-width: 0;
+  padding: 10px;
+  background: #20262f;
+  border: 1px solid #303946;
+  border-radius: 8px;
+}
+
+.account-strip small,
+.trade-metric-grid small,
+.strategy-performance-grid small {
+  display: block;
+  margin-bottom: 4px;
+  color: #7f8b9c;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.account-strip strong,
+.trade-metric-grid b,
+.strategy-performance-grid b {
+  display: block;
+  overflow: hidden;
+  color: #f2f7ff;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-list,
+.audit-stack,
+.route-tree {
+  display: grid;
+  gap: 8px;
+}
+
+.position-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  color: #dcecff;
+  text-align: left;
+  background: #20262f;
+  border: 1px solid #303946;
+  border-radius: 8px;
+}
+
+.position-row span,
+.position-row strong,
+.position-row small {
+  min-width: 0;
+}
+
+.position-row strong,
+.position-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-row small {
+  margin-top: 3px;
+  color: #8895a7;
+  font-size: 11px;
+}
+
+.position-row b,
+.trade-ticket-head > strong {
+  color: #60f0bd;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-row b.loss,
+.trade-ticket-head > strong.loss {
+  color: #ff7890;
+}
+
+.trade-ticket-head,
+.strategy-focus-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.trade-ticket-head h2,
+.strategy-focus-head h2 {
+  margin: 2px 0 4px;
+  color: #f7fbff;
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.trade-ticket-head small,
+.strategy-focus-head small {
+  color: #99a7b8;
+  line-height: 1.4;
+}
+
+.trade-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0;
+}
+
+.readonly-action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.locked-action {
+  padding: 8px 10px;
+  color: #7d8795;
+  background: #161a20;
+  border: 1px dashed #3a4452;
+  border-radius: 8px;
+  cursor: not-allowed;
+}
+
+.audit-row {
+  padding: 10px;
+  background: #20262f;
+  border: 1px solid #303946;
+  border-radius: 8px;
+}
+
+.audit-row small,
+.audit-row strong,
+.audit-row span {
+  display: block;
+  min-width: 0;
+}
+
+.audit-row small {
+  color: #7f8b9c;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.audit-row strong {
+  margin: 4px 0;
+  color: #f2f7ff;
+  font-size: 13px;
+}
+
+.audit-row span {
+  color: #98a5b6;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.compact-history {
+  margin-top: 10px;
+}
+
+.strategy-stage {
+  min-height: 360px;
+}
+
+.strategy-performance-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0;
+}
+
+.strategy-version-strip {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.strategy-version-strip span {
+  min-width: 0;
+  padding: 10px;
+  overflow: hidden;
+  color: #a9b7ca;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #20262f;
+  border: 1px solid #303946;
+  border-radius: 8px;
+}
+
+.route-tree .lane-row.selected {
+  border-color: #1e9bff;
+  box-shadow: inset 3px 0 0 #1e9bff;
+}
+
+.compact-route-grid {
+  margin-top: 12px;
+}
+
+.mt5-trade-workbench + .data-table-card {
+  margin-top: 12px;
+}
+
 .page-mt5[data-focus="trades"] .workbench-hero {
   grid-template-columns: minmax(0, 0.8fr) minmax(520px, 1.2fr);
 }
@@ -2932,6 +3169,17 @@ tbody tr:hover td {
 
   .operator-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .qd-terminal-layout,
+  .ai-engine-shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .qd-right-rail,
+  .ai-watch-rail {
+    grid-column: 1 / -1;
+    max-height: none;
   }
 
   .workspace-layout {
