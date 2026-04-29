@@ -11,9 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 TABLES: Mapping[str, Dict[str, Any]] = {
@@ -73,9 +77,167 @@ TABLES: Mapping[str, Dict[str, Any]] = {
         "summary": "researchSnapshots",
         "search": ("mode", "auth_state"),
     },
+    "worker-runs": {
+        "table": "qd_polymarket_radar_worker_runs",
+        "order": "generated_at",
+        "summary": "radarWorkerRuns",
+        "search": (
+            "run_id",
+            "status",
+            "decision",
+            "top_market",
+            "top_risk",
+        ),
+    },
+    "worker-trends": {
+        "table": "qd_polymarket_radar_trends",
+        "order": "generated_at",
+        "summary": "radarTrendRows",
+        "search": (
+            "run_id",
+            "market_id",
+            "question",
+            "category",
+            "risk",
+            "suggested_shadow_track",
+            "trend_direction",
+        ),
+    },
+    "worker-queue": {
+        "table": "qd_polymarket_radar_queue",
+        "order": "generated_at",
+        "summary": "radarQueueRows",
+        "search": (
+            "candidate_id",
+            "run_id",
+            "market_id",
+            "question",
+            "category",
+            "risk",
+            "suggested_shadow_track",
+            "queue_state",
+            "next_action",
+        ),
+    },
+    "cross-linkage": {
+        "table": "qd_polymarket_cross_market_linkage",
+        "order": "generated_at",
+        "summary": "crossMarketLinkages",
+        "search": (
+            "market_id",
+            "event_id",
+            "question",
+            "event_title",
+            "category",
+            "primary_risk_tag",
+            "risk_tags_json",
+            "matched_keywords_json",
+            "linked_mt5_symbols_json",
+            "macro_risk_state",
+            "suggested_shadow_track",
+        ),
+    },
+    "canary-contracts": {
+        "table": "qd_polymarket_canary_contracts",
+        "order": "generated_at",
+        "summary": "canaryContracts",
+        "search": (
+            "canary_contract_id",
+            "market_id",
+            "question",
+            "track",
+            "side",
+            "canary_state",
+            "decision",
+            "ai_color",
+            "cross_risk_tag",
+            "macro_risk_state",
+            "dry_run_state",
+            "outcome_state",
+            "would_exit_reason",
+            "blockers_json",
+        ),
+    },
+    "auto-governance": {
+        "table": "qd_polymarket_auto_governance",
+        "order": "generated_at",
+        "summary": "autoGovernanceDecisions",
+        "search": (
+            "governance_id",
+            "market_id",
+            "question",
+            "track",
+            "current_state",
+            "governance_state",
+            "recommended_action",
+            "risk_level",
+            "ai_color",
+            "canary_state",
+            "dry_run_state",
+            "outcome_state",
+            "would_exit_reason",
+            "cross_risk_tag",
+            "macro_risk_state",
+            "blockers_json",
+            "source_types_json",
+            "next_test",
+        ),
+    },
+    "markets": {
+        "table": "qd_polymarket_markets",
+        "order": "last_seen_at",
+        "summary": "marketCatalogRows",
+        "search": (
+            "market_id",
+            "event_id",
+            "question",
+            "event_title",
+            "slug",
+            "polymarket_url",
+            "category",
+            "risk",
+            "recommended_action",
+            "suggested_shadow_track",
+            "related_assets_json",
+        ),
+    },
+    "related-assets": {
+        "table": "qd_polymarket_related_asset_opportunities",
+        "order": "last_seen_at",
+        "summary": "relatedAssetOpportunities",
+        "search": (
+            "opportunity_id",
+            "market_id",
+            "question",
+            "event_title",
+            "polymarket_url",
+            "category",
+            "market_risk",
+            "asset_symbol",
+            "asset_market",
+            "asset_family",
+            "bias",
+            "directional_hint",
+            "suggested_action",
+            "suggested_shadow_track",
+            "rationale",
+        ),
+    },
 }
 
-RECENT_TABLES = ("opportunities", "analyses", "simulations")
+RECENT_TABLES = (
+    "opportunities",
+    "analyses",
+    "simulations",
+    "worker-runs",
+    "worker-trends",
+    "worker-queue",
+    "cross-linkage",
+    "canary-contracts",
+    "auto-governance",
+    "markets",
+    "related-assets",
+)
 
 
 def utc_now() -> str:
@@ -212,7 +374,7 @@ def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offse
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),
         "source": "sqlite_api",
-        "schemaVersion": "POLYMARKET_HISTORY_DB_V1",
+        "schemaVersion": "POLYMARKET_HISTORY_DB_V6_QUANTDINGER_PARITY",
         "decision": "LOCAL_HISTORY_DB_READ_ONLY_NO_WALLET_WRITE",
         "api": {"table": table_key, "query": query, "limit": limit, "offset": offset},
         "database": {"path": str(db_path), "exists": db_path.exists(), "readOnly": True},

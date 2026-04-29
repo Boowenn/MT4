@@ -2,10 +2,11 @@
 """Build history-aware Polymarket AI Score V1 for QuantGod.
 
 This scorer reads the local Polymarket history SQLite database and produces a
-research-only score for each market/track. It does not import Polymarket runtime
-modules, read private keys, write wallets, place/cancel orders, start executors,
-or mutate MT5. The score is a transparent feature model over historical radar,
-single-market analysis, dry-run/outcome, and global research evidence.
+research-only score for each market/track. It can optionally ask an
+OpenAI-compatible LLM for a semantic review of market wording, event ambiguity,
+and next-test direction, then blends that with the transparent history feature
+model. It does not import Polymarket runtime modules, read wallet private keys,
+write wallets, place/cancel orders, start executors, or mutate MT5.
 """
 
 from __future__ import annotations
@@ -15,7 +16,10 @@ import csv
 import io
 import json
 import math
+import os
 import sqlite3
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,7 +31,11 @@ DEFAULT_HISTORY_DIR = Path(__file__).resolve().parents[1] / "archive" / "polymar
 DEFAULT_DB_PATH = DEFAULT_HISTORY_DIR / "QuantGod_PolymarketHistory.sqlite"
 OUTPUT_NAME = "QuantGod_PolymarketAiScoreV1.json"
 CSV_NAME = "QuantGod_PolymarketAiScoreV1.csv"
-SCHEMA_VERSION = "POLYMARKET_AI_SCORE_V1"
+LLM_AUDIT_NAME = "QuantGod_PolymarketAiSemanticReview.json"
+SCHEMA_VERSION = "POLYMARKET_AI_SCORE_V1_LLM_SEMANTIC_OPTIONAL"
+DEFAULT_LLM_ENV_FILE = Path(r"D:\polymarket\.env")
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+LLM_WEIGHT = 0.32
 
 
 WEIGHTS = {
@@ -66,6 +74,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--history-dir", default=str(DEFAULT_HISTORY_DIR))
     parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH))
     parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--llm-mode", choices=["auto", "off", "required"], default="auto")
+    parser.add_argument("--llm-provider", default="openai")
+    parser.add_argument("--llm-model", default=os.environ.get("QG_POLYMARKET_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL)
+    parser.add_argument("--llm-env-file", default=str(DEFAULT_LLM_ENV_FILE))
+    parser.add_argument("--llm-max-candidates", type=int, default=8)
+    parser.add_argument("--llm-timeout", type=float, default=35.0)
     return parser.parse_args()
 
 
@@ -109,6 +123,46 @@ def parse_json_list(value: Any) -> list[Any]:
             return []
         return parsed if isinstance(parsed, list) else []
     return []
+
+
+def parse_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def load_allowed_env_file(path: Path) -> dict[str, str]:
+    """Load only LLM-related keys from an env file without exposing secrets."""
+    allowed = {
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_MODEL",
+        "QG_POLYMARKET_LLM_MODEL",
+        "QG_POLYMARKET_OPENAI_API_KEY",
+        "QG_POLYMARKET_OPENAI_BASE_URL",
+    }
+    loaded: dict[str, str] = {}
+    if not path or not str(path) or not path.exists() or path.is_dir():
+        return loaded
+    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in allowed:
+            continue
+        value = value.strip().strip('"').strip("'")
+        if value:
+            loaded[key] = value
+            os.environ.setdefault(key, value)
+    return loaded
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -303,6 +357,234 @@ def global_penalty(snapshot: dict[str, Any]) -> tuple[float, list[str]]:
     return penalty, reasons
 
 
+def normalize_llm_risk(value: Any) -> str:
+    risk = str(value or "").strip().lower()
+    if risk in {"low", "green", "safe"}:
+        return "low"
+    if risk in {"high", "red", "danger"}:
+        return "high"
+    if risk in {"medium", "med", "yellow", "watch"}:
+        return "medium"
+    return "unknown"
+
+
+def normalize_llm_recommendation(value: Any) -> str:
+    recommendation = str(value or "").strip().upper().replace(" ", "_")
+    allowed = {
+        "SHADOW_REVIEW_PRIORITY",
+        "SHADOW_REVIEW",
+        "WATCHLIST",
+        "RETUNE_OR_IGNORE",
+        "RETUNE_BEFORE_NEXT_BATCH",
+        "NO_BET",
+        "AVOID",
+    }
+    return recommendation if recommendation in allowed else "WATCHLIST"
+
+
+def compact_candidate_for_llm(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "marketId": row.get("marketId", ""),
+        "question": str(row.get("question") or row.get("eventTitle") or "")[:260],
+        "category": row.get("category", ""),
+        "track": row.get("track", ""),
+        "baseHistoryScore": row.get("score"),
+        "baseColor": row.get("color"),
+        "baseAction": row.get("action"),
+        "probabilityPct": row.get("probability"),
+        "divergencePct": row.get("divergence"),
+        "risk": row.get("risk"),
+        "liquidity": row.get("liquidity"),
+        "components": row.get("components", {}),
+        "reasons": row.get("reasons", [])[:10],
+        "nextStep": row.get("nextStep", ""),
+    }
+
+
+def get_openai_config(args: argparse.Namespace) -> dict[str, Any]:
+    provider = str(args.llm_provider or "openai").strip().lower()
+    env_file = Path(str(args.llm_env_file or ""))
+    loaded_env = load_allowed_env_file(env_file)
+    api_key = (
+        os.environ.get("QG_POLYMARKET_OPENAI_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or ""
+    )
+    base_url = (
+        os.environ.get("QG_POLYMARKET_OPENAI_BASE_URL")
+        or os.environ.get("OPENAI_BASE_URL")
+        or "https://api.openai.com/v1"
+    ).rstrip("/")
+    model = str(args.llm_model or os.environ.get("QG_POLYMARKET_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL)
+    return {
+        "provider": provider,
+        "mode": args.llm_mode,
+        "model": model,
+        "baseUrl": base_url,
+        "apiKey": api_key,
+        "envFileLoaded": bool(loaded_env),
+        "envFilePath": str(env_file) if env_file else "",
+        "maxCandidates": max(0, int(args.llm_max_candidates or 0)),
+        "timeout": max(5.0, float(args.llm_timeout or 35.0)),
+    }
+
+
+def call_openai_semantic_review(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    if not rows:
+        return {"ok": True, "status": "skipped_no_candidates", "reviews": [], "raw": {}}
+    if config.get("provider") != "openai":
+        return {"ok": False, "status": "unsupported_provider", "reviews": [], "error": str(config.get("provider") or "")}
+    if not config.get("apiKey"):
+        return {"ok": False, "status": "disabled_no_api_key", "reviews": [], "error": "OPENAI_API_KEY not configured"}
+
+    candidates = [compact_candidate_for_llm(row) for row in rows[: int(config.get("maxCandidates") or 0)]]
+    system_prompt = (
+        "You are QuantGod's Polymarket research reviewer. Score markets for shadow-only research. "
+        "Never recommend real wallet execution. Use market question semantics, event risk, liquidity, "
+        "probability divergence, history score, dry-run outcome signals, and risk flags. "
+        "Return strict JSON only."
+    )
+    user_prompt = {
+        "task": "semantic_polymarket_shadow_scoring",
+        "constraints": [
+            "No betting, no wallet write, no CLOB order, no MT5 mutation.",
+            "Score 0-100 where higher means better shadow/dry-run research priority.",
+            "Prefer conservative risk assessment when title semantics imply low information quality, ambiguous resolution, manipulation risk, or event tail risk.",
+        ],
+        "returnSchema": {
+            "reviews": [
+                {
+                    "marketId": "string",
+                    "semanticScore": "0-100",
+                    "confidence": "0-100",
+                    "risk": "low|medium|high",
+                    "recommendation": "SHADOW_REVIEW_PRIORITY|SHADOW_REVIEW|WATCHLIST|RETUNE_OR_IGNORE|NO_BET|AVOID",
+                    "reason": "short Chinese explanation",
+                    "riskFactors": ["short tags"],
+                    "nextTest": "short Chinese next parameter/filter test",
+                }
+            ],
+            "globalNotes": "short Chinese note",
+        },
+        "candidates": candidates,
+    }
+    payload = {
+        "model": config["model"],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)},
+        ],
+    }
+    request = urllib.request.Request(
+        f"{config['baseUrl']}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {config['apiKey']}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=float(config["timeout"])) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")[:600]
+        return {"ok": False, "status": "http_error", "reviews": [], "error": f"HTTP {error.code}: {body}"}
+    except Exception as error:  # noqa: BLE001 - report a safe, non-secret failure reason.
+        return {"ok": False, "status": "request_failed", "reviews": [], "error": str(error)}
+
+    try:
+        response_payload = json.loads(body)
+        content = response_payload["choices"][0]["message"]["content"]
+        review_payload = json.loads(content)
+    except Exception as error:  # noqa: BLE001
+        return {"ok": False, "status": "parse_failed", "reviews": [], "error": str(error)}
+
+    reviews = []
+    for raw in review_payload.get("reviews", []):
+        if not isinstance(raw, dict):
+            continue
+        review = {
+            "marketId": str(raw.get("marketId") or "").strip(),
+            "semanticScore": round(clamp(safe_number(raw.get("semanticScore"), 50.0)), 2),
+            "confidence": round(clamp(safe_number(raw.get("confidence"), 50.0)), 2),
+            "risk": normalize_llm_risk(raw.get("risk")),
+            "recommendation": normalize_llm_recommendation(raw.get("recommendation")),
+            "reason": str(raw.get("reason") or "").strip()[:420],
+            "riskFactors": [str(item).strip()[:80] for item in parse_json_list(raw.get("riskFactors")) if str(item).strip()][:8],
+            "nextTest": str(raw.get("nextTest") or "").strip()[:280],
+        }
+        reviews.append(review)
+    return {
+        "ok": True,
+        "status": "reviewed",
+        "reviews": reviews,
+        "globalNotes": str(review_payload.get("globalNotes") or "").strip()[:500],
+        "usage": response_payload.get("usage", {}),
+    }
+
+
+def apply_llm_reviews(scored: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    if config.get("mode") == "off":
+        return {"ok": True, "status": "disabled_by_flag", "reviews": [], "reviewed": 0}
+    if config.get("maxCandidates", 0) <= 0:
+        return {"ok": True, "status": "disabled_zero_budget", "reviews": [], "reviewed": 0}
+
+    ranked = sorted(scored, key=lambda row: (row.get("score", 0.0), row.get("liquidity", 0.0)), reverse=True)
+    llm_result = call_openai_semantic_review(ranked, config)
+    if not llm_result.get("ok"):
+        if config.get("mode") == "required":
+            raise RuntimeError(f"LLM scoring required but unavailable: {llm_result.get('status')} {llm_result.get('error', '')}")
+        return {**llm_result, "reviewed": 0}
+
+    reviews_by_market = {
+        str(review.get("marketId") or ""): review
+        for review in llm_result.get("reviews", [])
+        if str(review.get("marketId") or "")
+    }
+    reviewed = 0
+    for row in scored:
+        review = reviews_by_market.get(str(row.get("marketId") or ""))
+        if not review:
+            continue
+        base_score = safe_number(row.get("score"), 0.0)
+        semantic_score = safe_number(review.get("semanticScore"), 50.0)
+        semantic_confidence = safe_number(review.get("confidence"), 50.0)
+        confidence_weight = LLM_WEIGHT * clamp(semantic_confidence, 20.0, 95.0) / 100.0
+        blended = round(clamp(base_score * (1.0 - confidence_weight) + semantic_score * confidence_weight), 2)
+        row["historyFeatureScore"] = base_score
+        row["score"] = blended
+        row["llmReview"] = review
+        row["llmReviewed"] = True
+        row["semanticScore"] = semantic_score
+        row["semanticConfidence"] = semantic_confidence
+        row["components"]["historyFeatureScore"] = base_score
+        row["components"]["semanticScore"] = semantic_score
+        row["components"]["semanticConfidence"] = semantic_confidence
+        row["components"]["llmWeightApplied"] = round(confidence_weight, 3)
+        if review.get("risk") in {"low", "medium", "high"}:
+            row["semanticRisk"] = review["risk"]
+        row["semanticRecommendation"] = review.get("recommendation", "")
+        if review.get("reason"):
+            row["reasons"] = list(dict.fromkeys([f"llm:{review['reason']}", *row.get("reasons", [])]))[:16]
+        if review.get("riskFactors"):
+            row["reasons"] = list(dict.fromkeys([*row.get("reasons", []), *[f"llm_risk:{flag}" for flag in review["riskFactors"]]]))[:18]
+        if review.get("nextTest"):
+            row["nextStep"] = f"{review['nextTest']}；仍然只进 shadow/dry-run，不允许真钱下注。"
+        risk_for_class = normalize_llm_risk(review.get("risk")) if review.get("risk") != "unknown" else row.get("risk", "")
+        color, action = classify(blended, risk_for_class, row.get("reasons", []))
+        if review.get("recommendation") in {"NO_BET", "AVOID", "RETUNE_OR_IGNORE"}:
+            color, action = "red", "RETUNE_OR_IGNORE"
+        elif review.get("recommendation") == "SHADOW_REVIEW_PRIORITY" and blended >= 65 and color != "red":
+            color, action = "green", "SHADOW_REVIEW_PRIORITY"
+        row["color"] = color
+        row["action"] = action
+        reviewed += 1
+    return {**llm_result, "reviewed": reviewed}
+
+
 def classify(score: float, risk: str, hard_reasons: list[str]) -> tuple[str, str]:
     lowered_reasons = " ".join(hard_reasons).lower()
     if score < 35 or risk == "high" or "stop_loss_seen" in lowered_reasons:
@@ -409,7 +691,7 @@ def score_candidate(
     }
 
 
-def build_scores(db_path: Path, top: int, now_iso: str) -> dict[str, Any]:
+def build_scores(db_path: Path, top: int, now_iso: str, llm_config: dict[str, Any]) -> dict[str, Any]:
     with connect_readonly(db_path) as con:
         research = latest_research_snapshot(con)
         candidates = load_candidates(con)
@@ -417,6 +699,7 @@ def build_scores(db_path: Path, top: int, now_iso: str) -> dict[str, Any]:
         simulations = simulation_index(con)
         penalty, global_reasons = global_penalty(research)
         scored = [score_candidate(item, analyses, simulations, penalty, global_reasons) for item in candidates]
+    llm_result = apply_llm_reviews(scored, llm_config)
     scored.sort(key=lambda row: (row["score"], row.get("liquidity", 0.0)), reverse=True)
     top_rows = scored[: max(1, top)]
     color_counts: dict[str, int] = {"green": 0, "yellow": 0, "red": 0}
@@ -438,10 +721,24 @@ def build_scores(db_path: Path, top: int, now_iso: str) -> dict[str, Any]:
             "topScore": best.get("score"),
             "topMarket": best.get("question", ""),
             "globalPenalty": round(penalty, 2),
+            "llmReviewed": safe_int(llm_result.get("reviewed"), 0),
+            "llmStatus": llm_result.get("status", "unknown"),
         },
         "scoringModel": {
-            "type": "transparent_history_feature_model",
+            "type": "llm_semantic_reviewer_plus_history_feature_model" if safe_int(llm_result.get("reviewed"), 0) else "history_feature_model_llm_ready",
+            "semanticReviewer": {
+                "enabled": llm_config.get("mode") != "off",
+                "provider": llm_config.get("provider"),
+                "model": llm_config.get("model"),
+                "status": llm_result.get("status", "unknown"),
+                "reviewed": safe_int(llm_result.get("reviewed"), 0),
+                "maxCandidates": llm_config.get("maxCandidates"),
+                "envFileLoaded": bool(llm_config.get("envFileLoaded")),
+                "error": str(llm_result.get("error") or "")[:500],
+                "note": "No API key or LLM failure falls back to the transparent history feature model; secrets are never written.",
+            },
             "weights": WEIGHTS,
+            "llmWeight": LLM_WEIGHT,
             "inputs": [
                 "radar score and market quality",
                 "liquidity and volume",
@@ -450,7 +747,21 @@ def build_scores(db_path: Path, top: int, now_iso: str) -> dict[str, Any]:
                 "single-market analysis confidence and recommendation",
                 "dry-run/outcome MFE/MAE and exit triggers",
                 "global executed/shadow/account quarantine penalty",
+                "optional LLM semantic review of market title, event risk, ambiguity, and next test",
             ],
+        },
+        "semanticReview": {
+            "status": llm_result.get("status", "unknown"),
+            "reviewed": safe_int(llm_result.get("reviewed"), 0),
+            "globalNotes": llm_result.get("globalNotes", ""),
+            "usage": llm_result.get("usage", {}),
+            "reviews": llm_result.get("reviews", []),
+            "safety": {
+                "writesSecrets": False,
+                "writesWallet": False,
+                "placesOrders": False,
+                "mutatesMt5": False,
+            },
         },
         "globalEvidence": {
             "executedClosed": safe_int(research.get("executedClosed")),
@@ -474,7 +785,7 @@ def build_scores(db_path: Path, top: int, now_iso: str) -> dict[str, Any]:
             "note": "AI Score V1 is research-only and cannot trigger betting by itself.",
         },
         "nextActions": [
-            "Use green rows only as high-priority shadow/dry-run candidates.",
+            "Use LLM-reviewed green rows only as high-priority shadow/dry-run candidates.",
             "Use yellow/red rows to drive retune planner filters.",
             "Do not enable wallet executor until separate canary executor and loss controls are promoted.",
         ],
@@ -493,6 +804,11 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
                 "question": item.get("question", ""),
                 "track": item.get("track", ""),
                 "score": item.get("score", ""),
+                "history_feature_score": item.get("historyFeatureScore", item.get("score", "")),
+                "semantic_score": item.get("semanticScore", ""),
+                "semantic_confidence": item.get("semanticConfidence", ""),
+                "semantic_risk": item.get("semanticRisk", ""),
+                "semantic_recommendation": item.get("semanticRecommendation", ""),
                 "color": item.get("color", ""),
                 "action": item.get("action", ""),
                 "risk": item.get("risk", ""),
@@ -500,6 +816,8 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
                 "divergence": item.get("divergence", ""),
                 "liquidity": item.get("liquidity", ""),
                 "live_allowed": "false",
+                "llm_reviewed": str(bool(item.get("llmReviewed"))).lower(),
+                "llm_reason": (item.get("llmReview") or {}).get("reason", ""),
                 "top_reasons": ";".join(item.get("reasons", [])[:8]),
             }
         )
@@ -516,6 +834,22 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
         writer.writerows(rows)
         atomic_write_text(csv_path, output.getvalue())
         written.append(str(csv_path))
+        audit_path = base / LLM_AUDIT_NAME
+        atomic_write_text(
+            audit_path,
+            json.dumps(
+                {
+                    "generatedAt": snapshot.get("generatedAt"),
+                    "schemaVersion": snapshot.get("schemaVersion"),
+                    "semanticReview": snapshot.get("semanticReview", {}),
+                    "safety": snapshot.get("safety", {}),
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        written.append(str(audit_path))
     return written
 
 
@@ -525,12 +859,14 @@ def main() -> int:
     runtime_dir = Path(args.runtime_dir)
     dashboard_dir = Path(args.dashboard_dir)
     now_iso = utc_now_iso()
-    snapshot = build_scores(db_path, max(1, args.top), now_iso)
+    llm_config = get_openai_config(args)
+    snapshot = build_scores(db_path, max(1, args.top), now_iso, llm_config)
     written = write_outputs(snapshot, runtime_dir, dashboard_dir)
     summary = snapshot["summary"]
     print(
         f"{snapshot['mode']} | candidates={summary['candidates']} | top={summary.get('topScore')} "
-        f"| green/yellow/red={summary['green']}/{summary['yellow']}/{summary['red']} | wrote={len(written)}"
+        f"| green/yellow/red={summary['green']}/{summary['yellow']}/{summary['red']} "
+        f"| llm={summary.get('llmStatus')} reviewed={summary.get('llmReviewed')} | wrote={len(written)}"
     )
     return 0
 

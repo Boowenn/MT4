@@ -18,6 +18,15 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketResearchLedger.csv`
 - `QuantGod_PolymarketMarketRadar.json`
 - `QuantGod_PolymarketMarketRadar.csv`
+- `QuantGod_PolymarketMarketCatalog.json`
+- `QuantGod_PolymarketMarketCatalog.csv`
+- `QuantGod_PolymarketAssetOpportunities.json`
+- `QuantGod_PolymarketAssetOpportunities.csv`
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarWorkerV2.csv`
+- `QuantGod_PolymarketRadarTrendCache.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketRadarCandidateQueue.csv`
 - `QuantGod_PolymarketSingleMarketAnalysis.json`
 - `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
 - `QuantGod_PolymarketRetunePlanner.json`
@@ -32,6 +41,13 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketHistoryDb.csv`
 - `QuantGod_PolymarketAiScoreV1.json`
 - `QuantGod_PolymarketAiScoreV1.csv`
+- `QuantGod_PolymarketAiSemanticReview.json`
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketCrossMarketLinkage.csv`
+- `QuantGod_PolymarketCanaryExecutorContract.json`
+- `QuantGod_PolymarketCanaryExecutorLedger.csv`
+- `QuantGod_PolymarketAutoGovernance.json`
+- `QuantGod_PolymarketAutoGovernanceLedger.csv`
 
 ## Bridge
 
@@ -71,6 +87,81 @@ Current radar behavior is deliberately `SHADOW_ONLY_MARKET_RADAR_NO_BETTING`:
 - no MT5 mutation.
 
 If Polymarket execution is added later, it should be a separate promoted module gated by Strategy Version Registry, Governance Advisor, bankroll isolation, position sizing, per-market max loss, take-profit/stop-loss exit rules, order-send audit, and a kill switch. The radar is the discovery layer, not the execution layer.
+
+## QuantDinger-Style Market Catalog / Related Assets
+
+Run:
+
+```bat
+tools\build_polymarket_quantdinger_parity.bat
+```
+
+The parity builder uses only public Gamma API data. It writes a market catalog plus related-asset opportunity rows:
+
+- `QuantGod_PolymarketMarketCatalog.json`
+- `QuantGod_PolymarketMarketCatalog.csv`
+- `QuantGod_PolymarketAssetOpportunities.json`
+- `QuantGod_PolymarketAssetOpportunities.csv`
+
+The market catalog carries event/market id, question, URL, category, probability, volume, liquidity, spread, divergence, rule score, risk, suggested shadow track, and related-asset tags. The related-asset output maps market wording to research-only symbols such as `XAUUSD`, `USDJPY`, BTC/ETH/SOL, rates, and selected equities when event keywords justify the link.
+
+These links are risk context only:
+
+- no `.env` secret read;
+- no wallet write;
+- no CLOB order calls;
+- no executor/canary start;
+- no MT5 mutation;
+- no MT5 trade permission change.
+
+The dashboard server exposes:
+
+```text
+GET /api/polymarket/markets
+GET /api/polymarket/market?id=...
+GET /api/polymarket/asset-opportunities
+```
+
+The Dashboard Polymarket workspace now includes a market browser with search, category/risk/sort filters, selected-market detail cards, and related-asset opportunity cards. These rows also persist into the history DB and the unified search facade so the catalog is auditable instead of being a transient latest JSON snapshot.
+
+## Batch Opportunity Radar V2 / Worker
+
+Run:
+
+```bat
+tools\run_polymarket_radar_worker_v2.bat
+```
+
+Optional bounded worker form:
+
+```bat
+set QG_POLYMARKET_RADAR_WORKER_CYCLES=4
+set QG_POLYMARKET_RADAR_WORKER_INTERVAL_SECONDS=900
+tools\run_polymarket_radar_worker_v2.bat
+```
+
+Worker V2 wraps Gamma Radar V1 with a controlled cadence, trend cache, market deduplication, and a shadow-only candidate queue. The default is one cycle, so normal manual use refreshes evidence once and exits. Longer runs are bounded by `--max-cycles`; there is no unbounded daemon by default.
+
+It writes:
+
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarWorkerV2.csv`
+- `QuantGod_PolymarketRadarTrendCache.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketRadarCandidateQueue.csv`
+
+It also refreshes the V1 `QuantGod_PolymarketMarketRadar.json/csv` outputs with Worker trend annotations, so the existing dashboard radar remains compatible.
+
+The queue state is `SHADOW_ANALYSIS_READY` only. It is for single-market analysis or AI score review, not execution:
+
+- no `.env` load;
+- no private key reads;
+- no wallet writes;
+- no CLOB order calls;
+- no executor/canary start;
+- no MT5 mutation.
+
+This closes the QuantDinger-style batch-radar gap without restoring Polymarket betting. Any future real order executor must still pass the separate Execution Gate, dry-run outcome evidence, bankroll budget, TP/SL rules, and explicit canary controls.
 
 ## Single Market AI Analysis V1
 
@@ -194,15 +285,23 @@ It writes dashboard/runtime summaries:
 - `QuantGod_PolymarketHistoryDb.json`
 - `QuantGod_PolymarketHistoryDb.csv`
 
-The V1 tables are:
+The V6 tables are:
 
 - `qd_polymarket_runs`
 - `qd_polymarket_asset_opportunities`
 - `qd_polymarket_market_analysis`
 - `qd_polymarket_execution_simulations`
 - `qd_polymarket_research_snapshots`
+- `qd_polymarket_radar_worker_runs`
+- `qd_polymarket_radar_trends`
+- `qd_polymarket_radar_queue`
+- `qd_polymarket_cross_market_linkage`
+- `qd_polymarket_canary_contracts`
+- `qd_polymarket_auto_governance`
+- `qd_polymarket_markets`
+- `qd_polymarket_related_asset_opportunities`
 
-This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring.
+This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, market catalog rows, related-asset opportunity rows, Worker V2 batch runs, trend-cache rows, shadow queue rows, cross-market linkage rows, canary contract rows, auto-governance rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring and governance.
 
 Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
 
@@ -222,6 +321,14 @@ Supported `table` values:
 - `simulations`
 - `runs`
 - `snapshots`
+- `worker-runs`
+- `worker-trends`
+- `worker-queue`
+- `cross-linkage`
+- `canary-contracts`
+- `auto-governance`
+- `markets`
+- `related-assets`
 
 Implementation files:
 
@@ -244,6 +351,12 @@ The dashboard server also exposes the active Polymarket research artifacts throu
 
 ```text
 GET /api/polymarket/radar
+GET /api/polymarket/markets
+GET /api/polymarket/market?id=...
+GET /api/polymarket/asset-opportunities
+GET /api/polymarket/cross-linkage
+GET /api/polymarket/canary-executor-contract
+GET /api/polymarket/auto-governance
 GET /api/polymarket/analyze/history?limit=80&q=keyword
 GET /api/polymarket/ai-score
 GET /api/polymarket/search?q=keyword&limit=36
@@ -252,17 +365,20 @@ GET /api/polymarket/search?q=keyword&limit=36
 These endpoints are API-first replacements for direct dashboard reads of:
 
 - `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketCanaryExecutorContract.json`
+- `QuantGod_PolymarketAutoGovernance.json`
 - `QuantGod_PolymarketSingleMarketAnalysis.json`
 - `QuantGod_PolymarketSingleMarketAnalysisLedger.csv`
 - `QuantGod_PolymarketAiScoreV1.json`
 
 `/api/polymarket/analyze/history` combines the latest single-market analysis snapshot with historical rows from the read-only SQLite history helper. The Dashboard now prefers these endpoints and only falls back to local JSON/CSV files if the service is unavailable.
 
-`/api/polymarket/search` is a unified search facade over the history DB, current opportunity radar, latest single-market analysis/history, and AI score snapshot. It now returns `groupedResults`/`results` as market-level evidence groups, with duplicate radar/history/analysis/AI-score rows folded into one comprehensive card per market. Each group keeps its complete compact `evidence` list, and the response also keeps `rawResults` plus per-source counts so the Dashboard can expand all source evidence without rendering the same market repeatedly. The Dashboard detail layer supports per-source filtering and a copyable audit summary, so folded cards remain traceable when one market has radar, history, analysis, AI-score, and dry-run evidence at the same time.
+`/api/polymarket/search` is a unified search facade over the history DB, current opportunity radar, cross-market linkage, canary executor contract, auto-governance recommendations, latest single-market analysis/history, AI score snapshot, and persisted Worker V2 evidence. It returns `groupedResults`/`results` as market-level evidence groups, with duplicate radar/history/analysis/AI-score/worker/linkage/canary/governance rows folded into one comprehensive card per market. Worker run/trend/queue rows are a dedicated `worker` section with source labels, score, probability, trend direction, candidate id, queue state, next action, and run id carried into each compact evidence row. Cross-market linkage rows are a dedicated `crossLinkage` section carrying risk tags, matched keywords, linked MT5 symbols, macro risk state, and explicit `mt5ExecutionAllowed=false`. Canary contract rows are a dedicated `canary` section carrying contract id, isolated root/profile, canary stake limits, TP/SL, blockers, and `walletWriteAllowed=false` / `orderSendAllowed=false`. Auto-governance rows are a dedicated `autoGovernance` section carrying governance state, recommended action, risk level, blockers, next test, and closed wallet/order switches. Each group keeps its complete compact `evidence` list, and the response also keeps `rawResults` plus per-source counts so the Dashboard can expand all source evidence without rendering the same market repeatedly. The Dashboard detail layer supports per-source filtering and a copyable audit summary, so folded cards remain traceable when one market has radar, history, analysis, AI-score, dry-run, Worker V2, linkage, canary contract, and governance evidence at the same time.
 
 This layer is intentionally a facade, not an executor: it does not read private keys, does not write wallets, does not call CLOB order APIs, does not start betting workers, and does not mutate MT5.
 
-## History-Aware AI Score V1
+## History-Aware AI Score V1 + Semantic Reviewer
 
 Run:
 
@@ -274,15 +390,130 @@ The scorer consumes `archive\polymarket\history\QuantGod_PolymarketHistory.sqlit
 
 - `QuantGod_PolymarketAiScoreV1.json`
 - `QuantGod_PolymarketAiScoreV1.csv`
+- `QuantGod_PolymarketAiSemanticReview.json`
 
-V1 is a transparent, history-aware scoring layer over:
+V1 is a transparent, history-aware scoring layer plus an optional LLM semantic reviewer. It always runs the deterministic history feature model, then, when an OpenAI-compatible API key is available through `OPENAI_API_KEY` or `QG_POLYMARKET_OPENAI_API_KEY`, it asks the reviewer to inspect market wording, event ambiguity, tail risk, history score, dry-run outcome, and next-test direction.
+
+Control knobs:
+
+```bat
+set QG_POLYMARKET_AI_LLM_MODE=auto
+set QG_POLYMARKET_AI_LLM_MAX_CANDIDATES=8
+set QG_POLYMARKET_AI_LLM_MODEL=gpt-4o-mini
+tools\score_polymarket_ai_v1.bat
+```
+
+`QG_POLYMARKET_AI_LLM_MODE=off` keeps the deterministic path. `required` fails fast if the semantic reviewer cannot run. The default batch file may read `D:\polymarket\.env`, but only for LLM-related keys; wallet/private-key values are ignored and never written to output.
+
+Inputs:
 
 - Gamma opportunity radar score, probability divergence, volume, and liquidity;
 - single-market analysis recommendation, confidence, and risk;
 - dry-run/outcome MFE, MAE, TP/SL/trailing evidence, and gate blockers;
-- global executed/shadow/account quarantine evidence.
+- global executed/shadow/account quarantine evidence;
+- optional LLM semantic assessment, risk factors, and next-test suggestion.
 
 The output classifies markets as green/yellow/red for research priority only. Current decision remains `AI_SCORE_ONLY_NO_BETTING`: no private-key read, no wallet write, no CLOB order calls, no executor start, and no MT5 mutation. Green rows can only become higher-priority shadow/dry-run candidates until a separate execution gate, budget policy, stop-loss/take-profit manager, ledger audit, and kill switch are promoted.
+
+## Cross-Market Linkage V1
+
+Run:
+
+```bat
+tools\build_polymarket_cross_market_linkage.bat
+```
+
+The linkage builder consumes:
+
+- `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarTrendCache.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketSingleMarketAnalysis.json`
+- `QuantGod_PolymarketAiScoreV1.json`
+
+It writes:
+
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketCrossMarketLinkage.csv`
+
+Each linkage row maps Polymarket market text/category into awareness-only tags: `USD`, `JPY`, `XAU`, `RATES`, `WAR_GEOPOLITICS`, and `MACRO_RISK`. Rows include matched keywords, linked MT5 symbols such as `USDJPYc`, `EURUSDc`, and `XAUUSDc`, source types, confidence, macro risk state, and the safety fields `walletWriteAllowed=false`, `orderSendAllowed=false`, and `mt5ExecutionAllowed=false`.
+
+This is not an execution bridge. It can only explain why a Polymarket event may be relevant to USD/JPY/XAU/rates/geopolitical awareness. It must not open MT5 trades, change EA live switches, place Polymarket bets, or promote a strategy by itself.
+
+## Canary / Wallet Executor Contract V1
+
+Run:
+
+```bat
+tools\build_polymarket_canary_executor_contract.bat
+```
+
+The canary contract builder consumes:
+
+- `QuantGod_PolymarketExecutionGate.json`
+- `QuantGod_PolymarketDryRunOrders.json`
+- `QuantGod_PolymarketDryRunOutcomeWatcher.json`
+- `QuantGod_PolymarketAiScoreV1.json`
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketMarketRadar.json`
+
+It writes:
+
+- `QuantGod_PolymarketCanaryExecutorContract.json`
+- `QuantGod_PolymarketCanaryExecutorLedger.csv`
+
+V1 is an isolated design contract and canary-sized policy shell, not a real order executor. It defines the future canary root/profile, environment variable names, max single canary stake, max daily loss, max open canary positions, TP/SL, trailing, cancel-unfilled, max-hold, exit-before-resolution, kill switch, and future audit ledger requirements. It also records per-market blockers so a future executor can prove why a market was not allowed.
+
+Current safety state is deliberately closed:
+
+- `readsPrivateKey=false`
+- `readsEnvSecretValues=false`
+- `walletWriteAllowed=false`
+- `orderSendAllowed=false`
+- `startsExecutor=false`
+- `callsClobApi=false`
+- `mutatesMt5=false`
+- `canaryEligibleNow=false`
+
+This means the system now has a canary execution contract to review, search, persist, and audit before any real wallet module is considered. The contract is the prerequisite checklist for a later canary executor, not permission to bet.
+
+## Auto Promotion / Demotion Governance V1
+
+Run:
+
+```bat
+tools\build_polymarket_auto_governance.bat
+```
+
+The auto-governance builder consumes:
+
+- `QuantGod_PolymarketResearch.json`
+- `QuantGod_PolymarketMarketRadar.json`
+- `QuantGod_PolymarketRadarWorkerV2.json`
+- `QuantGod_PolymarketRadarCandidateQueue.json`
+- `QuantGod_PolymarketRetunePlanner.json`
+- `QuantGod_PolymarketAiScoreV1.json`
+- `QuantGod_PolymarketDryRunOutcomeWatcher.json`
+- `QuantGod_PolymarketCrossMarketLinkage.json`
+- `QuantGod_PolymarketCanaryExecutorContract.json`
+
+It writes:
+
+- `QuantGod_PolymarketAutoGovernance.json`
+- `QuantGod_PolymarketAutoGovernanceLedger.csv`
+
+V1 produces recommendation-only promotion/demotion decisions by market. It can say a market should enter shadow-only promotion review, keep collecting shadow evidence, retune, demote to research-only, or stay quarantined. It does not promote to live wallet execution by itself.
+
+Current safety state is deliberately closed:
+
+- `walletWriteAllowed=false`
+- `orderSendAllowed=false`
+- `startsExecutor=false`
+- `mutatesMt5=false`
+- `canPromoteToLiveExecution=false`
+
+This gives QuantGod a Polymarket governance layer comparable to MT5 route governance, but still keeps true execution behind a separate future wallet executor review.
 
 ## Retune Planner
 
@@ -315,9 +546,12 @@ It displays:
 - Execution Gate: Chinese dashboard contract view for allowed-bet conditions, stake, TP/SL, max loss, market blocklist, cancel/exit, and audit requirements; currently blocks all candidates.
 - Dry-Run Orders: Chinese dashboard view of simulated order size, entry price, TP/SL price, cancel time, exit time, and the execution-ledger schema. It does not connect to wallet/order APIs.
 - Dry-Run Outcome Watcher: Chinese dashboard view of current simulated price, MFE/MAE, TP/SL/trailing/time exits, and whether an order would have exited. It remains observation-only.
-- Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
-- Unified Evidence Search: `/api/polymarket/search` aggregates history, radar, single-market analysis, and AI score evidence into one read-only Dashboard query box, then folds duplicate rows by market into comprehensive evidence cards. Each card previews the strongest evidence, expands all compact raw evidence rows, filters the expanded audit rows by source, copies a compact audit summary, and can jump to the single-market analysis/history workspace with the market query prefilled.
-- Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, and global quarantine evidence; it remains `AI_SCORE_ONLY_NO_BETTING`.
+- Historical Analysis DB: SQLite-backed research history with API-first search, row counts, recent opportunity rows, recent Worker V2 run/trend/queue rows, recent single-market analysis rows, recent simulated execution rows, and the no-wallet/no-MT5 safety boundary. It falls back to the latest JSON snapshot only when the local dashboard API is unavailable.
+- Cross-Market Linkage: awareness-only USD/JPY/XAU/rates/geopolitical/macroeconomic risk tags from Polymarket market wording, with linked MT5 symbols shown only as risk context and never as execution permission.
+- Canary / Wallet Executor Contract: isolated canary policy card with future root/profile, canary stake, daily loss, TP/SL, trailing, cancel, max-hold, exit-before-resolution, audit ledgers, and closed wallet/order switches. It is a design contract only.
+- Auto Promotion / Demotion Governance: recommendation-only governance panel showing promotion review, keep-shadow, retune, demote, and quarantine decisions with blockers and next tests. It does not open wallet/order switches.
+- Unified Evidence Search: `/api/polymarket/search` aggregates history, radar, cross-market linkage, canary contract, auto-governance, single-market analysis, AI score, and Worker V2 run/trend/queue evidence into one read-only Dashboard query box, then folds duplicate rows by market into comprehensive evidence cards. Each card previews the strongest evidence, expands all compact raw evidence rows, filters the expanded audit rows by source, copies a compact audit summary, carries Worker candidate/run/queue/trend details, linkage risk tags/linked symbols, canary blockers/stake limits, and governance state/recommended action, and can jump to the single-market analysis/history workspace with the market query prefilled.
+- Historical AI Score V1: history-aware green/yellow/red research scoring by market, using radar, single-market analysis, dry-run/outcome, global quarantine evidence, and optional LLM semantic review. The Dashboard shows history score vs semantic score, reviewer confidence, and reviewer next-test reasoning; it remains `AI_SCORE_ONLY_NO_BETTING`.
 - Executed live evidence.
 - No-money shadow evidence.
 - Shadow-only Retune Planner.
@@ -342,7 +576,7 @@ The dashboard decision is therefore:
 RESEARCH_ONLY_DO_NOT_ENABLE_LIVE
 ```
 
-This means Polymarket evidence can help diagnose and design retunes. Live execution is not restored by the research bridge, radar, or retune planner; if it is reintroduced later, it must be explicitly promoted through a separate wallet/execution guard with TP/SL and loss controls.
+This means Polymarket evidence can help diagnose and design retunes. Live execution is not restored by the research bridge, radar, retune planner, execution gate, dry-run watcher, canary contract, or auto-governance layer; if it is reintroduced later, it must be explicitly promoted through a real wallet/execution guard with TP/SL, max-loss, audit ledger, and kill-switch controls.
 
 ## Refactor Direction
 
@@ -357,7 +591,7 @@ Worth keeping from Polymarket:
 
 Not merged in this research slice:
 
-- Wallet/executor/live canary modules. They are allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, and kill-switch wiring. `Execution Gate V1` plus the dry-run execution ledger are prerequisites, not the executor.
+- Real wallet/executor/live canary modules. Only the contract shell exists. A real module is allowed only as a later, separately gated execution module with bankroll isolation, TP/SL, max-loss, audit ledger, kill-switch wiring, and explicit wallet/order API review.
 - Auth/user/product modules.
 - Long-running Flask/Socket.IO service.
 - Database-backed strategy CRUD.
