@@ -7,7 +7,26 @@ import { join } from "node:path";
 const ROOT_URL = process.env.QUANTGOD_RESPONSIVE_URL || "http://127.0.0.1:8080/vue/";
 const CHROME = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const OUT_DIR = process.env.QUANTGOD_RESPONSIVE_OUT || "runtime/responsive-check";
-const ROUTES = ["", "#mt5", "#polymarket", "#paramlab", "#charts"];
+const ROUTES = [
+  "",
+  "#mt5",
+  "#mt5-strategy",
+  "#mt5-trades",
+  "#polymarket",
+  "#polymarket-market-browser",
+  "#polymarket-radar",
+  "#polymarket-analysis",
+  "#polymarket-execution",
+  "#polymarket-ledger",
+  "#paramlab",
+  "#charts",
+  "#reports",
+];
+const SCROLL_STEPS = [
+  { name: "top", ratio: 0 },
+  { name: "middle", ratio: 0.5 },
+  { name: "bottom", ratio: 1 },
+];
 const VIEWPORTS = [
   { name: "narrow-320", width: 320, height: 720, mobile: true },
   { name: "phone-360", width: 360, height: 780, mobile: true },
@@ -47,6 +66,7 @@ const CHECK_EXPR = String.raw`
 
   const allowedClip = (el) => el.closest([
     ".table-panel",
+    ".qd-radar-track",
     ".sidebar",
     ".nav-structured",
     ".qd-left-list",
@@ -114,6 +134,63 @@ const CHECK_EXPR = String.raw`
     }
   }
 
+  const textClipSelectors = [
+    ".qd-card-head strong",
+    ".qd-card-head span",
+    ".qd-card-metrics b",
+    ".qd-card-metrics small",
+    ".strategy-focus-head h2",
+    ".strategy-focus-head small",
+    ".strategy-performance-grid b",
+    ".strategy-performance-grid small",
+    ".bar-label strong",
+    ".bar-label small",
+    ".bar-row b",
+    ".viz-head h3",
+    ".viz-stat strong",
+    ".viz-stat span",
+  ];
+  const textClipIssues = [];
+  for (const el of document.querySelectorAll(textClipSelectors.join(","))) {
+    if (!visible(el)) continue;
+    const style = getComputedStyle(el);
+    const clipsX = el.scrollWidth > el.clientWidth + 2 && !canScroll(style, "x");
+    const clipsY = el.scrollHeight > el.clientHeight + 2 && !canScroll(style, "y");
+    if (clipsX || clipsY) {
+      textClipIssues.push({
+        selector: describe(el),
+        clientWidth: el.clientWidth,
+        scrollWidth: el.scrollWidth,
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        whiteSpace: style.whiteSpace,
+      });
+    }
+  }
+
+  const blankAreaIssues = [];
+  for (const el of document.querySelectorAll(".data-table-card, .viz-card")) {
+    if (!visible(el)) continue;
+    const rect = el.getBoundingClientRect();
+    const table = el.querySelector(".table-panel");
+    const bars = el.querySelectorAll(".bar-row");
+    if (table) {
+      const title = el.querySelector(".panel-title");
+      const used = (title?.getBoundingClientRect().height || 0) + table.getBoundingClientRect().height + 36;
+      if (rect.height - used > 180) {
+        blankAreaIssues.push({ selector: describe(el), height: Math.round(rect.height), used: Math.round(used), blank: Math.round(rect.height - used) });
+      }
+    } else if (bars.length) {
+      const head = el.querySelector(".viz-head");
+      const used = (head?.getBoundingClientRect().height || 0) + [...bars].reduce((sum, row) => sum + row.getBoundingClientRect().height, 0) + Math.max(0, bars.length - 1) * 10 + 38;
+      if (rect.height - used > 150) {
+        blankAreaIssues.push({ selector: describe(el), rows: bars.length, height: Math.round(rect.height), used: Math.round(used), blank: Math.round(rect.height - used) });
+      }
+    }
+  }
+
   const topbar = document.querySelector(".topbar");
   const sidebar = document.querySelector(".sidebar");
   const workspace = document.querySelector(".workspace");
@@ -130,9 +207,13 @@ const CHECK_EXPR = String.raw`
     offscreenCount: offscreen.length,
     oversizedCount: oversized.length,
     scrollIssueCount: scrollIssues.length,
+    textClipCount: textClipIssues.length,
+    blankAreaCount: blankAreaIssues.length,
     offscreen: offscreen.slice(0, 12),
     oversized: oversized.slice(0, 12),
     scrollIssues: scrollIssues.slice(0, 12),
+    textClipIssues: textClipIssues.slice(0, 12),
+    blankAreaIssues: blankAreaIssues.slice(0, 12),
     scrollables: scrollables.slice(0, 12),
     layout: {
       appShell: appShell ? getComputedStyle(appShell).gridTemplateColumns : null,
@@ -278,19 +359,31 @@ async function main() {
         await load;
         await new Promise((resolve) => setTimeout(resolve, 350));
 
-        const evaluated = await cdp.send("Runtime.evaluate", {
-          expression: CHECK_EXPR,
-          returnByValue: true,
-          awaitPromise: true,
-        });
-        const metrics = evaluated.result.value;
-        const shot = await cdp.send("Page.captureScreenshot", {
-          format: "png",
-          captureBeyondViewport: false,
-        });
-        await writeFile(join(OUT_DIR, `${label}.png`), Buffer.from(shot.data, "base64"));
-        const failed = metrics.hasPageHorizontalOverflow || metrics.offscreenCount > 0 || metrics.oversizedCount > 0 || metrics.scrollIssueCount > 0;
-        results.push({ label, viewport, route: route || "#home", failed, metrics });
+        for (const step of SCROLL_STEPS) {
+          await cdp.send("Runtime.evaluate", {
+            expression: `(() => { const root = document.scrollingElement || document.documentElement; window.scrollTo(0, Math.max(0, (root.scrollHeight - innerHeight) * ${step.ratio})); })()`,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          const evaluated = await cdp.send("Runtime.evaluate", {
+            expression: CHECK_EXPR,
+            returnByValue: true,
+            awaitPromise: true,
+          });
+          const metrics = evaluated.result.value;
+          const shot = await cdp.send("Page.captureScreenshot", {
+            format: "png",
+            captureBeyondViewport: false,
+          });
+          const stepLabel = `${label}-${step.name}`;
+          await writeFile(join(OUT_DIR, `${stepLabel}.png`), Buffer.from(shot.data, "base64"));
+          const failed = metrics.hasPageHorizontalOverflow
+            || metrics.offscreenCount > 0
+            || metrics.oversizedCount > 0
+            || metrics.scrollIssueCount > 0
+            || metrics.textClipCount > 0
+            || metrics.blankAreaCount > 0;
+          results.push({ label: stepLabel, viewport, route: route || "#home", scrollStep: step.name, failed, metrics });
+        }
         cdp.close();
         await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`).catch(() => null);
       }
@@ -303,7 +396,7 @@ async function main() {
     for (const result of results) {
       const status = result.failed ? "FAIL" : "PASS";
       const { metrics } = result;
-      console.log(`${status} ${result.label} pageW=${metrics.pageScrollWidth}/${metrics.viewportWidth} off=${metrics.offscreenCount} wide=${metrics.oversizedCount} scroll=${metrics.scrollIssueCount} columns=${metrics.layout.appShell}`);
+      console.log(`${status} ${result.label} pageW=${metrics.pageScrollWidth}/${metrics.viewportWidth} off=${metrics.offscreenCount} wide=${metrics.oversizedCount} scroll=${metrics.scrollIssueCount} text=${metrics.textClipCount} blank=${metrics.blankAreaCount} columns=${metrics.layout.appShell}`);
     }
     console.log(`\nReport: ${reportPath}`);
     console.log(`Screenshots: ${OUT_DIR}`);
