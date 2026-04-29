@@ -16,6 +16,8 @@ const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnaly
 const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.json';
 const polymarketCanaryExecutorContractName = 'QuantGod_PolymarketCanaryExecutorContract.json';
 const polymarketAutoGovernanceName = 'QuantGod_PolymarketAutoGovernance.json';
+const polymarketMarketCatalogName = 'QuantGod_PolymarketMarketCatalog.json';
+const polymarketAssetOpportunitiesName = 'QuantGod_PolymarketAssetOpportunities.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
@@ -32,6 +34,8 @@ const polymarketHistoryTables = new Set([
   'cross-linkage',
   'canary-contracts',
   'auto-governance',
+  'markets',
+  'related-assets',
 ]);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
@@ -42,7 +46,9 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketSingleMarketAnalysisName,
   polymarketCrossMarketLinkageName,
   polymarketCanaryExecutorContractName,
-  polymarketAutoGovernanceName
+  polymarketAutoGovernanceName,
+  polymarketMarketCatalogName,
+  polymarketAssetOpportunitiesName
 ]);
 
 const contentTypes = {
@@ -562,6 +568,74 @@ function compactRadarResult(item = {}, generatedAt = '') {
   };
 }
 
+function compactMarketCatalogResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'market-catalog',
+    sourceLabel: '市场目录',
+    title: firstDefined(item.question, item.eventTitle, item.slug, item.marketId, '--'),
+    subtitle: firstDefined(item.category, item.recommendedAction, item.risk),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, item.seenAt, item.lastSeenAt, generatedAt),
+    risk: firstDefined(item.risk),
+    recommendation: firstDefined(item.recommendedAction, 'OBSERVE'),
+    track: firstDefined(item.suggestedShadowTrack),
+    probability: firstDefined(item.probability),
+    divergence: firstDefined(item.divergence),
+    score: numericScore(item.aiRuleScore, item.ruleScore),
+    detail: {
+      historyType: firstDefined(item.historyType, 'markets'),
+      rawType: 'market-catalog',
+      catalogRank: firstDefined(item.catalogRank, item.rank),
+      category: firstDefined(item.category),
+      volume: firstDefined(item.volume),
+      volume24h: firstDefined(item.volume24h),
+      liquidity: firstDefined(item.liquidity),
+      spread: firstDefined(item.spread),
+      relatedAssetCount: firstDefined(item.relatedAssetCount),
+      relatedAssets: firstDefined(item.relatedAssets, item.relatedAssetsJson),
+      riskFlags: firstDefined(item.riskFlags, item.riskFlagsJson),
+      acceptingOrders: firstDefined(item.acceptingOrders),
+      endDate: firstDefined(item.endDate)
+    }
+  };
+}
+
+function compactRelatedAssetResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'related-assets',
+    sourceLabel: '相关资产机会',
+    title: firstDefined(item.question, item.marketId, item.opportunityId, '--'),
+    subtitle: `${firstDefined(item.assetSymbol, '--')} · ${firstDefined(item.suggestedAction, item.directionalHint, 'OBSERVE')}`,
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, item.seenAt, item.lastSeenAt, generatedAt),
+    risk: firstDefined(item.marketRisk, item.risk),
+    recommendation: firstDefined(item.suggestedAction, 'OBSERVE_ONLY'),
+    track: firstDefined(item.suggestedShadowTrack),
+    probability: firstDefined(item.probability),
+    divergence: null,
+    score: numericScore(item.confidence, item.marketScore),
+    detail: {
+      historyType: firstDefined(item.historyType, 'related-assets'),
+      rawType: 'related-asset-opportunity',
+      opportunityId: firstDefined(item.opportunityId),
+      assetSymbol: firstDefined(item.assetSymbol),
+      assetMarket: firstDefined(item.assetMarket),
+      assetFamily: firstDefined(item.assetFamily),
+      bias: firstDefined(item.bias),
+      directionalHint: firstDefined(item.directionalHint),
+      confidence: firstDefined(item.confidence),
+      marketScore: firstDefined(item.marketScore),
+      matchedKeywords: firstDefined(item.matchedKeywords, item.matchedKeywordsJson),
+      rationale: firstDefined(item.rationale),
+      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.orderSendAllowed),
+      mt5ExecutionAllowed: firstDefined(item.mt5ExecutionAllowed)
+    }
+  };
+}
+
 function compactAiScoreResult(item = {}, generatedAt = '') {
   return {
     sourceType: 'ai-score',
@@ -682,6 +756,51 @@ function compactCanaryContractResult(item = {}, generatedAt = '') {
   };
 }
 
+/*
+function compactAutoGovernanceResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'auto-governance',
+    sourceLabel: '自动治理',
+    title: firstDefined(item.question, item.marketId, item.governanceId, '--'),
+    subtitle: firstDefined(item.governanceState, item.track, item.riskLevel),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, generatedAt),
+    risk: firstDefined(item.riskLevel, item.crossRiskTag, item.macroRiskState, item.aiColor),
+    recommendation: firstDefined(item.recommendedAction, item.governanceState, 'AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE'),
+    track: firstDefined(item.track),
+    probability: null,
+    divergence: null,
+    score: numericScore(item.score, item.aiScore, item.sourceScore),
+    detail: {
+      historyType: 'auto-governance',
+      rawType: 'auto-governance',
+      governanceId: firstDefined(item.governanceId),
+      currentState: firstDefined(item.currentState),
+      governanceState: firstDefined(item.governanceState),
+      recommendedAction: firstDefined(item.recommendedAction),
+      riskLevel: firstDefined(item.riskLevel),
+      aiScore: firstDefined(item.aiScore),
+      sourceScore: firstDefined(item.sourceScore),
+      canaryState: firstDefined(item.canaryState),
+      dryRunState: firstDefined(item.dryRunState),
+      outcomeState: firstDefined(item.outcomeState),
+      wouldExitReason: firstDefined(item.wouldExitReason),
+      crossRiskTag: firstDefined(item.crossRiskTag),
+      macroRiskState: firstDefined(item.macroRiskState),
+      blockers: firstDefined(item.blockers, item.blockersJson),
+      sourceTypes: firstDefined(item.sourceTypes, item.sourceTypesJson),
+      nextTest: firstDefined(item.nextTest),
+      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.orderSendAllowed),
+      startsExecutor: firstDefined(item.startsExecutor),
+      mutatesMt5: firstDefined(item.mutatesMt5),
+      canPromoteToLiveExecution: firstDefined(item.canPromoteToLiveExecution)
+    }
+  };
+}
+
+*/
 function compactAutoGovernanceResult(item = {}, generatedAt = '') {
   return {
     sourceType: 'auto-governance',
@@ -745,6 +864,15 @@ function isAutoGovernanceHistoryRow(row = {}) {
   return String(row.historyType || '').trim() === 'auto-governance';
 }
 
+function isMarketCatalogHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'markets';
+}
+
+function isRelatedAssetHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'related-assets';
+}
+
+/*
 function getHistorySourceLabel(historyType = '') {
   const normalized = String(historyType || '').trim();
   if (normalized === 'worker-runs') return 'Worker 批次';
@@ -761,12 +889,53 @@ function getHistorySourceLabel(historyType = '') {
   return '历史库';
 }
 
+*/
+/*
+function getHistorySourceLabel(historyType = '') {
+  const normalized = String(historyType || '').trim();
+  if (normalized === 'markets') return '市场目录';
+  if (normalized === 'related-assets') return '相关资产机会';
+  if (normalized === 'worker-runs') return 'Worker 批次';
+  if (normalized === 'worker-trends') return '趋势缓存';
+  if (normalized === 'worker-queue') return '雷达队列';
+  if (normalized === 'cross-linkage') return '跨市场联动';
+  if (normalized === 'canary-contracts') return 'Canary 契约';
+  if (normalized === 'auto-governance') return '自动治理';
+  if (normalized === 'opportunities') return '机会历史';
+  if (normalized === 'analyses') return '分析历史';
+  if (normalized === 'simulations') return '模拟历史';
+  if (normalized === 'runs') return '历史批次';
+  if (normalized === 'snapshots') return '研究快照';
+  return '历史库';
+}
+
+*/
+function getHistorySourceLabel(historyType = '') {
+  const normalized = String(historyType || '').trim();
+  if (normalized === 'markets') return 'Market Catalog';
+  if (normalized === 'related-assets') return 'Related Asset';
+  if (normalized === 'worker-runs') return 'Worker Run';
+  if (normalized === 'worker-trends') return 'Trend Cache';
+  if (normalized === 'worker-queue') return 'Radar Queue';
+  if (normalized === 'cross-linkage') return 'Cross Linkage';
+  if (normalized === 'canary-contracts') return 'Canary Contract';
+  if (normalized === 'auto-governance') return 'Auto Governance';
+  if (normalized === 'opportunities') return 'Opportunity History';
+  if (normalized === 'analyses') return 'Analysis History';
+  if (normalized === 'simulations') return 'Simulation History';
+  if (normalized === 'runs') return 'History Run';
+  if (normalized === 'snapshots') return 'Research Snapshot';
+  return 'History';
+}
+
 function compactHistoryResult(row = {}) {
   const historyType = firstDefined(row.historyType, 'history');
   const workerRow = isWorkerHistoryType(historyType);
   const crossRow = isCrossLinkageHistoryRow(row);
   const canaryRow = isCanaryContractHistoryRow(row);
   const autoGovernanceRow = isAutoGovernanceHistoryRow(row);
+  const marketCatalogRow = isMarketCatalogHistoryRow(row);
+  const relatedAssetRow = isRelatedAssetHistoryRow(row);
   const workerSubtitle = firstDefined(
     row.nextAction,
     row.queueState,
@@ -776,10 +945,14 @@ function compactHistoryResult(row = {}) {
     row.schemaVersion
   );
   return {
-    sourceType: workerRow || crossRow || canaryRow || autoGovernanceRow ? historyType : firstDefined(row.historyType, 'history'),
+    sourceType: workerRow || crossRow || canaryRow || autoGovernanceRow || marketCatalogRow || relatedAssetRow ? historyType : firstDefined(row.historyType, 'history'),
     sourceLabel: getHistorySourceLabel(historyType),
     title: firstDefined(row.question, row.query, row.topMarket, row.marketId, row.runId, row.mode, '--'),
-    subtitle: crossRow
+    subtitle: marketCatalogRow
+      ? firstDefined(row.category, row.risk, row.recommendedAction)
+      : relatedAssetRow
+      ? `${firstDefined(row.assetSymbol, '--')} · ${firstDefined(row.suggestedAction, row.directionalHint, 'OBSERVE')}`
+      : crossRow
       ? firstDefined(row.primaryRiskTag, row.macroRiskState, row.category)
       : canaryRow
       ? firstDefined(row.canaryState, row.track, row.side)
@@ -791,8 +964,12 @@ function compactHistoryResult(row = {}) {
     marketId: firstDefined(row.marketId),
     url: firstDefined(row.polymarketUrl, row.url),
     generatedAt: firstDefined(row.generatedAt, row.seenAt, row.lastSeenAt, row.firstSeenAt),
-    risk: firstDefined(row.risk, row.topRisk, row.crossRiskTag, row.macroRiskState, row.aiColor),
-    recommendation: crossRow
+    risk: firstDefined(row.risk, row.marketRisk, row.topRisk, row.crossRiskTag, row.macroRiskState, row.aiColor),
+    recommendation: marketCatalogRow
+      ? firstDefined(row.recommendedAction, 'MARKET_CATALOG_READ_ONLY')
+      : relatedAssetRow
+      ? firstDefined(row.suggestedAction, 'RELATED_ASSET_READ_ONLY')
+      : crossRow
       ? firstDefined(row.primaryRiskTag, row.macroRiskState, 'AWARENESS_ONLY')
       : canaryRow
       ? firstDefined(row.decision, row.canaryState, 'CANARY_CONTRACT_ONLY_NO_WALLET_WRITE')
@@ -804,11 +981,22 @@ function compactHistoryResult(row = {}) {
     track: firstDefined(row.suggestedShadowTrack, row.track, row.source),
     probability: firstDefined(row.probability, row.marketProbability, row.lastProbability),
     divergence: firstDefined(row.divergence, row.probabilityDelta),
-    score: numericScore(row.score, row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.aiScore, row.executedPf),
+    score: numericScore(row.score, row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.aiScore, row.marketScore, row.executedPf),
     detail: {
       historyType,
       source: firstDefined(row.source),
-      rawType: workerRow ? 'worker-history' : (autoGovernanceRow ? 'auto-governance-history' : (canaryRow ? 'canary-history' : 'history')),
+      rawType: marketCatalogRow ? 'market-catalog-history' : (relatedAssetRow ? 'related-asset-history' : (workerRow ? 'worker-history' : (autoGovernanceRow ? 'auto-governance-history' : (canaryRow ? 'canary-history' : 'history')))),
+      catalogRank: firstDefined(row.catalogRank),
+      relatedAssetCount: firstDefined(row.relatedAssetCount),
+      relatedAssets: firstDefined(row.relatedAssets, row.relatedAssetsJson),
+      assetSymbol: firstDefined(row.assetSymbol),
+      assetMarket: firstDefined(row.assetMarket),
+      assetFamily: firstDefined(row.assetFamily),
+      directionalHint: firstDefined(row.directionalHint),
+      confidence: firstDefined(row.confidence),
+      marketScore: firstDefined(row.marketScore),
+      suggestedAction: firstDefined(row.suggestedAction),
+      rationale: firstDefined(row.rationale),
       runId: firstDefined(row.runId),
       candidateId: firstDefined(row.candidateId),
       queueState: firstDefined(row.queueState),
@@ -1072,6 +1260,155 @@ async function handlePolymarketReadOnlyJson(req, res, fileName, endpoint) {
   }
 }
 
+function sortPolymarketMarketRows(rows = [], sortKey = 'score') {
+  const key = String(sortKey || 'score').trim();
+  return rows.slice().sort((a, b) => {
+    if (key === 'volume') return numericScore(b.volume, b.volume24h) - numericScore(a.volume, a.volume24h);
+    if (key === 'liquidity') return numericScore(b.liquidity) - numericScore(a.liquidity);
+    if (key === 'probability') return numericScore(b.probability) - numericScore(a.probability);
+    if (key === 'related') return numericScore(b.relatedAssetCount) - numericScore(a.relatedAssetCount);
+    return numericScore(b.aiRuleScore, b.ruleScore, b.score) - numericScore(a.aiRuleScore, a.ruleScore, a.score);
+  });
+}
+
+async function handlePolymarketMarkets(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const query = String(parsed.searchParams.get('q') || '').trim().slice(0, 240);
+    const category = String(parsed.searchParams.get('category') || '').trim();
+    const risk = String(parsed.searchParams.get('risk') || '').trim();
+    const sort = String(parsed.searchParams.get('sort') || 'score').trim();
+    const limit = clampSearchLimit(parsed.searchParams.get('limit'), 60);
+    const read = readQuantGodJsonFile(polymarketMarketCatalogName);
+    const payload = withServiceMeta(read.payload, '/api/polymarket/markets', read.filePath);
+    const rows = Array.isArray(payload.marketCatalog) ? payload.marketCatalog : (Array.isArray(payload.markets) ? payload.markets : []);
+    const filtered = sortPolymarketMarketRows(
+      rows.filter((row) => {
+        if (query && !matchesSearchQuery(row, query)) return false;
+        if (category && String(row.category || '') !== category) return false;
+        if (risk && String(row.risk || '') !== risk) return false;
+        return true;
+      }),
+      sort
+    ).slice(0, limit);
+    sendJson(res, 200, {
+      ...payload,
+      mode: 'POLYMARKET_MARKETS_API_V1',
+      status: payload.status || 'OK',
+      query,
+      filters: { category, risk, sort, limit },
+      markets: filtered,
+      marketCatalog: filtered,
+      summary: {
+        ...(payload.summary || {}),
+        filteredMarkets: filtered.length,
+        sourceMarkets: rows.length,
+      },
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
+        mutatesMt5: false,
+        readOnly: true,
+      },
+    });
+  } catch (error) {
+    sendJson(res, 404, { ok: false, error: error.message || String(error), endpoint: '/api/polymarket/markets' });
+  }
+}
+
+async function handlePolymarketAssetOpportunities(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const query = String(parsed.searchParams.get('q') || '').trim().slice(0, 240);
+    const asset = String(parsed.searchParams.get('asset') || '').trim().toUpperCase();
+    const limit = clampSearchLimit(parsed.searchParams.get('limit'), 60);
+    const read = readQuantGodJsonFile(polymarketAssetOpportunitiesName);
+    const payload = withServiceMeta(read.payload, '/api/polymarket/asset-opportunities', read.filePath);
+    const rows = Array.isArray(payload.relatedAssetOpportunities)
+      ? payload.relatedAssetOpportunities
+      : (Array.isArray(payload.assetOpportunities) ? payload.assetOpportunities : []);
+    const filtered = rows
+      .filter((row) => {
+        if (query && !matchesSearchQuery(row, query)) return false;
+        if (asset && String(row.assetSymbol || '').toUpperCase() !== asset) return false;
+        return true;
+      })
+      .sort((a, b) => numericScore(b.confidence, b.marketScore) - numericScore(a.confidence, a.marketScore))
+      .slice(0, limit);
+    sendJson(res, 200, {
+      ...payload,
+      mode: 'POLYMARKET_ASSET_OPPORTUNITIES_API_V1',
+      status: payload.status || 'OK',
+      query,
+      filters: { asset, limit },
+      relatedAssetOpportunities: filtered,
+      assetOpportunities: filtered,
+      summary: {
+        ...(payload.summary || {}),
+        filteredOpportunities: filtered.length,
+        sourceOpportunities: rows.length,
+      },
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
+        mutatesMt5: false,
+        readOnly: true,
+      },
+    });
+  } catch (error) {
+    sendJson(res, 404, { ok: false, error: error.message || String(error), endpoint: '/api/polymarket/asset-opportunities' });
+  }
+}
+
+async function handlePolymarketMarketDetail(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const query = String(parsed.searchParams.get('marketId') || parsed.searchParams.get('q') || parsed.searchParams.get('slug') || '').trim().slice(0, 240);
+    const catalogRead = readQuantGodJsonFile(polymarketMarketCatalogName);
+    const assetRead = readQuantGodJsonFile(polymarketAssetOpportunitiesName);
+    const catalog = withServiceMeta(catalogRead.payload, '/api/polymarket/market', catalogRead.filePath);
+    const assets = withServiceMeta(assetRead.payload, '/api/polymarket/asset-opportunities', assetRead.filePath);
+    const marketRows = Array.isArray(catalog.marketCatalog) ? catalog.marketCatalog : (Array.isArray(catalog.markets) ? catalog.markets : []);
+    const market = marketRows.find((row) => {
+      if (!query) return false;
+      const values = [row.marketId, row.slug, row.catalogId, row.polymarketUrl, row.question].map((value) => String(value || '').toLowerCase());
+      return values.some((value) => value.includes(query.toLowerCase()));
+    }) || marketRows[0] || {};
+    const assetRows = Array.isArray(assets.relatedAssetOpportunities) ? assets.relatedAssetOpportunities : (Array.isArray(assets.assetOpportunities) ? assets.assetOpportunities : []);
+    const related = assetRows.filter((row) => {
+      if (!market.marketId && !market.question) return false;
+      return String(row.marketId || '') === String(market.marketId || '') || String(row.question || '') === String(market.question || '');
+    });
+    sendJson(res, 200, {
+      mode: 'POLYMARKET_MARKET_DETAIL_API_V1',
+      status: market.marketId || market.question ? 'OK' : 'EMPTY',
+      generatedAt: new Date().toISOString(),
+      source: 'quantgod_dashboard_local_api',
+      query,
+      market,
+      relatedAssetOpportunities: related,
+      sourceFiles: {
+        marketCatalog: catalogRead.filePath,
+        assetOpportunities: assetRead.filePath,
+      },
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
+        mutatesMt5: false,
+        readOnly: true,
+      },
+    });
+  } catch (error) {
+    sendJson(res, 404, { ok: false, error: error.message || String(error), endpoint: '/api/polymarket/market' });
+  }
+}
+
 async function handlePolymarketAnalyzeHistory(req, res) {
   try {
     const parsed = new URL(req.url || '/', `http://${host}:${port}`);
@@ -1198,6 +1535,26 @@ async function handlePolymarketSearch(req, res) {
       errors.push({ source: 'single-analysis-latest', error: error.message || String(error) });
     }
 
+    let marketCatalog = null;
+    let marketCatalogPath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketMarketCatalogName);
+      marketCatalog = withServiceMeta(read.payload, '/api/polymarket/markets', read.filePath);
+      marketCatalogPath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'market-catalog', error: error.message || String(error) });
+    }
+
+    let relatedAssets = null;
+    let relatedAssetsPath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketAssetOpportunitiesName);
+      relatedAssets = withServiceMeta(read.payload, '/api/polymarket/asset-opportunities', read.filePath);
+      relatedAssetsPath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'related-assets', error: error.message || String(error) });
+    }
+
     const historyResult = await queryPolymarketHistory('all', query, String(limit), '0');
     if (!historyResult.ok) {
       errors.push({ source: 'history', error: historyResult.stderr || historyResult.reason || 'history_query_failed' });
@@ -1223,6 +1580,12 @@ async function handlePolymarketSearch(req, res) {
     const autoGovernanceItems = Array.isArray(autoGovernance?.governanceDecisions)
       ? autoGovernance.governanceDecisions.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
       : [];
+    const marketCatalogItems = Array.isArray(marketCatalog?.marketCatalog)
+      ? marketCatalog.marketCatalog.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : (Array.isArray(marketCatalog?.markets) ? marketCatalog.markets.filter((item) => matchesSearchQuery(item, query)).slice(0, limit) : []);
+    const relatedAssetItems = Array.isArray(relatedAssets?.relatedAssetOpportunities)
+      ? relatedAssets.relatedAssetOpportunities.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : (Array.isArray(relatedAssets?.assetOpportunities) ? relatedAssets.assetOpportunities.filter((item) => matchesSearchQuery(item, query)).slice(0, limit) : []);
 
     const historyPayload = historyResult.payload || {};
     const rawHistoryRows = query
@@ -1254,8 +1617,18 @@ async function handlePolymarketSearch(req, res) {
       : [
           ...(historyPayload.recent?.['auto-governance'] || historyPayload.recent?.autoGovernance || []),
         ].slice(0, limit);
+    const marketCatalogRows = query
+      ? rawHistoryRows.filter(isMarketCatalogHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.markets || historyPayload.recent?.marketCatalog || []),
+        ].slice(0, limit);
+    const relatedAssetRows = query
+      ? rawHistoryRows.filter(isRelatedAssetHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['related-assets'] || historyPayload.recent?.relatedAssetOpportunities || []),
+        ].slice(0, limit);
     const historyRows = query
-      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row) && !isAutoGovernanceHistoryRow(row)).slice(0, limit)
+      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row) && !isAutoGovernanceHistoryRow(row) && !isMarketCatalogHistoryRow(row) && !isRelatedAssetHistoryRow(row)).slice(0, limit)
       : rawHistoryRows;
     const analysisRows = normalizeAnalyzeHistoryRows(
       analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
@@ -1291,6 +1664,14 @@ async function handlePolymarketSearch(req, res) {
     }
 
     const sections = {
+      marketCatalog: [
+        ...marketCatalogItems.map((item) => compactMarketCatalogResult(item, marketCatalog?.generatedAt)),
+        ...marketCatalogRows.slice(0, limit).map(compactHistoryResult)
+      ].slice(0, limit),
+      relatedAssets: [
+        ...relatedAssetItems.map((item) => compactRelatedAssetResult(item, relatedAssets?.generatedAt)),
+        ...relatedAssetRows.slice(0, limit).map(compactHistoryResult)
+      ].slice(0, limit),
       radar: radarItems.map((item) => compactRadarResult(item, radar?.generatedAt)),
       aiScore: aiScoreItems.map((item) => compactAiScoreResult(item, aiScore?.generatedAt)),
       analyses: [...latestAnalysisRows, ...analysisRows].slice(0, limit).map(compactAnalysisResult),
@@ -1311,6 +1692,8 @@ async function handlePolymarketSearch(req, res) {
     };
     const rawSearchResults = sortSearchResults([
       ...sections.radar,
+      ...sections.marketCatalog,
+      ...sections.relatedAssets,
       ...sections.aiScore,
       ...sections.analyses,
       ...sections.worker,
@@ -1322,7 +1705,7 @@ async function handlePolymarketSearch(req, res) {
     const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
 
     sendJson(res, 200, {
-      mode: 'POLYMARKET_SEARCH_API_V5_AUTO_GOVERNANCE_EVIDENCE_GROUPS',
+      mode: 'POLYMARKET_SEARCH_API_V6_QUANTDINGER_MARKET_CATALOG_EVIDENCE_GROUPS',
       status: errors.length ? 'PARTIAL' : 'OK',
       generatedAt: new Date().toISOString(),
       source: 'quantgod_dashboard_local_api',
@@ -1333,6 +1716,8 @@ async function handlePolymarketSearch(req, res) {
         totalMatches: groupedResults.length,
         marketGroups: groupedResults.length,
         rawMatches: rawSearchResults.length,
+        marketCatalogMatches: sections.marketCatalog.length,
+        relatedAssetMatches: sections.relatedAssets.length,
         radarMatches: sections.radar.length,
         aiScoreMatches: sections.aiScore.length,
         analysisMatches: sections.analyses.length,
@@ -1353,6 +1738,8 @@ async function handlePolymarketSearch(req, res) {
         crossLinkagePath,
         canaryContractPath,
         autoGovernancePath,
+        marketCatalogPath,
+        relatedAssetsPath,
         latestAnalysisPath,
         historyDatabase: historyPayload.database || null
       },
@@ -1474,6 +1861,18 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar') {
     handlePolymarketReadOnlyJson(req, res, polymarketRadarName, '/api/polymarket/radar');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/markets') {
+    handlePolymarketMarkets(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/market') {
+    handlePolymarketMarketDetail(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/asset-opportunities') {
+    handlePolymarketAssetOpportunities(req, res);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar-worker') {

@@ -11,9 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 TABLES: Mapping[str, Dict[str, Any]] = {
@@ -179,6 +183,46 @@ TABLES: Mapping[str, Dict[str, Any]] = {
             "next_test",
         ),
     },
+    "markets": {
+        "table": "qd_polymarket_markets",
+        "order": "last_seen_at",
+        "summary": "marketCatalogRows",
+        "search": (
+            "market_id",
+            "event_id",
+            "question",
+            "event_title",
+            "slug",
+            "polymarket_url",
+            "category",
+            "risk",
+            "recommended_action",
+            "suggested_shadow_track",
+            "related_assets_json",
+        ),
+    },
+    "related-assets": {
+        "table": "qd_polymarket_related_asset_opportunities",
+        "order": "last_seen_at",
+        "summary": "relatedAssetOpportunities",
+        "search": (
+            "opportunity_id",
+            "market_id",
+            "question",
+            "event_title",
+            "polymarket_url",
+            "category",
+            "market_risk",
+            "asset_symbol",
+            "asset_market",
+            "asset_family",
+            "bias",
+            "directional_hint",
+            "suggested_action",
+            "suggested_shadow_track",
+            "rationale",
+        ),
+    },
 }
 
 RECENT_TABLES = (
@@ -191,6 +235,8 @@ RECENT_TABLES = (
     "cross-linkage",
     "canary-contracts",
     "auto-governance",
+    "markets",
+    "related-assets",
 )
 
 
@@ -328,7 +374,7 @@ def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offse
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),
         "source": "sqlite_api",
-        "schemaVersion": "POLYMARKET_HISTORY_DB_V5_AUTO_GOVERNANCE",
+        "schemaVersion": "POLYMARKET_HISTORY_DB_V6_QUANTDINGER_PARITY",
         "decision": "LOCAL_HISTORY_DB_READ_ONLY_NO_WALLET_WRITE",
         "api": {"table": table_key, "query": query, "limit": limit, "offset": offset},
         "database": {"path": str(db_path), "exists": db_path.exists(), "readOnly": True},

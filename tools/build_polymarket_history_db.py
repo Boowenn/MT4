@@ -38,8 +38,10 @@ OUTCOME_NAME = "QuantGod_PolymarketDryRunOutcomeWatcher.json"
 CROSS_LINKAGE_NAME = "QuantGod_PolymarketCrossMarketLinkage.json"
 CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
 AUTO_GOVERNANCE_NAME = "QuantGod_PolymarketAutoGovernance.json"
+MARKET_CATALOG_NAME = "QuantGod_PolymarketMarketCatalog.json"
+RELATED_ASSET_OPPORTUNITY_NAME = "QuantGod_PolymarketAssetOpportunities.json"
 
-SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V5_AUTO_GOVERNANCE"
+SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V6_QUANTDINGER_PARITY"
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,6 +150,8 @@ def init_schema(con: sqlite3.Connection) -> None:
             cross_linkage_rows INTEGER NOT NULL DEFAULT 0,
             canary_contract_rows INTEGER NOT NULL DEFAULT 0,
             auto_governance_rows INTEGER NOT NULL DEFAULT 0,
+            market_catalog_rows INTEGER NOT NULL DEFAULT 0,
+            related_asset_opportunity_rows INTEGER NOT NULL DEFAULT 0,
             wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
             order_send_allowed INTEGER NOT NULL DEFAULT 0
         );
@@ -445,6 +449,72 @@ def init_schema(con: sqlite3.Connection) -> None:
             raw_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS qd_polymarket_markets (
+            id TEXT PRIMARY KEY,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            catalog_generated_at TEXT NOT NULL,
+            catalog_rank INTEGER,
+            catalog_id TEXT,
+            market_id TEXT,
+            event_id TEXT,
+            question TEXT,
+            event_title TEXT,
+            slug TEXT,
+            polymarket_url TEXT,
+            category TEXT,
+            probability REAL,
+            volume REAL,
+            volume_24h REAL,
+            liquidity REAL,
+            spread REAL,
+            divergence REAL,
+            abs_divergence REAL,
+            rule_score REAL,
+            ai_rule_score REAL,
+            risk TEXT,
+            risk_flags_json TEXT,
+            recommended_action TEXT,
+            suggested_shadow_track TEXT,
+            related_asset_count INTEGER,
+            related_assets_json TEXT,
+            end_date TEXT,
+            accepting_orders INTEGER,
+            raw_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qd_polymarket_related_asset_opportunities (
+            id TEXT PRIMARY KEY,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            rank INTEGER,
+            opportunity_id TEXT,
+            market_id TEXT,
+            event_id TEXT,
+            question TEXT,
+            event_title TEXT,
+            polymarket_url TEXT,
+            category TEXT,
+            probability REAL,
+            market_score REAL,
+            market_risk TEXT,
+            asset_symbol TEXT,
+            asset_market TEXT,
+            asset_family TEXT,
+            bias TEXT,
+            directional_hint TEXT,
+            confidence REAL,
+            suggested_action TEXT,
+            suggested_shadow_track TEXT,
+            matched_keywords_json TEXT,
+            rationale TEXT,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            mt5_execution_allowed INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_poly_asset_market ON qd_polymarket_asset_opportunities(market_id, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_poly_asset_score ON qd_polymarket_asset_opportunities(ai_rule_score, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_analysis_market ON qd_polymarket_market_analysis(market_id, generated_at);
@@ -461,6 +531,10 @@ def init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_poly_canary_state ON qd_polymarket_canary_contracts(canary_state, decision);
         CREATE INDEX IF NOT EXISTS idx_poly_auto_gov_market ON qd_polymarket_auto_governance(market_id, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_auto_gov_state ON qd_polymarket_auto_governance(governance_state, risk_level);
+        CREATE INDEX IF NOT EXISTS idx_poly_markets_market ON qd_polymarket_markets(market_id, last_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_markets_score ON qd_polymarket_markets(ai_rule_score, risk);
+        CREATE INDEX IF NOT EXISTS idx_poly_related_asset_symbol ON qd_polymarket_related_asset_opportunities(asset_symbol, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_related_asset_market ON qd_polymarket_related_asset_opportunities(market_id, generated_at);
         """
     )
     ensure_columns(
@@ -473,6 +547,8 @@ def init_schema(con: sqlite3.Connection) -> None:
             "cross_linkage_rows": "INTEGER NOT NULL DEFAULT 0",
             "canary_contract_rows": "INTEGER NOT NULL DEFAULT 0",
             "auto_governance_rows": "INTEGER NOT NULL DEFAULT 0",
+            "market_catalog_rows": "INTEGER NOT NULL DEFAULT 0",
+            "related_asset_opportunity_rows": "INTEGER NOT NULL DEFAULT 0",
         },
     )
 
@@ -1167,6 +1243,181 @@ def upsert_auto_governance(con: sqlite3.Connection, governance_payload: dict[str
     return count
 
 
+def upsert_market_catalog(con: sqlite3.Connection, catalog_payload: dict[str, Any], now_iso: str) -> int:
+    rows = catalog_payload.get("marketCatalog") if isinstance(catalog_payload.get("marketCatalog"), list) else []
+    if not rows:
+        rows = catalog_payload.get("markets") if isinstance(catalog_payload.get("markets"), list) else []
+    generated = str(catalog_payload.get("generatedAt") or now_iso)
+    count = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        market_id = str(item.get("marketId") or "")
+        row_id = str(item.get("catalogId") or stable_id("market_catalog", market_id, item.get("polymarketUrl"), item.get("question")))
+        con.execute(
+            """
+            INSERT INTO qd_polymarket_markets (
+                id, first_seen_at, last_seen_at, catalog_generated_at, catalog_rank,
+                catalog_id, market_id, event_id, question, event_title, slug,
+                polymarket_url, category, probability, volume, volume_24h,
+                liquidity, spread, divergence, abs_divergence, rule_score,
+                ai_rule_score, risk, risk_flags_json, recommended_action,
+                suggested_shadow_track, related_asset_count, related_assets_json,
+                end_date, accepting_orders, raw_json
+            ) VALUES (
+                :id, :first_seen_at, :last_seen_at, :catalog_generated_at, :catalog_rank,
+                :catalog_id, :market_id, :event_id, :question, :event_title, :slug,
+                :polymarket_url, :category, :probability, :volume, :volume_24h,
+                :liquidity, :spread, :divergence, :abs_divergence, :rule_score,
+                :ai_rule_score, :risk, :risk_flags_json, :recommended_action,
+                :suggested_shadow_track, :related_asset_count, :related_assets_json,
+                :end_date, :accepting_orders, :raw_json
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                last_seen_at=excluded.last_seen_at,
+                catalog_generated_at=excluded.catalog_generated_at,
+                catalog_rank=excluded.catalog_rank,
+                question=excluded.question,
+                event_title=excluded.event_title,
+                polymarket_url=excluded.polymarket_url,
+                category=excluded.category,
+                probability=excluded.probability,
+                volume=excluded.volume,
+                volume_24h=excluded.volume_24h,
+                liquidity=excluded.liquidity,
+                spread=excluded.spread,
+                divergence=excluded.divergence,
+                abs_divergence=excluded.abs_divergence,
+                rule_score=excluded.rule_score,
+                ai_rule_score=excluded.ai_rule_score,
+                risk=excluded.risk,
+                risk_flags_json=excluded.risk_flags_json,
+                recommended_action=excluded.recommended_action,
+                suggested_shadow_track=excluded.suggested_shadow_track,
+                related_asset_count=excluded.related_asset_count,
+                related_assets_json=excluded.related_assets_json,
+                end_date=excluded.end_date,
+                accepting_orders=excluded.accepting_orders,
+                raw_json=excluded.raw_json
+            """,
+            {
+                "id": row_id,
+                "first_seen_at": now_iso,
+                "last_seen_at": now_iso,
+                "catalog_generated_at": generated,
+                "catalog_rank": safe_int(item.get("catalogRank") or item.get("rank"), 0),
+                "catalog_id": str(item.get("catalogId") or row_id),
+                "market_id": market_id,
+                "event_id": str(item.get("eventId") or ""),
+                "question": str(item.get("question") or ""),
+                "event_title": str(item.get("eventTitle") or ""),
+                "slug": str(item.get("slug") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "category": str(item.get("category") or ""),
+                "probability": safe_number(item.get("probability")),
+                "volume": safe_number(item.get("volume")),
+                "volume_24h": safe_number(item.get("volume24h")),
+                "liquidity": safe_number(item.get("liquidity")),
+                "spread": safe_number(item.get("spread")),
+                "divergence": safe_number(item.get("divergence")),
+                "abs_divergence": safe_number(item.get("absDivergence")),
+                "rule_score": safe_number(item.get("ruleScore")),
+                "ai_rule_score": safe_number(item.get("aiRuleScore")),
+                "risk": str(item.get("risk") or ""),
+                "risk_flags_json": compact_json(item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else []),
+                "recommended_action": str(item.get("recommendedAction") or ""),
+                "suggested_shadow_track": str(item.get("suggestedShadowTrack") or ""),
+                "related_asset_count": safe_int(item.get("relatedAssetCount"), 0),
+                "related_assets_json": compact_json(item.get("relatedAssets") if isinstance(item.get("relatedAssets"), list) else []),
+                "end_date": str(item.get("endDate") or ""),
+                "accepting_orders": as_bool_int(item.get("acceptingOrders")),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
+def upsert_related_asset_opportunities(con: sqlite3.Connection, payload: dict[str, Any], now_iso: str) -> int:
+    rows = payload.get("relatedAssetOpportunities") if isinstance(payload.get("relatedAssetOpportunities"), list) else []
+    if not rows:
+        rows = payload.get("assetOpportunities") if isinstance(payload.get("assetOpportunities"), list) else []
+    generated_default = str(payload.get("generatedAt") or now_iso)
+    count = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        opportunity_id = str(item.get("opportunityId") or "")
+        row_id = opportunity_id or stable_id("related_asset", item.get("marketId"), item.get("assetSymbol"), item.get("question"))
+        con.execute(
+            """
+            INSERT INTO qd_polymarket_related_asset_opportunities (
+                id, first_seen_at, last_seen_at, generated_at, rank,
+                opportunity_id, market_id, event_id, question, event_title,
+                polymarket_url, category, probability, market_score, market_risk,
+                asset_symbol, asset_market, asset_family, bias, directional_hint,
+                confidence, suggested_action, suggested_shadow_track,
+                matched_keywords_json, rationale, wallet_write_allowed,
+                order_send_allowed, mt5_execution_allowed, raw_json
+            ) VALUES (
+                :id, :first_seen_at, :last_seen_at, :generated_at, :rank,
+                :opportunity_id, :market_id, :event_id, :question, :event_title,
+                :polymarket_url, :category, :probability, :market_score, :market_risk,
+                :asset_symbol, :asset_market, :asset_family, :bias, :directional_hint,
+                :confidence, :suggested_action, :suggested_shadow_track,
+                :matched_keywords_json, :rationale, :wallet_write_allowed,
+                :order_send_allowed, :mt5_execution_allowed, :raw_json
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                last_seen_at=excluded.last_seen_at,
+                generated_at=excluded.generated_at,
+                rank=excluded.rank,
+                probability=excluded.probability,
+                market_score=excluded.market_score,
+                market_risk=excluded.market_risk,
+                confidence=excluded.confidence,
+                suggested_action=excluded.suggested_action,
+                suggested_shadow_track=excluded.suggested_shadow_track,
+                matched_keywords_json=excluded.matched_keywords_json,
+                rationale=excluded.rationale,
+                raw_json=excluded.raw_json
+            """,
+            {
+                "id": row_id,
+                "first_seen_at": now_iso,
+                "last_seen_at": now_iso,
+                "generated_at": str(item.get("generatedAt") or generated_default),
+                "rank": safe_int(item.get("rank"), 0),
+                "opportunity_id": opportunity_id or row_id,
+                "market_id": str(item.get("marketId") or ""),
+                "event_id": str(item.get("eventId") or ""),
+                "question": str(item.get("question") or ""),
+                "event_title": str(item.get("eventTitle") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "category": str(item.get("category") or ""),
+                "probability": safe_number(item.get("probability")),
+                "market_score": safe_number(item.get("marketScore")),
+                "market_risk": str(item.get("marketRisk") or ""),
+                "asset_symbol": str(item.get("assetSymbol") or ""),
+                "asset_market": str(item.get("assetMarket") or ""),
+                "asset_family": str(item.get("assetFamily") or ""),
+                "bias": str(item.get("bias") or ""),
+                "directional_hint": str(item.get("directionalHint") or ""),
+                "confidence": safe_number(item.get("confidence")),
+                "suggested_action": str(item.get("suggestedAction") or ""),
+                "suggested_shadow_track": str(item.get("suggestedShadowTrack") or ""),
+                "matched_keywords_json": compact_json(item.get("matchedKeywords") if isinstance(item.get("matchedKeywords"), list) else []),
+                "rationale": str(item.get("rationale") or ""),
+                "wallet_write_allowed": as_bool_int(item.get("walletWriteAllowed")),
+                "order_send_allowed": as_bool_int(item.get("orderSendAllowed")),
+                "mt5_execution_allowed": as_bool_int(item.get("mt5ExecutionAllowed")),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
 def table_summary(con: sqlite3.Connection, table: str, latest_col: str = "generated_at") -> dict[str, Any]:
     row = con.execute(f"SELECT COUNT(*) AS rows, MAX({latest_col}) AS latest_at FROM {table}").fetchone()
     return {"rows": int(row["rows"] or 0), "latestAt": row["latest_at"] or ""}
@@ -1189,6 +1440,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         "qd_polymarket_cross_market_linkage": table_summary(con, "qd_polymarket_cross_market_linkage"),
         "qd_polymarket_canary_contracts": table_summary(con, "qd_polymarket_canary_contracts"),
         "qd_polymarket_auto_governance": table_summary(con, "qd_polymarket_auto_governance"),
+        "qd_polymarket_markets": table_summary(con, "qd_polymarket_markets", "last_seen_at"),
+        "qd_polymarket_related_asset_opportunities": table_summary(con, "qd_polymarket_related_asset_opportunities", "last_seen_at"),
     }
     total_rows = sum(item["rows"] for item in tables.values())
     recent_opportunities = fetch_rows(
@@ -1373,15 +1626,59 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         """,
         (recent_limit,),
     )
+    recent_market_catalog = fetch_rows(
+        con,
+        """
+        SELECT last_seen_at AS seenAt, catalog_generated_at AS generatedAt,
+               catalog_rank AS catalogRank, catalog_id AS catalogId,
+               market_id AS marketId, event_id AS eventId, question,
+               event_title AS eventTitle, slug, polymarket_url AS polymarketUrl,
+               category, probability, volume, volume_24h AS volume24h, liquidity,
+               spread, divergence, abs_divergence AS absDivergence,
+               rule_score AS ruleScore, ai_rule_score AS aiRuleScore,
+               risk, risk_flags_json AS riskFlagsJson,
+               recommended_action AS recommendedAction,
+               suggested_shadow_track AS suggestedShadowTrack,
+               related_asset_count AS relatedAssetCount,
+               related_assets_json AS relatedAssetsJson,
+               end_date AS endDate, accepting_orders AS acceptingOrders
+        FROM qd_polymarket_markets
+        ORDER BY last_seen_at DESC, ai_rule_score DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
+    recent_related_assets = fetch_rows(
+        con,
+        """
+        SELECT last_seen_at AS seenAt, generated_at AS generatedAt, rank,
+               opportunity_id AS opportunityId, market_id AS marketId,
+               event_id AS eventId, question, event_title AS eventTitle,
+               polymarket_url AS polymarketUrl, category, probability,
+               market_score AS marketScore, market_risk AS marketRisk,
+               asset_symbol AS assetSymbol, asset_market AS assetMarket,
+               asset_family AS assetFamily, bias, directional_hint AS directionalHint,
+               confidence, suggested_action AS suggestedAction,
+               suggested_shadow_track AS suggestedShadowTrack,
+               matched_keywords_json AS matchedKeywordsJson, rationale,
+               wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed,
+               mt5_execution_allowed AS mt5ExecutionAllowed
+        FROM qd_polymarket_related_asset_opportunities
+        ORDER BY last_seen_at DESC, confidence DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
     return {
         "generatedAt": now_iso,
-        "mode": "POLYMARKET_HISTORY_DB_V5",
+        "mode": "POLYMARKET_HISTORY_DB_V6",
         "schemaVersion": SCHEMA_VERSION,
         "decision": "LOCAL_HISTORY_DB_NO_WALLET_WRITE",
         "database": {
             "path": str(db_path),
             "tables": list(tables.keys()),
-            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, cross-market linkage, canary contracts, auto-governance, analysis, dry-run, outcome, and bridge snapshots.",
+            "purpose": "Long-lived local Polymarket research memory for radar, QuantDinger-style market catalog, related asset opportunities, worker trend cache, worker queue, cross-market linkage, canary contracts, auto-governance, analysis, dry-run, outcome, and bridge snapshots.",
         },
         "sourceFiles": source_files,
         "summary": {
@@ -1397,6 +1694,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "crossMarketLinkages": tables["qd_polymarket_cross_market_linkage"]["rows"],
             "canaryContracts": tables["qd_polymarket_canary_contracts"]["rows"],
             "autoGovernanceDecisions": tables["qd_polymarket_auto_governance"]["rows"],
+            "marketCatalogRows": tables["qd_polymarket_markets"]["rows"],
+            "relatedAssetOpportunities": tables["qd_polymarket_related_asset_opportunities"]["rows"],
             "latestAt": max((item["latestAt"] for item in tables.values() if item["latestAt"]), default=""),
         },
         "tables": tables,
@@ -1410,6 +1709,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "crossMarketLinkage": recent_cross_linkage,
             "canaryContracts": recent_canary_contracts,
             "autoGovernance": recent_auto_governance,
+            "marketCatalog": recent_market_catalog,
+            "relatedAssetOpportunities": recent_related_assets,
             "research": latest_research[0] if latest_research else {},
         },
         "safety": {
@@ -1468,6 +1769,12 @@ def main() -> int:
     cross_linkage, cross_linkage_path = read_json_candidate(CROSS_LINKAGE_NAME, runtime_dir, dashboard_dir)
     canary_contract, canary_contract_path = read_json_candidate(CANARY_CONTRACT_NAME, runtime_dir, dashboard_dir)
     auto_governance, auto_governance_path = read_json_candidate(AUTO_GOVERNANCE_NAME, runtime_dir, dashboard_dir)
+    market_catalog, market_catalog_path = read_json_candidate(MARKET_CATALOG_NAME, runtime_dir, dashboard_dir)
+    related_asset_opportunities, related_asset_opportunities_path = read_json_candidate(
+        RELATED_ASSET_OPPORTUNITY_NAME,
+        runtime_dir,
+        dashboard_dir,
+    )
     source_files = {
         RESEARCH_NAME: research_path,
         RADAR_NAME: radar_path,
@@ -1480,6 +1787,8 @@ def main() -> int:
         CROSS_LINKAGE_NAME: cross_linkage_path,
         CANARY_CONTRACT_NAME: canary_contract_path,
         AUTO_GOVERNANCE_NAME: auto_governance_path,
+        MARKET_CATALOG_NAME: market_catalog_path,
+        RELATED_ASSET_OPPORTUNITY_NAME: related_asset_opportunities_path,
     }
 
     con = connect_db(db_path)
@@ -1496,6 +1805,8 @@ def main() -> int:
         cross_linkage_rows = upsert_cross_market_linkage(con, cross_linkage, now_iso)
         canary_contract_rows = upsert_canary_contracts(con, canary_contract, now_iso)
         auto_governance_rows = upsert_auto_governance(con, auto_governance, now_iso)
+        market_catalog_rows = upsert_market_catalog(con, market_catalog, now_iso)
+        related_asset_opportunity_rows = upsert_related_asset_opportunities(con, related_asset_opportunities, now_iso)
         simulation_rows = dry_run_rows + outcome_rows
         run_id = "POLYHIST-" + utc_now().strftime("%Y%m%d-%H%M%S")
         con.execute(
@@ -1505,8 +1816,9 @@ def main() -> int:
                 radar_rows, analysis_rows, simulation_rows, research_rows,
                 worker_rows, trend_rows, queue_rows, cross_linkage_rows,
                 canary_contract_rows, auto_governance_rows,
+                market_catalog_rows, related_asset_opportunity_rows,
                 wallet_write_allowed, order_send_allowed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 run_id,
@@ -1524,6 +1836,8 @@ def main() -> int:
                 cross_linkage_rows,
                 canary_contract_rows,
                 auto_governance_rows,
+                market_catalog_rows,
+                related_asset_opportunity_rows,
             ),
         )
         con.commit()

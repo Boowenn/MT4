@@ -1,6 +1,6 @@
 # QuantGod Polymarket Sequential Migration Plan
 
-Branch: `feature/polymarket-sequential-plan`
+Branch: `feature/polymarket-quantdinger-parity`
 
 Rule: finish, verify, and commit one item before starting the next. MT5 branches and MT5 live-pilot work are out of scope for this branch.
 
@@ -97,4 +97,17 @@ Target: use history library, semantic AI score, dry-run outcomes, risk budgets, 
 - Dashboard now shows a dedicated `自动升降级治理` panel and includes auto-governance counts in the history library.
 - Safety remains recommendation-only: no private-key read, no wallet write, no CLOB order call, no canary/executor start, no MT5 mutation, and `canPromoteToLiveExecution=false`.
 
-Sequential migration status: all 7 planned Polymarket migration items are now implemented on this branch. The remaining future work is not migration parity; it is a separate explicit decision to build a real wallet executor, which must stay isolated and pass its own canary, TP/SL, max-loss, audit, and kill-switch acceptance tests before any wallet write is allowed.
+## 8. QuantDinger Market Catalog / Related Asset Browser
+
+Status: completed in this branch.
+
+- Added `tools/polymarket_quantdinger_core.py`.
+- Added `tools/build_polymarket_quantdinger_parity.py` and `.bat`.
+- The builder reads public Gamma API data and writes `QuantGod_PolymarketMarketCatalog.json/csv` plus `QuantGod_PolymarketAssetOpportunities.json/csv`.
+- Upgraded the SQLite history builder/API to `POLYMARKET_HISTORY_DB_V6_QUANTDINGER_PARITY`, adding `qd_polymarket_markets`, `qd_polymarket_related_asset_opportunities`, `table=markets`, and `table=related-assets`.
+- Dashboard server now exposes `/api/polymarket/markets`, `/api/polymarket/market`, and `/api/polymarket/asset-opportunities`.
+- `/api/polymarket/search` folds market catalog rows and related asset opportunity rows into the same comprehensive evidence groups.
+- Dashboard now has a Polymarket market browser with search, category/risk/sort filters, selected market details, and related-asset opportunity cards.
+- Safety remains research-only: no private-key read, no wallet write, no CLOB order call, no executor start, no MT5 mutation, and related MT5 symbols are only risk-context tags.
+
+Sequential migration status: all planned Polymarket migration and QuantDinger parity items are now implemented on this branch. The remaining future work is not migration parity; it is a separate explicit decision to build a real wallet executor, which must stay isolated and pass its own canary, TP/SL, max-loss, audit, and kill-switch acceptance tests before any wallet write is allowed.

@@ -6096,6 +6096,9 @@
         .polymarket-group-grid,
         .polymarket-search-grid,
         .polymarket-radar-grid,
+        .polymarket-market-grid,
+        .polymarket-asset-grid,
+        .polymarket-detail-grid,
         .polymarket-ai-score-grid,
         .polymarket-single-grid,
         .polymarket-gate-grid,
@@ -6117,6 +6120,15 @@
 
         .polymarket-radar-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-market-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-asset-grid,
+        .polymarket-detail-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .polymarket-search-grid {
@@ -6617,6 +6629,59 @@
             justify-content: flex-end;
         }
 
+        .polymarket-market-browser-controls {
+            display: grid;
+            grid-template-columns: minmax(280px, 1.4fr) repeat(3, minmax(140px, 0.5fr)) auto;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 12px;
+            padding: 12px;
+            border: 1px solid #2a3442;
+            border-radius: 8px;
+            background: #111821;
+        }
+
+        .polymarket-market-browser-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .polymarket-market-card-button {
+            width: 100%;
+            border: 0;
+            padding: 0;
+            text-align: left;
+            color: inherit;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .polymarket-card.is-selected {
+            border-color: rgba(56, 189, 248, 0.72);
+            box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .polymarket-market-detail-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            color: #8dccff;
+            font-size: 11px;
+            font-weight: 800;
+            text-decoration: none;
+        }
+
+        .polymarket-market-detail-link:hover {
+            color: #bae6fd;
+        }
+
+        .polymarket-detail-section {
+            grid-column: 1 / -1;
+        }
+
         .polymarket-ledger-table {
             min-width: 920px;
         }
@@ -6853,6 +6918,9 @@
         .polymarket-group-grid,
         .polymarket-search-grid,
         .polymarket-radar-grid,
+        .polymarket-market-grid,
+        .polymarket-asset-grid,
+        .polymarket-detail-grid,
         .polymarket-ai-score-grid,
         .polymarket-single-grid,
         .polymarket-gate-grid,
@@ -6869,7 +6937,15 @@
                 grid-template-columns: 1fr;
             }
 
+            .polymarket-market-browser-controls {
+                grid-template-columns: 1fr;
+            }
+
             .polymarket-request-actions {
+                justify-content: flex-start;
+            }
+
+            .polymarket-market-browser-actions {
                 justify-content: flex-start;
             }
         }
@@ -6941,6 +7017,7 @@
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-reports"><span class="qd-menu-icon">◫</span><span><strong>Reports</strong><em>证据报表</em></span></a>
             <div class="qd-menu-separator" data-workspace-label="polymarket">Polymarket</div>
             <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>治理总览</strong><em>账户与边界</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-market-browser"><span class="qd-menu-icon">▥</span><span><strong>市场浏览</strong><em>目录 / 详情</em></span></a>
             <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-radar"><span class="qd-menu-icon">⌁</span><span><strong>机会雷达</strong><em>Gamma 扫描</em></span></a>
             <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-analysis"><span class="qd-menu-icon">⌕</span><span><strong>单市场分析</strong><em>URL/标题入口</em></span></a>
             <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket-execution"><span class="qd-menu-icon">⇄</span><span><strong>执行模拟</strong><em>Gate / dry-run</em></span></a>
@@ -7541,6 +7618,104 @@
                 </div>
             </section>
 
+            <section class="content-section fade-in" id="section-polymarket-market-browser" data-nav-section="polymarket-market-browser">
+                <div class="section-heading">
+                    <div class="section-heading-copy">
+                        <div class="section-kicker">Polymarket 市场目录</div>
+                        <div class="section-title">公共市场浏览 / 详情 / 关联资产</div>
+                        <div class="section-desc">参照 QuantDinger 的市场列表工作流，只读读取 Gamma 公共市场目录、搜索筛选、查看 market 详情和关联资产机会；不接钱包、不下注、不影响 MT5。</div>
+                    </div>
+                    <div class="section-meta">QuantGod_PolymarketMarketCatalog.json / AssetOpportunities</div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(14,165,233,0.16); color: var(--accent-cyan);">M</div>
+                            市场浏览器
+                        </div>
+                        <span class="eval-summary" id="polymarketMarketBrowserSummary">等待市场目录</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-market-browser-controls">
+                            <label class="polymarket-request-field">
+                                <span class="polymarket-request-label">搜索市场 / slug / marketId</span>
+                                <input class="polymarket-unified-search-input" id="polymarketMarketBrowserQuery" type="search" placeholder="例如 BTC、Fed、election、marketId" autocomplete="off">
+                            </label>
+                            <label class="polymarket-request-field">
+                                <span class="polymarket-request-label">分类</span>
+                                <select class="polymarket-history-api-select" id="polymarketMarketBrowserCategory">
+                                    <option value="">全部分类</option>
+                                    <option value="crypto">Crypto</option>
+                                    <option value="politics">Politics</option>
+                                    <option value="sports">Sports</option>
+                                    <option value="macro">Macro</option>
+                                    <option value="finance">Finance</option>
+                                    <option value="culture">Culture</option>
+                                    <option value="tech">Tech</option>
+                                </select>
+                            </label>
+                            <label class="polymarket-request-field">
+                                <span class="polymarket-request-label">风险</span>
+                                <select class="polymarket-history-api-select" id="polymarketMarketBrowserRisk">
+                                    <option value="">全部风险</option>
+                                    <option value="low">低风险</option>
+                                    <option value="medium">中风险</option>
+                                    <option value="high">高风险</option>
+                                </select>
+                            </label>
+                            <label class="polymarket-request-field">
+                                <span class="polymarket-request-label">排序</span>
+                                <select class="polymarket-history-api-select" id="polymarketMarketBrowserSort">
+                                    <option value="score">评分优先</option>
+                                    <option value="volume">成交量</option>
+                                    <option value="liquidity">流动性</option>
+                                    <option value="probability">概率</option>
+                                    <option value="related">关联资产</option>
+                                </select>
+                            </label>
+                            <div class="polymarket-market-browser-actions">
+                                <button class="polymarket-request-button" type="button" data-polymarket-market-search>筛选</button>
+                                <button class="polymarket-request-button ghost" type="button" data-polymarket-market-reset>重置</button>
+                            </div>
+                        </div>
+                        <div class="polymarket-market-grid" id="polymarketMarketBrowserBody">
+                            <div class="empty-state">等待 `/api/polymarket/markets` 市场目录。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(16,185,129,0.16); color: var(--accent-mint);">D</div>
+                            市场详情 / 关联资产
+                        </div>
+                        <span class="eval-summary" id="polymarketMarketDetailSummary">选择一个市场查看详情</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-detail-grid" id="polymarketMarketDetailBody">
+                            <div class="empty-state">点击上方市场卡片后显示详情、风控、关联资产和跳转动作。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(245,158,11,0.16); color: var(--accent-amber);">A</div>
+                            关联资产机会
+                        </div>
+                        <span class="eval-summary" id="polymarketAssetOpportunitySummary">等待关联资产机会</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-asset-grid" id="polymarketAssetOpportunityBody">
+                            <div class="empty-state">等待 `/api/polymarket/asset-opportunities`；只做研究联动，不触发 MT5。</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section class="content-section fade-in" id="section-polymarket-radar" data-nav-section="polymarket-radar">
                 <div class="section-heading">
                     <div class="section-heading-copy">
@@ -7788,6 +7963,8 @@
                                 <span class="polymarket-request-label">历史类型</span>
                                 <select class="polymarket-history-api-select" id="polymarketHistoryApiTable">
                                     <option value="all">全部历史</option>
+                                    <option value="markets">市场目录</option>
+                                    <option value="related-assets">关联资产机会</option>
                                     <option value="opportunities">机会市场</option>
                                     <option value="analyses">单市场分析</option>
                                     <option value="simulations">模拟执行</option>
@@ -8519,6 +8696,8 @@ const LOCAL_PARAM_LAB_REPORT_WATCHER_PATH = 'QuantGod_ParamLabReportWatcher.json
 const LOCAL_AUTO_TESTER_WINDOW_PATH = 'QuantGod_AutoTesterWindow.json';
 const LOCAL_PARAM_LAB_RUN_RECOVERY_PATH = 'QuantGod_ParamLabRunRecovery.json';
 const LOCAL_POLYMARKET_RESEARCH_PATH = 'QuantGod_PolymarketResearch.json';
+const LOCAL_POLYMARKET_MARKET_CATALOG_PATH = 'QuantGod_PolymarketMarketCatalog.json';
+const LOCAL_POLYMARKET_ASSET_OPPORTUNITIES_PATH = 'QuantGod_PolymarketAssetOpportunities.json';
 const LOCAL_POLYMARKET_MARKET_RADAR_PATH = 'QuantGod_PolymarketMarketRadar.json';
 const LOCAL_POLYMARKET_RADAR_WORKER_PATH = 'QuantGod_PolymarketRadarWorkerV2.json';
 const LOCAL_POLYMARKET_CROSS_MARKET_LINKAGE_PATH = 'QuantGod_PolymarketCrossMarketLinkage.json';
@@ -8533,6 +8712,9 @@ const LOCAL_POLYMARKET_AUTO_GOVERNANCE_PATH = 'QuantGod_PolymarketAutoGovernance
 const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
 const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
+const POLYMARKET_MARKETS_API_PATH = '/api/polymarket/markets';
+const POLYMARKET_MARKET_DETAIL_API_PATH = '/api/polymarket/market';
+const POLYMARKET_ASSET_OPPORTUNITIES_API_PATH = '/api/polymarket/asset-opportunities';
 const POLYMARKET_RADAR_API_PATH = '/api/polymarket/radar';
 const POLYMARKET_RADAR_WORKER_API_PATH = '/api/polymarket/radar-worker';
 const POLYMARKET_CROSS_MARKET_LINKAGE_API_PATH = '/api/polymarket/cross-linkage';
@@ -8557,6 +8739,8 @@ let paramLabBatchRouteFilter = 'ALL';
 let paramLabBatchSortMode = 'priority';
 let polymarketHistoryApiFilter = { table: 'all', query: '' };
 let polymarketUnifiedSearchFilter = { query: '' };
+let polymarketMarketBrowserFilter = { query: '', category: '', risk: '', sort: 'score' };
+let polymarketSelectedMarketKey = '';
 const polymarketUnifiedEvidenceAuditMap = new Map();
 let researchFocusTarget = null;
 let monitorFocusTarget = null;
@@ -9227,6 +9411,89 @@ function initPolymarketUnifiedSearchControls() {
     });
 }
 
+function syncPolymarketMarketBrowserControls() {
+    const query = document.getElementById('polymarketMarketBrowserQuery');
+    const category = document.getElementById('polymarketMarketBrowserCategory');
+    const risk = document.getElementById('polymarketMarketBrowserRisk');
+    const sort = document.getElementById('polymarketMarketBrowserSort');
+    if (query && document.activeElement !== query) query.value = String(polymarketMarketBrowserFilter.query || '');
+    if (category) category.value = String(polymarketMarketBrowserFilter.category || '');
+    if (risk) risk.value = String(polymarketMarketBrowserFilter.risk || '');
+    if (sort) sort.value = String(polymarketMarketBrowserFilter.sort || 'score');
+}
+
+async function refreshPolymarketMarketBrowserFromControls() {
+    const query = document.getElementById('polymarketMarketBrowserQuery');
+    const category = document.getElementById('polymarketMarketBrowserCategory');
+    const risk = document.getElementById('polymarketMarketBrowserRisk');
+    const sort = document.getElementById('polymarketMarketBrowserSort');
+    polymarketMarketBrowserFilter = {
+        query: String(query?.value || '').trim().slice(0, 240),
+        category: String(category?.value || '').trim(),
+        risk: String(risk?.value || '').trim(),
+        sort: String(sort?.value || 'score').trim() || 'score',
+    };
+    await loadData();
+    syncPolymarketMarketBrowserControls();
+}
+
+function initPolymarketMarketBrowserControls() {
+    syncPolymarketMarketBrowserControls();
+    document.addEventListener('click', async (event) => {
+        const marketButton = event.target.closest('[data-polymarket-market-key]');
+        if (marketButton) {
+            event.preventDefault();
+            polymarketSelectedMarketKey = String(marketButton.dataset.polymarketMarketKey || '').trim();
+            updatePolymarketMarketBrowser(dashboardData);
+            return;
+        }
+
+        const analysisJump = event.target.closest('[data-polymarket-market-analysis-jump]');
+        if (analysisJump) {
+            event.preventDefault();
+            const query = String(analysisJump.dataset.query || '').trim();
+            if (query) {
+                setStoredPolymarketSingleMarketInput(query);
+                const input = document.getElementById('polymarketSingleMarketInput');
+                if (input) input.value = query;
+                const status = document.getElementById('polymarketSingleMarketRequestStatus');
+                if (status) status.textContent = `从市场浏览带入：${query}`;
+            }
+            setDashboardSection('polymarket-analysis', { updateHash: true, scrollTop: true, smooth: false });
+            return;
+        }
+
+        const searchButton = event.target.closest('[data-polymarket-market-search]');
+        const resetButton = event.target.closest('[data-polymarket-market-reset]');
+        if (!searchButton && !resetButton) return;
+        event.preventDefault();
+        if (resetButton) {
+            polymarketMarketBrowserFilter = { query: '', category: '', risk: '', sort: 'score' };
+            polymarketSelectedMarketKey = '';
+            syncPolymarketMarketBrowserControls();
+        }
+        const activeButton = searchButton || resetButton;
+        activeButton.disabled = true;
+        const previousText = activeButton.textContent;
+        activeButton.textContent = resetButton ? '重置中...' : '筛选中...';
+        try {
+            await refreshPolymarketMarketBrowserFromControls();
+        } finally {
+            if (activeButton.isConnected) {
+                activeButton.disabled = false;
+                activeButton.textContent = previousText;
+            }
+        }
+    });
+    document.addEventListener('keydown', async (event) => {
+        if (event.key !== 'Enter') return;
+        const input = event.target.closest('#polymarketMarketBrowserQuery');
+        if (!input) return;
+        event.preventDefault();
+        await refreshPolymarketMarketBrowserFromControls();
+    });
+}
+
 function parseCsvLine(line) {
     const values = [];
     let current = '';
@@ -9649,7 +9916,7 @@ async function loadPolymarketApiJson(path) {
 }
 
 function getPolymarketHistoryApiFilter() {
-    const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue', 'cross-linkage', 'canary-contracts', 'auto-governance'].includes(polymarketHistoryApiFilter.table)
+    const table = ['all', 'markets', 'related-assets', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue', 'cross-linkage', 'canary-contracts', 'auto-governance'].includes(polymarketHistoryApiFilter.table)
         ? polymarketHistoryApiFilter.table
         : 'all';
     return {
@@ -9675,6 +9942,38 @@ async function loadPolymarketUnifiedSearchSupplement() {
     const query = String(polymarketUnifiedSearchFilter.query || '').trim();
     if (query) params.set('q', query);
     const response = await fetch(appendCacheBust(`${POLYMARKET_SEARCH_API_PATH}?${params.toString()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+}
+
+function getPolymarketMarketBrowserFilter() {
+    return {
+        query: String(polymarketMarketBrowserFilter.query || '').trim().slice(0, 240),
+        category: String(polymarketMarketBrowserFilter.category || '').trim(),
+        risk: String(polymarketMarketBrowserFilter.risk || '').trim(),
+        sort: String(polymarketMarketBrowserFilter.sort || 'score').trim() || 'score',
+    };
+}
+
+async function loadPolymarketMarketCatalogSupplement() {
+    const filter = getPolymarketMarketBrowserFilter();
+    const params = new URLSearchParams();
+    params.set('limit', '36');
+    params.set('sort', filter.sort);
+    if (filter.query) params.set('q', filter.query);
+    if (filter.category) params.set('category', filter.category);
+    if (filter.risk) params.set('risk', filter.risk);
+    const response = await fetch(appendCacheBust(`${POLYMARKET_MARKETS_API_PATH}?${params.toString()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+}
+
+async function loadPolymarketAssetOpportunitiesSupplement() {
+    const filter = getPolymarketMarketBrowserFilter();
+    const params = new URLSearchParams();
+    params.set('limit', '24');
+    if (filter.query) params.set('q', filter.query);
+    const response = await fetch(appendCacheBust(`${POLYMARKET_ASSET_OPPORTUNITIES_API_PATH}?${params.toString()}`), { cache: 'no-store' });
     if (!response.ok) throw new Error('HTTP ' + response.status);
     return response.json();
 }
@@ -9730,6 +10029,8 @@ async function attachSupplementalData(baseData, previousData = null) {
         mt5ReadOnlyBridge: baseData?.mt5ReadOnlyBridge || previousData?.mt5ReadOnlyBridge || null,
         mt5SymbolRegistry: baseData?.mt5SymbolRegistry || previousData?.mt5SymbolRegistry || null,
         polymarketResearch: baseData?.polymarketResearch || previousData?.polymarketResearch || null,
+        polymarketMarketCatalog: baseData?.polymarketMarketCatalog || previousData?.polymarketMarketCatalog || null,
+        polymarketAssetOpportunities: baseData?.polymarketAssetOpportunities || previousData?.polymarketAssetOpportunities || null,
         polymarketMarketRadar: baseData?.polymarketMarketRadar || previousData?.polymarketMarketRadar || null,
         polymarketSingleMarketAnalysis: baseData?.polymarketSingleMarketAnalysis || previousData?.polymarketSingleMarketAnalysis || null,
         polymarketSingleMarketAnalysisLedgerRows: Array.isArray(baseData?.polymarketSingleMarketAnalysisLedgerRows)
@@ -9951,6 +10252,38 @@ async function attachSupplementalData(baseData, previousData = null) {
     } catch (error) {
         data._polymarketResearchError = true;
         console.warn('Polymarket research bridge load failed.', error);
+    }
+
+    try {
+        data.polymarketMarketCatalog = await loadPolymarketMarketCatalogSupplement();
+        data._polymarketMarketCatalogError = false;
+        data._polymarketMarketCatalogSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketMarketCatalog = await loadLocalJsonSupplement(LOCAL_POLYMARKET_MARKET_CATALOG_PATH);
+            data._polymarketMarketCatalogError = false;
+            data._polymarketMarketCatalogSource = 'file';
+        } catch (fileError) {
+            data._polymarketMarketCatalogError = true;
+            data._polymarketMarketCatalogSource = 'unavailable';
+            console.warn('Polymarket market catalog API/file load failed.', apiError, fileError);
+        }
+    }
+
+    try {
+        data.polymarketAssetOpportunities = await loadPolymarketAssetOpportunitiesSupplement();
+        data._polymarketAssetOpportunitiesError = false;
+        data._polymarketAssetOpportunitiesSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketAssetOpportunities = await loadLocalJsonSupplement(LOCAL_POLYMARKET_ASSET_OPPORTUNITIES_PATH);
+            data._polymarketAssetOpportunitiesError = false;
+            data._polymarketAssetOpportunitiesSource = 'file';
+        } catch (fileError) {
+            data._polymarketAssetOpportunitiesError = true;
+            data._polymarketAssetOpportunitiesSource = 'unavailable';
+            console.warn('Polymarket asset opportunities API/file load failed.', apiError, fileError);
+        }
     }
 
     try {
@@ -10229,6 +10562,28 @@ function getPolymarketResearch(d) {
     return d?.polymarketResearch || null;
 }
 
+function getPolymarketMarketCatalog(d) {
+    return d?.polymarketMarketCatalog || null;
+}
+
+function getPolymarketMarketCatalogRows(d) {
+    const catalog = getPolymarketMarketCatalog(d);
+    return Array.isArray(catalog?.marketCatalog)
+        ? catalog.marketCatalog
+        : (Array.isArray(catalog?.markets) ? catalog.markets : []);
+}
+
+function getPolymarketAssetOpportunities(d) {
+    return d?.polymarketAssetOpportunities || null;
+}
+
+function getPolymarketAssetOpportunityRows(d) {
+    const opportunities = getPolymarketAssetOpportunities(d);
+    return Array.isArray(opportunities?.relatedAssetOpportunities)
+        ? opportunities.relatedAssetOpportunities
+        : (Array.isArray(opportunities?.assetOpportunities) ? opportunities.assetOpportunities : []);
+}
+
 function getPolymarketMarketRadar(d) {
     return d?.polymarketMarketRadar || null;
 }
@@ -10400,6 +10755,17 @@ function translatePolymarketToken(value) {
         AI_SCORE_ONLY_NO_BETTING: 'AI 评分只读：不下注',
         AI_SCORE_ONLY_NO_WALLET_WRITE: 'AI 评分只读：不写钱包',
         READ_ONLY_UNIFIED_SEARCH_NO_WALLET_WRITE: '统一证据搜索只读：不写钱包',
+        READ_ONLY_MARKET_CATALOG_NO_WALLET_WRITE: '市场目录只读：不写钱包',
+        READ_ONLY_RELATED_ASSET_OPPORTUNITIES_NO_WALLET_WRITE: '关联资产机会只读：不写钱包',
+        SHADOW_TRACK: '进入影子跟踪',
+        risk_event_yes: '事件 YES 风险观察',
+        risk_event_no: '事件 NO 风险观察',
+        macro_fx: '宏观外汇',
+        safe_haven: '避险资产',
+        rates: '利率',
+        risk_assets: '风险资产',
+        crypto_beta: '加密 Beta',
+        tech_equity: '科技股联动',
         WORKER_EVIDENCE: 'Worker 证据',
         AWARENESS_ONLY: '只做风险联动提醒',
         AWARENESS_ONLY_NO_MT5_EXECUTION_NO_BETTING: '只做跨市场风险联动：不改 MT5、不下注',
@@ -10772,7 +11138,7 @@ function updatePolymarketUnifiedSearch(d) {
     if (summaryEl) {
         const sourceLabel = d?._polymarketUnifiedSearchSource === 'api' || search.source === 'quantgod_dashboard_local_api' ? 'API' : '文件';
         const activeQuery = query ? `关键词 ${query}` : '最近/高分证据';
-        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 雷达/Worker/联动/Canary/治理/分析/历史/AI ${summary.radarMatches || 0}/${summary.workerMatches || 0}/${summary.crossLinkageMatches || 0}/${summary.canaryMatches || 0}/${summary.autoGovernanceMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
+        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 目录/关联/雷达/Worker/联动/Canary/治理/分析/历史/AI ${summary.marketCatalogMatches || 0}/${summary.relatedAssetMatches || 0}/${summary.radarMatches || 0}/${summary.workerMatches || 0}/${summary.crossLinkageMatches || 0}/${summary.canaryMatches || 0}/${summary.autoGovernanceMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
     }
     const safety = search.safety || {};
     const boundaryCard = `
@@ -10790,6 +11156,190 @@ function updatePolymarketUnifiedSearch(d) {
     `;
     const cards = results.slice(0, 11).map((item, index) => renderPolymarketUnifiedSearchCard(item, index));
     body.innerHTML = [boundaryCard, ...cards].join('') || '<div class="empty-state">没有匹配证据；换一个关键词试试。</div>';
+}
+
+function getPolymarketMarketKey(row = {}) {
+    return String(row.marketId || row.catalogId || row.slug || row.polymarketUrl || row.question || '').trim();
+}
+
+function getPolymarketMarketTone(row = {}) {
+    const risk = String(row.risk || '').toLowerCase();
+    if (risk === 'low') return 'good';
+    if (risk === 'high') return 'danger';
+    return 'watch';
+}
+
+function getPolymarketSelectedMarket(rows = []) {
+    const selectedKey = String(polymarketSelectedMarketKey || '').trim().toLowerCase();
+    if (selectedKey) {
+        const selected = rows.find((row) => getPolymarketMarketKey(row).toLowerCase() === selectedKey);
+        if (selected) return selected;
+    }
+    return rows[0] || null;
+}
+
+function renderPolymarketMarketCatalogCard(row = {}, index = 0) {
+    const key = getPolymarketMarketKey(row);
+    const selected = key && key === getPolymarketMarketKey(getPolymarketSelectedMarket(getPolymarketMarketCatalogRows(dashboardData)));
+    const tone = getPolymarketMarketTone(row);
+    const title = row.question || row.eventTitle || row.slug || row.marketId || '--';
+    const probability = formatPolymarketPercent(row.probability);
+    const volume = formatPolymarketCompactNumber(row.volume24h ?? row.volume);
+    const liquidity = formatPolymarketCompactNumber(row.liquidity);
+    const relatedAssets = Array.isArray(row.relatedAssets) ? row.relatedAssets : [];
+    const chips = relatedAssets.slice(0, 4).map((asset) => (
+        `<span class="polymarket-source-chip">${escapeHtml(asset.symbol || '--')}</span>`
+    )).join('');
+    return `
+        <button type="button" class="polymarket-market-card-button" data-polymarket-market-key="${escapeHtml(key)}">
+            <div class="polymarket-card ${escapeHtml(tone)} ${selected ? 'is-selected' : ''}">
+                <div class="polymarket-eyebrow">#${escapeHtml(row.catalogRank || row.rank || index + 1)} · ${escapeHtml(row.category || 'market')}</div>
+                <div class="polymarket-title">${escapeHtml(title)}</div>
+                <div class="polymarket-source-chips">${chips || '<span class="polymarket-source-chip">无关联资产</span>'}</div>
+                <div class="polymarket-metric">
+                    ${renderPolymarketMetric('概率', probability)}
+                    ${renderPolymarketMetric('评分', formatPolymarketScore(row.aiRuleScore ?? row.ruleScore))}
+                    ${renderPolymarketMetric('成交量', volume)}
+                    ${renderPolymarketMetric('流动性', liquidity)}
+                </div>
+                <div class="polymarket-action-list">
+                    <div class="polymarket-action">风险 ${escapeHtml(translatePolymarketToken(row.risk || '--'))} · 偏离 ${escapeHtml(formatPolymarketSignedPp(row.divergence))}</div>
+                    <div class="polymarket-action">关联资产 ${escapeHtml(String(row.relatedAssetCount ?? relatedAssets.length ?? 0))} · 影子路线 ${escapeHtml(row.suggestedShadowTrack || '--')}</div>
+                </div>
+                <div class="polymarket-note">${escapeHtml(row.polymarketUrl || row.marketId || 'Gamma public market')} · 点击查看详情。</div>
+            </div>
+        </button>
+    `;
+}
+
+function renderPolymarketAssetOpportunityCard(row = {}) {
+    const tone = String(row.suggestedAction || '').includes('OBSERVE') || String(row.marketRisk || '').toLowerCase() === 'high' ? 'watch' : 'good';
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(row.assetSymbol || '--')} · ${escapeHtml(translatePolymarketToken(row.assetFamily || row.assetMarket || '--'))}</div>
+            <div class="polymarket-title">${escapeHtml(row.question || row.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('置信', formatPolymarketScore(row.confidence))}
+                ${renderPolymarketMetric('市场分', formatPolymarketScore(row.marketScore))}
+                ${renderPolymarketMetric('概率', formatPolymarketPercent(row.probability))}
+                ${renderPolymarketMetric('动作', translatePolymarketToken(row.suggestedAction || '--'))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">方向 ${escapeHtml(translatePolymarketToken(row.directionalHint || '--'))} · 偏向 ${escapeHtml(translatePolymarketToken(row.assetBias || '--'))}</div>
+                <div class="polymarket-action">关键词 ${escapeHtml(Array.isArray(row.matchedKeywords) ? row.matchedKeywords.slice(0, 6).join(' / ') : (row.matchedKeywords || '--'))}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(row.rationale || '只生成跨资产研究线索，不触发 MT5 或钱包。')}</div>
+        </div>
+    `;
+}
+
+function renderPolymarketMarketDetail(d, selectedMarket = null) {
+    const body = document.getElementById('polymarketMarketDetailBody');
+    const summaryEl = document.getElementById('polymarketMarketDetailSummary');
+    if (!body) return;
+    if (!selectedMarket) {
+        if (summaryEl) summaryEl.textContent = '选择一个市场查看详情';
+        body.innerHTML = '<div class="empty-state">点击市场卡片后显示详情、风控、关联资产和跳转动作。</div>';
+        return;
+    }
+    const key = getPolymarketMarketKey(selectedMarket);
+    const related = getPolymarketAssetOpportunityRows(d).filter((row) => {
+        return String(row.marketId || '') === String(selectedMarket.marketId || '') ||
+            String(row.question || '') === String(selectedMarket.question || '');
+    });
+    if (summaryEl) {
+        summaryEl.textContent = `market ${selectedMarket.marketId || selectedMarket.slug || '--'} | 关联资产 ${related.length}`;
+    }
+    const relatedChips = (Array.isArray(selectedMarket.relatedAssets) ? selectedMarket.relatedAssets : [])
+        .slice(0, 8)
+        .map((asset) => `<span class="polymarket-source-chip">${escapeHtml(asset.symbol || '--')} · ${escapeHtml(translatePolymarketToken(asset.directionalHint || '--'))}</span>`)
+        .join('');
+    const jumpQuery = selectedMarket.polymarketUrl || selectedMarket.marketId || selectedMarket.question || '';
+    const marketCard = `
+        <div class="polymarket-card ${escapeHtml(getPolymarketMarketTone(selectedMarket))} polymarket-detail-section">
+            <div class="polymarket-eyebrow">市场详情</div>
+            <div class="polymarket-title">${escapeHtml(selectedMarket.question || selectedMarket.eventTitle || key || '--')}</div>
+            <div class="polymarket-source-chips">${relatedChips || '<span class="polymarket-source-chip">未推断关联资产</span>'}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('概率', formatPolymarketPercent(selectedMarket.probability))}
+                ${renderPolymarketMetric('偏离', formatPolymarketSignedPp(selectedMarket.divergence))}
+                ${renderPolymarketMetric('成交量', formatPolymarketCompactNumber(selectedMarket.volume24h ?? selectedMarket.volume))}
+                ${renderPolymarketMetric('流动性', formatPolymarketCompactNumber(selectedMarket.liquidity))}
+                ${renderPolymarketMetric('AI/规则分', formatPolymarketScore(selectedMarket.aiRuleScore ?? selectedMarket.ruleScore))}
+                ${renderPolymarketMetric('风险', translatePolymarketToken(selectedMarket.risk || '--'))}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">事件 ${escapeHtml(selectedMarket.eventTitle || '--')} · slug ${escapeHtml(selectedMarket.slug || '--')}</div>
+                <div class="polymarket-action">边界：只读 Gamma 目录；不读私钥、不写钱包、不下单、不影响 MT5。</div>
+            </div>
+            <a class="polymarket-market-detail-link" href="#section-polymarket-analysis" data-polymarket-market-analysis-jump data-query="${escapeHtml(jumpQuery)}">带入单市场分析入口</a>
+        </div>
+    `;
+    const assetCards = related.length
+        ? related.slice(0, 4).map(renderPolymarketAssetOpportunityCard).join('')
+        : '<div class="polymarket-card watch"><div class="polymarket-eyebrow">关联资产</div><div class="polymarket-title">暂无关联资产机会</div><div class="polymarket-note">该市场暂未命中 USD/JPY/XAU/利率/crypto/股票关键词。</div></div>';
+    body.innerHTML = `${marketCard}${assetCards}`;
+}
+
+function updatePolymarketMarketBrowser(d) {
+    const catalog = getPolymarketMarketCatalog(d);
+    const opportunities = getPolymarketAssetOpportunities(d);
+    const rows = getPolymarketMarketCatalogRows(d);
+    const assetRows = getPolymarketAssetOpportunityRows(d);
+    const summaryEl = document.getElementById('polymarketMarketBrowserSummary');
+    const body = document.getElementById('polymarketMarketBrowserBody');
+    const assetSummaryEl = document.getElementById('polymarketAssetOpportunitySummary');
+    const assetBody = document.getElementById('polymarketAssetOpportunityBody');
+    if (!body) return;
+    syncPolymarketMarketBrowserControls();
+    if (!catalog || d?._polymarketMarketCatalogError) {
+        if (summaryEl) summaryEl.textContent = '等待市场目录';
+        body.innerHTML = '<div class="empty-state">等待 `/api/polymarket/markets` 或 `QuantGod_PolymarketMarketCatalog.json`。</div>';
+        renderPolymarketMarketDetail(d, null);
+    } else {
+        const sourceLabel = d?._polymarketMarketCatalogSource === 'api' || catalog._api?.endpoint ? 'API' : '文件';
+        const summary = catalog.summary || {};
+        if (summaryEl) {
+            summaryEl.textContent = `${sourceLabel} | 显示 ${rows.length}/${summary.sourceMarkets || summary.catalogMarkets || rows.length || 0} | 关联资产 ${summary.relatedAssetLinks || 0} | 排序 ${getPolymarketMarketBrowserFilter().sort}`;
+        }
+        const selected = getPolymarketSelectedMarket(rows);
+        polymarketSelectedMarketKey = selected ? getPolymarketMarketKey(selected) : '';
+        const boundaryCard = `
+            <div class="polymarket-card good">
+                <div class="polymarket-eyebrow">市场目录边界</div>
+                <div class="polymarket-title">${escapeHtml(translatePolymarketToken(catalog.decision || 'READ_ONLY_MARKET_CATALOG_NO_WALLET_WRITE'))}</div>
+                <div class="polymarket-metric">
+                    ${renderPolymarketMetric('读私钥', catalog.safety?.readsPrivateKey ? '是' : '否')}
+                    ${renderPolymarketMetric('写钱包', catalog.safety?.walletWriteAllowed ? '是' : '否')}
+                    ${renderPolymarketMetric('下单', catalog.safety?.orderSendAllowed ? '是' : '否')}
+                    ${renderPolymarketMetric('影响 MT5', catalog.safety?.mutatesMt5 ? '是' : '否')}
+                </div>
+                <div class="polymarket-note">这是 QuantDinger 风格的市场目录/详情入口；只用于研究、筛选和后续单市场分析。</div>
+            </div>
+        `;
+        body.innerHTML = [boundaryCard, ...rows.slice(0, 17).map(renderPolymarketMarketCatalogCard)].join('') || '<div class="empty-state">没有匹配市场。</div>';
+        renderPolymarketMarketDetail(d, selected);
+    }
+
+    if (!assetBody) return;
+    if (!opportunities || d?._polymarketAssetOpportunitiesError) {
+        if (assetSummaryEl) assetSummaryEl.textContent = '等待关联资产机会';
+        assetBody.innerHTML = '<div class="empty-state">等待 `/api/polymarket/asset-opportunities` 或 `QuantGod_PolymarketAssetOpportunities.json`。</div>';
+        return;
+    }
+    const assetSummary = opportunities.summary || {};
+    if (assetSummaryEl) {
+        const sourceLabel = d?._polymarketAssetOpportunitiesSource === 'api' || opportunities._api?.endpoint ? 'API' : '文件';
+        assetSummaryEl.textContent = `${sourceLabel} | 显示 ${assetRows.length}/${assetSummary.sourceOpportunities || assetSummary.relatedAssetOpportunities || assetRows.length || 0}`;
+    }
+    const boundary = `
+        <div class="polymarket-card good">
+            <div class="polymarket-eyebrow">关联资产边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(opportunities.decision || 'READ_ONLY_RELATED_ASSET_OPPORTUNITIES_NO_WALLET_WRITE'))}</div>
+            <div class="polymarket-note">只生成 USD/JPY/XAU/利率/crypto/股票的研究联动线索；不自动交易 MT5、不下注。</div>
+        </div>
+    `;
+    assetBody.innerHTML = [boundary, ...assetRows.slice(0, 11).map(renderPolymarketAssetOpportunityCard)].join('') || '<div class="empty-state">暂无关联资产机会。</div>';
 }
 
 function renderPolymarketRadarWorkerQueueCard(item = {}) {
@@ -11889,12 +12439,14 @@ function getPolymarketHistoryRenderType(apiTable) {
     const normalized = String(apiTable || '').toLowerCase();
     if (normalized === 'analyses' || normalized === 'analysis') return 'analysis';
     if (normalized === 'simulations' || normalized === 'simulation') return 'simulation';
-    if (normalized === 'runs' || normalized === 'snapshots' || normalized === 'worker-runs' || normalized === 'worker-trends' || normalized === 'worker-queue' || normalized === 'cross-linkage' || normalized === 'canary-contracts' || normalized === 'auto-governance' || normalized === 'all' || normalized === 'mixed') return 'mixed';
+    if (normalized === 'markets' || normalized === 'related-assets' || normalized === 'runs' || normalized === 'snapshots' || normalized === 'worker-runs' || normalized === 'worker-trends' || normalized === 'worker-queue' || normalized === 'cross-linkage' || normalized === 'canary-contracts' || normalized === 'auto-governance' || normalized === 'all' || normalized === 'mixed') return 'mixed';
     return 'opportunity';
 }
 
 function getPolymarketHistoryTypeLabel(type) {
     const normalized = String(type || '').toLowerCase();
+    if (normalized === 'markets') return '目录';
+    if (normalized === 'related-assets') return '关联';
     if (normalized === 'opportunities') return '机会';
     if (normalized === 'analyses') return '分析';
     if (normalized === 'simulations') return '模拟';
@@ -12012,7 +12564,7 @@ function updatePolymarketHistoryDb(d) {
     const sourceLabel = history.source === 'sqlite_api' ? 'API' : (d?._polymarketHistoryDbSource === 'api' ? 'API' : '文件');
     const hasActiveFilter = Boolean(String(apiState.query || search.query || '').trim()) || (apiState.table && apiState.table !== 'all');
     if (summaryEl) {
-        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0} | Worker ${summary.radarWorkerRuns || 0} | 趋势 ${summary.radarTrendRows || 0} | 队列 ${summary.radarQueueRows || 0} | 联动 ${summary.crossMarketLinkages || 0} | Canary ${summary.canaryContracts || 0} | 治理 ${summary.autoGovernanceDecisions || 0}`;
+        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 目录 ${summary.marketCatalogRows || 0} | 关联 ${summary.relatedAssetOpportunities || 0} | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0} | Worker ${summary.radarWorkerRuns || 0} | 趋势 ${summary.radarTrendRows || 0} | 队列 ${summary.radarQueueRows || 0} | 联动 ${summary.crossMarketLinkages || 0} | Canary ${summary.canaryContracts || 0} | 治理 ${summary.autoGovernanceDecisions || 0}`;
     }
     const overviewCard = `
         <div class="polymarket-card good">
@@ -12021,6 +12573,8 @@ function updatePolymarketHistoryDb(d) {
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('总行数', summary.totalRows || 0)}
                 ${renderPolymarketMetric('构建批次', summary.runs || 0)}
+                ${renderPolymarketMetric('市场目录', summary.marketCatalogRows || 0)}
+                ${renderPolymarketMetric('关联资产', summary.relatedAssetOpportunities || 0)}
                 ${renderPolymarketMetric('机会市场', summary.assetOpportunities || 0)}
                 ${renderPolymarketMetric('单市场分析', summary.marketAnalyses || 0)}
                 ${renderPolymarketMetric('执行模拟', summary.executionSimulations || 0)}
@@ -12069,6 +12623,8 @@ function updatePolymarketHistoryDb(d) {
         safetyCard,
         researchCard,
         searchCard,
+        renderPolymarketHistoryDbTable('市场目录历史', recent.markets || recent.marketCatalog || [], 'markets'),
+        renderPolymarketHistoryDbTable('关联资产历史', recent['related-assets'] || recent.relatedAssets || [], 'related-assets'),
         renderPolymarketHistoryDbTable('机会市场历史', recent.opportunities || [], 'opportunity'),
         renderPolymarketHistoryDbTable('单市场分析历史', recent.analyses || [], 'analysis'),
         renderPolymarketHistoryDbTable('模拟执行历史', recent.simulations || [], 'simulation'),
@@ -16478,6 +17034,11 @@ const DASHBOARD_SECTION_META = {
         title: 'Polymarket 治理总览',
         desc: '只读合并 D:\\polymarket 的账号现金、资金边界、executed/shadow/experiment 摘要和全局阻断；不混入 MT5 资金口径。'
     },
+    'polymarket-market-browser': {
+        eyebrow: 'Polymarket 市场目录',
+        title: '市场浏览',
+        desc: '像 QuantDinger 一样按目录、搜索、筛选、详情和关联资产机会管理 Polymarket 研究入口；不接钱包、不下注。'
+    },
     'polymarket-radar': {
         eyebrow: 'Polymarket 机会雷达',
         title: '机会雷达',
@@ -16623,6 +17184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPolymarketSingleMarketRequestForm();
     initPolymarketHistoryApiControls();
     initPolymarketUnifiedSearchControls();
+    initPolymarketMarketBrowserControls();
     initResearchJumpLinks();
     initMonitorJumpLinks();
     loadData();
@@ -16924,6 +17486,7 @@ function updateDashboard() {
     updateParamLabReportWatcherPanel(d);
     updateStrategyWorkspace(d);
     updatePolymarketWorkspace(d);
+    updatePolymarketMarketBrowser(d);
     updatePolymarketUnifiedSearch(d);
     updatePolymarketRadarWorker(d);
     updatePolymarketCrossMarketLinkage(d);

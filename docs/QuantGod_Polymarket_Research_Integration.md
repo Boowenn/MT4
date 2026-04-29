@@ -18,6 +18,10 @@ The generated file is only a dashboard evidence supplement:
 - `QuantGod_PolymarketResearchLedger.csv`
 - `QuantGod_PolymarketMarketRadar.json`
 - `QuantGod_PolymarketMarketRadar.csv`
+- `QuantGod_PolymarketMarketCatalog.json`
+- `QuantGod_PolymarketMarketCatalog.csv`
+- `QuantGod_PolymarketAssetOpportunities.json`
+- `QuantGod_PolymarketAssetOpportunities.csv`
 - `QuantGod_PolymarketRadarWorkerV2.json`
 - `QuantGod_PolymarketRadarWorkerV2.csv`
 - `QuantGod_PolymarketRadarTrendCache.json`
@@ -83,6 +87,42 @@ Current radar behavior is deliberately `SHADOW_ONLY_MARKET_RADAR_NO_BETTING`:
 - no MT5 mutation.
 
 If Polymarket execution is added later, it should be a separate promoted module gated by Strategy Version Registry, Governance Advisor, bankroll isolation, position sizing, per-market max loss, take-profit/stop-loss exit rules, order-send audit, and a kill switch. The radar is the discovery layer, not the execution layer.
+
+## QuantDinger-Style Market Catalog / Related Assets
+
+Run:
+
+```bat
+tools\build_polymarket_quantdinger_parity.bat
+```
+
+The parity builder uses only public Gamma API data. It writes a market catalog plus related-asset opportunity rows:
+
+- `QuantGod_PolymarketMarketCatalog.json`
+- `QuantGod_PolymarketMarketCatalog.csv`
+- `QuantGod_PolymarketAssetOpportunities.json`
+- `QuantGod_PolymarketAssetOpportunities.csv`
+
+The market catalog carries event/market id, question, URL, category, probability, volume, liquidity, spread, divergence, rule score, risk, suggested shadow track, and related-asset tags. The related-asset output maps market wording to research-only symbols such as `XAUUSD`, `USDJPY`, BTC/ETH/SOL, rates, and selected equities when event keywords justify the link.
+
+These links are risk context only:
+
+- no `.env` secret read;
+- no wallet write;
+- no CLOB order calls;
+- no executor/canary start;
+- no MT5 mutation;
+- no MT5 trade permission change.
+
+The dashboard server exposes:
+
+```text
+GET /api/polymarket/markets
+GET /api/polymarket/market?id=...
+GET /api/polymarket/asset-opportunities
+```
+
+The Dashboard Polymarket workspace now includes a market browser with search, category/risk/sort filters, selected-market detail cards, and related-asset opportunity cards. These rows also persist into the history DB and the unified search facade so the catalog is auditable instead of being a transient latest JSON snapshot.
 
 ## Batch Opportunity Radar V2 / Worker
 
@@ -245,7 +285,7 @@ It writes dashboard/runtime summaries:
 - `QuantGod_PolymarketHistoryDb.json`
 - `QuantGod_PolymarketHistoryDb.csv`
 
-The V5 tables are:
+The V6 tables are:
 
 - `qd_polymarket_runs`
 - `qd_polymarket_asset_opportunities`
@@ -258,8 +298,10 @@ The V5 tables are:
 - `qd_polymarket_cross_market_linkage`
 - `qd_polymarket_canary_contracts`
 - `qd_polymarket_auto_governance`
+- `qd_polymarket_markets`
+- `qd_polymarket_related_asset_opportunities`
 
-This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, Worker V2 batch runs, trend-cache rows, shadow queue rows, cross-market linkage rows, canary contract rows, auto-governance rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring and governance.
+This closes the first persistence gap from the QuantDinger-style workflow: opportunity radar rows, market catalog rows, related-asset opportunity rows, Worker V2 batch runs, trend-cache rows, shadow queue rows, cross-market linkage rows, canary contract rows, auto-governance rows, single-market analysis rows, dry-run/outcome rows, and high-level research snapshots are no longer only latest JSON/CSV snapshots. They can be searched, counted, reviewed later, and used as the stable input for future AI scoring and governance.
 
 Safety boundary remains unchanged: the history builder does not read private keys, does not write wallets, does not call CLOB order APIs, does not start executors, and does not mutate MT5. It is a local research memory, not an execution trigger.
 
@@ -285,6 +327,8 @@ Supported `table` values:
 - `cross-linkage`
 - `canary-contracts`
 - `auto-governance`
+- `markets`
+- `related-assets`
 
 Implementation files:
 
@@ -307,6 +351,9 @@ The dashboard server also exposes the active Polymarket research artifacts throu
 
 ```text
 GET /api/polymarket/radar
+GET /api/polymarket/markets
+GET /api/polymarket/market?id=...
+GET /api/polymarket/asset-opportunities
 GET /api/polymarket/cross-linkage
 GET /api/polymarket/canary-executor-contract
 GET /api/polymarket/auto-governance
