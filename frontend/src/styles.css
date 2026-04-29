@@ -1220,6 +1220,12 @@ h2 {
   gap: 8px;
 }
 
+.ai-watch-rail {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
 .ai-feature-card {
   min-height: 118px;
   text-align: left;
@@ -2573,12 +2579,35 @@ body {
   background: #111111;
 }
 
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 68px minmax(0, 1fr);
+}
+
 .sidebar {
   gap: 13px;
   padding: 12px 0 0;
   background: #080808;
   border-right: 1px solid #181818;
   box-shadow: none;
+}
+
+.sidebar-collapsed .brand {
+  justify-content: center;
+  padding: 0 10px;
+}
+
+.sidebar-collapsed .brand > div:not(.brand-mark),
+.sidebar-collapsed .nav-item span,
+.sidebar-collapsed .nav-separator,
+.sidebar-collapsed .sidebar-footer {
+  display: none;
+}
+
+.sidebar-collapsed .nav-item {
+  justify-content: center;
+  width: 44px;
+  margin: 0 auto;
+  padding: 10px;
 }
 
 .brand {
@@ -2841,6 +2870,13 @@ body {
 .ai-feature-rail,
 .ai-watch-rail {
   padding: 0;
+}
+
+.page-ai > .card-grid.three {
+  position: relative;
+  z-index: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 292px;
+  align-items: start;
 }
 
 .ai-feature-card {

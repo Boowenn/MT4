@@ -43,6 +43,7 @@ const state = reactive({
   active: 'home',
   mt5Focus: 'overview',
   polymarketFocus: 'overview',
+  sidebarCollapsed: false,
   loading: false,
   loadedAt: '',
   error: '',
@@ -73,7 +74,7 @@ const mt5DefaultFocus = {
 };
 
 const mt5NavItems = [
-  { id: 'mt5', focus: 'overview', label: 'AI 总览', sub: '总览雷达', icon: Gauge },
+  { id: 'mt5', focus: 'overview', label: 'MT5 总览', sub: '执行雷达', icon: Gauge },
   { id: 'mt5', focus: 'strategy', label: '策略实盘', sub: '路线与风控', icon: LineChart },
   { id: 'charts', focus: 'monitor', label: '趋势图表', sub: '品种监控', icon: TrendingUp },
   { id: 'paramlab', focus: 'paramlab', label: '参数实验', sub: '回测闭环', icon: ClipboardList },
@@ -213,6 +214,24 @@ function navItemActive(item) {
     return state.active === item.id && state.mt5Focus === item.focus;
   }
   return state.active === item.id;
+}
+
+function handleTopAction(action) {
+  if (action === 'menu') {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    return;
+  }
+  if (action === 'notifications') {
+    setActive('reports');
+    return;
+  }
+  if (action === 'market') {
+    setActive('polymarket', 'browser');
+    return;
+  }
+  if (action === 'settings') {
+    setActive('paramlab');
+  }
 }
 
 function arrayFrom(value, keys = []) {
@@ -448,9 +467,10 @@ const mt5Positions = computed(() => {
     ...arrayFrom(latest.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
     ...arrayFrom(latest.open_trades, ['items', 'positions', 'openPositions', 'openTrades', 'trades'])
   ];
-  const seen = new Set();
+  const seenTickets = new Set();
+  const seenFingerprints = new Set();
   return rows.filter((row, index) => {
-    const key = first(
+    const ticketKey = first(
       row?.ticket,
       row?.Ticket,
       row?.identifier,
@@ -458,15 +478,34 @@ const mt5Positions = computed(() => {
       row?.position_ticket,
       row?.order,
       row?.Order,
-      `${first(row?.symbol, row?.Symbol, 'row')}-${first(row?.timeIso, row?.time, row?.openTime, index)}`
+      ''
     );
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const fingerprint = [
+      String(first(row?.symbol, row?.Symbol, 'symbol')).toUpperCase(),
+      String(first(row?.type, row?.direction, row?.side, 'side')).toUpperCase(),
+      Number(first(row?.volume, row?.lots, row?.actualLots, row?.Volume, 0)).toFixed(2),
+      Number(first(row?.priceOpen, row?.price_open, row?.openPrice, 0)).toFixed(5),
+      String(first(row?.comment, row?.route, row?.strategy, `row-${index}`)).toUpperCase()
+    ].join('|');
+    if (ticketKey && seenTickets.has(ticketKey)) return false;
+    if (seenFingerprints.has(fingerprint)) return false;
+    if (ticketKey) seenTickets.add(ticketKey);
+    seenFingerprints.add(fingerprint);
     return true;
   });
 });
 
 const focusedPosition = computed(() => mt5Positions.value[0] || {});
+
+const duplicatedPositionEvidence = computed(() => {
+  const latest = mt5.value.latest || {};
+  const snap = mt5.value.snapshot || {};
+  const rawCount = [
+    ...arrayFrom(snap.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
+    ...arrayFrom(latest.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades'])
+  ].length;
+  return Math.max(rawCount - mt5Positions.value.length, 0);
+});
 
 const allMt5Routes = computed(() => {
   const gov = mt5.value.governance || {};
@@ -653,7 +692,7 @@ const paramLabDashboardCards = computed(() => {
 
 const mt5FocusMeta = computed(() => ({
   overview: {
-    eyebrow: 'AI 总览 / 入场证据',
+    eyebrow: 'MT5 总览 / 入场证据',
     title: 'MT5 执行态势与入场证据',
     body: '把旧页总览雷达迁回 Vue：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要下钻到路线或持仓。',
     badge: '只读'
@@ -1322,7 +1361,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'sidebar-collapsed': state.sidebarCollapsed }">
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">Q</div>
@@ -1401,7 +1440,7 @@ onBeforeUnmount(() => {
     <main class="workspace">
       <header class="topbar">
         <div class="topbar-left">
-          <button class="icon-button" type="button" title="菜单">
+          <button class="icon-button" type="button" :title="state.sidebarCollapsed ? '展开菜单' : '折叠菜单'" @click="handleTopAction('menu')">
             <Menu :size="18" />
           </button>
           <div>
@@ -1419,13 +1458,13 @@ onBeforeUnmount(() => {
             <RefreshCw :size="16" :class="{ spin: state.loading }" />
           </button>
           <span class="top-divider"></span>
-          <button class="icon-button" type="button" title="通知">
+          <button class="icon-button" type="button" title="证据报表 / 通知" @click="handleTopAction('notifications')">
             <Bell :size="16" />
           </button>
-          <button class="icon-button" type="button" title="语言">
+          <button class="icon-button" type="button" title="Polymarket 市场浏览" @click="handleTopAction('market')">
             <Globe2 :size="16" />
           </button>
-          <button class="icon-button" type="button" title="设置">
+          <button class="icon-button" type="button" title="ParamLab / 设置" @click="handleTopAction('settings')">
             <Settings :size="16" />
           </button>
           <div class="user-chip">
@@ -1910,7 +1949,7 @@ onBeforeUnmount(() => {
               <div class="audit-row">
                 <small>交易边界</small>
                 <strong>0.01 pilot / 单仓 / 只读页面</strong>
-                <span>页面不触发 order-send，也不改变 live switch。</span>
+                <span>页面不触发 order-send，也不改变 live switch。已合并重复来源 {{ duplicatedPositionEvidence }} 条。</span>
               </div>
               <div class="audit-row">
                 <small>焦点路线</small>
