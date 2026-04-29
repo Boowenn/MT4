@@ -167,10 +167,24 @@ def redact_secret_fields(payload: Any) -> Any:
     return payload
 
 
+def is_raw_secret_key(key: Any) -> bool:
+    normalized = clean(key, 80).lower()
+    reference_keys = {
+        "passwordenvvar",
+        "password_env_var",
+        "secretref",
+        "secret_ref",
+        "api_key_hint",
+    }
+    compact = normalized.replace("_", "")
+    if normalized in reference_keys or compact in reference_keys:
+        return False
+    return normalized in SECRET_KEYS or "password" in normalized
+
+
 def has_raw_secret(payload: dict[str, Any]) -> bool:
     for key, value in payload.items():
-        normalized = clean(key, 80).lower()
-        if value not in (None, "") and (normalized in SECRET_KEYS or "password" in normalized):
+        if value not in (None, "") and is_raw_secret_key(key):
             return True
     return False
 
@@ -953,7 +967,7 @@ def platform_order_request(row: dict[str, Any]) -> dict[str, Any]:
         "action": "order",
         "platformOrderId": row.get("id"),
         "strategyId": row.get("strategy_id"),
-        "route": row.get("strategy_id") or extra.get("route") or "platform_db_queue",
+        "route": extra.get("route") or row.get("strategy_id") or "platform_db_queue",
         "symbol": row.get("broker_symbol") or row.get("symbol"),
         "brokerSymbol": row.get("broker_symbol") or row.get("symbol"),
         "canonicalSymbol": row.get("canonical_symbol"),
@@ -1021,7 +1035,7 @@ def dispatch_queued_orders(conn: sqlite3.Connection, runtime_dir: Path, payload:
             decision=f"PLATFORM_DISPATCH_{decision}",
             action="dispatch",
             payload={"order": order, "result": result},
-            route=clean(order.get("strategy_id"), 80),
+            route=clean(request.get("route"), 80),
             canonical_symbol=clean(order.get("canonical_symbol"), 80),
             broker_symbol=clean(order.get("broker_symbol"), 80),
         )

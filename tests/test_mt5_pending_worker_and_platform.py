@@ -147,6 +147,50 @@ class Mt5PendingWorkerAndPlatformTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_platform_store_env_var_reference_is_not_raw_secret(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            state = platform.run(
+                runtime,
+                endpoint="credential",
+                payload={
+                    "credentialId": "hfm-env-only",
+                    "accountLogin": 123,
+                    "server": "HFMarkets",
+                    "passwordEnvVar": "QG_MT5_HFM_PASSWORD",
+                },
+            )
+            self.assertFalse(state["action"]["credential"]["rawSecretRejected"])
+            self.assertEqual(state["credentials"][0]["passwordEnvVar"], "QG_MT5_HFM_PASSWORD")
+
+    def test_platform_dispatch_preserves_route_from_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            platform.run(
+                runtime,
+                endpoint="enqueue",
+                payload={
+                    "strategyId": "MA_EURUSD_M15",
+                    "route": "MA_Cross",
+                    "symbol": "EURUSDc",
+                    "side": "buy",
+                    "orderType": "buy_limit",
+                    "lots": 0.01,
+                    "price": 1.099,
+                },
+            )
+            dispatched = platform.run(runtime, endpoint="dispatch", payload={"maxOrders": 1})
+            self.assertEqual(dispatched["action"]["dispatch"]["rows"][0]["status"], "dry_run_accepted")
+
+            db = sqlite3.connect(runtime / platform.DB_NAME)
+            try:
+                route = db.execute(
+                    "SELECT route FROM audit_events WHERE source='mt5_platform_store' AND action='dispatch' ORDER BY event_time_iso DESC LIMIT 1"
+                ).fetchone()[0]
+                self.assertEqual(route, "MA_Cross")
+            finally:
+                db.close()
+
     def test_platform_store_reconcile_and_symbol_catalog_use_canonical_pooling(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp)
