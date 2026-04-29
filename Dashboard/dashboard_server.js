@@ -521,6 +521,12 @@ function clampSearchLimit(value, fallback = 36) {
   return Math.max(8, Math.min(120, parsed));
 }
 
+function clampApiLimit(value, fallback = 60) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(120, parsed));
+}
+
 function searchHaystack(value) {
   if (value === null || value === undefined) return '';
   if (Array.isArray(value)) return value.map(searchHaystack).join(' ');
@@ -1278,7 +1284,7 @@ async function handlePolymarketMarkets(req, res) {
     const category = String(parsed.searchParams.get('category') || '').trim();
     const risk = String(parsed.searchParams.get('risk') || '').trim();
     const sort = String(parsed.searchParams.get('sort') || 'score').trim();
-    const limit = clampSearchLimit(parsed.searchParams.get('limit'), 60);
+    const limit = clampApiLimit(parsed.searchParams.get('limit'), 60);
     const read = readQuantGodJsonFile(polymarketMarketCatalogName);
     const payload = withServiceMeta(read.payload, '/api/polymarket/markets', read.filePath);
     const rows = Array.isArray(payload.marketCatalog) ? payload.marketCatalog : (Array.isArray(payload.markets) ? payload.markets : []);
@@ -1323,7 +1329,7 @@ async function handlePolymarketAssetOpportunities(req, res) {
     const parsed = new URL(req.url || '/', `http://${host}:${port}`);
     const query = String(parsed.searchParams.get('q') || '').trim().slice(0, 240);
     const asset = String(parsed.searchParams.get('asset') || '').trim().toUpperCase();
-    const limit = clampSearchLimit(parsed.searchParams.get('limit'), 60);
+    const limit = clampApiLimit(parsed.searchParams.get('limit'), 60);
     const read = readQuantGodJsonFile(polymarketAssetOpportunitiesName);
     const payload = withServiceMeta(read.payload, '/api/polymarket/asset-opportunities', read.filePath);
     const rows = Array.isArray(payload.relatedAssetOpportunities)
