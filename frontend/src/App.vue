@@ -258,7 +258,8 @@ function first(...values) {
 }
 
 function asNumber(value) {
-  const parsed = Number(value);
+  const normalized = typeof value === 'string' ? value.replace(/[$,%\s,]/g, '') : value;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -295,6 +296,34 @@ function positionDirection(row) {
 
 function positionCurrentPrice(row) {
   return first(row?.priceCurrent, row?.price_current, row?.currentPrice, row?.price, row?.closePrice, row?.bid, row?.ask);
+}
+
+function auditProfit(row) {
+  return first(
+    row?.Profit,
+    row?.profit,
+    row?.PnL,
+    row?.pnl,
+    row?.NetProfit,
+    row?.netProfit,
+    row?.ProfitUSC,
+    row?.profitUSC
+  );
+}
+
+function auditProfitText(row) {
+  const raw = auditProfit(row);
+  const numeric = asNumber(raw);
+  if (numeric !== null) return money(numeric);
+  return cleanInlineStatusText(raw);
+}
+
+function pnlTone(value) {
+  const numeric = asNumber(value);
+  if (numeric === null) return 'pnl-flat';
+  if (numeric < 0) return 'pnl-negative';
+  if (numeric > 0) return 'pnl-positive';
+  return 'pnl-flat';
 }
 
 function pct(value) {
@@ -348,6 +377,20 @@ const evidenceLabelMap = {
   DRY_RUN_BLOCKED_BY_GATE: '模拟被 Gate 阻断',
   GATE_BLOCKED_PRICE_WATCH_ONLY: '仅价格观察',
   KEEP_DRY_RUN_UNTIL_POLICY_PASS: '继续模拟',
+  WATCH_SHADOW_AND_COLLECT_OUTCOME: '观察并收集后验',
+  RETUNE_BEFORE_NEXT_BATCH: '先重调再跑下一批',
+  LIVE_0_01: '0.01 实盘',
+  LIVE_GATED: '实盘门控',
+  SIMULATION_CANDIDATE: '模拟候选',
+  SIM_CANDIDATE: '模拟候选',
+  CONFIG_READY: '可运行',
+  PENDING_REPORT: '等报告',
+  WAIT_REPORT: '等报告',
+  RUN_PENDING_REPORT_FIRST: '先跑回测报告',
+  RULE_PROXY_NO_LLM: '规则评分',
+  WORKER_EVIDENCE: 'Worker 证据',
+  SHADOW: 'Shadow 观察',
+  SHADOW_REVIEW: 'Shadow 复核',
   MACRO_RISK: '宏观风险',
   WAR_GEOPOLITICS: '战争/地缘',
   RATES: '利率',
@@ -368,7 +411,7 @@ const evidenceLabelMap = {
 function humanEvidenceLabel(value) {
   const raw = String(first(value, '')).trim();
   if (!raw || raw === '--') return '--';
-  const key = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  const key = raw.toUpperCase().replace(/[\s/.-]+/g, '_');
   if (evidenceLabelMap[key]) return evidenceLabelMap[key];
   if (/[A-Z0-9]+_[A-Z0-9_]+/.test(raw)) {
     return raw.toLowerCase().replace(/_/g, ' ');
@@ -480,7 +523,7 @@ function routeActionLabel(row) {
   const risk = asNumber(runtime.riskMultiplier);
   if (routeIsRuntimeLive(row)) return '实盘观察';
   if (runtime.enabled === false || risk === 0) return action.includes('LIVE') ? '实盘暂停' : '模拟候选';
-  return first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '观察');
+  return cleanInlineStatusText(first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '观察'));
 }
 
 function routeBlockerText(row) {
@@ -491,9 +534,9 @@ function routeBlockerText(row) {
 
 function routeWhyText(row) {
   const why = row?.feedback?.why;
-  if (Array.isArray(why) && why.length) return why.slice(0, 2).join(' ');
+  if (Array.isArray(why) && why.length) return cleanInlineStatusText(why.slice(0, 2).join(' '));
   const runtime = routeRuntime(row);
-  return first(runtime.adaptiveReason, runtime.reason, row?.feedback?.nextStep, row?.nextAction, row?.reason, routeBlockerText(row));
+  return cleanInlineStatusText(first(runtime.adaptiveReason, runtime.reason, row?.feedback?.nextStep, row?.nextAction, row?.reason, routeBlockerText(row)));
 }
 
 function routeParamText(row) {
@@ -528,7 +571,7 @@ function normalizeParamState(row) {
 function compactStatusLabel(value) {
   const raw = String(first(value, '')).trim();
   if (!raw || raw === '--') return '--';
-  const key = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  const key = raw.toUpperCase().replace(/[\s/.-]+/g, '_');
   const exact = {
     CONFIG_ONLY: '仅配置',
     CONFIG_READY: '可运行',
@@ -553,6 +596,16 @@ function compactStatusLabel(value) {
     DEMOTION: '降级',
     RETUNE: '重调',
     QUARANTINE: '隔离',
+    WATCH_SHADOW_AND_COLLECT_OUTCOME: '观察后验',
+    RETUNE_BEFORE_NEXT_BATCH: '先重调',
+    LIVE_0_01: '0.01实盘',
+    LIVE_GATED: '实盘门控',
+    SIMULATION_CANDIDATE: '模拟候选',
+    SIM_CANDIDATE: '模拟候选',
+    RULE_PROXY_NO_LLM: '规则评分',
+    WORKER_EVIDENCE: 'Worker证据',
+    SHADOW: 'Shadow观察',
+    SHADOW_REVIEW: 'Shadow复核',
     LOCKED: '锁定',
     RED: '红灯',
     YELLOW: '黄灯',
@@ -572,6 +625,26 @@ function compactStatusLabel(value) {
   if (key.includes('RESEARCH')) return '研究统计';
   if (key.includes('EVALUATE')) return '评估';
   return humanEvidenceLabel(raw);
+}
+
+function cleanInlineStatusText(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '--';
+  const fullKey = raw.toUpperCase().replace(/[\s/.-]+/g, '_');
+  if (evidenceLabelMap[fullKey]) return evidenceLabelMap[fullKey];
+  return raw.replace(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/g, (token) => {
+    const label = compactStatusLabel(token);
+    return label && label !== token ? label : humanEvidenceLabel(token);
+  });
+}
+
+function compactMetricScore(...values) {
+  const raw = String(first(...values, '--')).trim();
+  if (!raw || raw === '--') return '--';
+  const key = raw.toUpperCase();
+  if (/^[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+$/.test(key)) return '--';
+  if (['CONFIG_READY', 'PENDING_REPORT', 'WAIT_REPORT', 'WAITING_REPORT'].includes(key)) return '--';
+  return raw;
 }
 
 function aiSourceLabel(value) {
@@ -598,7 +671,7 @@ function compactInsightDetail(value) {
     CLOSED_LOSS_QUARANTINE: '亏损隔离'
   };
   if (exact[key]) return exact[key];
-  if (/[A-Z0-9]+_[A-Z0-9_]+/.test(raw)) return compactStatusLabel(raw);
+  if (/[A-Z0-9]+_[A-Z0-9_]+/.test(raw)) return cleanInlineStatusText(raw);
   return raw;
 }
 
@@ -945,7 +1018,7 @@ const autoTesterRows = computed(() => [
   ...arrayFrom(mt5.value.autoTesterWindow, ['excludedTasks'])
 ].slice(0, 16));
 const mt5ResearchRows = computed(() => arrayFrom(mt5.value.mt5ResearchStats, ['rows']).slice(0, 16));
-const tradingAuditRows = computed(() => arrayFrom(mt5.value.ledgers?.tradingAudit).slice(0, 12));
+const tradingAuditRows = computed(() => arrayFrom(mt5.value.ledgers?.tradingAudit).slice(0, 80));
 const manualAlphaRows = computed(() => arrayFrom(mt5.value.ledgers?.manualAlpha).slice(0, 12));
 const strategyEvaluationRows = computed(() => arrayFrom(mt5.value.ledgers?.strategyEvaluation).slice(0, 12));
 const regimeEvaluationRows = computed(() => arrayFrom(mt5.value.ledgers?.regimeEvaluation).slice(0, 12));
@@ -1296,9 +1369,9 @@ const singleAnalysisCards = computed(() => {
   const market = singleAnalysis.value.market || {};
   return [
     { label: '市场概率', value: pctPoint(first(analysis.marketProbabilityPct, market.probability, market.yesPrice)), detail: first(market.probabilitySource, 'Gamma / CLOB') },
-    { label: 'AI 概率', value: pctPoint(first(analysis.aiProbabilityPct, analysis.aiPredictedProbability)), detail: first(analysis.aiScoringMode, singleAnalysis.value.mode, '规则/AI') },
-    { label: '偏离度', value: pctPoint(first(analysis.divergencePct, marketDivergence(market))), detail: first(analysis.recommendation, '观察') },
-    { label: '信心', value: pctPoint(first(analysis.confidencePct, analysis.confidenceScore)), detail: first(analysis.riskLevel, singleAnalysis.value.summary?.risk, 'risk --') }
+    { label: 'AI 概率', value: pctPoint(first(analysis.aiProbabilityPct, analysis.aiPredictedProbability)), detail: cleanInlineStatusText(first(analysis.aiScoringMode, singleAnalysis.value.mode, '规则/AI')) },
+    { label: '偏离度', value: pctPoint(first(analysis.divergencePct, marketDivergence(market))), detail: cleanInlineStatusText(first(analysis.recommendation, '观察')) },
+    { label: '信心', value: pctPoint(first(analysis.confidencePct, analysis.confidenceScore)), detail: cleanInlineStatusText(first(analysis.riskLevel, singleAnalysis.value.summary?.risk, 'risk --')) }
   ];
 });
 
@@ -1365,7 +1438,7 @@ const homeFocusCards = computed(() => {
   return [
     {
       title: 'MT5 路线焦点',
-      badge: first(latestRoute?.feedback?.actionLabel, latestRoute?.recommendedAction, '--'),
+      badge: cleanInlineStatusText(first(latestRoute?.feedback?.actionLabel, latestRoute?.recommendedAction, '--')),
       body: latestRoute
         ? `${first(latestRoute.label, latestRoute.strategy, latestRoute.key)} · PF ${first(latestRoute.liveForward?.profitFactor, '--')} · 胜率 ${pct(first(latestRoute.liveForward?.winRatePct, latestRoute.liveForward?.winRate))}`
         : '等待 Governance Advisor 路线证据。',
@@ -1379,7 +1452,7 @@ const homeFocusCards = computed(() => {
     },
     {
       title: 'Polymarket 研究',
-      badge: first(poly.value.radar?.status, 'OK'),
+      badge: cleanInlineStatusText(first(poly.value.radar?.status, 'OK')),
       body: latestRadar
         ? `${shortText(first(latestRadar.market, latestRadar.title, latestRadar.question), 82)} · 评分 ${first(latestRadar.aiRuleScore, latestRadar.score, '--')}`
         : '等待 Radar / AI score 证据。',
@@ -1405,7 +1478,7 @@ const reportEvidenceRows = computed(() => reportCards.value.map((card) => ({
   file: card.file,
   generatedAt: first(card.payload?.generatedAtIso, card.payload?.generatedAt, card.payload?._api?.filePath, '--'),
   count: card.count,
-  state: first(card.payload?.status, card.payload?.mode, card.payload?.summary?.status, card.payload?._api?.service, '--'),
+  state: compactStatusLabel(first(card.payload?.status, card.payload?.mode, card.payload?.summary?.status, card.payload?._api?.service, '--')),
   note: first(card.payload?.note, card.payload?.summary?.latestStopReason, card.payload?.summary?.topCandidateId, card.payload?.decisionGate, '--')
 })));
 
@@ -1440,7 +1513,7 @@ const operatorRadarCards = computed(() => {
     {
       label: '参数实验',
       title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
-      meta: `${first(topTask.state, topTask.status, '仅回测')} · 评分 ${first(topTask.score, topTask.grade, '--')}`,
+      meta: `${compactStatusLabel(first(topTask.state, topTask.status, '仅回测'))} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     }
@@ -1456,7 +1529,7 @@ const operatorRadarCards = computed(() => {
     {
       label: 'AI 评分',
       title: shortText(first(score.market, score.title, score.marketId, '历史评分'), 30),
-      meta: `评分 ${first(score.aiScore, score.score, score.grade, '--')} · 风险 ${first(score.risk, score.riskLevel, '--')}`,
+      meta: `评分 ${first(score.aiScore, score.score, score.grade, '--')} · 风险 ${cleanInlineStatusText(first(score.risk, score.riskLevel, '--'))}`,
       tone: 'blue',
       target: 'polymarket'
     },
@@ -1486,7 +1559,7 @@ const operatorRadarCards = computed(() => {
     {
       label: '候选队列',
       title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
-      meta: `${first(topTask.state, topTask.status, 'tester-only')} · 评分 ${first(topTask.score, topTask.grade, '--')}`,
+      meta: `${compactStatusLabel(first(topTask.state, topTask.status, 'tester-only'))} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     },
@@ -1535,7 +1608,7 @@ const aiEngineCards = computed(() => {
     {
       label: 'AI 市场分析',
       value: first(topScore.score, topScore.aiScore, '--'),
-      detail: shortText(first(topScore.recommendation, topScore.action, topScore.risk, '等待 Polymarket AI 评分'), 42),
+      detail: shortText(cleanInlineStatusText(first(topScore.recommendation, topScore.action, topScore.risk, '等待 Polymarket AI 评分')), 42),
       tone: marketRiskTone(topScore)
     },
     {
@@ -1552,8 +1625,13 @@ const aiEngineCards = computed(() => {
     },
     {
       label: '回测反馈',
-      value: first(topTask.score, topTask.grade, '--'),
-      detail: shortText(first(topTask.state, topTask.status, topTask.candidateId, '等待 ParamLab 候选'), 42),
+      value: compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor),
+      detail: shortText(
+        topTask.state || topTask.status
+          ? compactStatusLabel(first(topTask.state, topTask.status))
+          : first(topTask.candidateId, '等待 ParamLab 候选'),
+        42
+      ),
       tone: normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue'
     }
   ];
@@ -1570,14 +1648,14 @@ const aiInsightRows = computed(() => [
   ...aiScores.value.map((row) => ({
     source: 'AI',
     title: marketTitle(row),
-    detail: `评分 ${first(row.score, row.aiScore, '--')} · ${first(row.recommendation, row.action, row.risk, '观察')}`,
+    detail: `评分 ${first(row.score, row.aiScore, '--')} · ${cleanInlineStatusText(first(row.recommendation, row.action, row.risk, '观察'))}`,
     tone: marketRiskTone(row),
     target: 'polymarket'
   })),
   ...paramVisibleTasks.value.slice(0, 4).map((row) => ({
     source: '参数',
     title: first(row.candidateId, row.versionId, row.taskId),
-    detail: `${compactStatusLabel(first(row.state, row.status, 'tester-only'))} · score ${first(row.score, row.grade, '--')}`,
+    detail: `${compactStatusLabel(first(row.state, row.status, 'tester-only'))} · 评分 ${compactMetricScore(row.score, row.grade, row.profitFactor)}`,
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
   })),
@@ -1627,7 +1705,7 @@ const watchlistItems = computed(() => [
   })),
   ...radarRows.value.slice(0, 5).map((row) => ({
     title: first(row.market, row.title, row.question),
-    sub: first(row.category, row.suggestedShadowTrack, 'Polymarket'),
+    sub: cleanInlineStatusText(first(row.category, row.suggestedShadowTrack, 'Polymarket')),
     value: pct(first(row.probability, row.marketProbability)),
     tone: 'green',
     target: 'polymarket'
@@ -1637,8 +1715,8 @@ const watchlistItems = computed(() => [
 const actionQueueItems = computed(() => [
   ...paramVisibleTasks.value.slice(0, 5).map((row) => ({
     title: shortText(first(row.candidateId, row.versionId, row.taskId), 34),
-    sub: `${paramRouteLabel(row)} · ${first(row.state, row.status, row.resultState, '等待')}`,
-    value: first(row.score, row.grade, row.profitFactor, '--'),
+    sub: `${paramRouteLabel(row)} · ${compactStatusLabel(first(row.state, row.status, row.resultState, '等待'))}`,
+    value: compactMetricScore(row.score, row.grade, row.profitFactor),
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
   })),
@@ -2071,7 +2149,7 @@ onBeforeUnmount(() => {
             <div class="poly-score-stack">
               <div v-for="row in aiScores.slice(0, 4)" :key="first(row.marketId, row.title, row.question)" class="score-line">
                 <strong>{{ shortText(marketTitle(row), 70) }}</strong>
-                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ first(row.recommendation, row.action, row.risk, '观察') }}</span>
+                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ cleanInlineStatusText(first(row.recommendation, row.action, row.risk, '观察')) }}</span>
               </div>
               <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
             </div>
@@ -2321,7 +2399,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="strategy-version-strip">
               <span>参数候选：{{ routeParamText(primaryRoute) }}</span>
-              <span class="strategy-advice">下一步：{{ first(primaryRoute.feedback?.nextStep, primaryRoute.paramLabResult?.promotionReadiness, primaryRoute.recommendedAction, '等待下一步建议') }}</span>
+              <span class="strategy-advice">下一步：{{ cleanInlineStatusText(first(primaryRoute.feedback?.nextStep, primaryRoute.paramLabResult?.promotionReadiness, primaryRoute.recommendedAction, '等待下一步建议')) }}</span>
             </div>
           </section>
 
@@ -2366,6 +2444,31 @@ onBeforeUnmount(() => {
             { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 120 }
           ]"
           empty="当前没有 MT5 持仓，或只读桥未返回 positions。"
+        />
+
+        <DataTable
+          v-if="state.mt5Focus === 'trades'"
+          title="EA 交易记录 / 审计 Ledger"
+          dense
+          :rows="tradingAuditRows"
+          :columns="[
+            { label: '时间', value: (r) => first(r.Time, r.time, r.timeIso, r.timestamp), width: '176px' },
+            { label: '票据', value: (r) => first(r.Ticket, r.ticket, r.EventId, r.eventId, r.order, '--'), width: '104px' },
+            { label: '品种', value: (r) => first(r.Symbol, r.symbol, r.Instrument, '--'), width: '102px', class: 'col-strong' },
+            { label: '动作', value: (r) => compactStatusLabel(first(r.Action, r.action, r.Event, r.event, r.Type)), width: '118px', badge: true },
+            { label: '方向', value: (r) => compactStatusLabel(first(r.Direction, r.direction, r.Side, r.side, r.Type)), width: '88px', badge: true },
+            { label: '手数', value: (r) => first(r.Lots, r.lots, r.Volume, r.volume, '--'), width: '76px', class: 'col-number' },
+            {
+              label: '盈亏',
+              value: auditProfitText,
+              tone: (r) => pnlTone(auditProfit(r)),
+              width: '94px',
+              class: 'col-pnl'
+            },
+            { label: '策略/路线', value: (r) => cleanInlineStatusText(first(r.Strategy, r.strategy, r.Route, r.route, r.Comment, r.comment)), max: 96 },
+            { label: '结果/原因', value: (r) => cleanInlineStatusText(first(r.Result, r.result, r.Reason, r.reason, r.Message, r.message, r.Note, r.note)), max: 130 }
+          ]"
+          empty="暂无 EA 交易记录；等待 QuantGod trading audit ledger 刷新。"
         />
 
         <div v-if="state.mt5Focus === 'trades'" class="card-grid three">
@@ -2414,7 +2517,7 @@ onBeforeUnmount(() => {
               <span>{{ routeShortName(row) }}</span>
               <span>PF {{ first(row.liveForward?.profitFactor, row.profitFactor, row.pf, '--') }}</span>
               <span>胜率 {{ pct(first(row.liveForward?.winRatePct, row.winRate, row.win_rate)) }}</span>
-              <span>{{ first(row.mode, row.live ? 'LIVE_0_01' : 'SIM/CANDIDATE') }}</span>
+              <span>{{ cleanInlineStatusText(first(row.mode, row.live ? 'LIVE_0_01' : 'SIM/CANDIDATE')) }}</span>
             </div>
             <div class="mini-row secondary">
               <span>实盘 {{ first(row.liveForward?.closedTrades, '--') }} 笔 / 净 {{ money(row.liveForward?.netProfitUSC) }}</span>
@@ -2427,7 +2530,7 @@ onBeforeUnmount(() => {
               当前持仓 {{ row.openPosition.openTrades }}，浮动 {{ money(row.openPosition.floatingProfitUSC) }}，先按原风控与保护处理。
             </p>
             <p v-else class="route-param">当前无该路线持仓。</p>
-            <p class="route-param">下一步：{{ first(row.feedback?.nextStep, row.paramLabResult?.promotionReadiness, row.recommendedAction, '等待下一步建议') }}</p>
+            <p class="route-param">下一步：{{ cleanInlineStatusText(first(row.feedback?.nextStep, row.paramLabResult?.promotionReadiness, row.recommendedAction, '等待下一步建议')) }}</p>
           </article>
           <article v-if="!mt5Routes.length" class="panel empty">当前没有可展示的 MT5 路线证据，等待运行文件或只读桥刷新。</article>
         </div>
@@ -2527,7 +2630,7 @@ onBeforeUnmount(() => {
             <div class="panel-title split">
               <span>{{ shortText(first(singleAnalysis.market?.question, singleAnalysis.summary?.market, '最近单市场分析'), 82) }}</span>
               <b class="pill" :class="marketRiskTone(singleAnalysis.analysis || singleAnalysis.summary || {})">
-                {{ first(singleAnalysis.analysis?.recommendation, singleAnalysis.summary?.recommendation, '观察') }}
+                {{ cleanInlineStatusText(first(singleAnalysis.analysis?.recommendation, singleAnalysis.summary?.recommendation, '观察')) }}
               </b>
             </div>
             <div class="probability-comparison">
@@ -2555,7 +2658,7 @@ onBeforeUnmount(() => {
             <div class="history-list">
               <button v-for="row in singleHistoryRows" :key="first(row.generatedAt, row.marketId, row.question)" type="button">
                 <strong>{{ shortText(first(row.question, row.marketTitle, row.title, row.marketId), 76) }}</strong>
-                <span>{{ first(row.recommendation, row.decision, row.risk, '--') }} · 偏离 {{ pctPoint(first(row.divergence, row.divergencePct)) }}</span>
+                <span>{{ cleanInlineStatusText(first(row.recommendation, row.decision, row.risk, '--')) }} · 偏离 {{ pctPoint(first(row.divergence, row.divergencePct)) }}</span>
                 <small>{{ first(row.generatedAt, row.createdAt, row.updatedAt, '--') }}</small>
               </button>
               <div v-if="!singleHistoryRows.length" class="rail-empty">暂无单市场历史。</div>
@@ -2608,7 +2711,7 @@ onBeforeUnmount(() => {
             <div class="history-list">
               <button v-for="row in workerQueue.slice(0, 5)" :key="first(row.candidateId, row.marketId)" type="button" @click="setActive('polymarket', 'radar')">
                 <strong>{{ shortText(first(row.market, row.title, row.question, row.marketId), 66) }}</strong>
-                <span>评分 {{ first(row.aiRuleScore, row.score, '--') }} · {{ first(row.suggestedShadowTrack, row.executionMode, row.category, 'shadow') }}</span>
+                <span>评分 {{ first(row.aiRuleScore, row.score, '--') }} · {{ cleanInlineStatusText(first(row.suggestedShadowTrack, row.executionMode, row.category, 'shadow')) }}</span>
               </button>
               <div v-if="!workerQueue.length" class="rail-empty">暂无 worker 队列。</div>
             </div>
@@ -2621,7 +2724,7 @@ onBeforeUnmount(() => {
             <div class="poly-score-stack">
               <div v-for="row in aiScores.slice(0, 4)" :key="first(row.marketId, row.title, row.question)" class="score-line">
                 <strong>{{ shortText(marketTitle(row), 64) }}</strong>
-                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ first(row.action, row.recommendation, row.risk, '观察') }}</span>
+                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ cleanInlineStatusText(first(row.action, row.recommendation, row.risk, '观察')) }}</span>
               </div>
               <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
             </div>
@@ -2648,14 +2751,14 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="qd-market-metrics">
                   <span><small>市场概率</small><b>{{ pctPoint(marketProbability(market)) }}</b></span>
-                  <span><small>AI/规则</small><b>{{ first(market.aiScoringMode, market.source, '规则评分') }}</b></span>
+                  <span><small>AI/规则</small><b>{{ cleanInlineStatusText(first(market.aiScoringMode, market.source, '规则评分')) }}</b></span>
                   <span><small>机会评分</small><b>{{ first(market.aiRuleScore, market.score, market.ruleScore, '--') }}</b></span>
                 </div>
                 <div class="qd-market-foot">
                   <span>成交 {{ money(first(market.volume24h, market.volume, market.volumeUsd)) }}</span>
                   <span>流动性 {{ money(first(market.liquidity, market.liquidityUsd, market.clobLiquidityUsd)) }}</span>
                   <b :title="first(market.recommendedAction, market.recommendation, 'SHADOW')">
-                    {{ shortText(first(market.recommendedAction, market.recommendation, 'SHADOW'), 16) }}
+                    {{ shortText(cleanInlineStatusText(first(market.recommendedAction, market.recommendation, 'SHADOW')), 16) }}
                   </b>
                 </div>
               </button>
@@ -2671,7 +2774,7 @@ onBeforeUnmount(() => {
             <div class="poly-score-stack">
               <div v-for="row in aiScores.slice(0, 4)" :key="first(row.marketId, row.title, row.question)" class="score-line">
                 <strong>{{ shortText(marketTitle(row), 64) }}</strong>
-                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ first(row.action, row.recommendation, row.risk, '观察') }}</span>
+                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ cleanInlineStatusText(first(row.action, row.recommendation, row.risk, '观察')) }}</span>
               </div>
               <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
             </div>
@@ -2703,7 +2806,7 @@ onBeforeUnmount(() => {
                   <span>{{ shortText(marketTitle(row), 74) }}</span>
                   <b class="pill">{{ pctPoint(first(row.probability, row.marketProbability)) }}</b>
                 </div>
-                <p>{{ shortText(first(row.reason, row.summary, row.recommendation, row.suggestedShadowTrack, '等待 shadow-only 研究'), 130) }}</p>
+                <p>{{ shortText(cleanInlineStatusText(first(row.reason, row.summary, row.recommendation, row.suggestedShadowTrack, '等待 shadow-only 研究')), 130) }}</p>
                 <div class="mini-row">
                   <span>成交 {{ money(first(row.volume24h, row.volume, row.volumeUsd)) }}</span>
                   <span>流动性 {{ money(first(row.liquidity, row.liquidityUsd, row.clobLiquidityUsd)) }}</span>
@@ -2721,7 +2824,7 @@ onBeforeUnmount(() => {
             <div class="history-list">
               <button v-for="row in workerQueue" :key="first(row.candidateId, row.marketId)" type="button">
                 <strong>{{ shortText(first(row.market, row.title, row.question, row.candidateId), 72) }}</strong>
-                <span>{{ first(row.cacheState, row.trendState, row.suggestedShadowTrack, 'shadow queue') }} · score {{ first(row.aiRuleScore, row.score, '--') }}</span>
+                <span>{{ cleanInlineStatusText(first(row.cacheState, row.trendState, row.suggestedShadowTrack, 'shadow queue')) }} · score {{ first(row.aiRuleScore, row.score, '--') }}</span>
               </button>
               <div v-if="!workerQueue.length" class="rail-empty">暂无长期 worker 队列。</div>
             </div>
@@ -2889,7 +2992,7 @@ onBeforeUnmount(() => {
                 <td>{{ shortText(first(task.candidateId, task.versionId, task.name), 42) }}</td>
                 <td>{{ first(task.route, task.strategy, task.symbol, '--') }}</td>
                 <td><span class="pill" :title="first(task.state, task.status, task.resultState, '--')">{{ compactStatusLabel(first(task.state, task.status, task.resultState, '--')) }}</span></td>
-                <td>{{ first(task.score, task.grade, task.profitFactor, '--') }}</td>
+                <td>{{ compactMetricScore(task.score, task.grade, task.profitFactor) }}</td>
                 <td>{{ shortText(first(task.reportPath, task.report, task.configPath), 64) }}</td>
               </tr>
               <tr v-if="!paramVisibleTasks.length"><td colspan="5">当前筛选没有 ParamLab 队列或结果。</td></tr>
@@ -2997,7 +3100,7 @@ onBeforeUnmount(() => {
               { label: '时间', value: (r) => first(r.Time, r.time, r.timestamp), width: '180px' },
               { label: '票据', value: (r) => first(r.Ticket, r.ticket), width: '100px' },
               { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '100px' },
-              { label: '动作', value: (r) => first(r.Action, r.action, r.Event), width: '120px', badge: true },
+              { label: '动作', value: (r) => compactStatusLabel(first(r.Action, r.action, r.Event)), width: '120px', badge: true },
               { label: '策略', value: (r) => first(r.Strategy, r.strategy, r.Route), max: 100 },
               { label: '备注', value: (r) => first(r.Reason, r.reason, r.Message), max: 130 }
             ]"
@@ -3009,7 +3112,7 @@ onBeforeUnmount(() => {
             :columns="[
               { label: '时间', value: (r) => first(r.Time, r.time, r.OpenTime, r.CloseTime), width: '180px' },
               { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '100px' },
-              { label: '方向', value: (r) => first(r.Direction, r.direction, r.Type), width: '90px', badge: true },
+              { label: '方向', value: (r) => compactStatusLabel(first(r.Direction, r.direction, r.Type)), width: '90px', badge: true },
               { label: '净值', value: (r) => first(r.NetProfit, r.Profit, r.netProfit), width: '100px' },
               { label: 'Regime', value: (r) => first(r.Regime, r.regime), width: '120px' },
               { label: '备注', value: (r) => first(r.Note, r.note, r.Reason), max: 130 }
@@ -3028,10 +3131,10 @@ onBeforeUnmount(() => {
               <tbody>
                 <tr v-for="market in marketRows" :key="first(market.marketId, market.slug)">
                   <td>{{ shortText(first(market.title, market.question, market.slug), 56) }}</td>
-                  <td>{{ first(market.category, '--') }}</td>
+                  <td>{{ humanEvidenceLabel(first(market.category, '--')) }}</td>
                   <td>{{ pct(first(market.probability, market.bestProbability)) }}</td>
                   <td>{{ money(first(market.volume, market.volumeUsd)) }}</td>
-                  <td>{{ first(market.risk, market.riskLevel, market.status, '--') }}</td>
+                  <td>{{ cleanInlineStatusText(first(market.risk, market.riskLevel, market.status, '--')) }}</td>
                 </tr>
                 <tr v-if="!marketRows.length"><td colspan="5">暂无市场目录证据。</td></tr>
               </tbody>

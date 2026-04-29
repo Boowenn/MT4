@@ -3306,6 +3306,55 @@ tbody tr:hover td {
   border-radius: 10px;
 }
 
+/* Local polish for dense rails/tables: avoid clipped status codes and horizontal drift. */
+.qd-right-rail,
+.ai-watch-rail,
+.command-rail,
+.history-list {
+  overflow-x: hidden;
+}
+
+.qd-right-rail *,
+.ai-watch-rail *,
+.command-rail * {
+  min-width: 0;
+}
+
+.rail-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rail-item b {
+  flex-basis: auto;
+  max-width: 116px;
+  min-width: 58px;
+}
+
+.status-chip,
+.pill {
+  min-width: 0;
+}
+
+.lane-chipset .status-chip {
+  flex: 0 1 auto;
+  max-width: 168px;
+}
+
+.risk-link-row,
+.governance-lane-rich {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+}
+
+.data-table .pill {
+  max-width: 100%;
+}
+
+.data-table td,
+.data-table th {
+  vertical-align: middle;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }
