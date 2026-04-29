@@ -292,6 +292,26 @@ h2 {
   gap: 16px;
 }
 
+.deep-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.deep-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.deep-heading h3 {
+  margin: 0;
+  font-size: 19px;
+}
+
 .toolbar {
   justify-content: space-between;
   gap: 18px;
@@ -330,6 +350,10 @@ h2 {
 
 .panel.dense {
   padding: 14px 16px;
+}
+
+.data-table-card {
+  padding: 14px;
 }
 
 .panel.empty,
@@ -489,6 +513,10 @@ h2 {
   border: 0;
 }
 
+.data-table-card .table-panel.embedded {
+  margin-top: 0;
+}
+
 table {
   width: 100%;
   min-width: 760px;
@@ -517,6 +545,57 @@ th {
 
 td {
   color: var(--muted);
+}
+
+.drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.evidence-drawer {
+  min-width: 0;
+  background: #111820;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.evidence-drawer summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.evidence-drawer summary::marker {
+  color: var(--blue);
+}
+
+.evidence-drawer summary small {
+  overflow: hidden;
+  color: var(--muted);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-drawer pre {
+  max-height: 380px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #d7e8ff;
+  background: #0b1118;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .notice {
@@ -552,7 +631,8 @@ td {
 
   .metric-grid.four,
   .card-grid,
-  .section-grid {
+  .section-grid,
+  .drawer-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
