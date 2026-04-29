@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -18,6 +19,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+
+def env_path(name: str, fallback: Path) -> Path:
+    value = os.environ.get(name, "").strip()
+    return Path(value).expanduser() if value else fallback
 
 
 TABLES: Mapping[str, Dict[str, Any]] = {
@@ -399,7 +405,10 @@ def query_all_search(con: sqlite3.Connection, query: str, limit: int) -> Dict[st
 
 
 def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offset: int) -> Dict[str, Any]:
-    db_path = repo_root / "archive" / "polymarket" / "history" / "QuantGod_PolymarketHistory.sqlite"
+    db_path = env_path(
+        "QG_POLYMARKET_HISTORY_DB",
+        repo_root / "archive" / "polymarket" / "history" / "QuantGod_PolymarketHistory.sqlite",
+    )
     base = {
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),

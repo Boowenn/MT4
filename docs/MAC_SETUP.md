@@ -26,7 +26,7 @@ cp .env.example .env.local
 If you copied the local migration bundle from Windows, use:
 
 ```bash
-cp runtime/mac_migration_env/quantgod.mac.env .env.local
+cp runtime/mac_import/env/quantgod.mac.env .env.local
 ```
 
 Load the env before starting tools:
@@ -40,8 +40,9 @@ set +a
 Important defaults for Mac:
 
 ```bash
-QG_RUNTIME_DIR=./Dashboard
-QG_MT5_FILES_DIR=./Dashboard
+QG_RUNTIME_DIR=./runtime/mac_import/mt5_files_snapshot
+QG_MT5_FILES_DIR=./runtime/mac_import/mt5_files_snapshot
+QG_POLYMARKET_HISTORY_DB=./runtime/mac_import/polymarket_history/QuantGod_PolymarketHistory.sqlite
 QG_MT5_TRADING_ENABLED=false
 QG_MT5_ADAPTIVE_APPLY_ENABLED=false
 QG_POLYMARKET_REAL_EXECUTION=false
@@ -54,12 +55,38 @@ These settings keep the Mac session read-only for MT5 and no-money for Polymarke
 
 The repo intentionally does not commit generated runtime ledgers, Polymarket history snapshots, or local SQLite state.
 
-If you copied the Windows bundle, restore it from the repo root:
+On Windows, generate a fresh bundle before moving to Mac:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/export_mac_runtime_bundle.ps1
+```
+
+This creates an ignored folder such as:
+
+```text
+runtime/mac_export_YYYYMMDD-HHMMSS/
+runtime/quantgod_mac_export_YYYYMMDD-HHMMSS.zip
+```
+
+The bundle includes:
+
+- `mt5_files_snapshot/`: current copied HFM `QuantGod*` files, including `QuantGod_Dashboard.json`, `QuantGod_TradeJournal.csv`, and `QuantGod_CloseHistory.csv` when they exist.
+- `dashboard_runtime_snapshot/`: Dashboard-side Polymarket and research snapshots.
+- `polymarket_history/`: SQLite history files.
+- `env/`: Mac env templates, with no filled secrets.
+
+On Mac, unzip or copy the generated folder to:
+
+```text
+runtime/mac_import/
+```
+
+If you want to restore snapshots into their normal repo locations instead of reading from `runtime/mac_import`, run:
 
 ```bash
-rsync -a runtime/mac_migration_env/Dashboard_runtime_snapshot/ Dashboard/
+rsync -a runtime/mac_import/dashboard_runtime_snapshot/ Dashboard/
 mkdir -p archive/polymarket/history
-rsync -a runtime/mac_migration_env/polymarket_history/ archive/polymarket/history/
+rsync -a runtime/mac_import/polymarket_history/ archive/polymarket/history/
 ```
 
 This restores files such as:
@@ -69,6 +96,8 @@ This restores files such as:
 - `Dashboard/QuantGod_PolymarketAutoGovernance.json`
 - `Dashboard/QuantGod_PolymarketRealTradeLedger.json`
 - `archive/polymarket/history/QuantGod_PolymarketHistory.sqlite`
+
+If `runtime/mac_import/manifest.json` reports missing MT5 realtime files, the Mac dashboard should treat MT5 account balance, current positions, and close history as unavailable rather than current HFM evidence. A static Mac import is a snapshot; it will not stay live unless you sync the Windows HFM Files directory continuously.
 
 ## 4. Start the Dashboard
 
@@ -89,7 +118,7 @@ The old `QuantGod_Dashboard.html` route is retired and redirects to `/vue/`.
 Create a private secrets file if you want LLM-backed scoring:
 
 ```bash
-cp runtime/mac_migration_env/quantgod.secrets.env.example runtime/mac_migration_env/quantgod.secrets.env
+cp runtime/mac_import/env/quantgod.secrets.env.example .env.local.secrets
 ```
 
 Fill one of:
@@ -104,7 +133,7 @@ Then run:
 ```bash
 set -a
 source .env.local
-source runtime/mac_migration_env/quantgod.secrets.env
+source .env.local.secrets
 set +a
 python tools/score_polymarket_ai_v1.py --llm-mode auto
 ```

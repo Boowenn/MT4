@@ -28,7 +28,9 @@ from typing import Any
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
 DEFAULT_HISTORY_DIR = Path(__file__).resolve().parents[1] / "archive" / "polymarket" / "history"
-DEFAULT_DB_PATH = DEFAULT_HISTORY_DIR / "QuantGod_PolymarketHistory.sqlite"
+DEFAULT_DB_PATH = Path(
+    os.environ.get("QG_POLYMARKET_HISTORY_DB", DEFAULT_HISTORY_DIR / "QuantGod_PolymarketHistory.sqlite")
+).expanduser()
 OUTPUT_NAME = "QuantGod_PolymarketAiScoreV1.json"
 CSV_NAME = "QuantGod_PolymarketAiScoreV1.csv"
 LLM_AUDIT_NAME = "QuantGod_PolymarketAiSemanticReview.json"
