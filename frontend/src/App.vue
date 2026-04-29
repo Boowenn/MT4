@@ -75,9 +75,35 @@ const polymarketNavItems = [
   { id: 'polymarket', focus: 'browser', label: '市场浏览', sub: '目录 / 详情', icon: ClipboardList },
   { id: 'polymarket', focus: 'radar', label: '机会雷达', sub: 'Gamma 扫描', icon: Target },
   { id: 'polymarket', focus: 'analysis', label: '单市场分析', sub: 'URL/标题入口', icon: Search },
-  { id: 'polymarket', focus: 'execution', label: '执行模拟', sub: 'Gate / dry-run', icon: WalletCards },
+  { id: 'polymarket', focus: 'execution', label: '执行模拟', sub: '准入 / 模拟', icon: WalletCards },
   { id: 'polymarket', focus: 'ledger', label: '重调账本', sub: '样本与日志', icon: BarChart3 }
 ];
+
+const polymarketFocusByHash = {
+  polymarket: 'overview',
+  'polymarket-overview': 'overview',
+  'polymarket-market-browser': 'browser',
+  'polymarket-browser': 'browser',
+  'polymarket-radar': 'radar',
+  'polymarket-analysis': 'analysis',
+  'polymarket-execution': 'execution',
+  'polymarket-ledger': 'ledger',
+  'section-polymarket': 'overview',
+  'section-polymarket-market-browser': 'browser',
+  'section-polymarket-radar': 'radar',
+  'section-polymarket-analysis': 'analysis',
+  'section-polymarket-execution': 'execution',
+  'section-polymarket-ledger': 'ledger'
+};
+
+const polymarketHashByFocus = {
+  overview: 'polymarket',
+  browser: 'polymarket-market-browser',
+  radar: 'polymarket-radar',
+  analysis: 'polymarket-analysis',
+  execution: 'polymarket-execution',
+  ledger: 'polymarket-ledger'
+};
 
 const routeDisplayMap = {
   MA_CROSS: 'MA',
@@ -91,14 +117,34 @@ function normalizeWorkspace(id) {
   return workspaces.some((item) => item.id === id) ? id : 'home';
 }
 
+function parseWorkspaceHash(hash) {
+  if (polymarketFocusByHash[hash]) {
+    return {
+      active: 'polymarket',
+      polymarketFocus: polymarketFocusByHash[hash]
+    };
+  }
+  return { active: normalizeWorkspace(hash || 'home') };
+}
+
+function hashForActive(active, focus = '') {
+  if (active === 'home') return '';
+  if (active === 'polymarket') {
+    const polymarketFocus = focus || state.polymarketFocus || 'overview';
+    return `#${polymarketHashByFocus[polymarketFocus] || 'polymarket'}`;
+  }
+  return `#${active}`;
+}
+
 function syncActiveFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, '');
-  state.active = normalizeWorkspace(hash || 'home');
+  const parsed = parseWorkspaceHash(hash);
+  state.active = parsed.active;
   if (workspaceDomainFor(state.active) === 'mt5') {
     state.mt5Focus = mt5DefaultFocus[state.active] || state.mt5Focus || 'overview';
   }
   if (state.active === 'polymarket') {
-    state.polymarketFocus = state.polymarketFocus || 'overview';
+    state.polymarketFocus = parsed.polymarketFocus || state.polymarketFocus || 'overview';
   }
 }
 
@@ -113,13 +159,14 @@ function setActive(id, focus = '') {
   if (workspaceDomainFor(state.active) === 'mt5') {
     state.mt5Focus = focus || mt5DefaultFocus[state.active] || state.mt5Focus || 'overview';
   }
-  if (state.active === 'polymarket' && focus) {
-    state.polymarketFocus = focus;
+  if (state.active === 'polymarket') {
+    state.polymarketFocus = focus || state.polymarketFocus || 'overview';
   }
-  const nextHash = state.active === 'home' ? '' : `#${state.active}`;
+  const nextHash = hashForActive(state.active, focus);
   if (window.location.hash !== nextHash) {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
   }
+  window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 function navItemActive(item) {
