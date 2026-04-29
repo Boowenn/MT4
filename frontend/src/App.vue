@@ -267,6 +267,36 @@ function money(value) {
   return n === null ? '--' : `$${n.toFixed(2)}`;
 }
 
+function positionTicket(row) {
+  const raw = first(
+    row?.ticket,
+    row?.Ticket,
+    row?.identifier,
+    row?.positionId,
+    row?.positionTicket,
+    row?.position_ticket,
+    row?.order,
+    row?.Order,
+    ''
+  );
+  return raw === '--' ? '' : raw;
+}
+
+function positionProfit(row) {
+  return first(row?.profit, row?.pnl, row?.unrealizedPnl, row?.actualProfit, row?.floatingProfit, row?.Profit);
+}
+
+function positionDirection(row) {
+  const raw = String(first(row?.type, row?.direction, row?.side, row?.cmd, '')).toUpperCase();
+  if (raw.includes('SELL') || raw === '1') return '卖出';
+  if (raw.includes('BUY') || raw === '0') return '买入';
+  return first(row?.type, row?.direction, row?.side, '--');
+}
+
+function positionCurrentPrice(row) {
+  return first(row?.priceCurrent, row?.price_current, row?.currentPrice, row?.price, row?.closePrice, row?.bid, row?.ask);
+}
+
 function pct(value) {
   const n = asNumber(value);
   if (n === null) return '--';
@@ -655,33 +685,26 @@ const mt5Account = computed(() => {
 const mt5Positions = computed(() => {
   const snap = mt5.value.snapshot || {};
   const latest = mt5.value.latest || {};
+  const openKeys = ['items', 'positions', 'openPositions', 'openTrades', 'open_trades'];
   const rows = [
-    ...arrayFrom(snap.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(snap.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(snap.trades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(snap.snapshot?.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(snap.snapshot?.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(latest.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(latest.openPositions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(latest.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(latest.open_trades, ['items', 'positions', 'openPositions', 'openTrades', 'trades'])
+    ...arrayFrom(snap.positions, openKeys),
+    ...arrayFrom(snap.openTrades, openKeys),
+    ...arrayFrom(snap.snapshot?.positions, openKeys),
+    ...arrayFrom(snap.snapshot?.openTrades, openKeys),
+    ...arrayFrom(latest.positions, openKeys),
+    ...arrayFrom(latest.openPositions, openKeys),
+    ...arrayFrom(latest.openTrades, openKeys),
+    ...arrayFrom(latest.open_trades, openKeys)
   ];
   const seenTickets = new Set();
   const seenFingerprints = new Set();
   return rows.filter((row, index) => {
-    const ticketKey = first(
-      row?.ticket,
-      row?.Ticket,
-      row?.identifier,
-      row?.positionTicket,
-      row?.position_ticket,
-      row?.order,
-      row?.Order,
-      ''
-    );
+    const closedMarker = String(first(row?.status, row?.state, row?.closeTime, row?.close_time, '')).toUpperCase();
+    if (/(CLOSED|HISTORY|SETTLED)/.test(closedMarker)) return false;
+    const ticketKey = String(positionTicket(row));
     const fingerprint = [
       String(first(row?.symbol, row?.Symbol, 'symbol')).toUpperCase(),
-      String(first(row?.type, row?.direction, row?.side, 'side')).toUpperCase(),
+      String(positionDirection(row)).toUpperCase(),
       Number(first(row?.volume, row?.lots, row?.actualLots, row?.Volume, 0)).toFixed(2),
       Number(first(row?.priceOpen, row?.price_open, row?.openPrice, 0)).toFixed(5),
       String(first(row?.comment, row?.route, row?.strategy, `row-${index}`)).toUpperCase()
@@ -699,9 +722,11 @@ const focusedPosition = computed(() => mt5Positions.value[0] || {});
 const duplicatedPositionEvidence = computed(() => {
   const latest = mt5.value.latest || {};
   const snap = mt5.value.snapshot || {};
+  const openKeys = ['items', 'positions', 'openPositions', 'openTrades', 'open_trades'];
   const rawCount = [
-    ...arrayFrom(snap.positions, ['items', 'positions', 'openPositions', 'openTrades', 'trades']),
-    ...arrayFrom(latest.openTrades, ['items', 'positions', 'openPositions', 'openTrades', 'trades'])
+    ...arrayFrom(snap.positions, openKeys),
+    ...arrayFrom(snap.openTrades, openKeys),
+    ...arrayFrom(latest.openTrades, openKeys)
   ].length;
   return Math.max(rawCount - mt5Positions.value.length, 0);
 });
@@ -1517,14 +1542,14 @@ const aiProviderCards = computed(() => [
 
 const watchlistItems = computed(() => [
   ...mt5Routes.value.slice(0, 5).map((row) => ({
-    title: shortText(first(row.label, row.route, row.strategy, row.versionId), 32),
+    title: first(row.label, row.route, row.strategy, row.versionId),
     sub: `${routeShortName(row)} · ${routeActionLabel(row)}`,
     value: `PF ${first(row.liveForward?.profitFactor, row.profitFactor, '--')}`,
     tone: routeToneClass(row) || 'blue',
     target: 'mt5'
   })),
   ...radarRows.value.slice(0, 5).map((row) => ({
-    title: shortText(first(row.market, row.title, row.question), 34),
+    title: first(row.market, row.title, row.question),
     sub: first(row.category, row.suggestedShadowTrack, 'Polymarket'),
     value: pct(first(row.probability, row.marketProbability)),
     tone: 'green',
@@ -1541,8 +1566,8 @@ const actionQueueItems = computed(() => [
     target: 'paramlab'
   })),
   ...governanceRows.value.slice(0, 3).map((row) => ({
-    title: shortText(first(row.market, row.title, row.marketId, row.decision), 34),
-    sub: first(row.action, row.recommendation, row.state, 'Polymarket 治理'),
+    title: governanceTitle(row),
+    sub: `${governanceDecisionLabel(row)} · ${blockerChips(row, 1).join(' / ') || '等待证据'}`,
     value: first(row.score, row.aiScore, row.confidence, '--'),
     tone: 'green',
     target: 'polymarket'
@@ -2099,16 +2124,16 @@ onBeforeUnmount(() => {
             <div class="position-list">
               <button
                 v-for="row in mt5Positions"
-                :key="first(row.ticket, row.identifier, row.timeIso)"
+                :key="first(positionTicket(row), row.timeIso)"
                 type="button"
                 class="position-row"
               >
                 <span>
                   <strong>{{ first(row.symbol, row.Symbol) }}</strong>
-                  <small>#{{ first(row.ticket, row.identifier, row.order) }} · {{ first(row.comment, row.route, row.strategy, 'EA / manual') }}</small>
+                  <small>#{{ positionTicket(row) || 'open' }} · {{ positionDirection(row) }} · {{ first(row.comment, row.route, row.strategy, 'EA / manual') }}</small>
                 </span>
-                <b :class="{ loss: asNumber(first(row.profit, row.pnl, row.unrealizedPnl)) < 0 }">
-                  {{ money(first(row.profit, row.pnl, row.unrealizedPnl)) }}
+                <b :class="{ loss: asNumber(positionProfit(row)) < 0 }">
+                  {{ money(positionProfit(row)) }}
                 </b>
               </button>
               <div v-if="!mt5Positions.length" class="rail-empty">只读桥没有返回持仓；请优先检查 MT5 bridge / latest snapshot。</div>
@@ -2126,15 +2151,15 @@ onBeforeUnmount(() => {
                 <h2>{{ first(focusedPosition.symbol, focusedPosition.Symbol, '暂无持仓') }}</h2>
                 <small>{{ first(focusedPosition.comment, focusedPosition.route, focusedPosition.strategy, '等待持仓证据') }}</small>
               </div>
-              <strong :class="{ loss: asNumber(first(focusedPosition.profit, focusedPosition.pnl, focusedPosition.unrealizedPnl)) < 0 }">
-                {{ money(first(focusedPosition.profit, focusedPosition.pnl, focusedPosition.unrealizedPnl)) }}
+              <strong :class="{ loss: asNumber(positionProfit(focusedPosition)) < 0 }">
+                {{ money(positionProfit(focusedPosition)) }}
               </strong>
             </div>
             <div class="trade-metric-grid">
-              <span><small>方向</small><b>{{ first(focusedPosition.type, focusedPosition.direction, focusedPosition.side, '--') }}</b></span>
+              <span><small>方向</small><b>{{ positionDirection(focusedPosition) }}</b></span>
               <span><small>手数</small><b>{{ first(focusedPosition.volume, focusedPosition.lots, focusedPosition.Volume, '--') }}</b></span>
               <span><small>开仓</small><b>{{ first(focusedPosition.priceOpen, focusedPosition.price_open, focusedPosition.openPrice, '--') }}</b></span>
-              <span><small>现价</small><b>{{ first(focusedPosition.priceCurrent, focusedPosition.price_current, focusedPosition.currentPrice, '--') }}</b></span>
+              <span><small>现价</small><b>{{ positionCurrentPrice(focusedPosition) }}</b></span>
               <span><small>SL</small><b>{{ first(focusedPosition.sl, focusedPosition.stopLoss, '--') }}</b></span>
               <span><small>TP</small><b>{{ first(focusedPosition.tp, focusedPosition.takeProfit, '--') }}</b></span>
             </div>
@@ -2248,15 +2273,15 @@ onBeforeUnmount(() => {
           :rows="mt5Positions"
           :columns="[
             { label: '品种', key: ['symbol', 'Symbol'], width: '112px', class: 'col-strong' },
-            { label: '方向', key: ['type', 'direction', 'side'], width: '84px', badge: true },
+            { label: '方向', value: positionDirection, width: '84px', badge: true },
             { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '74px', class: 'col-number' },
             { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '104px', class: 'col-number' },
-            { label: '平仓价', value: (r) => first(r.price_current, r.currentPrice, r.price, r.closePrice), width: '104px', class: 'col-number' },
+            { label: '现价', value: positionCurrentPrice, width: '104px', class: 'col-number' },
             {
               label: '浮盈',
-              value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)),
+              value: (r) => money(positionProfit(r)),
               tone: (r) => {
-                const value = asNumber(first(r.profit, r.pnl, r.unrealizedPnl));
+                const value = asNumber(positionProfit(r));
                 if (value < 0) return 'pnl-negative';
                 if (value > 0) return 'pnl-positive';
                 return 'pnl-flat';
@@ -2961,6 +2986,7 @@ onBeforeUnmount(() => {
               type="button"
               class="rail-item"
               :class="item.tone"
+              :title="`${item.title} · ${item.sub}`"
               @click="setActive(item.target)"
             >
               <span>
@@ -2983,6 +3009,7 @@ onBeforeUnmount(() => {
               type="button"
               class="rail-item compact"
               :class="item.tone"
+              :title="`${item.title} · ${item.sub}`"
               @click="setActive(item.target)"
             >
               <span>
