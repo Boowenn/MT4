@@ -298,6 +298,25 @@ function positionCurrentPrice(row) {
   return first(row?.priceCurrent, row?.price_current, row?.currentPrice, row?.price, row?.closePrice, row?.bid, row?.ask);
 }
 
+function booleanish(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  const raw = String(first(value, '')).trim().toLowerCase();
+  return ['true', '1', 'yes', 'y'].includes(raw);
+}
+
+function compactId(value, max = 14) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '--';
+  return raw.length > max ? `${raw.slice(0, Math.max(6, max - 4))}...` : raw;
+}
+
+function compactIsoTime(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '--';
+  return raw.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '').slice(0, 16);
+}
+
 function auditProfit(row) {
   return first(
     row?.Profit,
@@ -324,6 +343,119 @@ function pnlTone(value) {
   if (numeric < 0) return 'pnl-negative';
   if (numeric > 0) return 'pnl-positive';
   return 'pnl-flat';
+}
+
+function auditTime(row) {
+  return compactIsoTime(first(row?.EventTimeIso, row?.Time, row?.time, row?.timeIso, row?.timestamp));
+}
+
+function auditRecordId(row) {
+  return compactId(first(row?.Ticket, row?.ticket, row?.BrokerOrderTicket, row?.LedgerId, row?.EventId, row?.eventId, row?.order));
+}
+
+function auditScope(row) {
+  const endpoint = String(first(row?.Endpoint, row?.endpoint, '')).toLowerCase();
+  if (endpoint === 'login') return '账户登录';
+  return first(
+    row?.BrokerSymbol,
+    row?.brokerSymbol,
+    row?.Symbol,
+    row?.symbol,
+    row?.CanonicalSymbol,
+    row?.canonicalSymbol,
+    row?.Route,
+    row?.route,
+    '全局审计'
+  );
+}
+
+function auditActionText(row) {
+  const endpoint = String(first(row?.Endpoint, row?.endpoint, '')).toLowerCase();
+  const action = String(first(row?.Action, row?.action, '')).toLowerCase();
+  const decision = String(first(row?.Decision, row?.decision, '')).toUpperCase();
+  const dryRun = booleanish(row?.DryRun);
+  if (endpoint === 'login' || action === 'login') return dryRun ? '模拟登录' : '登录请求';
+  if (endpoint === 'order' || action === 'order') {
+    if (dryRun || decision.includes('DRY_RUN')) return '模拟下单';
+    return '下单请求';
+  }
+  if (endpoint === 'close' || action === 'close') return dryRun ? '模拟平仓' : '平仓请求';
+  if (endpoint === 'cancel' || action === 'cancel') return dryRun ? '模拟撤单' : '撤单请求';
+  return compactStatusLabel(first(row?.Action, row?.action, row?.Event, row?.event, row?.Endpoint, '--'));
+}
+
+function auditDirectionText(row) {
+  const raw = String(first(row?.OrderType, row?.orderType, row?.Side, row?.side, row?.Direction, row?.direction, '')).toLowerCase();
+  if (raw.includes('buy_limit')) return '买入挂单';
+  if (raw.includes('sell_limit')) return '卖出挂单';
+  if (raw.includes('buy')) return '买入';
+  if (raw.includes('sell')) return '卖出';
+  return '--';
+}
+
+function auditDecisionText(row) {
+  const decision = String(first(row?.Decision, row?.decision, row?.Result, row?.result, '')).toUpperCase();
+  if (!decision || decision === '--') return '--';
+  const map = {
+    DRY_RUN_ACCEPTED: '模拟记录',
+    DRY_RUN_REJECTED: '模拟拒绝',
+    ACCEPTED: '已接受',
+    REJECTED: '已拒绝',
+    BLOCKED: '已阻断',
+    LIVE_ALLOWED: '实盘允许',
+    LIVE_REJECTED: '实盘拒绝',
+    ORDER_SENT: '已发送',
+    ORDER_FAILED: '发送失败'
+  };
+  return map[decision] || compactStatusLabel(decision);
+}
+
+const auditReasonMap = {
+  dry_run: '模拟模式',
+  trading_config_disabled: '配置禁用交易',
+  trading_env_disabled: '环境禁用交易',
+  kill_switch_on: 'Kill switch',
+  dashboard_market_orders_disabled: '市价单禁用',
+  dashboard_pending_orders_disabled: '挂单禁用',
+  owner_mode_blocks_python_trading: 'Owner 仅 EA',
+  auth_lock_missing: '授权锁缺失',
+  auth_lock_unreadable: '授权锁不可读',
+  auth_lock_expiry_missing: '授权锁无过期',
+  signature_secret_missing: '签名密钥缺失',
+  lots_required: '缺手数',
+  route_symbol_daily_order_limit_reached: '路线/品种日限',
+  daily_order_limit_reached: '日下单上限',
+  route_not_allowed_by_config: '路线未授权',
+  login_disabled: '登录禁用',
+  order_send_disabled: '发送禁用',
+  spread_guard_blocked: '点差拦截',
+  session_guard_blocked: '时段拦截',
+  cooldown_guard_blocked: '冷却拦截',
+  portfolio_guard_blocked: '组合上限',
+  kill_switch_required: '需要 Kill switch',
+  live_not_allowed: '实盘未允许'
+};
+
+function auditReasonText(row, limit = 4) {
+  const reason = String(first(row?.Reason, row?.reason, row?.Message, row?.message, row?.Note, row?.note, '')).trim();
+  if (!reason || reason === '--') return '--';
+  const parts = reason.split(/[,;/]+/).map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) return cleanInlineStatusText(reason);
+  const labels = parts.map((part) => auditReasonMap[part] || cleanInlineStatusText(part));
+  const visible = labels.slice(0, limit).join(' / ');
+  return labels.length > limit ? `${visible} +${labels.length - limit}` : visible;
+}
+
+function auditLotsText(row) {
+  return first(row?.Lots, row?.lots, row?.Volume, row?.volume, '--');
+}
+
+function auditPriceText(row) {
+  return first(row?.Price, row?.price, row?.OpenPrice, row?.openPrice, '--');
+}
+
+function auditRouteText(row) {
+  return cleanInlineStatusText(first(row?.Route, row?.route, row?.Strategy, row?.strategy, row?.WorkerVersion, row?.workerVersion, '--'));
 }
 
 function pct(value) {
@@ -867,6 +999,27 @@ const mt5Positions = computed(() => {
   });
 });
 
+const mt5ClosedTrades = computed(() => {
+  const snap = mt5.value.snapshot || {};
+  const latest = mt5.value.latest || {};
+  const closedKeys = ['items', 'closedTrades', 'historyTrades', 'closed_positions', 'closed_trades'];
+  const rows = [
+    ...arrayFrom(snap.closedTrades, closedKeys),
+    ...arrayFrom(snap.historyTrades, closedKeys),
+    ...arrayFrom(snap.snapshot?.closedTrades, closedKeys),
+    ...arrayFrom(latest.closedTrades, closedKeys),
+    ...arrayFrom(latest.historyTrades, closedKeys),
+    ...arrayFrom(latest.closed_trades, closedKeys)
+  ];
+  const seen = new Set();
+  return rows.filter((row, index) => {
+    const key = String(first(row?.ticket, row?.Ticket, row?.positionId, row?.deal, row?.closeTime, `closed-${index}`));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 100);
+});
+
 const focusedPosition = computed(() => mt5Positions.value[0] || {});
 
 const duplicatedPositionEvidence = computed(() => {
@@ -1234,6 +1387,95 @@ const polyAccountCards = computed(() => {
       tone: env.lockFileOk === true ? 'amber' : 'blue'
     }
   ];
+});
+
+function parseJsonList(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+const polyResearchSnapshot = computed(() => {
+  const recent = poly.value.history?.recent || {};
+  const research = recent.research || recent.snapshot || {};
+  const snapshots = arrayFrom(recent, ['snapshots', 'researchSnapshots']);
+  return research && Object.keys(research).length ? research : (snapshots[0] || {});
+});
+
+const polyRiskEvents = computed(() => parseJsonList(first(
+  polyResearchSnapshot.value.topRiskEventsJson,
+  polyResearchSnapshot.value.top_risk_events_json,
+  '[]'
+)));
+
+const polyRealSummaryCards = computed(() => {
+  const row = polyResearchSnapshot.value || {};
+  const summary = poly.value.history?.summary || {};
+  const executedPnl = first(row.executedPnl, row.executed_pnl, '--');
+  const pnlNumber = asNumber(executedPnl);
+  return [
+    {
+      label: '真钱已结算',
+      value: first(row.executedClosed, row.executed_closed, summary.executedClosed, 0),
+      detail: `胜率 ${pct(first(row.executedWinRate, row.executed_win_rate, '--'))}`,
+      tone: 'blue'
+    },
+    {
+      label: '真钱 PF',
+      value: first(row.executedPf, row.executed_pf, '--'),
+      detail: `净收益 ${money(executedPnl)}`,
+      tone: pnlNumber === null ? 'blue' : (pnlNumber < 0 ? 'red' : 'green')
+    },
+    {
+      label: '账户现金',
+      value: money(first(row.accountCash, row.account_cash, '--')),
+      detail: `bankroll ${money(first(row.bankroll, row.configuredBankrollUSDC, '--'))}`,
+      tone: 'green'
+    },
+    {
+      label: '认证状态',
+      value: cleanInlineStatusText(first(row.authState, row.auth_state, '--')),
+      detail: first(row.generatedAt, row.generated_at, '--'),
+      tone: 'amber'
+    }
+  ];
+});
+
+const polyCurrentRealRows = computed(() => {
+  const direct = [
+    ...arrayFrom(poly.value.history, ['openPositions', 'positions', 'activePositions', 'openTrades', 'realOpenPositions']),
+    ...arrayFrom(poly.value.canaryRun, ['openPositions', 'positions', 'activePositions', 'plannedOrders']),
+    ...arrayFrom(poly.value.canary, ['openPositions', 'positions', 'activePositions']),
+    ...arrayFrom(poly.value.ledgers, ['canaryPositions']),
+    ...arrayFrom(poly.value.ledgers, ['canaryOrderAudit'])
+  ];
+  return direct.filter((row) => {
+    if (!row || typeof row !== 'object') return false;
+    const status = String(first(row.status, row.state, row.positionState, row.position_state, row.decision, '')).toUpperCase();
+    const orderSent = String(first(row.orderSent, row.order_sent, row.order_send_allowed, row.orderSendAllowed, '')).toLowerCase();
+    const hasStake = asNumber(first(row.stakeUSDC, row.stake_usdc, row.stake, row.amount, row.size, null)) !== null;
+    const hasMarket = first(row.question, row.market, row.title, row.marketId, row.market_id, '') !== '--';
+    if (!hasMarket) return false;
+    if (/(CLOSED|SETTLED|NO_REAL_ORDER_SENT|DRY_RUN|BLOCKED|HEADER)/.test(status)) return false;
+    if (orderSent === 'false' && !hasStake) return false;
+    return true;
+  }).slice(0, 20);
+});
+
+const polyRealEvidenceNote = computed(() => {
+  if (polyCurrentRealRows.value.length) return `${polyCurrentRealRows.value.length} 条当前真钱进行中记录。`;
+  const pending = polyRiskEvents.value.find((event) => String(event.event || '').toUpperCase() === 'ACTIVE_EXIT_PENDING');
+  const auditRows = first(poly.value.history?.summary?.canaryOrderAuditRows, 0);
+  if (pending) {
+    return `当前未发现可核验的 row-level 持仓；历史日志曾出现 ACTIVE_EXIT_PENDING ${pending.entries} 次，最近 ${pending.latestIso}。`;
+  }
+  if (Number(auditRows) === 0) return '当前 canary/order audit 为 0，未发现真钱订单审计行；D:\\polymarket 当前为空目录。';
+  return '当前没有可核验的真钱进行中持仓。';
 });
 
 function marketTitle(row) {
@@ -1714,7 +1956,7 @@ const watchlistItems = computed(() => [
 
 const actionQueueItems = computed(() => [
   ...paramVisibleTasks.value.slice(0, 5).map((row) => ({
-    title: shortText(first(row.candidateId, row.versionId, row.taskId), 34),
+    title: first(row.candidateId, row.versionId, row.taskId),
     sub: `${paramRouteLabel(row)} · ${compactStatusLabel(first(row.state, row.status, row.resultState, '等待'))}`,
     value: compactMetricScore(row.score, row.grade, row.profitFactor),
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
@@ -1959,8 +2201,22 @@ onBeforeUnmount(() => {
                 <b>{{ item.value }}</b>
               </button>
               <div class="calendar-mini">
-                <div><CalendarDays :size="14" /> 今日待办</div>
-                <span v-for="item in actionQueueItems.slice(0, 3)" :key="`cal-${item.title}`">{{ item.title }} · {{ item.sub }}</span>
+                <div class="calendar-mini-title"><CalendarDays :size="14" /> 今日待办</div>
+                <button
+                  v-for="item in actionQueueItems.slice(0, 3)"
+                  :key="`cal-${item.title}`"
+                  type="button"
+                  class="calendar-mini-item"
+                  :class="item.tone"
+                  :title="`${item.title} · ${item.sub}`"
+                  @click="setActive(item.target)"
+                >
+                  <strong>{{ item.title }}</strong>
+                  <small>
+                    {{ item.sub }}
+                    <b v-if="item.value && item.value !== '--'">{{ item.value }}</b>
+                  </small>
+                </button>
               </div>
             </aside>
           </div>
@@ -2131,8 +2387,8 @@ onBeforeUnmount(() => {
               @click="setActive(row.target)"
             >
               <span>
-                <strong>{{ shortText(row.title, 42) }}</strong>
-                <small>{{ shortText(row.detail, 64) }}</small>
+                <strong>{{ row.title }}</strong>
+                <small>{{ row.detail }}</small>
                 <em>{{ row.source }}</em>
               </span>
             </button>
@@ -2288,7 +2544,7 @@ onBeforeUnmount(() => {
                   {{ money(positionProfit(row)) }}
                 </b>
               </button>
-              <div v-if="!mt5Positions.length" class="rail-empty">只读桥没有返回持仓；请优先检查 MT5 bridge / latest snapshot。</div>
+              <div v-if="!mt5Positions.length" class="rail-empty">当前无持仓；实盘历史在下方“平仓记录”表。</div>
             </div>
           </aside>
 
@@ -2346,8 +2602,8 @@ onBeforeUnmount(() => {
             </div>
             <div class="history-list compact-history">
               <button v-for="row in tradingAuditRows.slice(0, 4)" :key="first(row.time, row.ticket, row.eventId)" type="button">
-                <strong>{{ shortText(first(row.event, row.action, row.route, row.comment), 48) }}</strong>
-                <span>{{ shortText(first(row.time, row.timeIso, row.symbol, row.result), 56) }}</span>
+                <strong>{{ shortText(`${auditActionText(row)} · ${auditScope(row)}`, 48) }}</strong>
+                <span>{{ shortText(`${auditTime(row)} · ${auditReasonText(row, 2)}`, 56) }}</span>
               </button>
               <div v-if="!tradingAuditRows.length" class="rail-empty">暂无交易审计 ledger 行。</div>
             </div>
@@ -2443,21 +2699,50 @@ onBeforeUnmount(() => {
             },
             { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 120 }
           ]"
-          empty="当前没有 MT5 持仓，或只读桥未返回 positions。"
+          empty="当前没有 MT5 持仓；查看下方“实盘平仓记录”可回看历史。"
         />
 
         <DataTable
           v-if="state.mt5Focus === 'trades'"
-          title="EA 交易记录 / 审计 Ledger"
+          title="实盘平仓记录 / Closed Trades"
+          dense
+          :rows="mt5ClosedTrades"
+          :columns="[
+            { label: '平仓时间', value: (r) => compactIsoTime(first(r.closeTime, r.CloseTime, r.timeClose, r.close_time)), width: '136px' },
+            { label: '票据', value: (r) => compactId(first(r.ticket, r.Ticket, r.positionId, r.deal), 12), width: '96px' },
+            { label: '品种', value: (r) => first(r.symbol, r.Symbol), width: '98px', class: 'col-strong' },
+            { label: '方向', value: positionDirection, width: '82px', badge: true },
+            { label: '手数', value: (r) => first(r.lots, r.actualLots, r.volume, r.Volume), width: '74px', class: 'col-number' },
+            { label: '开仓价', value: (r) => first(r.openPrice, r.priceOpen, r.price_open), width: '92px', class: 'col-number' },
+            { label: '平仓价', value: (r) => first(r.closePrice, r.priceClose, r.price_close), width: '92px', class: 'col-number' },
+            {
+              label: '盈亏',
+              value: (r) => money(positionProfit(r)),
+              tone: (r) => pnlTone(positionProfit(r)),
+              width: '86px',
+              class: 'col-pnl'
+            },
+            { label: '策略', value: (r) => cleanInlineStatusText(first(r.strategy, r.route, r.comment)), width: '124px' },
+            { label: '持仓时长', value: (r) => first(r.durationMinutes, r.duration, '--') === '--' ? '--' : `${first(r.durationMinutes, r.duration)}m`, width: '92px' },
+            { label: '开仓时间', value: (r) => compactIsoTime(first(r.openTime, r.OpenTime, r.timeOpen, r.open_time)), width: '136px' }
+          ]"
+          empty="当前没有实盘平仓记录；/api/latest closedTrades 暂无返回。"
+        />
+
+        <DataTable
+          v-if="state.mt5Focus === 'trades'"
+          title="MT5 桥接审计 / EA 交易记录"
           dense
           :rows="tradingAuditRows"
           :columns="[
-            { label: '时间', value: (r) => first(r.Time, r.time, r.timeIso, r.timestamp), width: '176px' },
-            { label: '票据', value: (r) => first(r.Ticket, r.ticket, r.EventId, r.eventId, r.order, '--'), width: '104px' },
-            { label: '品种', value: (r) => first(r.Symbol, r.symbol, r.Instrument, '--'), width: '102px', class: 'col-strong' },
-            { label: '动作', value: (r) => compactStatusLabel(first(r.Action, r.action, r.Event, r.event, r.Type)), width: '118px', badge: true },
-            { label: '方向', value: (r) => compactStatusLabel(first(r.Direction, r.direction, r.Side, r.side, r.Type)), width: '88px', badge: true },
-            { label: '手数', value: (r) => first(r.Lots, r.lots, r.Volume, r.volume, '--'), width: '76px', class: 'col-number' },
+            { label: '时间', value: auditTime, width: '142px' },
+            { label: '记录', value: auditRecordId, width: '108px' },
+            { label: '范围', value: auditScope, width: '118px', class: 'col-strong' },
+            { label: '动作', value: auditActionText, width: '104px', badge: true },
+            { label: '方向', value: auditDirectionText, width: '92px', badge: true },
+            { label: '手数', value: auditLotsText, width: '76px', class: 'col-number' },
+            { label: '价格', value: auditPriceText, width: '86px', class: 'col-number' },
+            { label: '路线', value: auditRouteText, width: '118px' },
             {
               label: '盈亏',
               value: auditProfitText,
@@ -2465,19 +2750,19 @@ onBeforeUnmount(() => {
               width: '94px',
               class: 'col-pnl'
             },
-            { label: '策略/路线', value: (r) => cleanInlineStatusText(first(r.Strategy, r.strategy, r.Route, r.route, r.Comment, r.comment)), max: 96 },
-            { label: '结果/原因', value: (r) => cleanInlineStatusText(first(r.Result, r.result, r.Reason, r.reason, r.Message, r.message, r.Note, r.note)), max: 130 }
+            { label: '决策', value: auditDecisionText, width: '104px', badge: true },
+            { label: '主要原因', value: (r) => auditReasonText(r), max: 132 }
           ]"
-          empty="暂无 EA 交易记录；等待 QuantGod trading audit ledger 刷新。"
+          empty="暂无 MT5 桥接审计记录；等待 trading audit ledger 刷新。"
         />
 
-        <div v-if="state.mt5Focus === 'trades'" class="card-grid three">
+        <div v-if="state.mt5Focus === 'trades'" class="card-grid three trade-summary-grid">
           <article class="panel dense">
             <div class="panel-title split">
               <span>交易边界</span>
               <b class="pill green">只读</b>
             </div>
-            <p>这里只看 EA / 人工单快照，不改订单、不强平、不调整 live switch。人工单与 EA 单仍分开统计。</p>
+            <p class="summary-line">只看 EA / 人工单快照；不下单、不强平、不改 live switch。</p>
             <div class="mini-row">
               <span>持仓 {{ mt5Positions.length }}</span>
               <span>最大单仓 {{ first(mt5.snapshot?.maxTotalPositions, mt5.snapshot?.risk?.maxTotalPositions, 1) }}</span>
@@ -2489,11 +2774,11 @@ onBeforeUnmount(() => {
               <span>当前焦点路线</span>
               <b class="pill blue">{{ routeActionLabel(primaryRoute) }}</b>
             </div>
-            <p>{{ shortText(routeWhyText(primaryRoute), 160) }}</p>
+            <p class="summary-line">{{ shortText(routeWhyText(primaryRoute), 92) }}</p>
             <div class="mini-row secondary">
               <span>{{ routeShortName(primaryRoute) }}</span>
               <span>PF {{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, '--') }}</span>
-              <span>{{ routeBlockerText(primaryRoute) }}</span>
+              <span>{{ shortText(routeBlockerText(primaryRoute), 42) }}</span>
             </div>
           </article>
           <article class="panel dense">
@@ -2501,7 +2786,7 @@ onBeforeUnmount(() => {
               <span>审计入口</span>
               <b class="pill amber">ledger</b>
             </div>
-            <p>需要查看完整 ledger、shadow、outcome、手动样本时，切到证据报表；这里保留交易页的紧凑快照。</p>
+            <p class="summary-line">完整 ledger / shadow / outcome 在证据报表；这里保留交易页快照。</p>
             <button class="ghost-button small" type="button" @click="setActive('reports')">打开证据报表</button>
           </article>
         </div>
@@ -2686,6 +2971,41 @@ onBeforeUnmount(() => {
               <div v-if="!governanceRows.length" class="rail-empty">暂无自动治理建议；保持只读与模拟执行。</div>
             </div>
           </article>
+          <article class="panel poly-real-summary">
+            <div class="panel-title split">
+              <span>真钱执行快照</span>
+              <b class="pill blue">只读核验</b>
+            </div>
+            <div class="poly-real-metric-grid">
+              <div
+                v-for="card in polyRealSummaryCards"
+                :key="card.label"
+                class="micro-metric poly-real-metric"
+                :class="card.tone"
+              >
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+                <small>{{ card.detail }}</small>
+              </div>
+            </div>
+            <div class="poly-current-real">
+              <div class="panel-title split compact-title">
+                <span>当前真钱进行中</span>
+                <small>{{ polyCurrentRealRows.length }} 条</small>
+              </div>
+              <div v-if="polyCurrentRealRows.length" class="history-list poly-real-list">
+                <button
+                  v-for="row in polyCurrentRealRows"
+                  :key="first(row.runId, row.run_id, row.marketId, row.market_id, row.question)"
+                  type="button"
+                >
+                  <strong>{{ first(row.question, row.market, row.title, row.marketId, row.market_id) }}</strong>
+                  <span>{{ cleanInlineStatusText(first(row.positionState, row.position_state, row.status, row.state, row.decision, 'open')) }} · {{ first(row.side, row.outcome, row.direction, '--') }} · {{ money(first(row.stakeUSDC, row.stake_usdc, row.stake, row.amount, row.size, '--')) }}</span>
+                </button>
+              </div>
+              <p v-else class="summary-line">{{ polyRealEvidenceNote }}</p>
+            </div>
+          </article>
           <article class="panel">
             <div class="panel-title split">
               <span>跨市场风险联动</span>
@@ -2836,6 +3156,35 @@ onBeforeUnmount(() => {
             <div class="panel-title split">
               <span>执行模拟边界</span>
               <small>Gate + dry-run + watcher</small>
+            </div>
+            <div class="poly-real-inline">
+              <div
+                v-for="card in polyRealSummaryCards"
+                :key="`execution-${card.label}`"
+                class="micro-metric poly-real-metric"
+                :class="card.tone"
+              >
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+                <small>{{ card.detail }}</small>
+              </div>
+            </div>
+            <div class="poly-current-real execution-current">
+              <div class="panel-title split compact-title">
+                <span>真钱当前进行中</span>
+                <small>{{ polyCurrentRealRows.length }} 条</small>
+              </div>
+              <div v-if="polyCurrentRealRows.length" class="history-list poly-real-list">
+                <button
+                  v-for="row in polyCurrentRealRows"
+                  :key="`execution-current-${first(row.runId, row.run_id, row.marketId, row.market_id, row.question)}`"
+                  type="button"
+                >
+                  <strong>{{ first(row.question, row.market, row.title, row.marketId, row.market_id) }}</strong>
+                  <span>{{ cleanInlineStatusText(first(row.positionState, row.position_state, row.status, row.state, row.decision, 'open')) }} · {{ first(row.side, row.outcome, row.direction, '--') }} · {{ money(first(row.stakeUSDC, row.stake_usdc, row.stake, row.amount, row.size, '--')) }}</span>
+                </button>
+              </div>
+              <p v-else class="summary-line">{{ polyRealEvidenceNote }}</p>
             </div>
             <div class="canary-contract-grid">
               <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="canary-card">
@@ -3097,12 +3446,14 @@ onBeforeUnmount(() => {
             title="MT5 交易审计"
             :rows="tradingAuditRows"
             :columns="[
-              { label: '时间', value: (r) => first(r.Time, r.time, r.timestamp), width: '180px' },
-              { label: '票据', value: (r) => first(r.Ticket, r.ticket), width: '100px' },
-              { label: '品种', value: (r) => first(r.Symbol, r.symbol), width: '100px' },
-              { label: '动作', value: (r) => compactStatusLabel(first(r.Action, r.action, r.Event)), width: '120px', badge: true },
-              { label: '策略', value: (r) => first(r.Strategy, r.strategy, r.Route), max: 100 },
-              { label: '备注', value: (r) => first(r.Reason, r.reason, r.Message), max: 130 }
+              { label: '时间', value: auditTime, width: '142px' },
+              { label: '记录', value: auditRecordId, width: '108px' },
+              { label: '范围', value: auditScope, width: '118px', class: 'col-strong' },
+              { label: '动作', value: auditActionText, width: '104px', badge: true },
+              { label: '方向', value: auditDirectionText, width: '92px', badge: true },
+              { label: '路线', value: auditRouteText, width: '118px' },
+              { label: '决策', value: auditDecisionText, width: '104px', badge: true },
+              { label: '主要原因', value: (r) => auditReasonText(r), max: 132 }
             ]"
             empty="暂无 MT5 审计记录。"
           />

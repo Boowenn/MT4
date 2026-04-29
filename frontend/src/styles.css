@@ -3250,6 +3250,22 @@ body {
   margin-top: 12px;
 }
 
+.page-mt5[data-focus="trades"] .mt5-trade-workbench {
+  grid-template-columns: minmax(280px, 0.78fr) minmax(460px, 1.22fr);
+  align-items: start;
+}
+
+.page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: none;
+}
+
+.page-mt5[data-focus="trades"] .trade-focus-card {
+  min-width: 0;
+}
+
 .page-mt5[data-focus="trades"] .workbench-hero {
   grid-template-columns: minmax(0, 0.8fr) minmax(520px, 1.2fr);
 }
@@ -3261,6 +3277,51 @@ body {
 
 .page-mt5[data-focus="trades"] .card-grid.three {
   grid-template-columns: 1fr 1fr 1fr;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid {
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid .panel.dense {
+  min-height: 0;
+  padding: 12px 14px;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid .panel-title {
+  margin-bottom: 6px;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid .summary-line {
+  min-height: 0;
+  margin: 0;
+  color: #b8c7d9;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid .mini-row {
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid .mini-row span {
+  min-height: 22px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.page-mt5[data-focus="trades"] .trade-summary-grid .ghost-button.small {
+  min-height: 26px;
+  padding: 4px 8px;
+}
+
+@media (max-width: 1180px) {
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench,
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
+    grid-template-columns: 1fr;
+  }
 }
 
 .data-table-card,
@@ -3329,6 +3390,148 @@ tbody tr:hover td {
   flex-basis: auto;
   max-width: 116px;
   min-width: 58px;
+}
+
+.calendar-mini-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f3f8ff;
+  font-weight: 900;
+}
+
+.calendar-mini-item,
+.ai-watch-item.rail-item {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  text-align: left;
+  background: #20242b;
+  border: 1px solid #313741;
+  border-radius: 8px;
+}
+
+.calendar-mini-item {
+  color: var(--text);
+}
+
+.calendar-mini-item strong,
+.calendar-mini-item small,
+.ai-watch-item strong,
+.ai-watch-item small {
+  display: block;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+
+.calendar-mini-item strong,
+.ai-watch-item strong {
+  color: #eff6ff;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.calendar-mini-item small,
+.ai-watch-item small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.calendar-mini-item small {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.calendar-mini-item b {
+  padding: 1px 5px;
+  color: #8fd0ff;
+  background: rgba(31, 155, 255, 0.12);
+  border: 1px solid rgba(31, 155, 255, 0.28);
+  border-radius: 5px;
+  font-size: 10px;
+}
+
+.ai-watch-item span {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-watch-item em {
+  margin-top: 2px;
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.poly-real-summary,
+.poly-current-real {
+  min-width: 0;
+}
+
+.poly-real-metric-grid,
+.poly-real-inline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.poly-real-inline {
+  margin-bottom: 10px;
+}
+
+.poly-real-metric {
+  min-height: 70px;
+}
+
+.poly-real-metric.red {
+  border-color: rgba(255, 109, 125, 0.4);
+  background: rgba(255, 109, 125, 0.08);
+}
+
+.poly-real-metric.green {
+  border-color: rgba(88, 219, 150, 0.35);
+  background: rgba(88, 219, 150, 0.07);
+}
+
+.poly-real-metric.amber {
+  border-color: rgba(255, 193, 92, 0.35);
+  background: rgba(255, 193, 92, 0.07);
+}
+
+.poly-current-real {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.compact-title {
+  margin-bottom: 8px;
+}
+
+.summary-line {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.poly-real-list button strong,
+.poly-real-list button span {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+@media (max-width: 1160px) {
+  .poly-real-metric-grid,
+  .poly-real-inline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .status-chip,
