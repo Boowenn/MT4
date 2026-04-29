@@ -33,7 +33,7 @@ OUTPUT_NAME = "QuantGod_PolymarketAiScoreV1.json"
 CSV_NAME = "QuantGod_PolymarketAiScoreV1.csv"
 LLM_AUDIT_NAME = "QuantGod_PolymarketAiSemanticReview.json"
 SCHEMA_VERSION = "POLYMARKET_AI_SCORE_V1_LLM_SEMANTIC_OPTIONAL"
-DEFAULT_LLM_ENV_FILE = Path(r"D:\polymarket\.env")
+DEFAULT_LLM_ENV_FILE = Path(os.environ.get("QG_POLYMARKET_LLM_ENV_FILE", r"D:\polymarket\.env"))
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 LLM_WEIGHT = 0.32
 

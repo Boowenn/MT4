@@ -9,7 +9,9 @@ const host = process.env.QG_DASHBOARD_HOST || '127.0.0.1';
 const port = Number.parseInt(process.env.QG_DASHBOARD_PORT || '8080', 10) || 8080;
 const rootDir = __dirname;
 const repoRoot = path.resolve(rootDir, '..');
-const defaultRuntimeDir = 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
+const defaultRuntimeDir = process.env.QG_RUNTIME_DIR
+  || process.env.QG_MT5_FILES_DIR
+  || 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
 const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
 const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
 const polymarketRadarWorkerName = 'QuantGod_PolymarketRadarWorkerV2.json';

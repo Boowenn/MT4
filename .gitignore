@@ -1,6 +1,9 @@
 *.ex4
 *.ex5
 *.log
+.env
+.env.*
+!.env.example
 __pycache__/
 node_modules/
 frontend/node_modules/
