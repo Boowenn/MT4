@@ -2471,6 +2471,85 @@
             padding: 0;
         }
 
+        .mt5-control-form-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(120px, 1fr));
+            gap: 10px;
+            padding: 12px;
+            align-items: end;
+        }
+
+        .mt5-control-form-grid.compact {
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        }
+
+        .mt5-control-field {
+            min-width: 0;
+            display: grid;
+            gap: 5px;
+        }
+
+        .mt5-control-field label {
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .mt5-control-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 0 12px 12px;
+            align-items: center;
+        }
+
+        .mt5-control-form-grid .polymarket-history-api-input,
+        .mt5-control-form-grid .polymarket-history-api-select {
+            min-width: 0 !important;
+            width: 100%;
+        }
+
+        .mt5-shadow-panel .qd-route-button,
+        .mt5-control-button {
+            width: auto;
+            min-height: 34px;
+            padding: 7px 12px;
+            border: 1px solid #3a4556;
+            border-radius: 6px;
+            background: #202934;
+            color: #dbe7f3;
+            font-size: 12px;
+            font-weight: 900;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .mt5-shadow-panel .qd-route-button:hover,
+        .mt5-control-button:hover {
+            background: rgba(19, 144, 255, 0.18);
+            border-color: rgba(19, 144, 255, 0.52);
+            color: #f2f8ff;
+        }
+
+        .mt5-control-button.primary {
+            background: rgba(19, 144, 255, 0.2);
+            border-color: rgba(19, 144, 255, 0.58);
+            color: #b9e0ff;
+        }
+
+        .strategy-version-section {
+            min-width: 0;
+            border: 1px solid #2d3440;
+            border-radius: 8px;
+            background: #171b21;
+            padding: 12px;
+        }
+
+        .strategy-version-section .strategy-version-grid {
+            margin-top: 0.7rem;
+        }
+
         .mt5-shadow-note {
             display: flex;
             flex-wrap: wrap;
@@ -3389,6 +3468,9 @@
             .trades-grid { grid-template-columns: 1fr; }
             .mt5-shadow-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .mt5-shadow-grid { grid-template-columns: 1fr; }
+            .mt5-control-form-grid,
+            .mt5-control-form-grid.compact { grid-template-columns: 1fr; }
+            .mt5-control-actions { justify-content: flex-start; }
             .strategy-cards { grid-template-columns: 1fr; }
             .strategy-workspace-grid { grid-template-columns: 1fr; }
             .eval-card-times { flex-basis: 180px; }
@@ -7013,7 +7095,7 @@
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-strategy-workspace"><span class="qd-menu-icon">▤</span><span><strong>Strategy & Live</strong><em>策略工作台</em></span></a>
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-monitor"><span class="qd-menu-icon">⌁</span><span><strong>Indicator Market</strong><em>品种监控</em></span></a>
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-research"><span class="qd-menu-icon">⌘</span><span><strong>ParamLab</strong><em>回测闭环</em></span></a>
-            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>Trading Bot</strong><em>EA 只读</em></span></a>
+            <a class="qd-menu-item" data-workspace-link="mt5" href="#section-trades"><span class="qd-menu-icon">⇄</span><span><strong>交易机器人</strong><em>EA 只读</em></span></a>
             <a class="qd-menu-item" data-workspace-link="mt5" href="#section-reports"><span class="qd-menu-icon">◫</span><span><strong>Reports</strong><em>证据报表</em></span></a>
             <div class="qd-menu-separator" data-workspace-label="polymarket">Polymarket</div>
             <a class="qd-menu-item" data-workspace-link="polymarket" href="#section-polymarket"><span class="qd-menu-icon">◇</span><span><strong>治理总览</strong><em>账户与边界</em></span></a>
@@ -7025,7 +7107,7 @@
         </div>
         <div class="qd-menu-footer">
             <strong>Guardrail:</strong><br>
-            0.01 live pilot · EA OrderSend only · no credential changes.
+            0.01 实盘试运行 · 仅 EA OrderSend · 不改凭证。
         </div>
     </aside>
 
@@ -7542,29 +7624,29 @@
                     <div class="panel-header">
                         <div class="panel-title">
                             <div class="icon" style="background: rgba(16,185,129,0.15); color: var(--accent-green);">V</div>
-                            Strategy Version Registry + Optimizer V2
+                            策略版本注册表 + 优化器 V2
                         </div>
                         <span class="eval-summary" id="strategyVersionOptimizerSummary">等待版本与优化器</span>
                     </div>
                     <div class="panel-body">
                         <div class="research-window-meta" id="strategyVersionOptimizerMeta">
-                            版本登记沉淀当前策略参数、父子候选和证据；Optimizer V2 只生成 tester-only 下一轮参数建议，不写 live preset。
+                            版本登记沉淀当前策略参数、父子候选和证据；优化器 V2 只生成测试器专用的下一轮参数建议，不写入实盘 preset。
                         </div>
                         <div class="strategy-version-panel-grid">
-                            <div>
-                                <div class="strategy-workspace-meta">Strategy Version Registry</div>
+                            <div class="strategy-version-section">
+                                <div class="strategy-workspace-meta">策略版本注册表</div>
                                 <div class="strategy-version-grid" id="strategyVersionRegistryBody">
                                     <div class="empty-state">等待 QuantGod_StrategyVersionRegistry.json</div>
                                 </div>
                             </div>
-                            <div>
-                                <div class="strategy-workspace-meta">Optimizer V2</div>
+                            <div class="strategy-version-section">
+                                <div class="strategy-workspace-meta">优化器 V2</div>
                                 <div class="strategy-version-grid" id="optimizerV2Body">
                                     <div class="empty-state">等待 QuantGod_OptimizerV2Plan.json</div>
                                 </div>
                             </div>
-                            <div class="strategy-version-panel-wide">
-                                <div class="strategy-workspace-meta">Version Promotion Gate</div>
+                            <div class="strategy-version-panel-wide strategy-version-section">
+                                <div class="strategy-workspace-meta">版本晋级闸门</div>
                                 <div class="strategy-version-grid" id="versionPromotionGateBody">
                                     <div class="empty-state">等待 QuantGod_VersionPromotionGate.json</div>
                                 </div>
@@ -8070,27 +8152,27 @@
                             <div class="icon" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">SR</div>
                             MT5 品种映射
                         </div>
-                        <span class="eval-summary" id="mt5SymbolRegistrySummary">等待 symbol registry</span>
+                            <span class="eval-summary" id="mt5SymbolRegistrySummary">等待品种注册表</span>
                     </div>
                     <div class="panel-body">
                         <div class="mt5-shadow-panel">
                             <div class="mt5-shadow-meta" id="mt5SymbolRegistryMeta">
-                                将 HFM broker symbol 归一为 canonical symbol，供 Dashboard 和研究层复用；这里只读展示，不选择品种、不下单。
+                                将 HFM 券商品种归一为标准品种，供 Dashboard 和研究层复用；这里只读展示，不选择品种、不下单。
                             </div>
                             <div class="mt5-shadow-note" id="mt5SymbolRegistryPills">
-                                <span class="mt5-shadow-pill">symbolSelect=false</span>
-                                <span class="mt5-shadow-pill">read-only API</span>
+                                <span class="mt5-shadow-pill">不执行 symbol_select</span>
+                                <span class="mt5-shadow-pill">只读 API</span>
                             </div>
                             <div class="mt5-shadow-metrics" id="mt5SymbolRegistryMetrics">
                                 <div class="mt5-shadow-metric">
-                                    <div class="mt5-shadow-metric-label">Registry</div>
+                                    <div class="mt5-shadow-metric-label">注册表</div>
                                     <div class="mt5-shadow-metric-value">--</div>
                                     <div class="mt5-shadow-metric-meta">等待 /api/mt5-symbol-registry</div>
                                 </div>
                             </div>
                             <div class="mt5-shadow-subpanel">
                                 <div class="mt5-shadow-subpanel-header">
-                                    <div class="mt5-shadow-subpanel-title">Broker → Canonical Mapping</div>
+                                    <div class="mt5-shadow-subpanel-title">券商品种 → 标准品种映射</div>
                                     <div class="mt5-shadow-subpanel-meta" id="mt5SymbolRegistryTableMeta">等待映射</div>
                                 </div>
                                 <div class="mt5-shadow-subpanel-body">
@@ -8098,8 +8180,8 @@
                                         <table>
                                             <thead>
                                                 <tr>
-                                                    <th>Canonical</th>
-                                                    <th>Broker</th>
+                                                    <th>标准品种</th>
+                                                    <th>券商品种</th>
                                                     <th>资产类</th>
                                                     <th>后缀</th>
                                                     <th>交易规格</th>
@@ -8108,7 +8190,7 @@
                                                 </tr>
                                             </thead>
                                             <tbody id="mt5SymbolRegistryBody">
-                                                <tr><td colspan="7" class="empty-state">等待 symbol registry</td></tr>
+                                                <tr><td colspan="7" class="empty-state">等待品种注册表</td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -8140,11 +8222,11 @@
                     <div class="panel-body">
                         <div class="mt5-shadow-panel">
                             <div class="mt5-shadow-meta" id="mt5ReadonlyMeta">
-                                等待本地 dashboard server 返回 MT5 status/account/positions/orders/symbols/quote snapshot。
+                                等待本地 Dashboard 服务返回 MT5 状态、账户、持仓、挂单、品种和报价快照。
                             </div>
                             <div class="mt5-shadow-note" id="mt5ReadonlyPills">
-                                <span class="mt5-shadow-pill">read-only</span>
-                                <span class="mt5-shadow-pill">no order/close/cancel</span>
+                                <span class="mt5-shadow-pill">只读</span>
+                                <span class="mt5-shadow-pill">不下单 / 不平仓 / 不撤单</span>
                             </div>
                             <div class="mt5-shadow-metrics" id="mt5ReadonlyMetrics">
                                 <div class="mt5-shadow-metric">
@@ -8156,15 +8238,15 @@
                             <div class="dashboard-grid mt5-shadow-grid">
                                 <div class="mt5-shadow-subpanel">
                                     <div class="mt5-shadow-subpanel-header">
-                                        <div class="mt5-shadow-subpanel-title">Positions</div>
-                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlyPositionsMeta">等待 positions</div>
+                                        <div class="mt5-shadow-subpanel-title">当前持仓</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlyPositionsMeta">等待持仓</div>
                                     </div>
                                     <div class="mt5-shadow-subpanel-body">
                                         <div class="table-wrapper">
                                             <table>
                                                 <thead>
                                                     <tr>
-                                                        <th>Ticket</th>
+                                                        <th>票号</th>
                                                         <th>品种</th>
                                                         <th>方向</th>
                                                         <th>手数</th>
@@ -8174,7 +8256,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody id="mt5ReadonlyPositionsBody">
-                                                    <tr><td colspan="7" class="empty-state">等待 positions</td></tr>
+                                                    <tr><td colspan="7" class="empty-state">等待持仓</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
@@ -8182,15 +8264,15 @@
                                 </div>
                                 <div class="mt5-shadow-subpanel">
                                     <div class="mt5-shadow-subpanel-header">
-                                        <div class="mt5-shadow-subpanel-title">Orders</div>
-                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlyOrdersMeta">等待 pending orders</div>
+                                        <div class="mt5-shadow-subpanel-title">挂单</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlyOrdersMeta">等待挂单</div>
                                     </div>
                                     <div class="mt5-shadow-subpanel-body">
                                         <div class="table-wrapper">
                                             <table>
                                                 <thead>
                                                     <tr>
-                                                        <th>Ticket</th>
+                                                        <th>票号</th>
                                                         <th>品种</th>
                                                         <th>类型</th>
                                                         <th>剩余</th>
@@ -8200,7 +8282,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody id="mt5ReadonlyOrdersBody">
-                                                    <tr><td colspan="7" class="empty-state">等待 orders</td></tr>
+                                                    <tr><td colspan="7" class="empty-state">等待挂单</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
@@ -8210,7 +8292,7 @@
                             <div class="mt5-shadow-subpanel">
                                 <div class="mt5-shadow-subpanel-header">
                                     <div class="mt5-shadow-subpanel-title">Symbol Discovery</div>
-                                    <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlySymbolsMeta">等待 symbols</div>
+                                        <div class="mt5-shadow-subpanel-meta" id="mt5ReadonlySymbolsMeta">等待品种</div>
                                 </div>
                                 <div class="mt5-shadow-subpanel-body">
                                     <div class="table-wrapper" style="max-height: 320px; overflow-y: auto;">
@@ -8226,7 +8308,7 @@
                                                 </tr>
                                             </thead>
                                             <tbody id="mt5ReadonlySymbolsBody">
-                                                <tr><td colspan="6" class="empty-state">等待 symbols</td></tr>
+                                                    <tr><td colspan="6" class="empty-state">等待品种</td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -8247,73 +8329,107 @@
                     <div class="panel-body">
                         <div class="mt5-shadow-panel">
                             <div class="mt5-shadow-meta" id="mt5TradingControlMeta">
-                                等待 /api/mt5/status；默认 dry-run，实盘 mutation 需要 env、config、授权锁和审计同时通过。
+                                等待 /api/mt5/status；默认模拟，实盘变更需要环境变量、配置、授权锁和审计同时通过。
                             </div>
                             <div class="mt5-shadow-note" id="mt5TradingControlPills">
-                                <span class="mt5-shadow-pill">dry-run default</span>
-                                <span class="mt5-shadow-pill">audit ledger</span>
-                                <span class="mt5-shadow-pill">auth lock required</span>
+                                <span class="mt5-shadow-pill">默认模拟</span>
+                                <span class="mt5-shadow-pill">审计账本</span>
+                                <span class="mt5-shadow-pill">需要授权锁</span>
                             </div>
                             <div class="mt5-shadow-metrics" id="mt5TradingControlMetrics">
                                 <div class="mt5-shadow-metric">
-                                    <div class="mt5-shadow-metric-label">Trading</div>
+                                    <div class="mt5-shadow-metric-label">交易控制</div>
                                     <div class="mt5-shadow-metric-value">LOCKED</div>
-                                    <div class="mt5-shadow-metric-meta">等待 guarded bridge</div>
+                                    <div class="mt5-shadow-metric-meta">等待受保护桥接</div>
                                 </div>
                             </div>
                             <div class="mt5-shadow-subpanel" style="margin-bottom: 12px;">
                                 <div class="mt5-shadow-subpanel-header">
-                                    <div class="mt5-shadow-subpanel-title">Account Profile / Login Gate</div>
-                                    <div class="mt5-shadow-subpanel-meta">profile 不保存密码，login 只读锁态下会审计阻断</div>
+                                    <div class="mt5-shadow-subpanel-title">MT5 账号档案 / 登录闸门</div>
+                                    <div class="mt5-shadow-subpanel-meta">档案不保存密码；登录检查默认只写审计，不改变实盘权限</div>
                                 </div>
                                 <div class="mt5-shadow-subpanel-body">
-                                    <div class="strategy-workspace-action-row">
-                                        <input class="polymarket-history-api-input" id="mt5ProfileId" type="text" value="hfm-live" aria-label="Profile ID" style="min-width: 120px;">
-                                        <input class="polymarket-history-api-input" id="mt5ProfileLogin" type="number" value="186054398" aria-label="Account login" style="min-width: 130px;">
-                                        <input class="polymarket-history-api-input" id="mt5ProfileServer" type="text" value="HFMarketsGlobal-Live12" aria-label="Server" style="min-width: 190px;">
-                                        <input class="polymarket-history-api-input" id="mt5ProfileTerminal" type="text" value="C:\Program Files\HFM Metatrader 5\terminal64.exe" aria-label="Terminal path" style="min-width: 260px;">
-                                        <input class="polymarket-history-api-input" id="mt5ProfilePasswordEnv" type="text" value="QG_MT5_HFM_PASSWORD" aria-label="Password env var" style="min-width: 170px;">
-                                        <button type="button" class="qd-route-button" id="mt5ProfileSaveButton">Save Profile</button>
-                                        <button type="button" class="qd-route-button" id="mt5ProfileLoginButton">Login</button>
+                                    <div class="mt5-control-form-grid">
+                                        <div class="mt5-control-field">
+                                            <label for="mt5ProfileId">档案 ID</label>
+                                            <input class="polymarket-history-api-input" id="mt5ProfileId" type="text" value="hfm-live" aria-label="档案 ID">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5ProfileLogin">账号</label>
+                                            <input class="polymarket-history-api-input" id="mt5ProfileLogin" type="number" value="186054398" aria-label="MT5 账号">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5ProfileServer">服务器</label>
+                                            <input class="polymarket-history-api-input" id="mt5ProfileServer" type="text" value="HFMarketsGlobal-Live12" aria-label="服务器">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5ProfileTerminal">终端路径</label>
+                                            <input class="polymarket-history-api-input" id="mt5ProfileTerminal" type="text" value="C:\Program Files\HFM Metatrader 5\terminal64.exe" aria-label="MT5 终端路径">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5ProfilePasswordEnv">密码环境变量</label>
+                                            <input class="polymarket-history-api-input" id="mt5ProfilePasswordEnv" type="text" value="QG_MT5_HFM_PASSWORD" aria-label="密码环境变量">
+                                        </div>
+                                    </div>
+                                    <div class="mt5-control-actions">
+                                        <button type="button" class="mt5-control-button primary" id="mt5ProfileSaveButton">保存档案</button>
+                                        <button type="button" class="mt5-control-button" id="mt5ProfileLoginButton">登录检查</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformConnectButton">记录连接</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformDisconnectButton">记录断开</button>
                                     </div>
                                 </div>
                             </div>
                             <div class="mt5-shadow-subpanel" style="margin-bottom: 12px;">
                                 <div class="mt5-shadow-subpanel-header">
-                                    <div class="mt5-shadow-subpanel-title">MT5 Platform Registry</div>
+                                    <div class="mt5-shadow-subpanel-title">MT5 平台注册表</div>
                                     <div class="mt5-shadow-subpanel-meta" id="mt5PlatformRegistryMeta">等待平台库</div>
                                 </div>
                                 <div class="mt5-shadow-subpanel-body">
-                                    <div class="strategy-workspace-action-row">
-                                        <button type="button" class="qd-route-button" id="mt5PlatformCredentialSaveButton">Save Credential</button>
-                                        <button type="button" class="qd-route-button" id="mt5PlatformConnectButton">Record Connect</button>
-                                        <input class="polymarket-history-api-input" id="mt5PlatformStrategyId" type="text" value="MA_EURUSD_M15" aria-label="Strategy ID" style="min-width: 140px;">
-                                        <input class="polymarket-history-api-input" id="mt5PlatformStrategyRoute" type="text" value="MA_Cross" aria-label="Strategy route" style="min-width: 120px;">
-                                        <input class="polymarket-history-api-input" id="mt5PlatformStrategySymbol" type="text" value="EURUSDc" aria-label="Strategy symbol" style="min-width: 110px;">
-                                        <select class="polymarket-history-api-select" id="mt5PlatformStrategyTimeframe" aria-label="Strategy timeframe">
-                                            <option value="M5">M5</option>
-                                            <option value="M15" selected>M15</option>
-                                            <option value="H1">H1</option>
-                                            <option value="H4">H4</option>
-                                        </select>
-                                        <select class="polymarket-history-api-select" id="mt5PlatformStrategyMode" aria-label="Execution mode">
-                                            <option value="dry_run">DRY RUN</option>
-                                            <option value="signal">SIGNAL</option>
-                                        </select>
-                                        <button type="button" class="qd-route-button" id="mt5PlatformStrategySaveButton">Save Strategy</button>
+                                    <div class="mt5-control-form-grid compact">
+                                        <div class="mt5-control-field">
+                                            <label for="mt5PlatformStrategyId">策略 ID</label>
+                                            <input class="polymarket-history-api-input" id="mt5PlatformStrategyId" type="text" value="MA_EURUSD_M15" aria-label="策略 ID">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5PlatformStrategyRoute">路线</label>
+                                            <input class="polymarket-history-api-input" id="mt5PlatformStrategyRoute" type="text" value="MA_Cross" aria-label="策略路线">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5PlatformStrategySymbol">券商品种</label>
+                                            <input class="polymarket-history-api-input" id="mt5PlatformStrategySymbol" type="text" value="EURUSDc" aria-label="券商品种">
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5PlatformStrategyTimeframe">周期</label>
+                                            <select class="polymarket-history-api-select" id="mt5PlatformStrategyTimeframe" aria-label="策略周期">
+                                                <option value="M5">M5</option>
+                                                <option value="M15" selected>M15</option>
+                                                <option value="H1">H1</option>
+                                                <option value="H4">H4</option>
+                                            </select>
+                                        </div>
+                                        <div class="mt5-control-field">
+                                            <label for="mt5PlatformStrategyMode">执行模式</label>
+                                            <select class="polymarket-history-api-select" id="mt5PlatformStrategyMode" aria-label="执行模式">
+                                                <option value="dry_run">模拟</option>
+                                                <option value="signal">信号</option>
+                                            </select>
+                                        </div>
                                     </div>
-                                    <div class="strategy-workspace-action-row" style="margin-top: 8px;">
-                                        <button type="button" class="qd-route-button" id="mt5PlatformEnqueueButton">Queue Intent</button>
-                                        <button type="button" class="qd-route-button" id="mt5PlatformQuickTradeButton">Quick Ticket</button>
-                                        <button type="button" class="qd-route-button" id="mt5PlatformDispatchButton">Dispatch Dry-Run</button>
-                                        <button type="button" class="qd-route-button" id="mt5PlatformReconcileButton">Reconcile</button>
-                                        <button type="button" class="qd-route-button" id="mt5PlatformSymbolsSyncButton">Sync Symbols</button>
+                                    <div class="mt5-control-actions">
+                                        <button type="button" class="mt5-control-button primary" id="mt5PlatformCredentialSaveButton">保存凭证元数据</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformStrategySaveButton">保存策略</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformEnqueueButton">加入队列</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformQuickTradeButton">快速票据</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformDispatchButton">模拟派单</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformDbWorkerButton">运行 DB Worker</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformReconcileButton">同步只读快照</button>
+                                        <button type="button" class="mt5-control-button" id="mt5PlatformSymbolsSyncButton">同步品种</button>
                                     </div>
                                     <div class="dashboard-grid mt5-shadow-grid" style="margin-top: 12px;">
                                         <div class="mt5-shadow-subpanel">
                                             <div class="mt5-shadow-subpanel-header">
-                                                <div class="mt5-shadow-subpanel-title">Credentials / Strategies</div>
-                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformProfileMeta">0 profiles</div>
+                                                <div class="mt5-shadow-subpanel-title">凭证 / 策略</div>
+                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformProfileMeta">0 个档案</div>
                                             </div>
                                             <div class="mt5-shadow-subpanel-body">
                                                 <div class="table-wrapper" style="max-height: 220px; overflow-y: auto;">
@@ -8321,14 +8437,14 @@
                                                         <thead>
                                                             <tr>
                                                                 <th>ID</th>
-                                                                <th>Server</th>
-                                                                <th>Login</th>
-                                                                <th>Secret Ref</th>
-                                                                <th>Status</th>
+                                                                <th>服务器</th>
+                                                                <th>账号</th>
+                                                                <th>密钥引用</th>
+                                                                <th>状态</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody id="mt5PlatformCredentialsBody">
-                                                            <tr><td colspan="5" class="empty-state">等待 credentials</td></tr>
+                                                            <tr><td colspan="5" class="empty-state">等待凭证元数据</td></tr>
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -8336,15 +8452,15 @@
                                                     <table>
                                                         <thead>
                                                             <tr>
-                                                                <th>Strategy</th>
-                                                                <th>Route</th>
+                                                                <th>策略</th>
+                                                                <th>路线</th>
                                                                 <th>品种</th>
-                                                                <th>TF</th>
-                                                                <th>Mode</th>
+                                                                <th>周期</th>
+                                                                <th>模式</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody id="mt5PlatformStrategiesBody">
-                                                            <tr><td colspan="5" class="empty-state">等待 strategies</td></tr>
+                                                            <tr><td colspan="5" class="empty-state">等待策略配置</td></tr>
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -8352,24 +8468,24 @@
                                         </div>
                                         <div class="mt5-shadow-subpanel">
                                             <div class="mt5-shadow-subpanel-header">
-                                                <div class="mt5-shadow-subpanel-title">Queue / Reconcile</div>
-                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformQueueMeta">0 queued</div>
+                                                <div class="mt5-shadow-subpanel-title">队列 / 对账</div>
+                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformQueueMeta">0 个排队订单</div>
                                             </div>
                                             <div class="mt5-shadow-subpanel-body">
                                                 <div class="table-wrapper" style="max-height: 280px; overflow-y: auto;">
                                                     <table>
                                                         <thead>
                                                             <tr>
-                                                                <th>Order</th>
+                                                                <th>订单</th>
                                                                 <th>品种</th>
-                                                                <th>Side</th>
-                                                                <th>Lots</th>
-                                                                <th>Status</th>
-                                                                <th>Ops</th>
+                                                                <th>方向</th>
+                                                                <th>手数</th>
+                                                                <th>状态</th>
+                                                                <th>操作</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody id="mt5PlatformQueueBody">
-                                                            <tr><td colspan="6" class="empty-state">等待 pending_orders</td></tr>
+                                                            <tr><td colspan="6" class="empty-state">等待挂单队列</td></tr>
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -8377,15 +8493,95 @@
                                                     <table>
                                                         <thead>
                                                             <tr>
-                                                                <th>Position</th>
+                                                                <th>持仓</th>
                                                                 <th>品种</th>
-                                                                <th>Side</th>
-                                                                <th>Lots</th>
-                                                                <th>PnL</th>
+                                                                <th>方向</th>
+                                                                <th>手数</th>
+                                                                <th>浮盈亏</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody id="mt5PlatformPositionsBody">
-                                                            <tr><td colspan="5" class="empty-state">等待 positions</td></tr>
+                                                            <tr><td colspan="5" class="empty-state">等待持仓对账</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="dashboard-grid mt5-shadow-grid" style="margin-top: 12px;">
+                                        <div class="mt5-shadow-subpanel">
+                                            <div class="mt5-shadow-subpanel-header">
+                                                <div class="mt5-shadow-subpanel-title">连接会话 / Worker 任务</div>
+                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformSessionMeta">0 个会话</div>
+                                            </div>
+                                            <div class="mt5-shadow-subpanel-body">
+                                                <div class="table-wrapper" style="max-height: 220px; overflow-y: auto;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>时间</th>
+                                                                <th>事件</th>
+                                                                <th>账号</th>
+                                                                <th>服务器</th>
+                                                                <th>状态</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformSessionsBody">
+                                                            <tr><td colspan="5" class="empty-state">等待连接会话</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div class="table-wrapper" style="max-height: 180px; overflow-y: auto; margin-top: 10px;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>任务</th>
+                                                                <th>类型</th>
+                                                                <th>状态</th>
+                                                                <th>完成时间</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformTasksBody">
+                                                            <tr><td colspan="4" class="empty-state">等待 worker 任务</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="mt5-shadow-subpanel">
+                                            <div class="mt5-shadow-subpanel-header">
+                                                <div class="mt5-shadow-subpanel-title">成交账本 / 品种目录</div>
+                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformLedgerMeta">0 笔成交</div>
+                                            </div>
+                                            <div class="mt5-shadow-subpanel-body">
+                                                <div class="table-wrapper" style="max-height: 220px; overflow-y: auto;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>交易</th>
+                                                                <th>品种</th>
+                                                                <th>方向</th>
+                                                                <th>手数</th>
+                                                                <th>状态</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformTradesBody">
+                                                            <tr><td colspan="5" class="empty-state">等待成交记录</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div class="table-wrapper" style="max-height: 180px; overflow-y: auto; margin-top: 10px;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>标准品种</th>
+                                                                <th>券商品种</th>
+                                                                <th>类别</th>
+                                                                <th>最小/步进</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformSymbolsBody">
+                                                            <tr><td colspan="4" class="empty-state">等待品种目录</td></tr>
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -8397,55 +8593,89 @@
                             <div class="dashboard-grid mt5-shadow-grid">
                                 <div class="mt5-shadow-subpanel">
                                     <div class="mt5-shadow-subpanel-header">
-                                        <div class="mt5-shadow-subpanel-title">Dry-Run Order Ticket</div>
-                                        <div class="mt5-shadow-subpanel-meta">发送到 /api/mt5/order</div>
+                                        <div class="mt5-shadow-subpanel-title">模拟订单票据</div>
+                                        <div class="mt5-shadow-subpanel-meta">提交到 /api/mt5/order，默认 dry-run 审计</div>
                                     </div>
                                     <div class="mt5-shadow-subpanel-body">
-                                        <div class="strategy-workspace-action-row">
-                                            <input class="polymarket-history-api-input" id="mt5TradeRoute" type="text" value="MA_Cross" aria-label="Route" style="min-width: 110px;">
-                                            <input class="polymarket-history-api-input" id="mt5TradeSymbol" type="text" value="EURUSDc" aria-label="Symbol" style="min-width: 110px;">
-                                            <select class="polymarket-history-api-select" id="mt5TradeSide" aria-label="Side">
-                                                <option value="buy">BUY</option>
-                                                <option value="sell">SELL</option>
-                                            </select>
-                                            <select class="polymarket-history-api-select" id="mt5TradeOrderType" aria-label="Order type">
-                                                <option value="buy_limit">BUY LIMIT</option>
-                                                <option value="sell_limit">SELL LIMIT</option>
-                                                <option value="buy">BUY MARKET</option>
-                                                <option value="sell">SELL MARKET</option>
-                                            </select>
-                                            <input class="polymarket-history-api-input" id="mt5TradeLots" type="number" value="0.01" step="0.01" min="0" aria-label="Lots" style="width: 82px;">
-                                            <input class="polymarket-history-api-input" id="mt5TradePrice" type="number" value="0" step="0.00001" aria-label="Price" style="width: 112px;">
-                                            <input class="polymarket-history-api-input" id="mt5TradeSl" type="number" value="0" step="0.00001" aria-label="SL" style="width: 112px;">
-                                            <input class="polymarket-history-api-input" id="mt5TradeTp" type="number" value="0" step="0.00001" aria-label="TP" style="width: 112px;">
+                                        <div class="mt5-control-form-grid compact">
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeRoute">路线</label>
+                                                <input class="polymarket-history-api-input" id="mt5TradeRoute" type="text" value="MA_Cross" aria-label="路线">
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeSymbol">品种</label>
+                                                <input class="polymarket-history-api-input" id="mt5TradeSymbol" type="text" value="EURUSDc" aria-label="品种">
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeSide">方向</label>
+                                                <select class="polymarket-history-api-select" id="mt5TradeSide" aria-label="方向">
+                                                    <option value="buy">买入</option>
+                                                    <option value="sell">卖出</option>
+                                                </select>
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeOrderType">类型</label>
+                                                <select class="polymarket-history-api-select" id="mt5TradeOrderType" aria-label="订单类型">
+                                                    <option value="buy_limit">买入限价</option>
+                                                    <option value="sell_limit">卖出限价</option>
+                                                    <option value="buy">市价买入</option>
+                                                    <option value="sell">市价卖出</option>
+                                                </select>
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeLots">手数</label>
+                                                <input class="polymarket-history-api-input" id="mt5TradeLots" type="number" value="0.01" step="0.01" min="0" aria-label="手数">
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradePrice">价格</label>
+                                                <input class="polymarket-history-api-input" id="mt5TradePrice" type="number" value="0" step="0.00001" aria-label="价格">
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeSl">止损</label>
+                                                <input class="polymarket-history-api-input" id="mt5TradeSl" type="number" value="0" step="0.00001" aria-label="止损">
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TradeTp">止盈</label>
+                                                <input class="polymarket-history-api-input" id="mt5TradeTp" type="number" value="0" step="0.00001" aria-label="止盈">
+                                            </div>
+                                        </div>
+                                        <div class="mt5-control-actions">
                                             <label class="mt5-shadow-pill" style="display: inline-flex; gap: 6px; align-items: center;">
                                                 <input id="mt5TradeDryRun" type="checkbox" checked>
-                                                dry-run
+                                                模拟
                                             </label>
-                                            <button type="button" class="qd-route-button" id="mt5TradeOrderButton">Order</button>
+                                            <button type="button" class="mt5-control-button primary" id="mt5TradeOrderButton">提交模拟</button>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="mt5-shadow-subpanel">
                                     <div class="mt5-shadow-subpanel-header">
-                                        <div class="mt5-shadow-subpanel-title">Ticket Ops</div>
-                                        <div class="mt5-shadow-subpanel-meta">close / cancel 均走同一授权锁</div>
+                                        <div class="mt5-shadow-subpanel-title">持仓 / 挂单操作</div>
+                                        <div class="mt5-shadow-subpanel-meta">平仓和撤单共用同一授权锁；默认不会实盘执行</div>
                                     </div>
                                     <div class="mt5-shadow-subpanel-body">
-                                        <div class="strategy-workspace-action-row">
-                                            <input class="polymarket-history-api-input" id="mt5TicketInput" type="number" value="0" min="0" aria-label="Ticket" style="min-width: 140px;">
-                                            <input class="polymarket-history-api-input" id="mt5TicketLots" type="number" value="0" min="0" step="0.01" aria-label="Close lots" style="width: 88px;">
-                                            <button type="button" class="qd-route-button" id="mt5TradeCloseButton">Close</button>
-                                            <button type="button" class="qd-route-button" id="mt5TradeCancelButton">Cancel</button>
-                                            <button type="button" class="qd-route-button" id="mt5PendingWorkerRunButton">Run Worker</button>
-                                            <button type="button" class="qd-route-button" id="mt5AdaptiveStageButton">Stage Adaptive</button>
+                                        <div class="mt5-control-form-grid" style="grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.7fr);">
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TicketInput">票号</label>
+                                                <input class="polymarket-history-api-input" id="mt5TicketInput" type="number" value="0" min="0" aria-label="票号">
+                                            </div>
+                                            <div class="mt5-control-field">
+                                                <label for="mt5TicketLots">平仓手数</label>
+                                                <input class="polymarket-history-api-input" id="mt5TicketLots" type="number" value="0" min="0" step="0.01" aria-label="平仓手数">
+                                            </div>
+                                        </div>
+                                        <div class="mt5-control-actions">
+                                            <button type="button" class="mt5-control-button" id="mt5TradeCloseButton">平仓检查</button>
+                                            <button type="button" class="mt5-control-button" id="mt5TradeCancelButton">撤单检查</button>
+                                            <button type="button" class="mt5-control-button" id="mt5PendingWorkerRunButton">运行文件 Worker</button>
+                                            <button type="button" class="mt5-control-button" id="mt5AdaptiveStageButton">生成自适应草案</button>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div class="mt5-shadow-subpanel">
                                 <div class="mt5-shadow-subpanel-header">
-                                    <div class="mt5-shadow-subpanel-title">Audit / Platform</div>
+                                    <div class="mt5-shadow-subpanel-title">审计 / 平台</div>
                                     <div class="mt5-shadow-subpanel-meta" id="mt5TradingAuditMeta">等待审计状态</div>
                                 </div>
                                 <div class="mt5-shadow-subpanel-body">
@@ -8779,7 +9009,7 @@
                     <div class="panel-body" style="padding: 0;">
                         <div class="paramlab-batch-toolbar">
                             <div class="paramlab-batch-meta" id="mt5ResearchStatsMeta">
-                                串联 TradeJournal、CloseHistory、OutcomeLabels、EventLinks 和 Symbol Registry，按 route x canonical symbol x regime 汇总；只读，不触发下单。
+                                串联 TradeJournal、CloseHistory、OutcomeLabels、EventLinks 和品种注册表，按路线 x 标准品种 x 市场状态汇总；只读，不触发下单。
                             </div>
                             <div class="paramlab-batch-counters" id="mt5ResearchStatsCounters"></div>
                         </div>
@@ -8787,15 +9017,15 @@
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Route</th>
-                                        <th>Canonical</th>
-                                        <th>Regime</th>
-                                        <th>Samples</th>
+                                        <th>路线</th>
+                                        <th>标准品种</th>
+                                        <th>市场状态</th>
+                                        <th>样本</th>
                                         <th>P&amp;L</th>
                                         <th>PF / Win</th>
-                                        <th>Links</th>
-                                        <th>Labels</th>
-                                        <th>State</th>
+                                        <th>链接</th>
+                                        <th>标签</th>
+                                        <th>状态</th>
                                     </tr>
                                 </thead>
                                 <tbody id="mt5ResearchStatsBody">
@@ -8996,10 +9226,12 @@ const MT5_PENDING_WORKER_RUN_API_PATH = '/api/mt5-pending-worker/run';
 const MT5_PLATFORM_STATUS_API_PATH = '/api/mt5-platform/status';
 const MT5_PLATFORM_CREDENTIAL_API_PATH = '/api/mt5-platform/credential';
 const MT5_PLATFORM_CONNECT_API_PATH = '/api/mt5-platform/connect';
+const MT5_PLATFORM_DISCONNECT_API_PATH = '/api/mt5-platform/disconnect';
 const MT5_PLATFORM_STRATEGY_API_PATH = '/api/mt5-platform/strategy';
 const MT5_PLATFORM_ENQUEUE_API_PATH = '/api/mt5-platform/enqueue';
 const MT5_PLATFORM_QUICK_TRADE_API_PATH = '/api/mt5-platform/quick-trade';
 const MT5_PLATFORM_DISPATCH_API_PATH = '/api/mt5-platform/dispatch';
+const MT5_PLATFORM_WORKER_RUN_API_PATH = '/api/mt5-platform/worker-run';
 const MT5_PLATFORM_RECONCILE_API_PATH = '/api/mt5-platform/reconcile';
 const MT5_PLATFORM_SYMBOLS_API_PATH = '/api/mt5-platform/symbols';
 const MT5_PLATFORM_QUEUE_RETRY_API_PATH = '/api/mt5-platform/queue-retry';
@@ -16129,14 +16361,14 @@ function renderStrategyVersionCard(route) {
                 </div>
                 <div class="strategy-version-badges">
                     <span class="table-badge ${strategyVersionStatusTone(route?.status)}">${escapeHtml(route?.status || '--')}</span>
-                    <span class="table-badge ${route?.liveEnabled ? 'status-live' : 'status-muted'}">${escapeHtml(route?.liveEnabled ? 'Live ON' : 'Live OFF')}</span>
+                    <span class="table-badge ${route?.liveEnabled ? 'status-live' : 'status-muted'}">${escapeHtml(route?.liveEnabled ? '实盘开' : '实盘关')}</span>
                 </div>
             </div>
             <div class="strategy-version-facts">
-                ${renderStrategyVersionFact('Hash', String(route?.parameterHash || '').slice(0, 10))}
-                ${renderStrategyVersionFact('Child Versions', String(childCount || 0))}
-                ${renderStrategyVersionFact('Readiness', promotion.readiness || route?.readiness || '--')}
-                ${renderStrategyVersionFact('ParamLab', result.grade ? `${result.grade} / ${formatParamLabNumber(result.resultScore, 1)}` : '--')}
+                ${renderStrategyVersionFact('哈希', String(route?.parameterHash || '').slice(0, 10))}
+                ${renderStrategyVersionFact('子版本', String(childCount || 0))}
+                ${renderStrategyVersionFact('就绪度', promotion.readiness || route?.readiness || '--')}
+                ${renderStrategyVersionFact('参数实验', result.grade ? `${result.grade} / ${formatParamLabNumber(result.resultScore, 1)}` : '--')}
             </div>
             <div class="strategy-version-copy">${escapeHtml(route?.parameterSummary || route?.topParameterSummary || '参数摘要待生成。')}</div>
         </article>
@@ -16151,18 +16383,18 @@ function renderOptimizerV2Card(route) {
             <div class="strategy-version-top">
                 <div>
                     <div class="strategy-version-title">${escapeHtml(route?.routeKey || top?.routeKey || '--')} · ${escapeHtml(top?.proposalId || route?.topProposalId || '--')}</div>
-                    <div class="strategy-version-sub">parent ${escapeHtml(top?.parentVersionId || route?.currentVersionId || '--')}</div>
+                    <div class="strategy-version-sub">父版本 ${escapeHtml(top?.parentVersionId || route?.currentVersionId || '--')}</div>
                 </div>
                 <div class="strategy-version-badges">
                     <span class="table-badge ${optimizerObjectiveTone(top?.objective || route?.primaryAction)}">${escapeHtml(top?.objective || route?.primaryAction || '--')}</span>
-                    <span class="table-badge status-muted">tester-only</span>
+                    <span class="table-badge status-muted">测试器</span>
                 </div>
             </div>
             <div class="strategy-version-facts">
-                ${renderStrategyVersionFact('Score', formatParamLabNumber(top?.rankScore ?? route?.topRankScore, 1))}
-                ${renderStrategyVersionFact('Result State', route?.resultState || '--')}
-                ${renderStrategyVersionFact('Symbol', top?.symbol || '--')}
-                ${renderStrategyVersionFact('Version', top?.candidateVersionId || top?.topCandidateVersionId || '--')}
+                ${renderStrategyVersionFact('评分', formatParamLabNumber(top?.rankScore ?? route?.topRankScore, 1))}
+                ${renderStrategyVersionFact('结果状态', route?.resultState || '--')}
+                ${renderStrategyVersionFact('品种', top?.symbol || '--')}
+                ${renderStrategyVersionFact('版本', top?.candidateVersionId || top?.topCandidateVersionId || '--')}
             </div>
             <div class="strategy-version-copy">${escapeHtml(top?.parameterSummary || route?.topParameterSummary || '等待下一轮参数建议。')}</div>
         </article>
@@ -16204,10 +16436,10 @@ function renderVersionPromotionGateCard(row) {
                 </div>
             </div>
             <div class="strategy-version-facts">
-                ${renderStrategyVersionFact('Promote', String(row?.promotionCandidateCount ?? 0))}
-                ${renderStrategyVersionFact('Wait Report', String(row?.waitingReportCount ?? 0))}
-                ${renderStrategyVersionFact('Retune', String(row?.retuneCount ?? 0))}
-                ${renderStrategyVersionFact('Demote Live', String(row?.demoteLiveCount ?? 0))}
+                ${renderStrategyVersionFact('晋级', String(row?.promotionCandidateCount ?? 0))}
+                ${renderStrategyVersionFact('等报告', String(row?.waitingReportCount ?? 0))}
+                ${renderStrategyVersionFact('重调', String(row?.retuneCount ?? 0))}
+                ${renderStrategyVersionFact('降级实盘', String(row?.demoteLiveCount ?? 0))}
             </div>
             <div class="strategy-version-copy">${escapeHtml(`Blockers: ${blockerText}`)}</div>
         </article>
@@ -16238,9 +16470,9 @@ function updateStrategyVersionOptimizerPanel(d) {
     const optSummary = optimizer?.summary || optimizer || {};
     const gateSummary = gate?.summary || gate || {};
 
-    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | versions ${regSummary.routeCount || scopedRegistryRoutes.length || 0} / proposals ${optSummary.proposalCount || 0} / gate wait ${gateSummary.waitReportCount || 0} / retune ${gateSummary.retuneCount || 0}`;
+    summaryEl.textContent = `${getRouteStrategyFilterLabel()} | 版本 ${regSummary.routeCount || scopedRegistryRoutes.length || 0} / 建议 ${optSummary.proposalCount || 0} / 等报告 ${gateSummary.waitReportCount || 0} / 重调 ${gateSummary.retuneCount || 0}`;
     metaEl.textContent = registry || optimizer || gate
-        ? `Version Registry ${registry?.generatedAtIso || '--'}；Optimizer V2 ${optimizer?.generatedAtIso || '--'}；Promotion Gate ${gate?.generatedAtIso || '--'}；只读、tester-only、dry-run、livePresetMutation=false。`
+        ? `版本注册表 ${registry?.generatedAtIso || '--'}；优化器 V2 ${optimizer?.generatedAtIso || '--'}；晋级闸门 ${gate?.generatedAtIso || '--'}；只读、测试器、模拟、livePresetMutation=false。`
         : '等待 QuantGod_StrategyVersionRegistry.json、QuantGod_OptimizerV2Plan.json 和 QuantGod_VersionPromotionGate.json。';
     registryBody.innerHTML = scopedRegistryRoutes.length
         ? scopedRegistryRoutes.map(renderStrategyVersionCard).join('')
@@ -18609,19 +18841,19 @@ function updateMt5ReadOnlyBridgePanel(d) {
         summaryEl.textContent = 'MT5 只读桥不可用';
         metaEl.textContent = unavailableText;
         pillsEl.innerHTML = [
-            '<span class="mt5-shadow-pill">read-only</span>',
-            '<span class="mt5-shadow-pill">no order/close/cancel</span>',
-            '<span class="mt5-shadow-pill">等待 MetaTrader5 Python bridge</span>'
+            '<span class="mt5-shadow-pill">只读</span>',
+            '<span class="mt5-shadow-pill">不下单 / 不平仓 / 不撤单</span>',
+            '<span class="mt5-shadow-pill">等待 MetaTrader5 Python 桥</span>'
         ].join('');
         metricsEl.innerHTML = `
             <div class="mt5-shadow-metric">
-                <div class="mt5-shadow-metric-label">Bridge</div>
-                <div class="mt5-shadow-metric-value">UNAVAILABLE</div>
+                <div class="mt5-shadow-metric-label">桥接</div>
+                <div class="mt5-shadow-metric-value">不可用</div>
                 <div class="mt5-shadow-metric-meta">${escapeHtml(unavailableText)}</div>
             </div>`;
-        positionsMetaEl.textContent = '等待 positions';
-        ordersMetaEl.textContent = '等待 orders';
-        symbolsMetaEl.textContent = '等待 symbols';
+        positionsMetaEl.textContent = '等待持仓';
+        ordersMetaEl.textContent = '等待挂单';
+        symbolsMetaEl.textContent = '等待品种';
         positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">MT5 只读桥暂不可用</td></tr>';
         ordersBody.innerHTML = '<tr><td colspan="7" class="empty-state">MT5 只读桥暂不可用</td></tr>';
         symbolsBody.innerHTML = '<tr><td colspan="6" class="empty-state">MT5 只读桥暂不可用</td></tr>';
@@ -18643,19 +18875,19 @@ function updateMt5ReadOnlyBridgePanel(d) {
     const symbolsReturned = formatMt5ReadonlyCount(symbolsBlock.returned, symbols);
     const symbolsTotal = formatMt5ReadonlyCount(symbolsBlock.count, symbols);
 
-    summaryEl.textContent = `Bridge ${bridge.status || 'READY'} | positions ${positionCount} | orders ${orderCount} | symbols ${symbolsReturned}/${symbolsTotal}`;
+    summaryEl.textContent = `桥接 ${bridge.status || 'READY'} | 持仓 ${positionCount} | 挂单 ${orderCount} | 品种 ${symbolsReturned}/${symbolsTotal}`;
     metaEl.textContent = [
-        `terminal=${terminal.name || '--'}`,
-        `server=${account.server || '--'}`,
-        `login=${account.login || '--'}`,
-        `generated=${bridge.generatedAtIso || '--'}`
+        `终端=${terminal.name || '--'}`,
+        `服务器=${account.server || '--'}`,
+        `账号=${account.login || '--'}`,
+        `生成=${bridge.generatedAtIso || '--'}`
     ].join(' | ');
 
     pillsEl.innerHTML = [
-        '<span class="mt5-shadow-pill">READ_ONLY</span>',
-        '<span class="mt5-shadow-pill">no order</span>',
-        '<span class="mt5-shadow-pill">no close</span>',
-        '<span class="mt5-shadow-pill">no cancel</span>',
+        '<span class="mt5-shadow-pill">只读</span>',
+        '<span class="mt5-shadow-pill">不下单</span>',
+        '<span class="mt5-shadow-pill">不平仓</span>',
+        '<span class="mt5-shadow-pill">不撤单</span>',
         `<span class="mt5-shadow-pill">账户 ${escapeHtml(String(account.login || '--'))}</span>`,
         `<span class="mt5-shadow-pill">服务器 ${escapeHtml(String(account.server || '--'))}</span>`
     ].join('');
@@ -18664,36 +18896,36 @@ function updateMt5ReadOnlyBridgePanel(d) {
         ? `${formatTradePrice(quote.bid, quote.symbol)} / ${formatTradePrice(quote.ask, quote.symbol)}`
         : '--';
     const quoteMeta = quote?.ok
-        ? `${quote.symbol || '--'} spread ${Number(quote.spreadPoints || 0).toFixed(1)} points`
-        : (quote?.error || 'focus symbol quote unavailable');
+        ? `${quote.symbol || '--'} 点差 ${Number(quote.spreadPoints || 0).toFixed(1)} 点`
+        : (quote?.error || '焦点品种报价不可用');
     const metrics = [
         {
-            label: 'Account',
+            label: '账户',
             value: String(account.login || '--'),
-            meta: account.company || account.server || 'MT5 initialized'
+            meta: account.company || account.server || 'MT5 已初始化'
         },
         {
-            label: 'Balance / Equity',
+            label: '余额 / 净值',
             value: formatMt5ReadonlyAmount(account.balance, currency),
-            meta: `Equity ${formatMt5ReadonlyAmount(account.equity, currency)}`
+            meta: `净值 ${formatMt5ReadonlyAmount(account.equity, currency)}`
         },
         {
-            label: 'Floating P&L',
+            label: '浮动盈亏',
             value: formatMoneyWithCurrency(account.profit || 0, currency),
-            meta: `Margin ${formatMt5ReadonlyAmount(account.margin, currency)}`
+            meta: `保证金 ${formatMt5ReadonlyAmount(account.margin, currency)}`
         },
         {
-            label: 'Positions',
+            label: '持仓',
             value: positionCount,
-            meta: positionsBlock.symbol ? `filtered ${positionsBlock.symbol}` : 'all open positions'
+            meta: positionsBlock.symbol ? `筛选 ${positionsBlock.symbol}` : '全部当前持仓'
         },
         {
-            label: 'Pending Orders',
+            label: '挂单',
             value: orderCount,
-            meta: ordersBlock.symbol ? `filtered ${ordersBlock.symbol}` : 'read-only list only'
+            meta: ordersBlock.symbol ? `筛选 ${ordersBlock.symbol}` : '只读列表'
         },
         {
-            label: 'Quote',
+            label: '报价',
             value: quoteValue,
             meta: quoteMeta
         }
@@ -18707,14 +18939,14 @@ function updateMt5ReadOnlyBridgePanel(d) {
         </div>
     `).join('');
 
-    positionsMetaEl.textContent = positions.length ? `显示 ${positions.length} / ${positionCount}` : '当前没有 open positions';
-    ordersMetaEl.textContent = orders.length ? `显示 ${orders.length} / ${orderCount}` : '当前没有 pending orders';
+    positionsMetaEl.textContent = positions.length ? `显示 ${positions.length} / ${positionCount}` : '当前没有持仓';
+    ordersMetaEl.textContent = orders.length ? `显示 ${orders.length} / ${orderCount}` : '当前没有挂单';
     symbolsMetaEl.textContent = symbols.length
         ? `显示 ${symbols.length} / ${symbolsTotal}${symbolsBlock.truncated ? '，已截断' : ''}`
-        : '没有发现 symbols';
+        : '没有发现品种';
 
     if (!positions.length) {
-        positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">当前没有 MT5 open positions</td></tr>';
+        positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">当前没有 MT5 持仓</td></tr>';
     } else {
         positionsBody.innerHTML = positions.slice(0, 12).map((row) => `
             <tr>
@@ -18730,7 +18962,7 @@ function updateMt5ReadOnlyBridgePanel(d) {
     }
 
     if (!orders.length) {
-        ordersBody.innerHTML = '<tr><td colspan="7" class="empty-state">当前没有 MT5 pending orders</td></tr>';
+        ordersBody.innerHTML = '<tr><td colspan="7" class="empty-state">当前没有 MT5 挂单</td></tr>';
     } else {
         ordersBody.innerHTML = orders.slice(0, 12).map((row) => `
             <tr>
@@ -18746,14 +18978,14 @@ function updateMt5ReadOnlyBridgePanel(d) {
     }
 
     if (!symbols.length) {
-        symbolsBody.innerHTML = '<tr><td colspan="6" class="empty-state">MT5 没有返回 symbols</td></tr>';
+        symbolsBody.innerHTML = '<tr><td colspan="6" class="empty-state">MT5 没有返回品种</td></tr>';
     } else {
         symbolsBody.innerHTML = symbols.slice(0, 120).map((row) => `
             <tr>
                 <td>${escapeHtml(row.name || '--')}</td>
                 <td>${escapeHtml(row.description || '--')}</td>
                 <td>${escapeHtml(row.path || '--')}</td>
-                <td><span class="table-badge ${row.visible ? 'status-live' : 'status-warn'}">${row.visible ? 'yes' : 'no'}</span></td>
+                <td><span class="table-badge ${row.visible ? 'status-live' : 'status-warn'}">${row.visible ? '是' : '否'}</span></td>
                 <td>${escapeHtml(String(row.spread ?? '--'))}</td>
                 <td>${escapeHtml(`${formatLots(row.volumeMin)} / ${formatLots(row.volumeStep)}`)}</td>
             </tr>
@@ -18777,11 +19009,11 @@ function updateMt5TradingControlPanel(d) {
     if (!control || control.ok === false) {
         summaryEl.textContent = '交易控制不可用';
         metaEl.textContent = unavailable;
-        pillsEl.innerHTML = '<span class="mt5-shadow-pill">dry-run default</span><span class="mt5-shadow-pill">orderSend=false</span><span class="mt5-shadow-pill">auth lock required</span>';
+        pillsEl.innerHTML = '<span class="mt5-shadow-pill">默认模拟</span><span class="mt5-shadow-pill">禁止下单</span><span class="mt5-shadow-pill">需要授权锁</span>';
         metricsEl.innerHTML = `
             <div class="mt5-shadow-metric">
-                <div class="mt5-shadow-metric-label">Trading</div>
-                <div class="mt5-shadow-metric-value">UNAVAILABLE</div>
+                <div class="mt5-shadow-metric-label">交易控制</div>
+                <div class="mt5-shadow-metric-value">不可用</div>
                 <div class="mt5-shadow-metric-meta">${escapeHtml(unavailable)}</div>
             </div>`;
         auditMetaEl.textContent = '等待平台/审计状态';
@@ -18799,30 +19031,30 @@ function updateMt5TradingControlPanel(d) {
     const liveAllowed = !!safety.orderSendAllowed;
     const statusText = liveAllowed ? 'LIVE ARMED' : (safety.dryRun ? 'DRY-RUN' : 'LOCKED');
 
-    summaryEl.textContent = `${statusText} | owner ${safety.ownerMode || config.ownerMode || 'EA_ONLY'} | profiles ${profileCount}`;
+    summaryEl.textContent = `${statusText} | 权限归属 ${safety.ownerMode || config.ownerMode || 'EA_ONLY'} | 档案 ${profileCount}`;
     metaEl.textContent = [
-        `config=${config._configPath || '--'}`,
-        `auth=${auth.ok ? 'OK' : (auth.reasons || []).join(',') || 'missing'}`,
-        `audit=${control.auditLedger || '--'}`
+        `配置=${config._configPath || '--'}`,
+        `授权=${auth.ok ? 'OK' : (auth.reasons || []).join(',') || '缺失'}`,
+        `审计=${control.auditLedger || '--'}`
     ].join(' | ');
     pillsEl.innerHTML = [
-        `<span class="mt5-shadow-pill">${safety.tradingEnabled ? 'config enabled' : 'config locked'}</span>`,
-        `<span class="mt5-shadow-pill">${safety.envEnabled ? 'env enabled' : 'env locked'}</span>`,
-        `<span class="mt5-shadow-pill">${safety.killSwitch ? 'kill switch ON' : 'kill switch OFF'}</span>`,
-        `<span class="mt5-shadow-pill">${safety.dryRun ? 'dry-run' : 'live requested'}</span>`,
-        `<span class="mt5-shadow-pill">orderSend=${liveAllowed ? 'true' : 'false'}</span>`
+        `<span class="mt5-shadow-pill">${safety.tradingEnabled ? '配置已开' : '配置锁定'}</span>`,
+        `<span class="mt5-shadow-pill">${safety.envEnabled ? '环境已开' : '环境锁定'}</span>`,
+        `<span class="mt5-shadow-pill">${safety.killSwitch ? '总开关关闭交易' : '总开关允许'}</span>`,
+        `<span class="mt5-shadow-pill">${safety.dryRun ? '模拟' : '请求实盘'}</span>`,
+        `<span class="mt5-shadow-pill">下单=${liveAllowed ? '允许' : '禁止'}</span>`
     ].join('');
 
     const metrics = [
-        { label: 'Bridge', value: statusText, meta: `mode ${control.mode || '--'}` },
-        { label: 'Owner', value: safety.ownerMode || config.ownerMode || '--', meta: safety.killSwitch ? (config.killReason || 'kill switch') : 'kill switch clear' },
-        { label: 'Auth Lock', value: auth.ok ? 'OK' : 'BLOCKED', meta: auth.ok ? `${auth.lockId || '--'} expires ${auth.expiresAtIso || '--'}` : ((auth.reasons || []).join(', ') || 'missing') },
-        { label: 'Worker', value: String(workerSummary.processed ?? 0), meta: `accepted ${workerSummary.accepted ?? 0} / rejected ${workerSummary.rejected ?? 0} / skipped ${workerSummary.skipped ?? 0}` },
-        { label: 'Platform DB', value: String(platformSummary.pendingOrders ?? 0), meta: `queued ${platformSummary.queuedOrders ?? 0} / audit ${platformSummary.auditEvents ?? 0}` },
-        { label: 'Profiles', value: String(platformSummary.credentials ?? 0), meta: `strategies ${platformSummary.strategies ?? 0} / sessions ${platformSummary.connectionSessions ?? 0}` },
-        { label: 'Symbols', value: String(platformSummary.symbolCatalog ?? 0), meta: `positions ${platformSummary.platformPositions ?? 0} / trades ${platformSummary.platformTrades ?? 0}` },
-        { label: 'Adaptive', value: String(adaptiveSummary.actions ?? 0), meta: `blocked ${adaptiveSummary.blocked ?? 0} / staging ${adaptiveSummary.stagingPresetPath ? 'ready' : 'waiting'}` },
-        { label: 'Bridge Profiles', value: String(profileCount), meta: 'passwords are not persisted' }
+        { label: '桥接', value: statusText, meta: `模式 ${control.mode || '--'}` },
+        { label: '归属', value: safety.ownerMode || config.ownerMode || '--', meta: safety.killSwitch ? (config.killReason || '总开关') : '总开关未阻断' },
+        { label: '授权锁', value: auth.ok ? 'OK' : '阻断', meta: auth.ok ? `${auth.lockId || '--'} 到期 ${auth.expiresAtIso || '--'}` : ((auth.reasons || []).join(', ') || '缺失') },
+        { label: 'Worker', value: String(workerSummary.processed ?? 0), meta: `接受 ${workerSummary.accepted ?? 0} / 拒绝 ${workerSummary.rejected ?? 0} / 跳过 ${workerSummary.skipped ?? 0}` },
+        { label: '平台库', value: String(platformSummary.pendingOrders ?? 0), meta: `排队 ${platformSummary.queuedOrders ?? 0} / 审计 ${platformSummary.auditEvents ?? 0}` },
+        { label: '档案', value: String(platformSummary.credentials ?? 0), meta: `策略 ${platformSummary.strategies ?? 0} / 会话 ${platformSummary.connectionSessions ?? 0}` },
+        { label: '品种', value: String(platformSummary.symbolCatalog ?? 0), meta: `持仓 ${platformSummary.platformPositions ?? 0} / 成交 ${platformSummary.platformTrades ?? 0}` },
+        { label: '自适应', value: String(adaptiveSummary.actions ?? 0), meta: `阻断 ${adaptiveSummary.blocked ?? 0} / 草案 ${adaptiveSummary.stagingPresetPath ? '就绪' : '等待'}` },
+        { label: '桥接档案', value: String(profileCount), meta: '不持久化密码' }
     ];
     metricsEl.innerHTML = metrics.map((item) => `
         <div class="mt5-shadow-metric">
@@ -18831,7 +19063,7 @@ function updateMt5TradingControlPanel(d) {
             <div class="mt5-shadow-metric-meta">${escapeHtml(item.meta)}</div>
         </div>
     `).join('');
-    auditMetaEl.textContent = `worker=${worker?.mode || 'waiting'} | platform=${platform?.mode || 'waiting'} | adaptive=${adaptive?.mode || 'waiting'} | db=${platform?.databasePath || '--'}`;
+    auditMetaEl.textContent = `Worker=${worker?.mode || '等待'} | 平台=${platform?.mode || '等待'} | 自适应=${adaptive?.mode || '等待'} | DB=${platform?.databasePath || '--'}`;
     renderMt5PlatformTables(platform);
 }
 
@@ -18847,19 +19079,27 @@ function renderMt5PlatformTables(platform) {
     const registryMeta = document.getElementById('mt5PlatformRegistryMeta');
     const profileMeta = document.getElementById('mt5PlatformProfileMeta');
     const queueMeta = document.getElementById('mt5PlatformQueueMeta');
+    const sessionMeta = document.getElementById('mt5PlatformSessionMeta');
+    const ledgerMeta = document.getElementById('mt5PlatformLedgerMeta');
     const credentialsBody = document.getElementById('mt5PlatformCredentialsBody');
     const strategiesBody = document.getElementById('mt5PlatformStrategiesBody');
     const queueBody = document.getElementById('mt5PlatformQueueBody');
     const positionsBody = document.getElementById('mt5PlatformPositionsBody');
+    const sessionsBody = document.getElementById('mt5PlatformSessionsBody');
+    const tasksBody = document.getElementById('mt5PlatformTasksBody');
+    const tradesBody = document.getElementById('mt5PlatformTradesBody');
+    const symbolsBody = document.getElementById('mt5PlatformSymbolsBody');
     if (!registryMeta || !credentialsBody || !strategiesBody || !queueBody || !positionsBody) return;
 
     const summary = platform?.summary || {};
     const safety = platform?.safety || {};
     registryMeta.textContent = platform?.ok
-        ? `db=${summary.pendingOrders ?? 0} queue / ${summary.symbolCatalog ?? 0} symbols | rawPassword=${safety.rawPasswordStorageAllowed ? 'true' : 'false'} | liveDispatch=${safety.dispatchLiveAllowed ? 'true' : 'false'}`
+        ? `DB=${summary.pendingOrders ?? 0} 队列 / ${summary.symbolCatalog ?? 0} 品种 | 原始密码=${safety.rawPasswordStorageAllowed ? '允许' : '禁止'} | 实盘派单=${safety.dispatchLiveAllowed ? '允许' : '禁止'}`
         : '平台库暂不可用';
-    if (profileMeta) profileMeta.textContent = `${summary.credentials ?? 0} profiles / ${summary.strategies ?? 0} strategies`;
-    if (queueMeta) queueMeta.textContent = `${summary.queuedOrders ?? 0} queued / ${summary.platformPositions ?? 0} positions`;
+    if (profileMeta) profileMeta.textContent = `${summary.credentials ?? 0} 个档案 / ${summary.strategies ?? 0} 个策略`;
+    if (queueMeta) queueMeta.textContent = `${summary.queuedOrders ?? 0} 个排队 / ${summary.platformPositions ?? 0} 个持仓`;
+    if (sessionMeta) sessionMeta.textContent = `${summary.connectionSessions ?? 0} 个会话 / ${summary.taskRuns ?? 0} 个任务`;
+    if (ledgerMeta) ledgerMeta.textContent = `${summary.platformTrades ?? 0} 笔成交 / ${summary.symbolCatalog ?? 0} 个品种`;
 
     const credentials = Array.isArray(platform?.credentials) ? platform.credentials : [];
     credentialsBody.innerHTML = credentials.length ? credentials.slice(0, 25).map((row) => `
@@ -18870,7 +19110,7 @@ function renderMt5PlatformTables(platform) {
             <td>${escapeHtml(row.passwordEnvVar || row.secretRef || '--')}</td>
             <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
         </tr>
-    `).join('') : '<tr><td colspan="5" class="empty-state">没有 credential 元数据</td></tr>';
+    `).join('') : '<tr><td colspan="5" class="empty-state">没有凭证元数据</td></tr>';
 
     const strategies = Array.isArray(platform?.strategies) ? platform.strategies : [];
     strategiesBody.innerHTML = strategies.length ? strategies.slice(0, 50).map((row) => `
@@ -18881,7 +19121,7 @@ function renderMt5PlatformTables(platform) {
             <td>${escapeHtml(row.timeframe || '--')}</td>
             <td><span class="table-badge ${mt5PlatformStatusBadge(row.executionMode || row.status)}">${escapeHtml(row.executionMode || row.status || '--')}</span></td>
         </tr>
-    `).join('') : '<tr><td colspan="5" class="empty-state">没有 strategy config</td></tr>';
+    `).join('') : '<tr><td colspan="5" class="empty-state">没有策略配置</td></tr>';
 
     const pendingOrders = Array.isArray(platform?.pendingOrders) ? platform.pendingOrders : [];
     queueBody.innerHTML = pendingOrders.length ? pendingOrders.slice(0, 60).map((row) => `
@@ -18892,11 +19132,11 @@ function renderMt5PlatformTables(platform) {
             <td>${escapeHtml(formatLots(row.lots))}</td>
             <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
             <td>
-                <button type="button" class="qd-route-button" data-mt5-platform-action="retry" data-order-id="${escapeHtml(row.orderId || '')}">Retry</button>
-                <button type="button" class="qd-route-button" data-mt5-platform-action="archive" data-order-id="${escapeHtml(row.orderId || '')}">Archive</button>
+                <button type="button" class="mt5-control-button" data-mt5-platform-action="retry" data-order-id="${escapeHtml(row.orderId || '')}">重试</button>
+                <button type="button" class="mt5-control-button" data-mt5-platform-action="archive" data-order-id="${escapeHtml(row.orderId || '')}">归档</button>
             </td>
         </tr>
-    `).join('') : '<tr><td colspan="6" class="empty-state">没有 pending_orders</td></tr>';
+    `).join('') : '<tr><td colspan="6" class="empty-state">没有挂单队列</td></tr>';
 
     const positions = Array.isArray(platform?.positions) ? platform.positions : [];
     positionsBody.innerHTML = positions.length ? positions.slice(0, 50).map((row) => `
@@ -18907,7 +19147,57 @@ function renderMt5PlatformTables(platform) {
             <td>${escapeHtml(formatLots(row.lots))}</td>
             <td class="profit-cell ${Number(row.unrealizedPnl || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.unrealizedPnl, getDisplayAccount(dashboardData).currency || ''))}</td>
         </tr>
-    `).join('') : '<tr><td colspan="5" class="empty-state">没有 reconciled positions</td></tr>';
+    `).join('') : '<tr><td colspan="5" class="empty-state">没有持仓对账记录</td></tr>';
+
+    const sessions = Array.isArray(platform?.connectionSessions) ? platform.connectionSessions : [];
+    if (sessionsBody) {
+        sessionsBody.innerHTML = sessions.length ? sessions.slice(0, 20).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.createdAt || '--')}</td>
+                <td>${escapeHtml(row.event || '--')}</td>
+                <td>${escapeHtml(row.login || '--')}</td>
+                <td>${escapeHtml(row.server || '--')}</td>
+                <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
+            </tr>
+        `).join('') : '<tr><td colspan="5" class="empty-state">没有连接会话</td></tr>';
+    }
+
+    const tasks = Array.isArray(platform?.taskRuns) ? platform.taskRuns : [];
+    if (tasksBody) {
+        tasksBody.innerHTML = tasks.length ? tasks.slice(0, 20).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.taskId || '--')}</td>
+                <td>${escapeHtml(row.taskType || '--')}</td>
+                <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
+                <td>${escapeHtml(row.finishedAtIso || row.startedAtIso || '--')}</td>
+            </tr>
+        `).join('') : '<tr><td colspan="4" class="empty-state">没有 worker 任务</td></tr>';
+    }
+
+    const trades = Array.isArray(platform?.trades) ? platform.trades : [];
+    if (tradesBody) {
+        tradesBody.innerHTML = trades.length ? trades.slice(0, 30).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.tradeId || row.exchangeOrderId || '--')}</td>
+                <td>${renderMt5CanonicalSymbolCell(row)}</td>
+                <td>${escapeHtml(row.side || row.type || '--')}</td>
+                <td>${escapeHtml(formatLots(row.lots))}</td>
+                <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
+            </tr>
+        `).join('') : '<tr><td colspan="5" class="empty-state">没有平台成交记录</td></tr>';
+    }
+
+    const symbols = Array.isArray(platform?.symbolCatalog) ? platform.symbolCatalog : [];
+    if (symbolsBody) {
+        symbolsBody.innerHTML = symbols.length ? symbols.slice(0, 80).map((row) => `
+            <tr>
+                <td>${escapeHtml(row.canonicalSymbol || '--')}</td>
+                <td>${escapeHtml(row.brokerSymbol || row.symbol || '--')}</td>
+                <td>${escapeHtml(row.assetClass || row.marketCategory || '--')}</td>
+                <td>${escapeHtml(`${formatLots(row.minLot || row.volumeMin)} / ${formatLots(row.lotStep || row.volumeStep)}`)}</td>
+            </tr>
+        `).join('') : '<tr><td colspan="4" class="empty-state">没有品种目录</td></tr>';
+    }
 }
 
 function getMt5TradingFormPayload() {
@@ -19016,18 +19306,21 @@ function initMt5TradingControls() {
         const adaptiveButton = event.target.closest('#mt5AdaptiveStageButton');
         const platformCredentialButton = event.target.closest('#mt5PlatformCredentialSaveButton');
         const platformConnectButton = event.target.closest('#mt5PlatformConnectButton');
+        const platformDisconnectButton = event.target.closest('#mt5PlatformDisconnectButton');
         const platformStrategyButton = event.target.closest('#mt5PlatformStrategySaveButton');
         const platformEnqueueButton = event.target.closest('#mt5PlatformEnqueueButton');
         const platformQuickTradeButton = event.target.closest('#mt5PlatformQuickTradeButton');
         const platformDispatchButton = event.target.closest('#mt5PlatformDispatchButton');
+        const platformDbWorkerButton = event.target.closest('#mt5PlatformDbWorkerButton');
         const platformReconcileButton = event.target.closest('#mt5PlatformReconcileButton');
         const platformSymbolsButton = event.target.closest('#mt5PlatformSymbolsSyncButton');
         const platformQueueActionButton = event.target.closest('[data-mt5-platform-action]');
         if (
             !profileSaveButton && !profileLoginButton && !orderButton && !closeButton && !cancelButton &&
             !workerButton && !adaptiveButton && !platformCredentialButton && !platformConnectButton &&
+            !platformDisconnectButton &&
             !platformStrategyButton && !platformEnqueueButton && !platformQuickTradeButton &&
-            !platformDispatchButton && !platformReconcileButton && !platformSymbolsButton &&
+            !platformDispatchButton && !platformDbWorkerButton && !platformReconcileButton && !platformSymbolsButton &&
             !platformQueueActionButton
         ) return;
         event.preventDefault();
@@ -19048,6 +19341,13 @@ function initMt5TradingControls() {
             if (platformConnectButton) {
                 setMt5TradingResult({ status: 'recording_platform_connect' });
                 const result = await postMt5TradingJson(MT5_PLATFORM_CONNECT_API_PATH, getMt5PlatformCredentialPayload());
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformDisconnectButton) {
+                setMt5TradingResult({ status: 'recording_platform_disconnect' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_DISCONNECT_API_PATH, getMt5PlatformCredentialPayload());
                 setMt5TradingResult(result);
                 applyMt5PlatformResult(result);
                 return;
@@ -19076,6 +19376,13 @@ function initMt5TradingControls() {
             if (platformDispatchButton) {
                 setMt5TradingResult({ status: 'dispatching_platform_queue_dry_run' });
                 const result = await postMt5TradingJson(MT5_PLATFORM_DISPATCH_API_PATH, { maxOrders: 10, source: 'dashboard_platform_dispatch' });
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformDbWorkerButton) {
+                setMt5TradingResult({ status: 'running_platform_db_worker_dry_run' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_WORKER_RUN_API_PATH, { maxOrders: 20, dryRun: true, source: 'dashboard_platform_db_worker' });
                 setMt5TradingResult(result);
                 applyMt5PlatformResult(result);
                 return;

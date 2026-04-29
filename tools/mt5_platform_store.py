@@ -42,7 +42,7 @@ DB_NAME = "QuantGod_MT5Platform.db"
 OUTPUT_NAME = "QuantGod_MT5PlatformState.json"
 TRADING_LEDGER_NAME = "QuantGod_MT5TradingAuditLedger.csv"
 PENDING_LEDGER_NAME = "QuantGod_MT5PendingOrderLedger.csv"
-MODE = "MT5_PLATFORM_STORE_V2"
+MODE = "MT5_PLATFORM_STORE_V3"
 
 ENDPOINTS = {
     "status",
@@ -60,6 +60,10 @@ ENDPOINTS = {
     "queue-retry",
     "queue-cancel",
     "queue-archive",
+    "worker-run",
+    "ledger",
+    "quick-trades",
+    "task-runs",
     "positions",
     "trades",
     "symbols",
@@ -77,10 +81,14 @@ SAFETY = {
     "rawPasswordStorageAllowed": False,
     "pendingOrderQueueAllowed": True,
     "quickTradeAllowed": True,
+    "dbPendingWorkerAllowed": True,
     "dispatchLiveAllowed": False,
     "dryRunRequired": True,
     "authLockRequiredForLive": True,
     "auditLedgerRequired": True,
+    "exchangeOrderIdLedgerAllowed": True,
+    "positionLifecycleMirrorAllowed": True,
+    "staticSymbolCatalogAllowed": True,
     "livePresetMutationAllowed": False,
     "symbolSelectAllowed": False,
     "mutatesMt5": False,
@@ -196,6 +204,57 @@ def connect_db(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    try:
+        return {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    except sqlite3.DatabaseError:
+        return set()
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    if column not in existing_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def ensure_schema_columns(conn: sqlite3.Connection) -> None:
+    pending_columns = {
+        "dispatch_note": "TEXT NOT NULL DEFAULT ''",
+        "filled": "REAL NOT NULL DEFAULT 0",
+        "avg_price": "REAL NOT NULL DEFAULT 0",
+        "executed_at": "TEXT",
+        "owner_mode": "TEXT NOT NULL DEFAULT 'EA_ONLY'",
+    }
+    for column, definition in pending_columns.items():
+        ensure_column(conn, "pending_orders", column, definition)
+
+    position_columns = {
+        "highest_price": "REAL NOT NULL DEFAULT 0",
+        "lowest_price": "REAL NOT NULL DEFAULT 0",
+        "pnl_percent": "REAL NOT NULL DEFAULT 0",
+        "equity": "REAL NOT NULL DEFAULT 0",
+    }
+    for column, definition in position_columns.items():
+        ensure_column(conn, "qd_strategy_positions", column, definition)
+
+    trade_columns = {
+        "commission": "REAL NOT NULL DEFAULT 0",
+        "commission_ccy": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column, definition in trade_columns.items():
+        ensure_column(conn, "qd_strategy_trades", column, definition)
+
+    symbol_columns = {
+        "market_type": "TEXT NOT NULL DEFAULT ''",
+        "standard_lot": "REAL NOT NULL DEFAULT 0",
+        "min_lot": "REAL NOT NULL DEFAULT 0",
+        "lot_step": "REAL NOT NULL DEFAULT 0",
+        "max_lot": "REAL NOT NULL DEFAULT 0",
+        "contract_unit": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column, definition in symbol_columns.items():
+        ensure_column(conn, "qd_market_symbols", column, definition)
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
@@ -301,9 +360,14 @@ def init_db(conn: sqlite3.Connection) -> None:
             attempts INTEGER NOT NULL DEFAULT 0,
             max_attempts INTEGER NOT NULL DEFAULT 1,
             last_error TEXT NOT NULL DEFAULT '',
+            dispatch_note TEXT NOT NULL DEFAULT '',
             exchange_id TEXT NOT NULL DEFAULT 'mt5',
             exchange_order_id TEXT NOT NULL DEFAULT '',
             exchange_response_json TEXT NOT NULL DEFAULT '{}',
+            filled REAL NOT NULL DEFAULT 0,
+            avg_price REAL NOT NULL DEFAULT 0,
+            executed_at TEXT,
+            owner_mode TEXT NOT NULL DEFAULT 'EA_ONLY',
             dry_run_required INTEGER NOT NULL DEFAULT 1,
             payload_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
@@ -325,7 +389,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             size REAL NOT NULL DEFAULT 0,
             entry_price REAL NOT NULL DEFAULT 0,
             current_price REAL NOT NULL DEFAULT 0,
+            highest_price REAL NOT NULL DEFAULT 0,
+            lowest_price REAL NOT NULL DEFAULT 0,
             unrealized_pnl REAL NOT NULL DEFAULT 0,
+            pnl_percent REAL NOT NULL DEFAULT 0,
+            equity REAL NOT NULL DEFAULT 0,
             ticket TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT 'mt5_readonly_reconcile',
             observed_at TEXT NOT NULL,
@@ -348,6 +416,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             value REAL NOT NULL DEFAULT 0,
             profit REAL NOT NULL DEFAULT 0,
             fee REAL NOT NULL DEFAULT 0,
+            commission REAL NOT NULL DEFAULT 0,
+            commission_ccy TEXT NOT NULL DEFAULT '',
             exchange_order_id TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT '',
             opened_at TEXT,
@@ -372,17 +442,42 @@ def init_db(conn: sqlite3.Connection) -> None:
             broker_suffix TEXT NOT NULL DEFAULT '',
             asset_class TEXT NOT NULL DEFAULT '',
             market_category TEXT NOT NULL DEFAULT '',
+            market_type TEXT NOT NULL DEFAULT '',
             digits INTEGER NOT NULL DEFAULT 0,
             point REAL NOT NULL DEFAULT 0,
             volume_min REAL NOT NULL DEFAULT 0,
             volume_max REAL NOT NULL DEFAULT 0,
             volume_step REAL NOT NULL DEFAULT 0,
+            standard_lot REAL NOT NULL DEFAULT 0,
+            min_lot REAL NOT NULL DEFAULT 0,
+            lot_step REAL NOT NULL DEFAULT 0,
+            max_lot REAL NOT NULL DEFAULT 0,
+            contract_unit TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL,
             UNIQUE(market, symbol, exchange)
         );
         CREATE INDEX IF NOT EXISTS idx_market_symbols_market ON qd_market_symbols(market);
         CREATE INDEX IF NOT EXISTS idx_market_symbols_canonical ON qd_market_symbols(canonical_symbol);
+        CREATE TABLE IF NOT EXISTS qd_quick_trades (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL DEFAULT 1,
+            pending_order_id TEXT NOT NULL DEFAULT '',
+            route TEXT NOT NULL DEFAULT '',
+            canonical_symbol TEXT NOT NULL DEFAULT '',
+            broker_symbol TEXT NOT NULL DEFAULT '',
+            side TEXT NOT NULL DEFAULT '',
+            order_type TEXT NOT NULL DEFAULT '',
+            amount REAL NOT NULL DEFAULT 0,
+            price REAL NOT NULL DEFAULT 0,
+            sl REAL NOT NULL DEFAULT 0,
+            tp REAL NOT NULL DEFAULT 0,
+            execution_mode TEXT NOT NULL DEFAULT 'dry_run',
+            status TEXT NOT NULL DEFAULT 'queued',
+            created_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_quick_trades_pending_order ON qd_quick_trades(pending_order_id);
         CREATE TABLE IF NOT EXISTS mt5_connection_sessions (
             session_id TEXT PRIMARY KEY,
             credential_id TEXT NOT NULL DEFAULT '',
@@ -396,7 +491,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    ensure_schema_columns(conn)
     seed_defaults(conn)
+    seed_static_symbol_catalog(conn)
     conn.commit()
 
 
@@ -450,6 +547,11 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
     )
 
 
+def seed_static_symbol_catalog(conn: sqlite3.Connection) -> None:
+    for row in mt5_symbol_registry.static_symbol_catalog():
+        upsert_symbol_mapping(conn, row, source="quantdinger_static_catalog")
+
+
 def read_csv_rows(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -478,7 +580,7 @@ def canonical_map(symbol: Any) -> dict[str, Any]:
         "brokerSuffix": clean(row.get("brokerSuffix"), 40),
         "assetClass": clean(row.get("assetClass"), 80),
         "marketCategory": clean(row.get("marketCategory") or row.get("assetClass") or "Forex", 80),
-        "marketType": clean(row.get("marketCategory") or row.get("assetClass") or "forex", 80).lower(),
+        "marketType": clean(row.get("marketType") or row.get("marketCategory") or row.get("assetClass") or "forex", 80).lower(),
         "mapping": row,
     }
 
@@ -518,6 +620,7 @@ def audit_platform_event(
     canonical_symbol: str = "",
     broker_symbol: str = "",
     dry_run: bool = True,
+    live_allowed: bool = False,
 ) -> dict[str, Any]:
     event_time = utc_now()
     safe_payload = redact_secret_fields(payload or {})
@@ -540,7 +643,7 @@ def audit_platform_event(
             clean(broker_symbol, 80),
             clean(action, 80),
             1 if dry_run else 0,
-            0,
+            1 if live_allowed else 0,
             json_dumps(safe_payload),
         ),
     )
@@ -908,6 +1011,31 @@ def enqueue_order(conn: sqlite3.Connection, payload: dict[str, Any], *, quick_tr
             now,
         ),
     )
+    if quick_trade:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO qd_quick_trades(
+                id, user_id, pending_order_id, route, canonical_symbol, broker_symbol,
+                side, order_type, amount, price, sl, tp, execution_mode, status,
+                created_at, payload_json
+            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'dry_run', 'queued', ?, ?)
+            """,
+            (
+                stable_id("qt", order_id, route, canonical, broker_symbol),
+                order_id,
+                route,
+                canonical,
+                broker_symbol,
+                side,
+                order_type,
+                lots,
+                price,
+                sl,
+                tp,
+                now,
+                json_dumps(safe_payload),
+            ),
+        )
     audit = audit_platform_event(conn, decision="PENDING_ORDER_QUEUED_DRY_RUN_ONLY", action="enqueue", payload=safe_payload, route=route, canonical_symbol=canonical, broker_symbol=broker_symbol)
     conn.commit()
     return {
@@ -983,6 +1111,23 @@ def platform_order_request(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def broker_execution_fields(result: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    response = result.get("response") if isinstance(result.get("response"), dict) else {}
+    decision = clean(result.get("decision"), 80)
+    live_allowed = bool((result.get("safety") or {}).get("orderSendAllowed"))
+    order_ticket = clean(first_value(response.get("order"), response.get("order_id"), response.get("deal"), response.get("deal_id")), 120)
+    lots = as_float(first_value(response.get("filled"), request.get("lots"), default=0.0), 0.0) if live_allowed else 0.0
+    price = as_float(first_value(response.get("price"), request.get("price"), default=0.0), 0.0) if live_allowed else 0.0
+    return {
+        "decision": decision,
+        "exchangeOrderId": order_ticket if live_allowed else "",
+        "filled": lots,
+        "avgPrice": price,
+        "dispatchNote": clean(result.get("reason") or response.get("comment") or decision, 500),
+        "liveAllowed": live_allowed,
+    }
+
+
 def dispatch_queued_orders(conn: sqlite3.Connection, runtime_dir: Path, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = payload or {}
     max_orders = max(1, min(as_int(first_value(payload.get("maxOrders"), payload.get("limit"), default=10), 10), 50))
@@ -1014,17 +1159,25 @@ def dispatch_queued_orders(conn: sqlite3.Connection, runtime_dir: Path, payload:
         else:
             blocked += 1
         response_json = json_dumps(redact_secret_fields(result))
+        exec_fields = broker_execution_fields(result, request)
         processed_at = utc_now()
         conn.execute(
             """
             UPDATE pending_orders
-            SET status=?, last_error=?, exchange_response_json=?, updated_at=?, processed_at=?, sent_at=NULL
+            SET status=?, last_error=?, dispatch_note=?, exchange_order_id=?,
+                exchange_response_json=?, filled=?, avg_price=?, executed_at=?,
+                updated_at=?, processed_at=?, sent_at=NULL
             WHERE id=?
             """,
             (
                 status,
                 clean(result.get("reason") or result.get("error"), 500),
+                exec_fields["dispatchNote"],
+                exec_fields["exchangeOrderId"],
                 response_json,
+                exec_fields["filled"],
+                exec_fields["avgPrice"],
+                processed_at if exec_fields["liveAllowed"] else None,
                 processed_at,
                 processed_at,
                 order["id"],
@@ -1051,6 +1204,140 @@ def dispatch_queued_orders(conn: sqlite3.Connection, runtime_dir: Path, payload:
     }
 
 
+def record_task_run(conn: sqlite3.Connection, task_type: str, status: str, summary: dict[str, Any], *, task_id: str = "") -> dict[str, Any]:
+    started = clean(summary.get("startedAtIso") or utc_now(), 80)
+    finished = utc_now()
+    task_id = clean(task_id or stable_id("task", task_type, started, uuid.uuid4()), 120)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO task_runs(task_id, task_type, status, started_at_iso, finished_at_iso, summary_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (task_id, clean(task_type, 80), clean(status, 80), started, finished, json_dumps(redact_secret_fields(summary))),
+    )
+    return {"taskId": task_id, "taskType": task_type, "status": status, "startedAtIso": started, "finishedAtIso": finished}
+
+
+def run_db_pending_worker(conn: sqlite3.Connection, runtime_dir: Path, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = payload or {}
+    started = utc_now()
+    max_orders = max(1, min(as_int(first_value(payload.get("maxOrders"), payload.get("limit"), default=10), 10), 100))
+    force_dry_run = str(payload.get("dryRun", "true")).strip().lower() not in {"0", "false", "no", "off"}
+    orders = fetch_rows(
+        conn,
+        """
+        SELECT * FROM pending_orders
+        WHERE status IN ('queued', 'pending', 'deferred', 'failed') AND attempts < max_attempts
+        ORDER BY priority ASC, created_at ASC
+        LIMIT ?
+        """,
+        (max_orders,),
+    )
+    rows: list[dict[str, Any]] = []
+    accepted = 0
+    sent = 0
+    failed = 0
+    deferred = 0
+    dry_run = 0
+
+    for order in orders:
+        now = utc_now()
+        conn.execute(
+            "UPDATE pending_orders SET status='processing', attempts=attempts+1, processed_at=?, updated_at=? WHERE id=?",
+            (now, now, order["id"]),
+        )
+        request = platform_order_request(order)
+        request["dryRun"] = True if force_dry_run or bool_int(order.get("dry_run_required")) else False
+        request["source"] = "mt5_platform_db_worker"
+        result = mt5_trading_client.execute_endpoint("order", request, runtime_dir=runtime_dir)
+        decision = clean(result.get("decision"), 80) or "UNKNOWN"
+        exec_fields = broker_execution_fields(result, request)
+        response_json = json_dumps(redact_secret_fields(result))
+        finished = utc_now()
+        if decision == "ORDER_SEND_ACCEPTED" and exec_fields["exchangeOrderId"]:
+            status = "sent"
+            accepted += 1
+            sent += 1
+            sent_at = finished
+            executed_at = finished
+        elif decision == "DRY_RUN_ACCEPTED":
+            status = "dry_run_accepted"
+            accepted += 1
+            dry_run += 1
+            sent_at = None
+            executed_at = None
+        elif "kill_switch_on" in str(result.get("reason", "")) or "auth_lock" in str(result.get("reason", "")):
+            status = "deferred"
+            deferred += 1
+            sent_at = None
+            executed_at = None
+        else:
+            status = "failed"
+            failed += 1
+            sent_at = None
+            executed_at = None
+        conn.execute(
+            """
+            UPDATE pending_orders
+            SET status=?, last_error=?, dispatch_note=?, exchange_order_id=?,
+                exchange_response_json=?, filled=?, avg_price=?, executed_at=?,
+                updated_at=?, processed_at=?, sent_at=?
+            WHERE id=?
+            """,
+            (
+                status,
+                clean(result.get("reason") or result.get("error"), 500),
+                exec_fields["dispatchNote"],
+                exec_fields["exchangeOrderId"],
+                response_json,
+                exec_fields["filled"],
+                exec_fields["avgPrice"],
+                executed_at,
+                finished,
+                finished,
+                sent_at,
+                order["id"],
+            ),
+        )
+        audit = audit_platform_event(
+            conn,
+            decision=f"DB_WORKER_{decision}",
+            action="db_worker",
+            payload={"order": order, "result": result},
+            route=clean(request.get("route"), 80),
+            canonical_symbol=clean(order.get("canonical_symbol"), 80),
+            broker_symbol=clean(order.get("broker_symbol"), 80),
+            dry_run=status != "sent",
+            live_allowed=status == "sent",
+        )
+        rows.append(
+            {
+                "orderId": order["id"],
+                "status": status,
+                "decision": decision,
+                "exchangeOrderId": exec_fields["exchangeOrderId"],
+                "filled": exec_fields["filled"],
+                "avgPrice": exec_fields["avgPrice"],
+                "audit": audit,
+            }
+        )
+
+    summary = {
+        "startedAtIso": started,
+        "processed": len(rows),
+        "accepted": accepted,
+        "sent": sent,
+        "dryRunAccepted": dry_run,
+        "failed": failed,
+        "deferred": deferred,
+        "forceDryRun": force_dry_run,
+        "orderSendAllowed": sent > 0,
+    }
+    task = record_task_run(conn, "mt5_db_pending_order_worker", "completed", summary)
+    conn.commit()
+    return {**summary, "task": task, "rows": rows, "safety": {**SAFETY, "mutatesMt5": sent > 0, "orderSendAllowed": sent > 0}}
+
+
 def upsert_symbol_mapping(conn: sqlite3.Connection, row: dict[str, Any], *, source: str = "registry") -> None:
     broker_symbol = clean(first_value(row.get("brokerSymbol"), row.get("name"), row.get("symbol")), 80)
     if not broker_symbol:
@@ -1064,8 +1351,9 @@ def upsert_symbol_mapping(conn: sqlite3.Connection, row: dict[str, Any], *, sour
         INSERT INTO qd_market_symbols(
             id, market, symbol, name, exchange, currency, is_active, is_hot, sort_order,
             canonical_symbol, broker_symbol, broker_suffix, asset_class, market_category,
-            digits, point, volume_min, volume_max, volume_step, source, updated_at
-        ) VALUES (?, ?, ?, ?, 'mt5', ?, 1, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            market_type, digits, point, volume_min, volume_max, volume_step,
+            standard_lot, min_lot, lot_step, max_lot, contract_unit, source, updated_at
+        ) VALUES (?, ?, ?, ?, 'mt5', ?, 1, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(market, symbol, exchange) DO UPDATE SET
             name=excluded.name,
             currency=excluded.currency,
@@ -1074,11 +1362,17 @@ def upsert_symbol_mapping(conn: sqlite3.Connection, row: dict[str, Any], *, sour
             broker_suffix=excluded.broker_suffix,
             asset_class=excluded.asset_class,
             market_category=excluded.market_category,
+            market_type=excluded.market_type,
             digits=excluded.digits,
             point=excluded.point,
             volume_min=excluded.volume_min,
             volume_max=excluded.volume_max,
             volume_step=excluded.volume_step,
+            standard_lot=excluded.standard_lot,
+            min_lot=excluded.min_lot,
+            lot_step=excluded.lot_step,
+            max_lot=excluded.max_lot,
+            contract_unit=excluded.contract_unit,
             source=excluded.source,
             updated_at=excluded.updated_at
         """,
@@ -1093,11 +1387,17 @@ def upsert_symbol_mapping(conn: sqlite3.Connection, row: dict[str, Any], *, sour
             clean(normalized.get("brokerSuffix"), 40),
             clean(normalized.get("assetClass"), 80),
             clean(normalized.get("marketCategory"), 80),
+            clean(normalized.get("marketType"), 80),
             as_int(normalized.get("digits"), 0),
             as_float(normalized.get("point"), 0.0),
             as_float(normalized.get("volumeMin"), 0.0),
             as_float(normalized.get("volumeMax"), 0.0),
             as_float(normalized.get("volumeStep"), 0.0),
+            as_float(normalized.get("standardLot"), 0.0),
+            as_float(normalized.get("minLot"), 0.0),
+            as_float(normalized.get("lotStep"), 0.0),
+            as_float(normalized.get("maxLot"), 0.0),
+            clean(normalized.get("contractUnit"), 80),
             source,
             utc_now(),
         ),
@@ -1189,13 +1489,20 @@ def reconcile_snapshot(conn: sqlite3.Connection, payload: dict[str, Any] | None 
         entry = as_float(first_value(row.get("entryPrice"), row.get("priceOpen"), row.get("price_open"), default=0.0), 0.0)
         current = as_float(first_value(row.get("currentPrice"), row.get("priceCurrent"), row.get("price_current"), default=0.0), 0.0)
         profit = as_float(first_value(row.get("profit"), row.get("unrealizedPnl"), default=0.0), 0.0)
+        highest = as_float(first_value(row.get("highestPrice"), row.get("highest_price"), default=max(entry, current)), max(entry, current))
+        lowest_default = min(value for value in [entry, current] if value > 0) if (entry > 0 or current > 0) else 0.0
+        lowest = as_float(first_value(row.get("lowestPrice"), row.get("lowest_price"), default=lowest_default), lowest_default)
+        notional = abs(entry * size)
+        pnl_percent = as_float(first_value(row.get("pnlPercent"), row.get("pnl_percent"), default=(profit / notional * 100.0 if notional > 0 else 0.0)), 0.0)
+        equity = as_float(row.get("equity"), 0.0)
         conn.execute(
             """
             INSERT INTO qd_strategy_positions(
                 id, user_id, strategy_id, symbol, canonical_symbol, broker_symbol,
-                side, size, entry_price, current_price, unrealized_pnl, ticket,
+                side, size, entry_price, current_price, highest_price, lowest_price,
+                unrealized_pnl, pnl_percent, equity, ticket,
                 source, observed_at, updated_at, payload_json
-            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'mt5_readonly_reconcile', ?, ?, ?)
+            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'mt5_readonly_reconcile', ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 strategy_id=excluded.strategy_id,
                 symbol=excluded.symbol,
@@ -1205,7 +1512,19 @@ def reconcile_snapshot(conn: sqlite3.Connection, payload: dict[str, Any] | None 
                 size=excluded.size,
                 entry_price=excluded.entry_price,
                 current_price=excluded.current_price,
+                highest_price=CASE
+                    WHEN qd_strategy_positions.highest_price > excluded.highest_price THEN qd_strategy_positions.highest_price
+                    ELSE excluded.highest_price
+                END,
+                lowest_price=CASE
+                    WHEN qd_strategy_positions.lowest_price = 0 THEN excluded.lowest_price
+                    WHEN excluded.lowest_price = 0 THEN qd_strategy_positions.lowest_price
+                    WHEN excluded.lowest_price < qd_strategy_positions.lowest_price THEN excluded.lowest_price
+                    ELSE qd_strategy_positions.lowest_price
+                END,
                 unrealized_pnl=excluded.unrealized_pnl,
+                pnl_percent=excluded.pnl_percent,
+                equity=excluded.equity,
                 ticket=excluded.ticket,
                 source=excluded.source,
                 observed_at=excluded.observed_at,
@@ -1222,7 +1541,11 @@ def reconcile_snapshot(conn: sqlite3.Connection, payload: dict[str, Any] | None 
                 size,
                 entry,
                 current,
+                highest,
+                lowest,
                 profit,
+                pnl_percent,
+                equity,
                 ticket,
                 observed,
                 observed,
@@ -1372,8 +1695,11 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
                broker_symbol AS brokerSymbol, signal_type AS signalType, order_type AS orderType,
                side, amount AS lots, price, sl, tp, execution_mode AS executionMode, status,
                priority, attempts, max_attempts AS maxAttempts, last_error AS lastError,
-               exchange_order_id AS exchangeOrderId, dry_run_required AS dryRunRequired,
-               created_at AS createdAt, updated_at AS updatedAt, processed_at AS processedAt
+               dispatch_note AS dispatchNote, exchange_order_id AS exchangeOrderId,
+               filled, avg_price AS avgPrice, executed_at AS executedAt,
+               owner_mode AS ownerMode, dry_run_required AS dryRunRequired,
+               created_at AS createdAt, updated_at AS updatedAt, processed_at AS processedAt,
+               sent_at AS sentAt
         FROM pending_orders
         ORDER BY updated_at DESC
         LIMIT 100
@@ -1384,7 +1710,9 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
         """
         SELECT id AS positionId, strategy_id AS strategyId, symbol, canonical_symbol AS canonicalSymbol,
                broker_symbol AS brokerSymbol, side, size AS lots, entry_price AS entryPrice,
-               current_price AS currentPrice, unrealized_pnl AS unrealizedPnl, ticket, source,
+               current_price AS currentPrice, highest_price AS highestPrice,
+               lowest_price AS lowestPrice, unrealized_pnl AS unrealizedPnl,
+               pnl_percent AS pnlPercent, equity, ticket, source,
                observed_at AS observedAt, updated_at AS updatedAt
         FROM qd_strategy_positions
         ORDER BY updated_at DESC
@@ -1396,9 +1724,22 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
         """
         SELECT id AS tradeId, strategy_id AS strategyId, symbol, canonical_symbol AS canonicalSymbol,
                broker_symbol AS brokerSymbol, type, side, price, amount AS lots, value,
-               profit, fee, exchange_order_id AS exchangeOrderId, status,
+               profit, fee, commission, commission_ccy AS commissionCcy,
+               exchange_order_id AS exchangeOrderId, status,
                opened_at AS openedAt, closed_at AS closedAt, created_at AS createdAt
         FROM qd_strategy_trades
+        ORDER BY created_at DESC
+        LIMIT 100
+        """,
+    )
+    quick_trades = fetch_rows(
+        conn,
+        """
+        SELECT id AS quickTradeId, pending_order_id AS pendingOrderId, route,
+               canonical_symbol AS canonicalSymbol, broker_symbol AS brokerSymbol,
+               side, order_type AS orderType, amount AS lots, price, sl, tp,
+               execution_mode AS executionMode, status, created_at AS createdAt
+        FROM qd_quick_trades
         ORDER BY created_at DESC
         LIMIT 100
         """,
@@ -1408,8 +1749,10 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
         """
         SELECT market, symbol, name, exchange, currency, canonical_symbol AS canonicalSymbol,
                broker_symbol AS brokerSymbol, broker_suffix AS brokerSuffix, asset_class AS assetClass,
-               market_category AS marketCategory, digits, point,
+               market_category AS marketCategory, market_type AS marketType, digits, point,
                volume_min AS volumeMin, volume_max AS volumeMax, volume_step AS volumeStep,
+               standard_lot AS standardLot, min_lot AS minLot, lot_step AS lotStep,
+               max_lot AS maxLot, contract_unit AS contractUnit,
                source, updated_at AS updatedAt
         FROM qd_market_symbols
         ORDER BY market, canonical_symbol, broker_symbol
@@ -1438,6 +1781,17 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
         LIMIT 20
         """,
     )
+    task_runs = fetch_rows(
+        conn,
+        """
+        SELECT task_id AS taskId, task_type AS taskType, status,
+               started_at_iso AS startedAtIso, finished_at_iso AS finishedAtIso,
+               summary_json AS summaryJson
+        FROM task_runs
+        ORDER BY started_at_iso DESC
+        LIMIT 50
+        """,
+    )
     summary = {
         "operators": table_count(conn, "operators"),
         "rolePermissions": table_count(conn, "role_permissions"),
@@ -1451,8 +1805,16 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
         "queuedOrders": int(conn.execute("SELECT COUNT(*) AS c FROM pending_orders WHERE status='queued'").fetchone()["c"]),
         "platformPositions": table_count(conn, "qd_strategy_positions"),
         "platformTrades": table_count(conn, "qd_strategy_trades"),
+        "quickTrades": table_count(conn, "qd_quick_trades"),
         "symbolCatalog": table_count(conn, "qd_market_symbols"),
         "connectionSessions": table_count(conn, "mt5_connection_sessions"),
+    }
+    ledger_summary = {
+        "pendingSent": int(conn.execute("SELECT COUNT(*) AS c FROM pending_orders WHERE status='sent'").fetchone()["c"]),
+        "pendingFailed": int(conn.execute("SELECT COUNT(*) AS c FROM pending_orders WHERE status='failed' OR status='blocked'").fetchone()["c"]),
+        "pendingDryRunAccepted": int(conn.execute("SELECT COUNT(*) AS c FROM pending_orders WHERE status='dry_run_accepted'").fetchone()["c"]),
+        "exchangeOrderIds": int(conn.execute("SELECT COUNT(*) AS c FROM pending_orders WHERE exchange_order_id<>''").fetchone()["c"]),
+        "filledRows": int(conn.execute("SELECT COUNT(*) AS c FROM pending_orders WHERE filled>0").fetchone()["c"]),
     }
     payload = {
         "ok": True,
@@ -1470,8 +1832,11 @@ def build_state(conn: sqlite3.Connection, runtime_dir: Path, db_path: Path, sync
         "pendingOrders": pending_orders,
         "positions": positions,
         "trades": trades,
+        "quickTrades": quick_trades,
         "symbolCatalog": symbol_catalog,
         "connectionSessions": connection_sessions,
+        "taskRuns": task_runs,
+        "ledgerSummary": ledger_summary,
         "recentAuditEvents": recent_events,
     }
     if action:
@@ -1536,6 +1901,8 @@ def run(
             action = {"pendingOrder": enqueue_order(conn, payload, quick_trade=True)}
         elif endpoint == "dispatch":
             action = {"dispatch": dispatch_queued_orders(conn, runtime_dir, payload)}
+        elif endpoint == "worker-run":
+            action = {"worker": run_db_pending_worker(conn, runtime_dir, payload)}
         elif endpoint == "queue-retry":
             action = {"queue": update_queue_status(conn, payload, "queued")}
         elif endpoint == "queue-cancel":

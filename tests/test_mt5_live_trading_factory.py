@@ -59,6 +59,32 @@ class LiveTradingFactoryTests(unittest.TestCase):
             self.assertEqual(result["summary"]["queuedOrders"], 1)
             self.assertTrue((Path(tmp) / "QuantGod_MT5Platform.db").exists())
 
+    def test_factory_accepts_quantdinger_style_exchange_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = factory.create_client(
+                {
+                    "exchange_id": "mt5",
+                    "market_category": "Forex",
+                    "runtime_dir": tmp,
+                    "mt5_login": 123456,
+                    "mt5_server": "Fake-Live",
+                }
+            )
+            result = client.quick_trade(
+                {
+                    "strategyId": "RSI_USDJPY_H1",
+                    "route": "RSI_Reversal",
+                    "symbol": "USDJPYc",
+                    "side": "sell",
+                    "orderType": "sell_limit",
+                    "lots": 0.01,
+                    "price": 151.5,
+                }
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["quickTrades"], 1)
+            self.assertEqual(result["pendingOrders"][0]["canonicalSymbol"], "USDJPY")
+
     def test_rejects_unknown_broker(self):
         with self.assertRaises(ValueError):
             factory.create_client("IBKR")

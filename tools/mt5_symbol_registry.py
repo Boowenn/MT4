@@ -41,6 +41,70 @@ ENDPOINTS = {"registry", "resolve"}
 DEFAULT_LIMIT = 2000
 MAX_LIMIT = 5000
 
+STATIC_SYMBOLS: tuple[dict[str, Any], ...] = (
+    # Forex majors
+    {"name": "EURUSD", "description": "Euro vs US Dollar", "path": "Forex\\Majors"},
+    {"name": "GBPUSD", "description": "British Pound vs US Dollar", "path": "Forex\\Majors"},
+    {"name": "USDJPY", "description": "US Dollar vs Japanese Yen", "path": "Forex\\Majors"},
+    {"name": "USDCHF", "description": "US Dollar vs Swiss Franc", "path": "Forex\\Majors"},
+    {"name": "AUDUSD", "description": "Australian Dollar vs US Dollar", "path": "Forex\\Majors"},
+    {"name": "USDCAD", "description": "US Dollar vs Canadian Dollar", "path": "Forex\\Majors"},
+    {"name": "NZDUSD", "description": "New Zealand Dollar vs US Dollar", "path": "Forex\\Majors"},
+    # Crosses and exotics mirrored from QuantDinger's MT5 catalog shape.
+    {"name": "EURGBP", "description": "Euro vs British Pound", "path": "Forex\\Crosses"},
+    {"name": "EURJPY", "description": "Euro vs Japanese Yen", "path": "Forex\\Crosses"},
+    {"name": "EURCHF", "description": "Euro vs Swiss Franc", "path": "Forex\\Crosses"},
+    {"name": "EURAUD", "description": "Euro vs Australian Dollar", "path": "Forex\\Crosses"},
+    {"name": "EURCAD", "description": "Euro vs Canadian Dollar", "path": "Forex\\Crosses"},
+    {"name": "EURNZD", "description": "Euro vs New Zealand Dollar", "path": "Forex\\Crosses"},
+    {"name": "GBPJPY", "description": "British Pound vs Japanese Yen", "path": "Forex\\Crosses"},
+    {"name": "GBPCHF", "description": "British Pound vs Swiss Franc", "path": "Forex\\Crosses"},
+    {"name": "GBPAUD", "description": "British Pound vs Australian Dollar", "path": "Forex\\Crosses"},
+    {"name": "GBPCAD", "description": "British Pound vs Canadian Dollar", "path": "Forex\\Crosses"},
+    {"name": "GBPNZD", "description": "British Pound vs New Zealand Dollar", "path": "Forex\\Crosses"},
+    {"name": "AUDJPY", "description": "Australian Dollar vs Japanese Yen", "path": "Forex\\Crosses"},
+    {"name": "AUDCHF", "description": "Australian Dollar vs Swiss Franc", "path": "Forex\\Crosses"},
+    {"name": "AUDCAD", "description": "Australian Dollar vs Canadian Dollar", "path": "Forex\\Crosses"},
+    {"name": "AUDNZD", "description": "Australian Dollar vs New Zealand Dollar", "path": "Forex\\Crosses"},
+    {"name": "NZDJPY", "description": "New Zealand Dollar vs Japanese Yen", "path": "Forex\\Crosses"},
+    {"name": "NZDCHF", "description": "New Zealand Dollar vs Swiss Franc", "path": "Forex\\Crosses"},
+    {"name": "NZDCAD", "description": "New Zealand Dollar vs Canadian Dollar", "path": "Forex\\Crosses"},
+    {"name": "CADJPY", "description": "Canadian Dollar vs Japanese Yen", "path": "Forex\\Crosses"},
+    {"name": "CADCHF", "description": "Canadian Dollar vs Swiss Franc", "path": "Forex\\Crosses"},
+    {"name": "CHFJPY", "description": "Swiss Franc vs Japanese Yen", "path": "Forex\\Crosses"},
+    {"name": "USDMXN", "description": "US Dollar vs Mexican Peso", "path": "Forex\\Exotics"},
+    {"name": "USDZAR", "description": "US Dollar vs South African Rand", "path": "Forex\\Exotics"},
+    {"name": "USDTRY", "description": "US Dollar vs Turkish Lira", "path": "Forex\\Exotics"},
+    {"name": "USDHKD", "description": "US Dollar vs Hong Kong Dollar", "path": "Forex\\Exotics"},
+    {"name": "USDSGD", "description": "US Dollar vs Singapore Dollar", "path": "Forex\\Exotics"},
+    {"name": "USDNOK", "description": "US Dollar vs Norwegian Krone", "path": "Forex\\Exotics"},
+    {"name": "USDSEK", "description": "US Dollar vs Swedish Krona", "path": "Forex\\Exotics"},
+    {"name": "USDDKK", "description": "US Dollar vs Danish Krone", "path": "Forex\\Exotics"},
+    {"name": "EURTRY", "description": "Euro vs Turkish Lira", "path": "Forex\\Exotics"},
+    {"name": "EURMXN", "description": "Euro vs Mexican Peso", "path": "Forex\\Exotics"},
+    {"name": "EURNOK", "description": "Euro vs Norwegian Krone", "path": "Forex\\Exotics"},
+    {"name": "EURSEK", "description": "Euro vs Swedish Krona", "path": "Forex\\Exotics"},
+    {"name": "EURDKK", "description": "Euro vs Danish Krone", "path": "Forex\\Exotics"},
+    {"name": "EURPLN", "description": "Euro vs Polish Zloty", "path": "Forex\\Exotics"},
+    {"name": "EURHUF", "description": "Euro vs Hungarian Forint", "path": "Forex\\Exotics"},
+    {"name": "EURCZK", "description": "Euro vs Czech Koruna", "path": "Forex\\Exotics"},
+    # CFD classes QuantDinger exposes through the same MT5 symbol layer.
+    {"name": "XAUUSD", "description": "Gold vs US Dollar", "path": "Metals"},
+    {"name": "XAGUSD", "description": "Silver vs US Dollar", "path": "Metals"},
+    {"name": "XAUEUR", "description": "Gold vs Euro", "path": "Metals"},
+    {"name": "US30", "description": "Dow Jones 30 CFD", "path": "Indices"},
+    {"name": "US500", "description": "S&P 500 CFD", "path": "Indices"},
+    {"name": "USTEC", "description": "Nasdaq 100 CFD", "path": "Indices"},
+    {"name": "UK100", "description": "FTSE 100 CFD", "path": "Indices"},
+    {"name": "DE40", "description": "DAX 40 CFD", "path": "Indices"},
+    {"name": "JP225", "description": "Nikkei 225 CFD", "path": "Indices"},
+    {"name": "AU200", "description": "Australia 200 CFD", "path": "Indices"},
+    {"name": "BTCUSD", "description": "Bitcoin vs US Dollar CFD", "path": "Crypto CFD"},
+    {"name": "ETHUSD", "description": "Ethereum vs US Dollar CFD", "path": "Crypto CFD"},
+    {"name": "LTCUSD", "description": "Litecoin vs US Dollar CFD", "path": "Crypto CFD"},
+    {"name": "XRPUSD", "description": "Ripple vs US Dollar CFD", "path": "Crypto CFD"},
+)
+
 CURRENCY_CODES = (
     "AUD",
     "CAD",
@@ -119,6 +183,15 @@ ENERGY_PREFIXES = (
     "WTI",
     "NATGAS",
 )
+
+LOT_SIZE_PROFILES = {
+    "forex": {"standardLot": 100000, "minLot": 0.01, "lotStep": 0.01, "maxLot": 100.0, "contractUnit": "base_currency_units"},
+    "metal_cfd": {"standardLot": 100, "minLot": 0.01, "lotStep": 0.01, "maxLot": 50.0, "contractUnit": "troy_ounces"},
+    "index_cfd": {"standardLot": 1, "minLot": 0.1, "lotStep": 0.1, "maxLot": 100.0, "contractUnit": "index_contract"},
+    "crypto_cfd": {"standardLot": 1, "minLot": 0.01, "lotStep": 0.01, "maxLot": 100.0, "contractUnit": "coin_contract"},
+    "energy_cfd": {"standardLot": 1000, "minLot": 0.01, "lotStep": 0.01, "maxLot": 100.0, "contractUnit": "barrel_or_contract"},
+    "unknown": {"standardLot": 1, "minLot": 0.01, "lotStep": 0.01, "maxLot": 100.0, "contractUnit": "contract"},
+}
 
 KNOWN_SUFFIXES = (
     ".RAW",
@@ -207,6 +280,35 @@ def suffix_from_prefix(symbol: str, canonical: str) -> str:
     if clean_text(symbol).upper().startswith(canonical.upper()):
         return symbol[len(canonical) :]
     return ""
+
+
+def market_type_from_category(category: Any) -> str:
+    text = clean_text(category).lower()
+    if "forex" in text:
+        return "forex"
+    if "metal" in text:
+        return "metal_cfd"
+    if "index" in text:
+        return "index_cfd"
+    if "crypto" in text:
+        return "crypto_cfd"
+    if "energy" in text:
+        return "energy_cfd"
+    return text or "unknown"
+
+
+def parse_symbol(symbol: str) -> tuple[str, str]:
+    row = normalize_symbol_row({"name": symbol})
+    return clean_text(row.get("canonicalSymbol")).upper(), market_type_from_category(row.get("marketCategory"))
+
+
+def get_lot_size_info(symbol: str) -> dict[str, Any]:
+    _canonical, market_type = parse_symbol(symbol)
+    return dict(LOT_SIZE_PROFILES.get(market_type) or LOT_SIZE_PROFILES["unknown"])
+
+
+def static_symbol_catalog() -> list[dict[str, Any]]:
+    return [normalize_symbol_row(dict(row)) for row in STATIC_SYMBOLS]
 
 
 def infer_symbol_identity(row: dict[str, Any]) -> dict[str, Any]:
@@ -336,6 +438,8 @@ def normalize_symbol_row(row: dict[str, Any]) -> dict[str, Any]:
     identity = infer_symbol_identity(row)
     broker_symbol = clean_text(row.get("name"))
     canonical = identity["canonicalSymbol"]
+    market_type = market_type_from_category(identity["marketCategory"])
+    lot_info = dict(LOT_SIZE_PROFILES.get(market_type) or LOT_SIZE_PROFILES["unknown"])
     aliases = []
     for candidate in [canonical, broker_symbol, compact_symbol(broker_symbol)]:
         if candidate and candidate not in aliases:
@@ -346,6 +450,7 @@ def normalize_symbol_row(row: dict[str, Any]) -> dict[str, Any]:
         "brokerSuffix": identity["brokerSuffix"],
         "assetClass": identity["assetClass"],
         "marketCategory": identity["marketCategory"],
+        "marketType": market_type,
         "baseCurrency": identity["baseCurrency"],
         "quoteCurrency": identity["quoteCurrency"],
         "description": clean_text(row.get("description")),
@@ -359,6 +464,12 @@ def normalize_symbol_row(row: dict[str, Any]) -> dict[str, Any]:
         "volumeMin": row.get("volumeMin", row.get("volume_min", 0.0)),
         "volumeMax": row.get("volumeMax", row.get("volume_max", 0.0)),
         "volumeStep": row.get("volumeStep", row.get("volume_step", 0.0)),
+        "lotSize": lot_info,
+        "standardLot": lot_info["standardLot"],
+        "minLot": lot_info["minLot"],
+        "lotStep": lot_info["lotStep"],
+        "maxLot": lot_info["maxLot"],
+        "contractUnit": lot_info["contractUnit"],
         "mappingReason": identity["mappingReason"],
         "confidence": identity["confidence"],
         "aliases": aliases,
@@ -382,6 +493,7 @@ def registry_summary(mappings: list[dict[str, Any]]) -> dict[str, Any]:
         "visibleSymbols": sum(1 for row in mappings if row.get("visible")),
         "selectedSymbols": sum(1 for row in mappings if row.get("selected")),
         "assetClassCounts": dict(sorted(asset_counts.items())),
+        "staticCatalogSymbols": len(STATIC_SYMBOLS),
         "brokerSuffixCounts": dict(sorted(suffix_counts.items())),
         "canonicalConflicts": conflicts,
         "canonicalConflictCount": len(conflicts),

@@ -12,10 +12,20 @@ read-only APIs remain read-only and separate.
 Potential future scope:
 
 - Convert approved research candidates into pending-order intents.
-- Submit MT5 pending orders through one owned execution path.
+- Submit MT5 pending orders through one owned execution path after explicit
+  live authorization.
 - Track broker tickets, lifecycle state, fills, cancels, expirations, and
   realized outcomes.
 - Write an immutable audit ledger before and after every external MT5 action.
+
+Implemented safe scope:
+
+- Artifact worker consumes `QuantGod_MT5PendingOrderIntents.json` and writes a
+  dry-run ledger.
+- DB worker consumes platform-store `pending_orders` and writes `task_runs`.
+- Dashboard can enqueue and simulate dispatch, but `dryRun=true` is forced.
+- Broker ticket, fill, average-price, and execution-time mirror fields exist in
+  SQLite for dry-run or later authorized execution evidence.
 
 Still out of scope for the worker:
 
@@ -186,9 +196,9 @@ The worker must derive a stable `IntentId` from:
 Before sending an order, it checks the ledger for an existing active intent or
 broker ticket. Duplicate intents are skipped and audited.
 
-## Implementation Gate
+## Live Implementation Gate
 
-Before any implementation branch:
+Before enabling any live-send branch:
 
 - Contract tests prove `/api/mt5-readonly/*` and
   `/api/mt5-symbol-registry/*` still cannot mutate MT5.
@@ -198,3 +208,6 @@ Before any implementation branch:
 - A rollback plan confirms disabling one env var stops all worker sends.
 - The owner model is approved: `EA_ONLY`, `PY_PENDING_ONLY`, or
   `EA_AND_PY_SPLIT`.
+
+The current implementation satisfies the dry-run/test side of this gate, but
+does not approve or enable live Python order authority.

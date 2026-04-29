@@ -22,10 +22,12 @@ from typing import Any
 
 try:
     import mt5_symbol_registry
+    import mt5_platform_store
     import mt5_trading_client
 except ImportError:  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parent))
     import mt5_symbol_registry  # type: ignore
+    import mt5_platform_store  # type: ignore
     import mt5_trading_client  # type: ignore
 
 
@@ -361,18 +363,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--intents", default="")
     parser.add_argument("--max-intents", type=int, default=20)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--db-worker", action="store_true", help="Process the local MT5 Platform pending_orders SQLite queue.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    payload = run_worker(
-        Path(args.runtime_dir),
-        config_path=Path(args.config) if args.config else None,
-        intents_path=Path(args.intents) if args.intents else None,
-        max_intents=args.max_intents,
-        force_dry_run=args.dry_run,
-    )
+    runtime = Path(args.runtime_dir)
+    if args.db_worker:
+        payload = mt5_platform_store.run(
+            runtime,
+            endpoint="worker-run",
+            payload={"maxOrders": args.max_intents, "dryRun": True, "source": "mt5_pending_order_worker_db_mode"},
+        )
+    else:
+        payload = run_worker(
+            runtime,
+            config_path=Path(args.config) if args.config else None,
+            intents_path=Path(args.intents) if args.intents else None,
+            max_intents=args.max_intents,
+            force_dry_run=args.dry_run,
+        )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 

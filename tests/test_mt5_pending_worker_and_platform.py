@@ -223,6 +223,8 @@ class Mt5PendingWorkerAndPlatformTests(unittest.TestCase):
             self.assertEqual(state["action"]["reconcile"]["positionsSynced"], 1)
             self.assertEqual(state["action"]["reconcile"]["ordersSynced"], 1)
             self.assertEqual(state["positions"][0]["canonicalSymbol"], "EURUSD")
+            self.assertIn("highestPrice", state["positions"][0])
+            self.assertIn("pnlPercent", state["positions"][0])
             self.assertEqual(state["pendingOrders"][0]["canonicalSymbol"], "USDJPY")
             self.assertFalse(state["safety"]["symbolSelectAllowed"])
 
@@ -237,8 +239,34 @@ class Mt5PendingWorkerAndPlatformTests(unittest.TestCase):
                 },
             )
             self.assertEqual(symbols_state["action"]["symbols"]["synced"], 2)
-            self.assertEqual(symbols_state["summary"]["symbolCatalog"], 2)
-            self.assertEqual({row["canonicalSymbol"] for row in symbols_state["symbolCatalog"]}, {"EURUSD"})
+            self.assertGreaterEqual(symbols_state["summary"]["symbolCatalog"], 2)
+            self.assertIn("EURUSD", {row["canonicalSymbol"] for row in symbols_state["symbolCatalog"]})
+            self.assertIn("standardLot", symbols_state["symbolCatalog"][0])
+
+    def test_platform_db_worker_processes_pending_orders_and_records_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            platform.run(
+                runtime,
+                endpoint="enqueue",
+                payload={
+                    "strategyId": "MA_EURUSD_M15",
+                    "route": "MA_Cross",
+                    "symbol": "EURUSDc",
+                    "side": "buy",
+                    "orderType": "buy_limit",
+                    "lots": 0.01,
+                    "price": 1.099,
+                },
+            )
+
+            worked = platform.run(runtime, endpoint="worker-run", payload={"maxOrders": 1, "dryRun": True})
+            self.assertEqual(worked["action"]["worker"]["processed"], 1)
+            self.assertEqual(worked["action"]["worker"]["dryRunAccepted"], 1)
+            self.assertEqual(worked["pendingOrders"][0]["status"], "dry_run_accepted")
+            self.assertGreaterEqual(worked["summary"]["taskRuns"], 1)
+            self.assertGreaterEqual(len(worked["taskRuns"]), 1)
+            self.assertFalse(worked["safety"]["dispatchLiveAllowed"])
 
 
 if __name__ == "__main__":

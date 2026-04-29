@@ -124,6 +124,7 @@ class Mt5SymbolRegistryTests(unittest.TestCase):
             "brokerSuffix",
             "assetClass",
             "marketCategory",
+            "marketType",
             "baseCurrency",
             "quoteCurrency",
             "description",
@@ -137,6 +138,12 @@ class Mt5SymbolRegistryTests(unittest.TestCase):
             "volumeMin",
             "volumeMax",
             "volumeStep",
+            "lotSize",
+            "standardLot",
+            "minLot",
+            "lotStep",
+            "maxLot",
+            "contractUnit",
             "mappingReason",
             "confidence",
             "aliases",
@@ -164,6 +171,17 @@ class Mt5SymbolRegistryTests(unittest.TestCase):
         self.assertFalse(registry.SAFETY["cancelAllowed"])
         self.assertFalse(registry.SAFETY["symbolSelectAllowed"])
         self.assertFalse(registry.SAFETY["mutatesMt5"])
+
+    def test_static_catalog_and_lot_profiles_cover_quantdinger_mt5_assets(self):
+        catalog = registry.static_symbol_catalog()
+        canonical = {row["canonicalSymbol"] for row in catalog}
+        self.assertIn("EURUSD", canonical)
+        self.assertIn("USDJPY", canonical)
+        self.assertIn("XAUUSD", canonical)
+        self.assertIn("US500", canonical)
+        self.assertIn("BTCUSD", canonical)
+        self.assertEqual(registry.get_lot_size_info("EURUSD")["standardLot"], 100000)
+        self.assertEqual(registry.get_lot_size_info("XAUUSD")["contractUnit"], "troy_ounces")
 
 
 if __name__ == "__main__":

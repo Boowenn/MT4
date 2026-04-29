@@ -153,6 +153,7 @@ Summary fields:
 - `mappedSymbols`
 - `visibleSymbols`
 - `selectedSymbols`
+- `staticCatalogSymbols`
 - `assetClassCounts`
 - `brokerSuffixCounts`
 - `canonicalConflicts`
@@ -165,6 +166,7 @@ Mapping item fields:
 - `brokerSuffix`
 - `assetClass`
 - `marketCategory`
+- `marketType`
 - `baseCurrency`
 - `quoteCurrency`
 - `description`
@@ -178,9 +180,21 @@ Mapping item fields:
 - `volumeMin`
 - `volumeMax`
 - `volumeStep`
+- `lotSize`
+- `standardLot`
+- `minLot`
+- `lotStep`
+- `maxLot`
+- `contractUnit`
 - `mappingReason`
 - `confidence`
 - `aliases`
+
+The registry also exposes a static QuantDinger-compatible MT5 symbol catalog
+for common forex pairs, metals, indices, and crypto CFDs. Live HFM symbols are
+preferred when present; static rows fill discovery gaps and carry normalized
+lot-size metadata so Dashboard, research stats, and the platform store do not
+split samples by broker suffix.
 
 Resolve response additions:
 

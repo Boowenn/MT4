@@ -62,6 +62,10 @@ const mt5PlatformEndpoints = new Set([
   'queue-retry',
   'queue-cancel',
   'queue-archive',
+  'worker-run',
+  'ledger',
+  'quick-trades',
+  'task-runs',
   'positions',
   'trades',
   'symbols',
@@ -761,6 +765,28 @@ function buildMt5PendingWorkerArgs(parsedUrl, payloadPath = '') {
 
 async function handleMt5PendingWorker(req, res, forceRun = false) {
   const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+  const useDbWorker = ['1', 'true', 'yes'].includes(String(parsed.searchParams.get('dbWorker') || parsed.searchParams.get('platformDb') || '').toLowerCase());
+  if (useDbWorker) {
+    const result = await runJsonPythonPayload(
+      mt5PlatformStoreScript,
+      ['--runtime-dir', defaultRuntimeDir, '--endpoint', 'worker-run'],
+      { maxOrders: clampMt5ReadonlyLimit(parsed.searchParams.get('maxIntents') || parsed.searchParams.get('maxOrders'), 20, 100), dryRun: true, source: 'dashboard_pending_worker_db_mode' },
+      60000
+    );
+    const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    sendJson(res, 200, {
+      ...payload,
+      _api: {
+        service: 'quantgod_dashboard_mt5_platform_db_worker',
+        endpoint: '/api/mt5-pending-worker/run?dbWorker=true',
+        script: mt5PlatformStoreScript,
+        guardedMutation: true,
+        dryRunRequired: true,
+        auditLedgerRequired: true
+      }
+    });
+    return;
+  }
   const target = path.join(defaultRuntimeDir, mt5PendingWorkerName);
   if (!forceRun && req.method === 'GET' && fs.existsSync(target)) {
     try {
@@ -846,7 +872,7 @@ async function handleMt5PlatformStore(req, res, endpoint = 'status') {
     }
     const args = ['--runtime-dir', defaultRuntimeDir, '--endpoint', normalized];
     const result = (req.method === 'POST' || req.method === 'DELETE')
-      ? await runJsonPythonPayload(mt5PlatformStoreScript, args, requestPayload, normalized === 'dispatch' || normalized === 'symbols' || normalized === 'reconcile' ? 60000 : 20000)
+      ? await runJsonPythonPayload(mt5PlatformStoreScript, args, requestPayload, normalized === 'dispatch' || normalized === 'worker-run' || normalized === 'symbols' || normalized === 'reconcile' ? 60000 : 20000)
       : await runJsonPython(mt5PlatformStoreScript, args, normalized === 'symbols' || normalized === 'reconcile' ? 60000 : 20000);
     if (!result.ok) {
       sendJson(res, 200, {

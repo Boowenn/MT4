@@ -202,6 +202,16 @@ The worker only supports pending order types:
 It derives a stable `IntentId`, skips duplicate accepted intents, calls the
 guarded trading bridge, and mirrors decisions into the worker ledger.
 
+DB-backed mode is also available:
+
+```powershell
+python tools\mt5_pending_order_worker.py --runtime-dir <runtime> --db-worker --dry-run
+```
+
+This processes the local platform `pending_orders` queue through
+`/api/mt5-platform/worker-run`, writes `task_runs`, mirrors broker/dry-run
+fields back onto the queue, and still forces `dryRun=true`.
+
 ## Platform Store
 
 Backed by `tools/mt5_platform_store.py`.
@@ -220,9 +230,13 @@ Endpoints:
 - `POST /api/mt5-platform/enqueue`
 - `POST /api/mt5-platform/quick-trade`
 - `POST /api/mt5-platform/dispatch`
+- `POST /api/mt5-platform/worker-run`
 - `POST /api/mt5-platform/queue-retry`
 - `POST /api/mt5-platform/queue-cancel`
 - `POST /api/mt5-platform/queue-archive`
+- `GET /api/mt5-platform/ledger`
+- `GET /api/mt5-platform/quick-trades`
+- `GET /api/mt5-platform/task-runs`
 - `GET /api/mt5-platform/positions`
 - `GET /api/mt5-platform/trades`
 - `POST /api/mt5-platform/reconcile`
@@ -243,6 +257,7 @@ The local SQLite store tracks:
 - `qd_exchange_credentials`
 - `qd_strategies_trading`
 - `pending_orders`
+- `qd_quick_trades`
 - `qd_strategy_positions`
 - `qd_strategy_trades`
 - `qd_market_symbols`
@@ -254,6 +269,20 @@ mirrors dry-run/order ledger events into `qd_strategy_trades`, accepts
 read-only snapshot reconcile into `qd_strategy_positions`, and materializes
 symbol-registry mappings into `qd_market_symbols`.
 
+The current store mode is `MT5_PLATFORM_STORE_V3`. It extends the QuantDinger
+style local platform layer with:
+
+- static MT5 symbol catalog seeding, including normalized market type and
+  lot-size metadata
+- DB pending-order worker task runs
+- exchange-order mirror fields on `pending_orders`:
+  `dispatch_note`, `exchange_order_id`, `exchange_response_json`, `filled`,
+  `avg_price`, `executed_at`, and `owner_mode`
+- lifecycle fields on `qd_strategy_positions`:
+  `highest_price`, `lowest_price`, `pnl_percent`, and `equity`
+- richer `qd_strategy_trades` commission fields
+- `qd_quick_trades` for Dashboard quick-ticket intents
+
 Safety contract:
 
 - raw MT5 passwords are rejected/redacted and never persisted
@@ -262,6 +291,8 @@ Safety contract:
 - `pending_orders.dry_run_required=1` for queued Dashboard/quick-ticket intents
 - `/api/mt5-platform/dispatch` calls the guarded trading bridge with
   `dryRun=true` and records the result; it does not send broker orders
+- `/api/mt5-platform/worker-run` processes the SQLite queue in the same
+  dry-run-only way and records a `task_runs` row
 - queue retry/cancel/archive changes local SQLite state only
 - connect/disconnect records a local control-plane session event; it does not
   bypass `/api/mt5/login` authorization
@@ -279,11 +310,17 @@ The factory exposes a QuantDinger-style abstraction:
 from live_trading_factory import create_client
 
 client = create_client("MT5", market_category="Forex")
+client = create_client({"exchange_id": "mt5", "market_category": "Forex"})
 client.place_limit_order({...})
 client.enqueue_order({...})
 client.quick_trade({...})
 client.close_position({...})
 client.cancel_order({...})
+client.get_account_info()
+client.get_positions()
+client.get_orders()
+client.get_symbols()
+client.get_quote("EURUSDc")
 ```
 
 The MT5 client is a wrapper around the guarded trading bridge. It does not
@@ -292,6 +329,8 @@ mutation still requires config, env, authorization lock, limits, and audit.
 `enqueue_order` and `quick_trade` write to the local platform
 `pending_orders` queue with `dry_run_required=1`; they do not call
 `order_send`.
+The read methods proxy the read-only bridge, giving QuantDinger-style client
+shape without moving credentials or live authority into Python by default.
 
 ## Adaptive-Control Executor
 
@@ -329,11 +368,16 @@ Contract tests cover:
 - fake MT5 `order_send` only runs after config + lock + limits pass
 - profiles never persist passwords
 - pending worker writes dry-run ledger and skips duplicates
+- DB pending worker drains the SQLite `pending_orders` queue in dry-run mode
+  and records task runs
 - platform store syncs audit events into SQLite
 - platform store credential/strategy/queue contracts keep raw passwords out and
   force dry-run dispatch
 - platform reconcile and symbol catalog contracts pool broker suffixes under
   canonical symbols
+- static MT5 symbol catalog rows carry market/lot metadata
+- live-trading factory accepts QuantDinger-style MT5 exchange config dicts and
+  exposes read-only account/position/order/symbol/quote methods
 - live-trading factory keeps MT5 actions behind the guarded bridge
 - adaptive-control executor stages actions without live preset mutation by
   default
