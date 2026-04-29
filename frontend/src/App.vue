@@ -308,7 +308,7 @@ function booleanish(value) {
 function compactId(value, max = 14) {
   const raw = String(first(value, '')).trim();
   if (!raw || raw === '--') return '--';
-  return raw.length > max ? `${raw.slice(0, Math.max(6, max - 4))}...` : raw;
+  return raw;
 }
 
 function compactIsoTime(value) {
@@ -473,7 +473,7 @@ function pctPoint(value) {
 function shortText(value, max = 120) {
   const text = String(first(value, '')).replace(/\s+/g, ' ').trim();
   if (!text) return '--';
-  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+  return text;
 }
 
 const evidenceLabelMap = {
@@ -1070,7 +1070,7 @@ const mt5ExecutionRadarItems = computed(() => {
     },
     {
       label: '服务器时钟',
-      value: shortText(first(snap.serverTime, snap.serverTimeIso, latest.serverTime, '--'), 18),
+      value: first(snap.serverTime, snap.serverTimeIso, latest.serverTime, '--'),
       sub: `本地 ${first(state.loadedAt, '--')}`
     },
     {
@@ -1095,12 +1095,12 @@ const mt5ExecutionRadarItems = computed(() => {
     },
     {
       label: '机会焦点',
-      value: shortText(first(route.label, route.route, route.strategy, '等待机会'), 22),
+      value: first(route.label, route.route, route.strategy, '等待机会'),
       sub: routeActionLabel(route)
     },
     {
       label: '阻塞摘要',
-      value: shortText(routeBlockerText(route), 24),
+      value: routeBlockerText(route),
       sub: first(route.feedback?.riskLevel, route.riskLevel, '等待信号')
     },
     {
@@ -1110,7 +1110,7 @@ const mt5ExecutionRadarItems = computed(() => {
     },
     {
       label: '下一条新闻',
-      value: shortText(first(snap.nextNewsEvent, latest.nextNewsEvent, '--'), 22),
+      value: first(snap.nextNewsEvent, latest.nextNewsEvent, '--'),
       sub: first(snap.nextNewsTime, latest.nextNewsTime, '服务器时间 --')
     }
   ];
@@ -1264,7 +1264,7 @@ const mt5FocusMetrics = computed(() => {
     },
     {
       label: '焦点路线',
-      value: shortText(first(route.label, route.route, route.strategy, '--'), 24),
+      value: first(route.label, route.route, route.strategy, '--'),
       detail: routeActionLabel(route)
     }
   ];
@@ -1812,14 +1812,14 @@ const operatorRadarCards = computed(() => {
     },
     {
       label: '实盘路线',
-      title: shortText(first(route.label, route.route, route.strategy, '等待路线'), 28),
+      title: first(route.label, route.route, route.strategy, '等待路线'),
       meta: `PF ${first(route.liveForward?.profitFactor, route.profitFactor, '--')} · 胜率 ${pct(first(route.liveForward?.winRatePct, route.winRate))}`,
       tone: routeToneClass(route) || 'blue',
       target: 'mt5'
     },
     {
       label: '参数实验',
-      title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
+      title: first(topTask.candidateId, topTask.versionId, '等待队列'),
       meta: `${compactStatusLabel(first(topTask.state, topTask.status, '仅回测'))} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
@@ -1828,14 +1828,14 @@ const operatorRadarCards = computed(() => {
   const polyCards = [
     {
       label: 'Polymarket 雷达',
-      title: shortText(first(radar.market, radar.title, radar.question, '等待市场'), 34),
+      title: first(radar.market, radar.title, radar.question, '等待市场'),
       meta: `概率 ${pct(first(radar.probability, radar.marketProbability))} · 评分 ${first(radar.aiRuleScore, radar.score, '--')}`,
       tone: 'green',
       target: 'polymarket'
     },
     {
       label: 'AI 评分',
-      title: shortText(first(score.market, score.title, score.marketId, '历史评分'), 30),
+      title: first(score.market, score.title, score.marketId, '历史评分'),
       meta: `评分 ${first(score.aiScore, score.score, score.grade, '--')} · 风险 ${cleanInlineStatusText(first(score.risk, score.riskLevel, '--'))}`,
       tone: 'blue',
       target: 'polymarket'
@@ -1865,7 +1865,7 @@ const operatorRadarCards = computed(() => {
   const paramCards = [
     {
       label: '候选队列',
-      title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
+      title: first(topTask.candidateId, topTask.versionId, '等待队列'),
       meta: `${compactStatusLabel(first(topTask.state, topTask.status, 'tester-only'))} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
@@ -2213,7 +2213,7 @@ onBeforeUnmount(() => {
                 </span>
                 <span>
                   <small>证据</small>
-                  <b>{{ shortText(card.meta, 18) }}</b>
+                  <b>{{ card.meta }}</b>
                 </span>
               </div>
               <p>{{ card.meta }}</p>

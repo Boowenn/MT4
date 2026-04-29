@@ -3566,6 +3566,112 @@ tbody tr:hover td {
   white-space: normal;
 }
 
+/* Full text mode for workbench evidence: the dashboard is an operations tool,
+   so high-frequency cards and ledgers should grow instead of hiding meaning. */
+.operator-card,
+.qd-radar-card,
+.rail-item,
+.history-list button,
+.calendar-mini-item,
+.ai-watch-item.rail-item,
+.micro-metric,
+.metric,
+.data-table .pill,
+.data-table .cell-text {
+  height: auto;
+  min-height: auto;
+}
+
+.operator-card span,
+.operator-card small,
+.operator-card strong,
+.qd-card-head strong,
+.qd-card-head span,
+.qd-card-metrics small,
+.qd-card-metrics b,
+.qd-radar-card p,
+.rail-item strong,
+.rail-item small,
+.rail-item b,
+.history-list button strong,
+.history-list button span,
+.history-list button small,
+.calendar-mini-item strong,
+.calendar-mini-item small,
+.ai-watch-item strong,
+.ai-watch-item small,
+.micro-metric span,
+.micro-metric strong,
+.micro-metric small,
+.metric span,
+.metric strong,
+.metric small,
+.data-table .pill,
+.data-table .cell-text {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+
+.operator-card strong,
+.qd-card-head strong,
+.rail-item strong,
+.history-list button strong {
+  line-height: 1.22;
+}
+
+.operator-card small,
+.operator-card span,
+.qd-card-metrics small,
+.qd-card-metrics b,
+.rail-item small,
+.history-list button span,
+.history-list button small {
+  line-height: 1.35;
+}
+
+.qd-card-head,
+.rail-item {
+  align-items: start;
+}
+
+.qd-card-head span {
+  justify-self: end;
+  max-width: 100%;
+}
+
+.qd-card-metrics span {
+  align-items: start;
+  min-height: auto;
+}
+
+.rail-item {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 5px;
+}
+
+.rail-item b {
+  justify-self: start;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+}
+
+.data-table .pill {
+  display: inline-flex;
+  max-width: 100%;
+  line-height: 1.3;
+}
+
+.data-table td {
+  white-space: normal;
+}
+
 @media (max-width: 1160px) {
   .poly-real-metric-grid,
   .poly-real-inline {
