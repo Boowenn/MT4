@@ -1413,16 +1413,76 @@ const polyRiskEvents = computed(() => parseJsonList(first(
   '[]'
 )));
 
+function polyTradeStatus(row) {
+  return cleanInlineStatusText(first(row?.status, row?.state, row?.entryStatus, row?.positionState, row?.decision, '--'));
+}
+
+function polyTradePnl(row) {
+  return first(row?.realized_pnl_usdc, row?.realizedPnlUSDC, row?.realizedPnl, row?.pnl, row?.profit, row?.unrealizedPnl);
+}
+
+function polyTradeStake(row) {
+  return first(row?.stake_usdc, row?.stakeUSDC, row?.stake, row?.amount, row?.size_usdc, row?.size);
+}
+
+function polyTradeSide(row) {
+  const raw = String(first(row?.side, row?.entry_side, row?.direction, row?.outcome, '--')).trim();
+  const upper = raw.toUpperCase();
+  if (upper === 'BUY' || upper === 'LONG') return '买入';
+  if (upper === 'SELL' || upper === 'SHORT') return '卖出';
+  return raw || '--';
+}
+
+function polyTradeTime(row) {
+  return compactIsoTime(first(row?.opened_at, row?.openedAt, row?.entryIso, row?.entry_timestamp, row?.timestamp, row?.generated_at));
+}
+
+function polyTradeClosedTime(row) {
+  return compactIsoTime(first(row?.closed_at, row?.closedAt, row?.exitIso, row?.exit_timestamp, row?.settledAt, row?.generated_at));
+}
+
+function isPolyTradeOpen(row) {
+  const status = String(first(row?.status, row?.state, row?.positionState, row?.decision, '')).toUpperCase();
+  if (/(CLOSED|SETTLED|EXITED|FILLED_AND_CLOSED)/.test(status)) return false;
+  if (first(row?.closed_at, row?.closedAt, row?.exitIso, row?.exit_timestamp, '') !== '--') return false;
+  return true;
+}
+
+const polyRealTradeRows = computed(() => {
+  const rows = [
+    ...arrayFrom(poly.value.realTrades, ['rows', 'trades', 'items']),
+    ...arrayFrom(poly.value.ledgers, ['realTrades'])
+  ];
+  const seen = new Set();
+  return rows.filter((row, index) => {
+    if (!row || typeof row !== 'object') return false;
+    const hasMarket = first(row.question, row.market, row.title, row.market_id, row.marketId, row.slug, '') !== '--';
+    const hasEvidence = first(row.trade_id, row.tradeId, row.order_id, row.orderId, row.tx_hash, row.txHash, row.realized_pnl_usdc, row.realizedPnl, '') !== '--';
+    if (!hasMarket && !hasEvidence) return false;
+    const key = [
+      first(row.trade_id, row.tradeId, ''),
+      first(row.order_id, row.orderId, ''),
+      first(row.tx_hash, row.txHash, ''),
+      first(row.market_id, row.marketId, row.question, ''),
+      first(row.opened_at, row.openedAt, row.entryIso, row.generated_at, index)
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 200);
+});
+
 const polyRealSummaryCards = computed(() => {
   const row = polyResearchSnapshot.value || {};
+  const realSummary = poly.value.realTrades?.summary || {};
   const summary = poly.value.history?.summary || {};
-  const executedPnl = first(row.executedPnl, row.executed_pnl, '--');
+  const executedPnl = first(realSummary.realizedPnlUSDC, row.executedPnl, row.executed_pnl, '--');
   const pnlNumber = asNumber(executedPnl);
   return [
     {
       label: '真钱已结算',
-      value: first(row.executedClosed, row.executed_closed, summary.executedClosed, 0),
-      detail: `胜率 ${pct(first(row.executedWinRate, row.executed_win_rate, '--'))}`,
+      value: first(realSummary.closedRows, row.executedClosed, row.executed_closed, summary.executedClosed, 0),
+      detail: `胜率 ${pct(first(realSummary.winRatePct, row.executedWinRate, row.executed_win_rate, '--'))}`,
       tone: 'blue'
     },
     {
@@ -1448,6 +1508,7 @@ const polyRealSummaryCards = computed(() => {
 
 const polyCurrentRealRows = computed(() => {
   const direct = [
+    ...polyRealTradeRows.value.filter(isPolyTradeOpen),
     ...arrayFrom(poly.value.history, ['openPositions', 'positions', 'activePositions', 'openTrades', 'realOpenPositions']),
     ...arrayFrom(poly.value.canaryRun, ['openPositions', 'positions', 'activePositions', 'plannedOrders']),
     ...arrayFrom(poly.value.canary, ['openPositions', 'positions', 'activePositions']),
@@ -1469,6 +1530,10 @@ const polyCurrentRealRows = computed(() => {
 
 const polyRealEvidenceNote = computed(() => {
   if (polyCurrentRealRows.value.length) return `${polyCurrentRealRows.value.length} 条当前真钱进行中记录。`;
+  if (polyRealTradeRows.value.length) return `已接入 ${polyRealTradeRows.value.length} 条逐笔真钱交易历史；当前没有进行中的真钱持仓。`;
+  const realSource = poly.value.realTrades || {};
+  if (realSource.status === 'SOURCE_EMPTY') return 'D:\\polymarket 当前为空目录；逐笔真钱交易导入接口已就绪，恢复 copybot.db / trades.csv 后会自动显示。';
+  if (realSource.status === 'SOURCE_MISSING') return '尚未找到逐笔真钱交易源；可运行 tools/import_polymarket_real_trade_ledger.py 做只读导入。';
   const pending = polyRiskEvents.value.find((event) => String(event.event || '').toUpperCase() === 'ACTIVE_EXIT_PENDING');
   const auditRows = first(poly.value.history?.summary?.canaryOrderAuditRows, 0);
   if (pending) {
@@ -3217,6 +3282,33 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </article>
+
+          <DataTable
+            class="poly-real-trade-ledger"
+            title="逐笔真钱交易表"
+            dense
+            :rows="polyRealTradeRows"
+            :columns="[
+              { label: '开仓时间', value: polyTradeTime, width: '136px' },
+              { label: '平仓时间', value: polyTradeClosedTime, width: '136px' },
+              { label: '市场 / 问题', value: (r) => first(r.question, r.market, r.title, r.market_id, r.marketId), max: 180 },
+              { label: '方向', value: polyTradeSide, width: '76px', badge: true },
+              { label: '结果', value: (r) => first(r.outcome, r.asset, '--'), width: '112px' },
+              { label: '状态', value: polyTradeStatus, width: '118px', badge: true, max: 32 },
+              { label: '入场', value: (r) => first(r.entry_price, r.entryPrice, r.price), width: '76px', class: 'col-number' },
+              { label: '出场', value: (r) => first(r.exit_price, r.exitPrice, r.closePrice), width: '76px', class: 'col-number' },
+              { label: '金额', value: (r) => money(polyTradeStake(r)), width: '88px', class: 'col-number' },
+              {
+                label: '盈亏',
+                value: (r) => money(polyTradePnl(r)),
+                tone: (r) => pnlTone(polyTradePnl(r)),
+                width: '88px',
+                class: 'col-pnl'
+              },
+              { label: '退出/订单', value: (r) => cleanInlineStatusText(first(r.exit_reason, r.exitReason, r.order_id, r.orderId, r.tx_hash, r.txHash, r.notes, '--')), width: '180px', max: 110 }
+            ]"
+            empty="暂无逐笔真钱交易。D:\polymarket 当前没有可读 copybot.db / trades.csv；导入脚本已就绪，恢复数据源后会自动显示。"
+          />
         </div>
 
         <div v-else class="poly-ledger-workbench">

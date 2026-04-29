@@ -19,6 +19,7 @@ const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.
 const polymarketCanaryExecutorContractName = 'QuantGod_PolymarketCanaryExecutorContract.json';
 const polymarketAutoGovernanceName = 'QuantGod_PolymarketAutoGovernance.json';
 const polymarketCanaryExecutorRunName = 'QuantGod_PolymarketCanaryExecutorRun.json';
+const polymarketRealTradeLedgerName = 'QuantGod_PolymarketRealTradeLedger.json';
 const polymarketMarketCatalogName = 'QuantGod_PolymarketMarketCatalog.json';
 const polymarketAssetOpportunitiesName = 'QuantGod_PolymarketAssetOpportunities.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
@@ -88,6 +89,7 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketCanaryExecutorContractName,
   polymarketAutoGovernanceName,
   polymarketCanaryExecutorRunName,
+  polymarketRealTradeLedgerName,
   polymarketMarketCatalogName,
   polymarketAssetOpportunitiesName
 ]);
@@ -1840,6 +1842,56 @@ async function handlePolymarketHistory(req, res) {
   }
 }
 
+async function handlePolymarketRealTrades(req, res) {
+  try {
+    const { payload, filePath } = readQuantGodJsonFile(polymarketRealTradeLedgerName);
+    const servicePayload = withServiceMeta(payload, '/api/polymarket/real-trades', filePath);
+    sendJson(res, 200, {
+      ...servicePayload,
+      endpoint: '/api/polymarket/real-trades',
+      decision: 'READ_ONLY_REAL_TRADE_LEDGER_NO_WALLET_WRITE',
+      safety: {
+        readOnly: true,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        mutatesMt5: false,
+        privateKeysRead: false,
+        ...(servicePayload.safety || {})
+      }
+    });
+  } catch (error) {
+    sendJson(res, 200, {
+      schemaVersion: 'POLYMARKET_REAL_TRADE_LEDGER_V1',
+      generatedAt: new Date().toISOString(),
+      status: 'SOURCE_MISSING',
+      endpoint: '/api/polymarket/real-trades',
+      sourceRoot: 'D:\\polymarket',
+      sourceFound: false,
+      sourceCandidates: [],
+      rowsImported: 0,
+      summary: {
+        realTradeRows: 0,
+        closedRows: 0,
+        openRows: 0,
+        wins: 0,
+        winRatePct: null,
+        realizedPnlUSDC: 0
+      },
+      rows: [],
+      errors: [{ source: polymarketRealTradeLedgerName, error: error.message || String(error) }],
+      note: 'Run tools/import_polymarket_real_trade_ledger.py after restoring D:\\polymarket evidence.',
+      decision: 'READ_ONLY_REAL_TRADE_LEDGER_SOURCE_MISSING',
+      safety: {
+        readOnly: true,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        mutatesMt5: false,
+        privateKeysRead: false
+      }
+    });
+  }
+}
+
 async function handlePolymarketReadOnlyJson(req, res, fileName, endpoint) {
   try {
     const { payload, filePath } = readQuantGodJsonFile(fileName);
@@ -2686,6 +2738,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/history') {
     handlePolymarketHistory(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/real-trades') {
+    handlePolymarketRealTrades(req, res);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/radar') {

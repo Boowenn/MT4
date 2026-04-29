@@ -40,6 +40,8 @@ Dashboard/QuantGod_PolymarketCanaryExecutorRun.json
 Dashboard/QuantGod_PolymarketCanaryOrderAuditLedger.csv
 Dashboard/QuantGod_PolymarketCanaryPositionLedger.csv
 Dashboard/QuantGod_PolymarketCanaryExitLedger.csv
+Dashboard/QuantGod_PolymarketRealTradeLedger.json
+Dashboard/QuantGod_PolymarketRealTradeLedger.csv
 Dashboard/QuantGod_PolymarketAutoGovernance.json
 Dashboard/QuantGod_PolymarketAutoGovernanceLedger.csv
 archive/backtests/runs/

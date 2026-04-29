@@ -3527,6 +3527,30 @@ tbody tr:hover td {
   text-overflow: clip;
 }
 
+.poly-real-trade-ledger {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.poly-real-trade-ledger .table-panel {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.poly-real-trade-ledger .data-table {
+  min-width: 1280px;
+}
+
+.poly-real-trade-ledger .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.poly-real-trade-ledger .data-table td span {
+  white-space: normal;
+}
+
 @media (max-width: 1160px) {
   .poly-real-metric-grid,
   .poly-real-inline {
