@@ -8296,6 +8296,122 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="mt5-shadow-subpanel" style="margin-bottom: 12px;">
+                                <div class="mt5-shadow-subpanel-header">
+                                    <div class="mt5-shadow-subpanel-title">MT5 Platform Registry</div>
+                                    <div class="mt5-shadow-subpanel-meta" id="mt5PlatformRegistryMeta">等待平台库</div>
+                                </div>
+                                <div class="mt5-shadow-subpanel-body">
+                                    <div class="strategy-workspace-action-row">
+                                        <button type="button" class="qd-route-button" id="mt5PlatformCredentialSaveButton">Save Credential</button>
+                                        <button type="button" class="qd-route-button" id="mt5PlatformConnectButton">Record Connect</button>
+                                        <input class="polymarket-history-api-input" id="mt5PlatformStrategyId" type="text" value="MA_EURUSD_M15" aria-label="Strategy ID" style="min-width: 140px;">
+                                        <input class="polymarket-history-api-input" id="mt5PlatformStrategyRoute" type="text" value="MA_Cross" aria-label="Strategy route" style="min-width: 120px;">
+                                        <input class="polymarket-history-api-input" id="mt5PlatformStrategySymbol" type="text" value="EURUSDc" aria-label="Strategy symbol" style="min-width: 110px;">
+                                        <select class="polymarket-history-api-select" id="mt5PlatformStrategyTimeframe" aria-label="Strategy timeframe">
+                                            <option value="M5">M5</option>
+                                            <option value="M15" selected>M15</option>
+                                            <option value="H1">H1</option>
+                                            <option value="H4">H4</option>
+                                        </select>
+                                        <select class="polymarket-history-api-select" id="mt5PlatformStrategyMode" aria-label="Execution mode">
+                                            <option value="dry_run">DRY RUN</option>
+                                            <option value="signal">SIGNAL</option>
+                                        </select>
+                                        <button type="button" class="qd-route-button" id="mt5PlatformStrategySaveButton">Save Strategy</button>
+                                    </div>
+                                    <div class="strategy-workspace-action-row" style="margin-top: 8px;">
+                                        <button type="button" class="qd-route-button" id="mt5PlatformEnqueueButton">Queue Intent</button>
+                                        <button type="button" class="qd-route-button" id="mt5PlatformQuickTradeButton">Quick Ticket</button>
+                                        <button type="button" class="qd-route-button" id="mt5PlatformDispatchButton">Dispatch Dry-Run</button>
+                                        <button type="button" class="qd-route-button" id="mt5PlatformReconcileButton">Reconcile</button>
+                                        <button type="button" class="qd-route-button" id="mt5PlatformSymbolsSyncButton">Sync Symbols</button>
+                                    </div>
+                                    <div class="dashboard-grid mt5-shadow-grid" style="margin-top: 12px;">
+                                        <div class="mt5-shadow-subpanel">
+                                            <div class="mt5-shadow-subpanel-header">
+                                                <div class="mt5-shadow-subpanel-title">Credentials / Strategies</div>
+                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformProfileMeta">0 profiles</div>
+                                            </div>
+                                            <div class="mt5-shadow-subpanel-body">
+                                                <div class="table-wrapper" style="max-height: 220px; overflow-y: auto;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>ID</th>
+                                                                <th>Server</th>
+                                                                <th>Login</th>
+                                                                <th>Secret Ref</th>
+                                                                <th>Status</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformCredentialsBody">
+                                                            <tr><td colspan="5" class="empty-state">等待 credentials</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div class="table-wrapper" style="max-height: 220px; overflow-y: auto; margin-top: 10px;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Strategy</th>
+                                                                <th>Route</th>
+                                                                <th>品种</th>
+                                                                <th>TF</th>
+                                                                <th>Mode</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformStrategiesBody">
+                                                            <tr><td colspan="5" class="empty-state">等待 strategies</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="mt5-shadow-subpanel">
+                                            <div class="mt5-shadow-subpanel-header">
+                                                <div class="mt5-shadow-subpanel-title">Queue / Reconcile</div>
+                                                <div class="mt5-shadow-subpanel-meta" id="mt5PlatformQueueMeta">0 queued</div>
+                                            </div>
+                                            <div class="mt5-shadow-subpanel-body">
+                                                <div class="table-wrapper" style="max-height: 280px; overflow-y: auto;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Order</th>
+                                                                <th>品种</th>
+                                                                <th>Side</th>
+                                                                <th>Lots</th>
+                                                                <th>Status</th>
+                                                                <th>Ops</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformQueueBody">
+                                                            <tr><td colspan="6" class="empty-state">等待 pending_orders</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div class="table-wrapper" style="max-height: 220px; overflow-y: auto; margin-top: 10px;">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Position</th>
+                                                                <th>品种</th>
+                                                                <th>Side</th>
+                                                                <th>Lots</th>
+                                                                <th>PnL</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="mt5PlatformPositionsBody">
+                                                            <tr><td colspan="5" class="empty-state">等待 positions</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="dashboard-grid mt5-shadow-grid">
                                 <div class="mt5-shadow-subpanel">
                                     <div class="mt5-shadow-subpanel-header">
@@ -8898,6 +9014,17 @@ const MT5_TRADING_CANCEL_API_PATH = '/api/mt5/cancel';
 const MT5_PENDING_WORKER_STATUS_API_PATH = '/api/mt5-pending-worker/status';
 const MT5_PENDING_WORKER_RUN_API_PATH = '/api/mt5-pending-worker/run';
 const MT5_PLATFORM_STATUS_API_PATH = '/api/mt5-platform/status';
+const MT5_PLATFORM_CREDENTIAL_API_PATH = '/api/mt5-platform/credential';
+const MT5_PLATFORM_CONNECT_API_PATH = '/api/mt5-platform/connect';
+const MT5_PLATFORM_STRATEGY_API_PATH = '/api/mt5-platform/strategy';
+const MT5_PLATFORM_ENQUEUE_API_PATH = '/api/mt5-platform/enqueue';
+const MT5_PLATFORM_QUICK_TRADE_API_PATH = '/api/mt5-platform/quick-trade';
+const MT5_PLATFORM_DISPATCH_API_PATH = '/api/mt5-platform/dispatch';
+const MT5_PLATFORM_RECONCILE_API_PATH = '/api/mt5-platform/reconcile';
+const MT5_PLATFORM_SYMBOLS_API_PATH = '/api/mt5-platform/symbols';
+const MT5_PLATFORM_QUEUE_RETRY_API_PATH = '/api/mt5-platform/queue-retry';
+const MT5_PLATFORM_QUEUE_CANCEL_API_PATH = '/api/mt5-platform/queue-cancel';
+const MT5_PLATFORM_QUEUE_ARCHIVE_API_PATH = '/api/mt5-platform/queue-archive';
 const MT5_ADAPTIVE_CONTROL_STATUS_API_PATH = '/api/mt5-adaptive-control/status';
 const MT5_ADAPTIVE_CONTROL_RUN_API_PATH = '/api/mt5-adaptive-control/run';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
@@ -18820,6 +18947,7 @@ function updateMt5TradingControlPanel(d) {
                 <div class="mt5-shadow-metric-meta">${escapeHtml(unavailable)}</div>
             </div>`;
         auditMetaEl.textContent = '等待平台/审计状态';
+        renderMt5PlatformTables(platform);
         return;
     }
 
@@ -18852,9 +18980,11 @@ function updateMt5TradingControlPanel(d) {
         { label: 'Owner', value: safety.ownerMode || config.ownerMode || '--', meta: safety.killSwitch ? (config.killReason || 'kill switch') : 'kill switch clear' },
         { label: 'Auth Lock', value: auth.ok ? 'OK' : 'BLOCKED', meta: auth.ok ? `${auth.lockId || '--'} expires ${auth.expiresAtIso || '--'}` : ((auth.reasons || []).join(', ') || 'missing') },
         { label: 'Worker', value: String(workerSummary.processed ?? 0), meta: `accepted ${workerSummary.accepted ?? 0} / rejected ${workerSummary.rejected ?? 0} / skipped ${workerSummary.skipped ?? 0}` },
-        { label: 'Platform DB', value: String(platformSummary.auditEvents ?? 0), meta: `operators ${platformSummary.operators ?? 0} / live events ${platformSummary.liveAllowedEvents ?? 0}` },
+        { label: 'Platform DB', value: String(platformSummary.pendingOrders ?? 0), meta: `queued ${platformSummary.queuedOrders ?? 0} / audit ${platformSummary.auditEvents ?? 0}` },
+        { label: 'Profiles', value: String(platformSummary.credentials ?? 0), meta: `strategies ${platformSummary.strategies ?? 0} / sessions ${platformSummary.connectionSessions ?? 0}` },
+        { label: 'Symbols', value: String(platformSummary.symbolCatalog ?? 0), meta: `positions ${platformSummary.platformPositions ?? 0} / trades ${platformSummary.platformTrades ?? 0}` },
         { label: 'Adaptive', value: String(adaptiveSummary.actions ?? 0), meta: `blocked ${adaptiveSummary.blocked ?? 0} / staging ${adaptiveSummary.stagingPresetPath ? 'ready' : 'waiting'}` },
-        { label: 'Profiles', value: String(profileCount), meta: 'passwords are not persisted' }
+        { label: 'Bridge Profiles', value: String(profileCount), meta: 'passwords are not persisted' }
     ];
     metricsEl.innerHTML = metrics.map((item) => `
         <div class="mt5-shadow-metric">
@@ -18864,6 +18994,82 @@ function updateMt5TradingControlPanel(d) {
         </div>
     `).join('');
     auditMetaEl.textContent = `worker=${worker?.mode || 'waiting'} | platform=${platform?.mode || 'waiting'} | adaptive=${adaptive?.mode || 'waiting'} | db=${platform?.databasePath || '--'}`;
+    renderMt5PlatformTables(platform);
+}
+
+function mt5PlatformStatusBadge(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized.includes('accepted') || normalized === 'active' || normalized === 'queued') return 'status-live';
+    if (normalized.includes('blocked') || normalized.includes('cancel') || normalized.includes('archive')) return 'status-warn';
+    if (normalized.includes('dry') || normalized.includes('stage') || normalized.includes('observed')) return 'status-info';
+    return 'status-info';
+}
+
+function renderMt5PlatformTables(platform) {
+    const registryMeta = document.getElementById('mt5PlatformRegistryMeta');
+    const profileMeta = document.getElementById('mt5PlatformProfileMeta');
+    const queueMeta = document.getElementById('mt5PlatformQueueMeta');
+    const credentialsBody = document.getElementById('mt5PlatformCredentialsBody');
+    const strategiesBody = document.getElementById('mt5PlatformStrategiesBody');
+    const queueBody = document.getElementById('mt5PlatformQueueBody');
+    const positionsBody = document.getElementById('mt5PlatformPositionsBody');
+    if (!registryMeta || !credentialsBody || !strategiesBody || !queueBody || !positionsBody) return;
+
+    const summary = platform?.summary || {};
+    const safety = platform?.safety || {};
+    registryMeta.textContent = platform?.ok
+        ? `db=${summary.pendingOrders ?? 0} queue / ${summary.symbolCatalog ?? 0} symbols | rawPassword=${safety.rawPasswordStorageAllowed ? 'true' : 'false'} | liveDispatch=${safety.dispatchLiveAllowed ? 'true' : 'false'}`
+        : '平台库暂不可用';
+    if (profileMeta) profileMeta.textContent = `${summary.credentials ?? 0} profiles / ${summary.strategies ?? 0} strategies`;
+    if (queueMeta) queueMeta.textContent = `${summary.queuedOrders ?? 0} queued / ${summary.platformPositions ?? 0} positions`;
+
+    const credentials = Array.isArray(platform?.credentials) ? platform.credentials : [];
+    credentialsBody.innerHTML = credentials.length ? credentials.slice(0, 25).map((row) => `
+        <tr>
+            <td>${escapeHtml(row.credentialId || '--')}</td>
+            <td>${escapeHtml(row.server || '--')}</td>
+            <td>${escapeHtml(row.login || '--')}</td>
+            <td>${escapeHtml(row.passwordEnvVar || row.secretRef || '--')}</td>
+            <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
+        </tr>
+    `).join('') : '<tr><td colspan="5" class="empty-state">没有 credential 元数据</td></tr>';
+
+    const strategies = Array.isArray(platform?.strategies) ? platform.strategies : [];
+    strategiesBody.innerHTML = strategies.length ? strategies.slice(0, 50).map((row) => `
+        <tr>
+            <td>${escapeHtml(row.strategyId || '--')}</td>
+            <td><span class="strat-tag">${escapeHtml(row.route || '--')}</span></td>
+            <td>${renderMt5CanonicalSymbolCell(row)}</td>
+            <td>${escapeHtml(row.timeframe || '--')}</td>
+            <td><span class="table-badge ${mt5PlatformStatusBadge(row.executionMode || row.status)}">${escapeHtml(row.executionMode || row.status || '--')}</span></td>
+        </tr>
+    `).join('') : '<tr><td colspan="5" class="empty-state">没有 strategy config</td></tr>';
+
+    const pendingOrders = Array.isArray(platform?.pendingOrders) ? platform.pendingOrders : [];
+    queueBody.innerHTML = pendingOrders.length ? pendingOrders.slice(0, 60).map((row) => `
+        <tr>
+            <td>${escapeHtml(row.orderId || '--')}</td>
+            <td>${renderMt5CanonicalSymbolCell(row)}</td>
+            <td>${escapeHtml(`${row.side || '--'} ${row.orderType || ''}`)}</td>
+            <td>${escapeHtml(formatLots(row.lots))}</td>
+            <td><span class="table-badge ${mt5PlatformStatusBadge(row.status)}">${escapeHtml(row.status || '--')}</span></td>
+            <td>
+                <button type="button" class="qd-route-button" data-mt5-platform-action="retry" data-order-id="${escapeHtml(row.orderId || '')}">Retry</button>
+                <button type="button" class="qd-route-button" data-mt5-platform-action="archive" data-order-id="${escapeHtml(row.orderId || '')}">Archive</button>
+            </td>
+        </tr>
+    `).join('') : '<tr><td colspan="6" class="empty-state">没有 pending_orders</td></tr>';
+
+    const positions = Array.isArray(platform?.positions) ? platform.positions : [];
+    positionsBody.innerHTML = positions.length ? positions.slice(0, 50).map((row) => `
+        <tr>
+            <td>${escapeHtml(row.positionId || row.ticket || '--')}</td>
+            <td>${renderMt5CanonicalSymbolCell(row)}</td>
+            <td>${escapeHtml(row.side || '--')}</td>
+            <td>${escapeHtml(formatLots(row.lots))}</td>
+            <td class="profit-cell ${Number(row.unrealizedPnl || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatMoneyWithCurrency(row.unrealizedPnl, getDisplayAccount(dashboardData).currency || ''))}</td>
+        </tr>
+    `).join('') : '<tr><td colspan="5" class="empty-state">没有 reconciled positions</td></tr>';
 }
 
 function getMt5TradingFormPayload() {
@@ -18895,6 +19101,55 @@ function getMt5ProfilePayload() {
     };
 }
 
+function getMt5PlatformCredentialPayload() {
+    const profile = getMt5ProfilePayload();
+    return {
+        ...profile,
+        credentialId: profile.profileId,
+        displayName: profile.profileId,
+        broker: 'MT5',
+        mt5_login: profile.accountLogin,
+        mt5_server: profile.server,
+        mt5_terminal_path: profile.terminalPath,
+        source: 'dashboard_platform_registry'
+    };
+}
+
+function getMt5PlatformStrategyPayload() {
+    const brokerSymbol = document.getElementById('mt5PlatformStrategySymbol')?.value || document.getElementById('mt5TradeSymbol')?.value || 'EURUSDc';
+    return {
+        strategyId: document.getElementById('mt5PlatformStrategyId')?.value || document.getElementById('mt5TradeRoute')?.value || 'MA_Cross',
+        route: document.getElementById('mt5PlatformStrategyRoute')?.value || document.getElementById('mt5TradeRoute')?.value || 'MA_Cross',
+        brokerSymbol,
+        symbol: brokerSymbol,
+        timeframe: document.getElementById('mt5PlatformStrategyTimeframe')?.value || 'M15',
+        executionMode: document.getElementById('mt5PlatformStrategyMode')?.value || 'dry_run',
+        credentialId: document.getElementById('mt5ProfileId')?.value || 'hfm-live',
+        marketCategory: 'Forex',
+        source: 'dashboard_platform_registry'
+    };
+}
+
+function getMt5PlatformQueuePayload() {
+    const ticket = getMt5TradingFormPayload();
+    return {
+        ...ticket,
+        strategyId: document.getElementById('mt5PlatformStrategyId')?.value || ticket.route,
+        route: document.getElementById('mt5PlatformStrategyRoute')?.value || ticket.route,
+        credentialId: document.getElementById('mt5ProfileId')?.value || 'hfm-live',
+        source: 'dashboard_platform_queue',
+        dryRun: true,
+        dryRunRequired: true
+    };
+}
+
+function applyMt5PlatformResult(result) {
+    if (result && result.mode && String(result.mode).startsWith('MT5_PLATFORM')) {
+        dashboardData.mt5PlatformState = result;
+        updateMt5TradingControlPanel(dashboardData);
+    }
+}
+
 async function postMt5TradingJson(url, payload) {
     const response = await fetch(url, {
         method: 'POST',
@@ -18921,13 +19176,95 @@ function initMt5TradingControls() {
         const cancelButton = event.target.closest('#mt5TradeCancelButton');
         const workerButton = event.target.closest('#mt5PendingWorkerRunButton');
         const adaptiveButton = event.target.closest('#mt5AdaptiveStageButton');
-        if (!profileSaveButton && !profileLoginButton && !orderButton && !closeButton && !cancelButton && !workerButton && !adaptiveButton) return;
+        const platformCredentialButton = event.target.closest('#mt5PlatformCredentialSaveButton');
+        const platformConnectButton = event.target.closest('#mt5PlatformConnectButton');
+        const platformStrategyButton = event.target.closest('#mt5PlatformStrategySaveButton');
+        const platformEnqueueButton = event.target.closest('#mt5PlatformEnqueueButton');
+        const platformQuickTradeButton = event.target.closest('#mt5PlatformQuickTradeButton');
+        const platformDispatchButton = event.target.closest('#mt5PlatformDispatchButton');
+        const platformReconcileButton = event.target.closest('#mt5PlatformReconcileButton');
+        const platformSymbolsButton = event.target.closest('#mt5PlatformSymbolsSyncButton');
+        const platformQueueActionButton = event.target.closest('[data-mt5-platform-action]');
+        if (
+            !profileSaveButton && !profileLoginButton && !orderButton && !closeButton && !cancelButton &&
+            !workerButton && !adaptiveButton && !platformCredentialButton && !platformConnectButton &&
+            !platformStrategyButton && !platformEnqueueButton && !platformQuickTradeButton &&
+            !platformDispatchButton && !platformReconcileButton && !platformSymbolsButton &&
+            !platformQueueActionButton
+        ) return;
         event.preventDefault();
         try {
             if (profileSaveButton) {
                 setMt5TradingResult({ status: 'saving_profile_metadata' });
                 const result = await postMt5TradingJson(MT5_TRADING_PROFILE_API_PATH, getMt5ProfilePayload());
                 setMt5TradingResult(result);
+                return;
+            }
+            if (platformCredentialButton) {
+                setMt5TradingResult({ status: 'saving_platform_credential' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_CREDENTIAL_API_PATH, getMt5PlatformCredentialPayload());
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformConnectButton) {
+                setMt5TradingResult({ status: 'recording_platform_connect' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_CONNECT_API_PATH, getMt5PlatformCredentialPayload());
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformStrategyButton) {
+                setMt5TradingResult({ status: 'saving_platform_strategy' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_STRATEGY_API_PATH, getMt5PlatformStrategyPayload());
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformEnqueueButton) {
+                setMt5TradingResult({ status: 'queueing_platform_intent' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_ENQUEUE_API_PATH, getMt5PlatformQueuePayload());
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformQuickTradeButton) {
+                setMt5TradingResult({ status: 'queueing_quick_ticket' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_QUICK_TRADE_API_PATH, getMt5PlatformQueuePayload());
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformDispatchButton) {
+                setMt5TradingResult({ status: 'dispatching_platform_queue_dry_run' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_DISPATCH_API_PATH, { maxOrders: 10, source: 'dashboard_platform_dispatch' });
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformReconcileButton) {
+                setMt5TradingResult({ status: 'reconciling_readonly_snapshot' });
+                const result = await postMt5TradingJson(MT5_PLATFORM_RECONCILE_API_PATH, { snapshot: dashboardData?.mt5ReadOnlyBridge || {}, source: 'dashboard_platform_reconcile' });
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformSymbolsButton) {
+                setMt5TradingResult({ status: 'syncing_platform_symbols' });
+                const registry = dashboardData?.mt5SymbolRegistry || {};
+                const result = await postMt5TradingJson(MT5_PLATFORM_SYMBOLS_API_PATH, { mappings: registry.mappings || [], source: 'dashboard_platform_symbols' });
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
+                return;
+            }
+            if (platformQueueActionButton) {
+                const orderId = platformQueueActionButton.dataset.orderId || '';
+                const action = platformQueueActionButton.dataset.mt5PlatformAction || '';
+                const apiPath = action === 'retry' ? MT5_PLATFORM_QUEUE_RETRY_API_PATH : action === 'archive' ? MT5_PLATFORM_QUEUE_ARCHIVE_API_PATH : MT5_PLATFORM_QUEUE_CANCEL_API_PATH;
+                setMt5TradingResult({ status: `platform_queue_${action}`, orderId });
+                const result = await postMt5TradingJson(apiPath, { orderId, source: 'dashboard_platform_queue_action' });
+                setMt5TradingResult(result);
+                applyMt5PlatformResult(result);
                 return;
             }
             if (profileLoginButton) {

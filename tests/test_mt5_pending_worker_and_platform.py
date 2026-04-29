@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,6 +75,170 @@ class Mt5PendingWorkerAndPlatformTests(unittest.TestCase):
             self.assertTrue((runtime / platform.DB_NAME).exists())
             self.assertTrue((runtime / platform.OUTPUT_NAME).exists())
             self.assertFalse(state["safety"]["orderSendAllowed"])
+
+    def test_platform_store_profile_strategy_queue_contract_is_dry_run_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+
+            credential_state = platform.run(
+                runtime,
+                endpoint="credential",
+                payload={
+                    "credentialId": "hfm-live",
+                    "displayName": "HFM Live",
+                    "accountLogin": 186054398,
+                    "server": "HFMarketsGlobal-Live12",
+                    "terminalPath": r"C:\Program Files\HFM Metatrader 5\terminal64.exe",
+                    "password": "do-not-store-me",
+                    "passwordEnvVar": "QG_MT5_HFM_PASSWORD",
+                },
+            )
+            self.assertTrue(credential_state["ok"])
+            self.assertFalse(credential_state["safety"]["orderSendAllowed"])
+            self.assertFalse(credential_state["safety"]["rawPasswordStorageAllowed"])
+            self.assertTrue(credential_state["action"]["credential"]["rawSecretRejected"])
+            self.assertFalse(credential_state["action"]["credential"]["rawSecretStored"])
+
+            strategy_state = platform.run(
+                runtime,
+                endpoint="strategy",
+                payload={
+                    "strategyId": "MA_EURUSD_M15",
+                    "route": "MA_Cross",
+                    "symbol": "EURUSDc",
+                    "timeframe": "M15",
+                    "executionMode": "live",
+                    "credentialId": "hfm-live",
+                },
+            )
+            self.assertEqual(strategy_state["action"]["strategy"]["executionMode"], "dry_run")
+            self.assertEqual(strategy_state["action"]["strategy"]["canonicalSymbol"], "EURUSD")
+
+            queued = platform.run(
+                runtime,
+                endpoint="enqueue",
+                payload={
+                    "strategyId": "MA_EURUSD_M15",
+                    "route": "MA_Cross",
+                    "symbol": "EURUSDc",
+                    "side": "buy",
+                    "orderType": "buy_limit",
+                    "lots": 0.01,
+                    "price": 1.099,
+                },
+            )
+            self.assertEqual(queued["summary"]["pendingOrders"], 1)
+            self.assertEqual(queued["summary"]["queuedOrders"], 1)
+            self.assertTrue(queued["action"]["pendingOrder"]["dryRunRequired"])
+
+            dispatched = platform.run(runtime, endpoint="dispatch", payload={"maxOrders": 1})
+            self.assertEqual(dispatched["action"]["dispatch"]["processed"], 1)
+            self.assertEqual(dispatched["action"]["dispatch"]["accepted"], 1)
+            self.assertFalse(dispatched["safety"]["dispatchLiveAllowed"])
+            self.assertEqual(dispatched["pendingOrders"][0]["status"], "dry_run_accepted")
+
+            db = sqlite3.connect(runtime / platform.DB_NAME)
+            try:
+                raw_config = db.execute("SELECT encrypted_config FROM qd_exchange_credentials WHERE id='hfm-live'").fetchone()[0]
+                self.assertNotIn("do-not-store-me", raw_config)
+                self.assertIn("[REDACTED]", raw_config)
+                dry_run_required = db.execute("SELECT dry_run_required FROM pending_orders").fetchone()[0]
+                self.assertEqual(dry_run_required, 1)
+            finally:
+                db.close()
+
+    def test_platform_store_env_var_reference_is_not_raw_secret(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            state = platform.run(
+                runtime,
+                endpoint="credential",
+                payload={
+                    "credentialId": "hfm-env-only",
+                    "accountLogin": 123,
+                    "server": "HFMarkets",
+                    "passwordEnvVar": "QG_MT5_HFM_PASSWORD",
+                },
+            )
+            self.assertFalse(state["action"]["credential"]["rawSecretRejected"])
+            self.assertEqual(state["credentials"][0]["passwordEnvVar"], "QG_MT5_HFM_PASSWORD")
+
+    def test_platform_dispatch_preserves_route_from_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            platform.run(
+                runtime,
+                endpoint="enqueue",
+                payload={
+                    "strategyId": "MA_EURUSD_M15",
+                    "route": "MA_Cross",
+                    "symbol": "EURUSDc",
+                    "side": "buy",
+                    "orderType": "buy_limit",
+                    "lots": 0.01,
+                    "price": 1.099,
+                },
+            )
+            dispatched = platform.run(runtime, endpoint="dispatch", payload={"maxOrders": 1})
+            self.assertEqual(dispatched["action"]["dispatch"]["rows"][0]["status"], "dry_run_accepted")
+
+            db = sqlite3.connect(runtime / platform.DB_NAME)
+            try:
+                route = db.execute(
+                    "SELECT route FROM audit_events WHERE source='mt5_platform_store' AND action='dispatch' ORDER BY event_time_iso DESC LIMIT 1"
+                ).fetchone()[0]
+                self.assertEqual(route, "MA_Cross")
+            finally:
+                db.close()
+
+    def test_platform_store_reconcile_and_symbol_catalog_use_canonical_pooling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            state = platform.run(
+                runtime,
+                endpoint="reconcile",
+                payload={
+                    "positions": [
+                        {
+                            "ticket": 1001,
+                            "symbol": "EURUSDc",
+                            "type": "buy",
+                            "volume": 0.01,
+                            "price_open": 1.1,
+                            "price_current": 1.102,
+                            "profit": 2.0,
+                        }
+                    ],
+                    "orders": [
+                        {
+                            "ticket": 2001,
+                            "symbol": "USDJPY.raw",
+                            "type": "sell_limit",
+                            "volume_current": 0.01,
+                            "price_open": 151.5,
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(state["action"]["reconcile"]["positionsSynced"], 1)
+            self.assertEqual(state["action"]["reconcile"]["ordersSynced"], 1)
+            self.assertEqual(state["positions"][0]["canonicalSymbol"], "EURUSD")
+            self.assertEqual(state["pendingOrders"][0]["canonicalSymbol"], "USDJPY")
+            self.assertFalse(state["safety"]["symbolSelectAllowed"])
+
+            symbols_state = platform.run(
+                runtime,
+                endpoint="symbols",
+                payload={
+                    "mappings": [
+                        {"brokerSymbol": "EURUSDc", "canonicalSymbol": "EURUSD", "assetClass": "Forex", "marketCategory": "Forex", "brokerSuffix": "c"},
+                        {"brokerSymbol": "EURUSD.raw", "canonicalSymbol": "EURUSD", "assetClass": "Forex", "marketCategory": "Forex", "brokerSuffix": ".raw"},
+                    ]
+                },
+            )
+            self.assertEqual(symbols_state["action"]["symbols"]["synced"], 2)
+            self.assertEqual(symbols_state["summary"]["symbolCatalog"], 2)
+            self.assertEqual({row["canonicalSymbol"] for row in symbols_state["symbolCatalog"]}, {"EURUSD"})
 
 
 if __name__ == "__main__":

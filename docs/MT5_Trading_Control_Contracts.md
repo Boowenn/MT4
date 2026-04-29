@@ -210,6 +210,23 @@ Endpoints:
 
 - `GET /api/mt5-platform/status`
 - `POST /api/mt5-platform/operator`
+- `GET /api/mt5-platform/credentials`
+- `POST /api/mt5-platform/credential`
+- `POST /api/mt5-platform/connect`
+- `POST /api/mt5-platform/disconnect`
+- `GET /api/mt5-platform/strategies`
+- `POST /api/mt5-platform/strategy`
+- `GET /api/mt5-platform/queue`
+- `POST /api/mt5-platform/enqueue`
+- `POST /api/mt5-platform/quick-trade`
+- `POST /api/mt5-platform/dispatch`
+- `POST /api/mt5-platform/queue-retry`
+- `POST /api/mt5-platform/queue-cancel`
+- `POST /api/mt5-platform/queue-archive`
+- `GET /api/mt5-platform/positions`
+- `GET /api/mt5-platform/trades`
+- `POST /api/mt5-platform/reconcile`
+- `POST /api/mt5-platform/symbols`
 
 Artifacts:
 
@@ -223,10 +240,34 @@ The local SQLite store tracks:
 - `product_features`
 - `task_runs`
 - `audit_events`
+- `qd_exchange_credentials`
+- `qd_strategies_trading`
+- `pending_orders`
+- `qd_strategy_positions`
+- `qd_strategy_trades`
+- `qd_market_symbols`
+- `mt5_connection_sessions`
 
 It synchronizes `QuantGod_MT5TradingAuditLedger.csv` and
-`QuantGod_MT5PendingOrderLedger.csv` into queryable audit events. It never sends
-orders or mutates MT5.
+`QuantGod_MT5PendingOrderLedger.csv` into queryable audit events. It also
+mirrors dry-run/order ledger events into `qd_strategy_trades`, accepts
+read-only snapshot reconcile into `qd_strategy_positions`, and materializes
+symbol-registry mappings into `qd_market_symbols`.
+
+Safety contract:
+
+- raw MT5 passwords are rejected/redacted and never persisted
+- live execution modes posted through the platform store are downgraded to
+  `dry_run`
+- `pending_orders.dry_run_required=1` for queued Dashboard/quick-ticket intents
+- `/api/mt5-platform/dispatch` calls the guarded trading bridge with
+  `dryRun=true` and records the result; it does not send broker orders
+- queue retry/cancel/archive changes local SQLite state only
+- connect/disconnect records a local control-plane session event; it does not
+  bypass `/api/mt5/login` authorization
+- `orderSendAllowed=false`, `dispatchLiveAllowed=false`,
+  `rawPasswordStorageAllowed=false`, and `mutatesMt5=false` must remain true in
+  every platform-store response
 
 ## Live-Trading Factory
 
@@ -239,6 +280,8 @@ from live_trading_factory import create_client
 
 client = create_client("MT5", market_category="Forex")
 client.place_limit_order({...})
+client.enqueue_order({...})
+client.quick_trade({...})
 client.close_position({...})
 client.cancel_order({...})
 ```
@@ -246,6 +289,9 @@ client.cancel_order({...})
 The MT5 client is a wrapper around the guarded trading bridge. It does not
 change any safety requirement: default calls are dry-run/audited, and live
 mutation still requires config, env, authorization lock, limits, and audit.
+`enqueue_order` and `quick_trade` write to the local platform
+`pending_orders` queue with `dry_run_required=1`; they do not call
+`order_send`.
 
 ## Adaptive-Control Executor
 
@@ -284,6 +330,10 @@ Contract tests cover:
 - profiles never persist passwords
 - pending worker writes dry-run ledger and skips duplicates
 - platform store syncs audit events into SQLite
+- platform store credential/strategy/queue contracts keep raw passwords out and
+  force dry-run dispatch
+- platform reconcile and symbol catalog contracts pool broker suffixes under
+  canonical symbols
 - live-trading factory keeps MT5 actions behind the guarded bridge
 - adaptive-control executor stages actions without live preset mutation by
   default

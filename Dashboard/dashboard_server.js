@@ -49,6 +49,27 @@ const polymarketHistoryTables = new Set([
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
 const mt5TradingEndpoints = new Set(['status', 'profiles', 'save-profile', 'login', 'order', 'close', 'cancel']);
+const mt5PlatformEndpoints = new Set([
+  'status',
+  'operator',
+  'credentials',
+  'credential',
+  'connect',
+  'disconnect',
+  'strategies',
+  'strategy',
+  'queue',
+  'enqueue',
+  'quick-trade',
+  'dispatch',
+  'queue-retry',
+  'queue-cancel',
+  'queue-archive',
+  'positions',
+  'trades',
+  'symbols',
+  'reconcile'
+]);
 const mt5BackendBacktestName = 'QuantGod_MT5BackendBacktest.json';
 const mt5PendingWorkerName = 'QuantGod_MT5PendingOrderWorker.json';
 const mt5PlatformStateName = 'QuantGod_MT5PlatformState.json';
@@ -814,20 +835,28 @@ async function handleMt5PendingWorker(req, res, forceRun = false) {
   }
 }
 
-async function handleMt5PlatformStore(req, res) {
+function mt5PlatformEndpointFromPath(pathPart) {
+  if (pathPart === '/api/mt5-platform') return 'status';
+  const endpoint = path.basename(pathPart);
+  return endpoint || 'status';
+}
+
+async function handleMt5PlatformStore(req, res, endpoint = 'status') {
+  const normalized = mt5PlatformEndpoints.has(endpoint) ? endpoint : 'status';
   try {
-    let args = ['--runtime-dir', defaultRuntimeDir];
-    if (req.method === 'POST') {
-      const payload = safeJsonPayload(await readRequestBody(req, 64 * 1024).catch(() => ''));
-      if (payload.operatorId || payload.displayName || payload.role) {
-        args = [...args, '--operator-json', JSON.stringify(payload)];
-      }
+    let requestPayload = {};
+    if (req.method === 'POST' || req.method === 'DELETE') {
+      requestPayload = safeJsonPayload(await readRequestBody(req, 256 * 1024).catch(() => ''));
     }
-    const result = await runJsonPython(mt5PlatformStoreScript, args, 20000);
+    const args = ['--runtime-dir', defaultRuntimeDir, '--endpoint', normalized];
+    const result = (req.method === 'POST' || req.method === 'DELETE')
+      ? await runJsonPythonPayload(mt5PlatformStoreScript, args, requestPayload, normalized === 'dispatch' || normalized === 'symbols' || normalized === 'reconcile' ? 60000 : 20000)
+      : await runJsonPython(mt5PlatformStoreScript, args, normalized === 'symbols' || normalized === 'reconcile' ? 60000 : 20000);
     if (!result.ok) {
       sendJson(res, 200, {
         ok: false,
         status: 'UNAVAILABLE',
+        endpoint: normalized,
         error: result.stderr || result.reason || 'mt5_platform_store_failed',
         detail: result,
         safety: {
@@ -836,6 +865,9 @@ async function handleMt5PlatformStore(req, res) {
           orderSendAllowed: false,
           closeAllowed: false,
           cancelAllowed: false,
+          credentialStorageAllowed: false,
+          rawPasswordStorageAllowed: false,
+          dryRunRequired: true,
           mutatesMt5: false
         }
       });
@@ -846,16 +878,19 @@ async function handleMt5PlatformStore(req, res) {
       ...payload,
       _api: {
         service: 'quantgod_dashboard_mt5_platform_store',
-        endpoint: '/api/mt5-platform/status',
+        endpoint: `/api/mt5-platform/${normalized}`,
         script: mt5PlatformStoreScript,
         controlPlaneOnly: true,
-        orderSendAllowed: false
+        orderSendAllowed: false,
+        rawPasswordStorageAllowed: false,
+        dryRunRequired: true
       }
     });
   } catch (error) {
     sendJson(res, 200, {
       ok: false,
       status: 'UNAVAILABLE',
+      endpoint: normalized,
       error: error.message || String(error)
     });
   }
@@ -2443,8 +2478,10 @@ const server = http.createServer((req, res) => {
     handleMt5BackendBacktest(req, res, true);
     return;
   }
-  if ((req.method === 'GET' || req.method === 'POST') && (requestUrl.split('?')[0] === '/api/mt5-platform/status' || requestUrl.split('?')[0] === '/api/mt5-platform/operator')) {
-    handleMt5PlatformStore(req, res);
+  if ((req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') && (requestUrl.split('?')[0] === '/api/mt5-platform' || requestUrl.split('?')[0].startsWith('/api/mt5-platform/'))) {
+    const pathPart = requestUrl.split('?')[0];
+    const endpoint = mt5PlatformEndpointFromPath(pathPart);
+    handleMt5PlatformStore(req, res, endpoint);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-pending-worker/status') {
