@@ -57,6 +57,7 @@ const state = reactive({
 });
 
 let autoRefreshTimer = null;
+const autoRefreshMs = 5000;
 
 const routeFilters = ['全部', 'MA', 'RSI', 'BB', 'MACD', 'SR'];
 const activeRoute = ref('全部');
@@ -462,6 +463,34 @@ function summaryValue(payload, key, fallback = '--') {
   return first(payload?.summary?.[key], payload?.[key], fallback);
 }
 
+function stopReasonLabel(reason) {
+  const key = String(first(reason, '')).toLowerCase();
+  const labels = {
+    waiting_guard_clearance: '等待守护条件解除',
+    wait_auto_tester_window: '等待自动回测窗口',
+    outside_strategy_tester_window: '不在 Strategy Tester 时间窗',
+    authorization_lock_missing: '缺少授权锁文件',
+    authorization_lock_not_authorized: '授权锁未允许执行',
+    authorization_lock_not_tester_only: '授权锁不是 tester-only',
+    open_live_positions_present: '仍有实盘持仓',
+    symbol_open_positions_present: '品种仍有持仓',
+    strategy_open_positions_present: '策略仍有持仓',
+    live_account_margin_in_use: '实盘账户仍占用保证金',
+    report_missing: '报告缺失',
+    report_malformed: '报告格式异常'
+  };
+  if (!key) return '--';
+  return labels[key] || key.replace(/_/g, ' ');
+}
+
+function recoveryRiskValue(payload) {
+  return `红灯 ${summaryValue(payload, 'riskRedCount', 0)} / 黄灯 ${summaryValue(payload, 'riskYellowCount', 0)}`;
+}
+
+function recoveryRiskDetail(payload) {
+  return `累计重试 ${summaryValue(payload, 'retryCount', 0)} / 最近停止：${stopReasonLabel(summaryValue(payload, 'latestStopReason'))}`;
+}
+
 function nextWindowLabel(minutes) {
   const now = new Date();
   const next = new Date(now);
@@ -726,8 +755,8 @@ const paramLabDashboardCards = computed(() => {
     },
     {
       label: '恢复风险',
-      value: `${summaryValue(recovery, 'riskRedCount', 0)}R / ${summaryValue(recovery, 'riskYellowCount', 0)}Y`,
-      detail: `重试 ${summaryValue(recovery, 'retryCount', 0)} / 最近停止 ${summaryValue(recovery, 'latestStopReason')}`
+      value: recoveryRiskValue(recovery),
+      detail: recoveryRiskDetail(recovery)
     },
     {
       label: '守护窗口',
@@ -819,7 +848,7 @@ const paramLaneCards = computed(() => {
   return [
     { key: 'queue', label: '候选队列', sub: '自动排队', value: cards[0]?.value, detail: cards[0]?.detail, tone: 'blue' },
     { key: 'report', label: '报告回灌', sub: '报告监视', value: cards[1]?.value, detail: cards[1]?.detail, tone: 'green' },
-    { key: 'recovery', label: '恢复风险', sub: '失败恢复', value: cards[2]?.value, detail: cards[2]?.detail, tone: String(cards[2]?.value).includes('0R') ? 'amber' : 'red' },
+    { key: 'recovery', label: '恢复风险', sub: '失败恢复', value: cards[2]?.value, detail: cards[2]?.detail, tone: summaryValue(mt5.value.runRecovery, 'riskRedCount', 0) > 0 ? 'red' : 'amber' },
     { key: 'guard', label: '守护窗口', sub: '自动回测窗口', value: cards[3]?.value, detail: cards[3]?.detail, tone: cards[3]?.value === '可运行' ? 'green' : 'amber' },
     { key: 'research', label: '研究切片', sub: '策略工作台', value: cards[5]?.value, detail: cards[5]?.detail, tone: 'blue' }
   ];
@@ -1255,8 +1284,8 @@ const operatorRadarCards = computed(() => {
     },
     {
       label: '恢复风险',
-      title: `${summaryValue(mt5.value.runRecovery, 'riskRedCount', 0)}R / ${summaryValue(mt5.value.runRecovery, 'riskYellowCount', 0)}Y`,
-      meta: `重试 ${summaryValue(mt5.value.runRecovery, 'retryCount', 0)} · ${summaryValue(mt5.value.runRecovery, 'latestStopReason')}`,
+      title: recoveryRiskValue(mt5.value.runRecovery),
+      meta: recoveryRiskDetail(mt5.value.runRecovery),
       tone: summaryValue(mt5.value.runRecovery, 'riskRedCount', 0) > 0 ? 'red' : 'amber',
       target: 'paramlab'
     },
@@ -1410,10 +1439,11 @@ const actionQueueItems = computed(() => [
 onMounted(() => {
   syncActiveFromHash();
   window.addEventListener('hashchange', syncActiveFromHash);
-  refresh();
-  autoRefreshTimer = window.setInterval(() => {
-    if (!state.loading) refresh();
-  }, 15000);
+  refresh().finally(() => {
+    autoRefreshTimer = window.setInterval(() => {
+      if (!state.loading) refresh();
+    }, autoRefreshMs);
+  });
 });
 
 onBeforeUnmount(() => {
