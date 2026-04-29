@@ -39,12 +39,13 @@ LLM_WEIGHT = 0.32
 
 
 WEIGHTS = {
-    "radar_score": 0.28,
-    "liquidity_score": 0.14,
-    "divergence_score": 0.14,
-    "risk_score": 0.16,
-    "single_analysis_score": 0.16,
+    "radar_score": 0.24,
+    "liquidity_score": 0.12,
+    "divergence_score": 0.13,
+    "risk_score": 0.14,
+    "single_analysis_score": 0.15,
     "outcome_score": 0.12,
+    "clob_depth_score": 0.10,
 }
 
 
@@ -210,6 +211,12 @@ def load_candidates(con: sqlite3.Connection) -> list[dict[str, Any]]:
         SELECT id, last_seen_at AS seenAt, rank, market_id AS marketId, event_id AS eventId,
                question, event_title AS eventTitle, slug, polymarket_url AS polymarketUrl,
                category, probability, volume, volume_24h AS volume24h, liquidity, spread,
+               probability_source AS probabilitySource, yes_token_id AS yesTokenId,
+               no_token_id AS noTokenId, yes_price AS yesPrice, no_price AS noPrice,
+               clob_status AS clobStatus, clob_best_bid AS clobBestBid,
+               clob_best_ask AS clobBestAsk, clob_midpoint AS clobMidpoint,
+               clob_spread AS clobSpread, clob_liquidity_usd AS clobLiquidityUsd,
+               clob_depth_score AS clobDepthScore,
                divergence, abs_divergence AS absDivergence, rule_score AS ruleScore,
                ai_rule_score AS aiRuleScore, ai_scoring_mode AS aiScoringMode, risk,
                risk_flags_json AS riskFlagsJson, recommended_action AS recommendedAction,
@@ -276,6 +283,41 @@ def score_divergence(abs_divergence: float, probability: float) -> float:
     if probability <= 3.0 or probability >= 97.0:
         base -= 10.0
     return round(clamp(base), 2)
+
+
+def score_clob_depth(row: dict[str, Any]) -> tuple[float, list[str]]:
+    status = str(row.get("clobStatus") or "").strip().lower()
+    spread = safe_number(row.get("clobSpread"), 0.0)
+    liquidity = safe_number(row.get("clobLiquidityUsd"), 0.0)
+    depth = safe_number(row.get("clobDepthScore"), 0.0)
+    reasons: list[str] = []
+    if not status:
+        return 45.0, ["clob_depth_not_checked"]
+    if "error" in status:
+        return 28.0, [f"clob_{status}"]
+    if status == "missing_yes_token":
+        return 25.0, ["clob_yes_token_missing"]
+    score = depth if depth > 0 else 48.0
+    if spread > 0:
+        if spread <= 0.03:
+            score += 12.0
+            reasons.append("clob_spread_tight")
+        elif spread >= 0.12:
+            score -= 18.0
+            reasons.append("clob_spread_wide")
+    else:
+        score -= 8.0
+        reasons.append("clob_spread_missing")
+    if liquidity >= 500:
+        score += 10.0
+        reasons.append("clob_depth_sufficient")
+    elif 0 < liquidity < 100:
+        score -= 14.0
+        reasons.append("clob_depth_thin")
+    elif liquidity <= 0:
+        score -= 10.0
+        reasons.append("clob_depth_missing")
+    return round(clamp(score), 2), reasons
 
 
 def score_analysis(row: dict[str, Any] | None) -> tuple[float, list[str]]:
@@ -395,6 +437,12 @@ def compact_candidate_for_llm(row: dict[str, Any]) -> dict[str, Any]:
         "divergencePct": row.get("divergence"),
         "risk": row.get("risk"),
         "liquidity": row.get("liquidity"),
+        "clob": {
+            "status": row.get("clobStatus"),
+            "spread": row.get("clobSpread"),
+            "liquidityUsd": row.get("clobLiquidityUsd"),
+            "depthScore": row.get("clobDepthScore"),
+        },
         "components": row.get("components", {}),
         "reasons": row.get("reasons", [])[:10],
         "nextStep": row.get("nextStep", ""),
@@ -441,7 +489,7 @@ def call_openai_semantic_review(rows: list[dict[str, Any]], config: dict[str, An
     system_prompt = (
         "You are QuantGod's Polymarket research reviewer. Score markets for shadow-only research. "
         "Never recommend real wallet execution. Use market question semantics, event risk, liquidity, "
-        "probability divergence, history score, dry-run outcome signals, and risk flags. "
+        "public CLOB depth/spread, probability divergence, history score, dry-run outcome signals, and risk flags. "
         "Return strict JSON only."
     )
     user_prompt = {
@@ -621,6 +669,7 @@ def score_candidate(
     analysis_row = analyses.get(market_id) or analyses.get(str(item.get("question") or ""))
     analysis_score, analysis_reasons = score_analysis(analysis_row)
     outcome_score, outcome_reasons = score_outcome(simulations.get((market_id, track)))
+    clob_score, clob_reasons = score_clob_depth(item)
     weighted = (
         radar_score * WEIGHTS["radar_score"]
         + liquidity_score * WEIGHTS["liquidity_score"]
@@ -628,6 +677,7 @@ def score_candidate(
         + risk_score * WEIGHTS["risk_score"]
         + analysis_score * WEIGHTS["single_analysis_score"]
         + outcome_score * WEIGHTS["outcome_score"]
+        + clob_score * WEIGHTS["clob_depth_score"]
     )
     if not safe_int(item.get("acceptingOrders"), 0):
         weighted -= 12.0
@@ -647,6 +697,7 @@ def score_candidate(
         reasons.extend(risk_flags[:4])
     reasons.extend(analysis_reasons[:4])
     reasons.extend(outcome_reasons[:4])
+    reasons.extend(clob_reasons[:4])
     reasons.extend(global_reasons[:5])
     color, action = classify(score, risk, reasons)
     live_allowed = False
@@ -663,6 +714,7 @@ def score_candidate(
         "riskScore": round(risk_score, 2),
         "singleAnalysisScore": analysis_score,
         "outcomeScore": outcome_score,
+        "clobDepthScore": clob_score,
         "globalPenalty": round(penalty, 2),
     }
     return {
@@ -676,6 +728,18 @@ def score_candidate(
         "volume": safe_number(item.get("volume")),
         "liquidity": safe_number(item.get("liquidity")),
         "divergence": safe_number(item.get("divergence")),
+        "probabilitySource": item.get("probabilitySource") or "",
+        "yesTokenId": item.get("yesTokenId") or "",
+        "noTokenId": item.get("noTokenId") or "",
+        "yesPrice": safe_number(item.get("yesPrice")),
+        "noPrice": safe_number(item.get("noPrice")),
+        "clobStatus": item.get("clobStatus") or "",
+        "clobBestBid": safe_number(item.get("clobBestBid")),
+        "clobBestAsk": safe_number(item.get("clobBestAsk")),
+        "clobMidpoint": safe_number(item.get("clobMidpoint")),
+        "clobSpread": safe_number(item.get("clobSpread")),
+        "clobLiquidityUsd": safe_number(item.get("clobLiquidityUsd")),
+        "clobDepthScore": safe_number(item.get("clobDepthScore")),
         "risk": risk,
         "score": score,
         "color": color,
@@ -744,6 +808,7 @@ def build_scores(db_path: Path, top: int, now_iso: str, llm_config: dict[str, An
                 "liquidity and volume",
                 "probability divergence",
                 "risk flags",
+                "public CLOB YES-token depth, liquidity and spread",
                 "single-market analysis confidence and recommendation",
                 "dry-run/outcome MFE/MAE and exit triggers",
                 "global executed/shadow/account quarantine penalty",
@@ -815,6 +880,10 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
                 "probability": item.get("probability", ""),
                 "divergence": item.get("divergence", ""),
                 "liquidity": item.get("liquidity", ""),
+                "clob_status": item.get("clobStatus", ""),
+                "clob_spread": item.get("clobSpread", ""),
+                "clob_liquidity_usd": item.get("clobLiquidityUsd", ""),
+                "clob_depth_score": item.get("clobDepthScore", ""),
                 "live_allowed": "false",
                 "llm_reviewed": str(bool(item.get("llmReviewed"))).lower(),
                 "llm_reason": (item.get("llmReview") or {}).get("reason", ""),

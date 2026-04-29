@@ -20,6 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from polymarket_clob_public import (
+    fetch_order_book,
+    normalize_outcome_tokens,
+    summarize_order_book,
+)
+
 
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
@@ -38,6 +44,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-volume", type=float, default=5000.0)
     parser.add_argument("--min-liquidity", type=float, default=1000.0)
     parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--skip-clob-depth", action="store_true", help="Skip public CLOB order-book depth enrichment.")
+    parser.add_argument("--clob-depth-limit", type=int, default=12, help="How many ranked markets to enrich with public CLOB book depth.")
+    parser.add_argument("--clob-timeout", type=float, default=4.0)
     return parser.parse_args()
 
 
@@ -238,6 +247,9 @@ def risk_and_flags(
     spread = first_number(market.get("spread"), default=0.0)
     if spread >= 0.08:
         flags.append("wide_spread")
+    token_info = normalize_outcome_tokens(market)
+    if not token_info.get("yesTokenId"):
+        flags.append("clob_yes_token_missing")
     high_flags = {
         "probability_missing",
         "end_date_passed_or_stale",
@@ -320,6 +332,7 @@ def flatten_event(event: dict[str, Any], min_volume: float, min_liquidity: float
         )
         end_date = parse_iso_datetime(market.get("endDate") or event.get("endDate"))
         category = infer_category(event, market)
+        token_info = normalize_outcome_tokens(market)
         risk, flags = risk_and_flags(probability, volume, volume24h, liquidity, end_date, market, min_volume, min_liquidity)
         rule_score, ai_rule_score, divergence_abs = score_market(probability, volume, volume24h, liquidity, risk, flags)
         signed_divergence = None if probability is None else round(probability - 50.0, 2)
@@ -334,6 +347,7 @@ def flatten_event(event: dict[str, Any], min_volume: float, min_liquidity: float
                 "polymarketUrl": market_url(event, market),
                 "category": category,
                 "probability": probability,
+                "probabilitySource": "gamma_outcome_prices_or_market_quote",
                 "volume": round(volume, 4),
                 "volume24h": round(volume24h, 4),
                 "liquidity": round(liquidity, 4),
@@ -349,10 +363,69 @@ def flatten_event(event: dict[str, Any], min_volume: float, min_liquidity: float
                 "endDate": format_iso(end_date),
                 "acceptingOrders": market.get("acceptingOrders"),
                 "spread": first_number(market.get("spread"), default=0.0),
+                "outcomeTokens": token_info.get("outcomeTokens") or [],
+                "yesTokenId": token_info.get("yesTokenId") or "",
+                "noTokenId": token_info.get("noTokenId") or "",
+                "yesPrice": token_info.get("yesPrice"),
+                "noPrice": token_info.get("noPrice"),
+                "clobStatus": "NOT_CHECKED",
+                "clobBestBid": None,
+                "clobBestAsk": None,
+                "clobMidpoint": None,
+                "clobSpread": None,
+                "clobLiquidityUsd": None,
+                "clobDepthScore": None,
                 "source": "gamma_public_events",
             }
         )
     return rows
+
+
+def enrich_clob_depth(rows: list[dict[str, Any]], limit: int, timeout: float, skip: bool) -> dict[str, int]:
+    if skip or limit <= 0:
+        for item in rows:
+            item["clobStatus"] = "SKIPPED"
+        return {"checked": 0, "ok": 0, "errors": 0, "skipped": len(rows)}
+    checked = ok = errors = 0
+    for item in rows[:limit]:
+        token_id = str(item.get("yesTokenId") or "").strip()
+        flags = item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else []
+        if not token_id:
+            item["clobStatus"] = "NO_YES_TOKEN"
+            if "clob_yes_token_missing" not in flags:
+                flags.append("clob_yes_token_missing")
+            item["riskFlags"] = flags
+            errors += 1
+            continue
+        checked += 1
+        book = fetch_order_book(token_id, timeout=timeout)
+        depth = summarize_order_book(book)
+        item.update(depth)
+        if depth.get("clobStatus") == "OK":
+            ok += 1
+            clob_spread = safe_number(depth.get("clobSpread"), 0.0)
+            depth_score = safe_number(depth.get("clobDepthScore"), 0.0)
+            if depth_score <= 12.0 and "clob_depth_thin" not in flags:
+                flags.append("clob_depth_thin")
+            if clob_spread >= 0.08 and "clob_spread_wide" not in flags:
+                flags.append("clob_spread_wide")
+            if depth_score >= 55.0 and clob_spread <= 0.04:
+                item["aiRuleScore"] = int(round(clamp(safe_number(item.get("aiRuleScore"), 0.0) + 4.0)))
+            elif depth_score <= 12.0 or clob_spread >= 0.08:
+                item["aiRuleScore"] = int(round(clamp(safe_number(item.get("aiRuleScore"), 0.0) - 6.0)))
+        else:
+            errors += 1
+            if "clob_depth_unavailable" not in flags:
+                flags.append("clob_depth_unavailable")
+        item["riskFlags"] = flags
+    for item in rows[limit:]:
+        item["clobStatus"] = "NOT_CHECKED_LIMIT"
+    return {
+        "checked": checked,
+        "ok": ok,
+        "errors": errors,
+        "skipped": max(0, len(rows) - max(0, limit)),
+    }
 
 
 def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
@@ -371,6 +444,21 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             reverse=True,
         )
         radar = radar[: max(1, args.top)]
+        clob_summary = enrich_clob_depth(
+            radar,
+            max(0, args.clob_depth_limit),
+            max(1.0, args.clob_timeout),
+            bool(args.skip_clob_depth),
+        )
+        radar.sort(
+            key=lambda item: (
+                safe_number(item.get("aiRuleScore")),
+                safe_number(item.get("clobDepthScore"), 0.0),
+                safe_number(item.get("liquidity")),
+                safe_number(item.get("volume24h")),
+            ),
+            reverse=True,
+        )
         for idx, item in enumerate(radar, start=1):
             item["rank"] = idx
         low = sum(1 for item in radar if item.get("risk") == "low")
@@ -386,18 +474,22 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
                 "endpoint": args.endpoint,
                 "publicReadOnly": True,
                 "loadsEnv": False,
+                "callsClobPublicBook": not bool(args.skip_clob_depth),
                 "walletWrite": False,
                 "orderExecution": False,
                 "mutatesMt5": False,
                 "scanner": "Gamma API active events",
             },
             "scoring": {
-                "aiScoringMode": "RULE_PROXY_NO_LLM",
-                "note": "AI/rule score is a deterministic proxy until an explicit AI scoring service is wired.",
+                "aiScoringMode": "RULE_PROXY_PLUS_PUBLIC_CLOB_DEPTH",
+                "note": "AI/rule score is deterministic. Public CLOB book depth is used only as read-only liquidity evidence.",
             },
             "summary": {
                 "scannedEvents": len(events),
                 "rankedMarkets": len(radar),
+                "clobDepthChecked": clob_summary.get("checked", 0),
+                "clobDepthOk": clob_summary.get("ok", 0),
+                "clobDepthErrors": clob_summary.get("errors", 0),
                 "lowRisk": low,
                 "mediumRisk": medium,
                 "highRisk": high,
@@ -421,6 +513,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
                 "endpoint": args.endpoint,
                 "publicReadOnly": True,
                 "loadsEnv": False,
+                "callsClobPublicBook": not bool(getattr(args, "skip_clob_depth", False)),
                 "walletWrite": False,
                 "orderExecution": False,
                 "mutatesMt5": False,
@@ -453,9 +546,20 @@ def radar_csv(snapshot: dict[str, Any]) -> str:
             "question",
             "category",
             "probability",
+            "probability_source",
             "divergence",
             "volume",
+            "volume_24h",
             "liquidity",
+            "spread",
+            "yes_token_id",
+            "no_token_id",
+            "clob_status",
+            "clob_best_bid",
+            "clob_best_ask",
+            "clob_spread",
+            "clob_liquidity_usd",
+            "clob_depth_score",
             "rule_score",
             "ai_rule_score",
             "risk",
@@ -475,9 +579,20 @@ def radar_csv(snapshot: dict[str, Any]) -> str:
                 "question": item.get("question", ""),
                 "category": item.get("category", ""),
                 "probability": item.get("probability", ""),
+                "probability_source": item.get("probabilitySource", ""),
                 "divergence": item.get("divergence", ""),
                 "volume": item.get("volume", ""),
+                "volume_24h": item.get("volume24h", ""),
                 "liquidity": item.get("liquidity", ""),
+                "spread": item.get("spread", ""),
+                "yes_token_id": item.get("yesTokenId", ""),
+                "no_token_id": item.get("noTokenId", ""),
+                "clob_status": item.get("clobStatus", ""),
+                "clob_best_bid": item.get("clobBestBid", ""),
+                "clob_best_ask": item.get("clobBestAsk", ""),
+                "clob_spread": item.get("clobSpread", ""),
+                "clob_liquidity_usd": item.get("clobLiquidityUsd", ""),
+                "clob_depth_score": item.get("clobDepthScore", ""),
                 "rule_score": item.get("ruleScore", ""),
                 "ai_rule_score": item.get("aiRuleScore", ""),
                 "risk": item.get("risk", ""),

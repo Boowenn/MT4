@@ -176,6 +176,19 @@ def init_schema(con: sqlite3.Connection) -> None:
             volume_24h REAL,
             liquidity REAL,
             spread REAL,
+            probability_source TEXT,
+            outcome_tokens_json TEXT,
+            yes_token_id TEXT,
+            no_token_id TEXT,
+            yes_price REAL,
+            no_price REAL,
+            clob_status TEXT,
+            clob_best_bid REAL,
+            clob_best_ask REAL,
+            clob_midpoint REAL,
+            clob_spread REAL,
+            clob_liquidity_usd REAL,
+            clob_depth_score REAL,
             divergence REAL,
             abs_divergence REAL,
             rule_score REAL,
@@ -317,6 +330,12 @@ def init_schema(con: sqlite3.Connection) -> None:
             previous_volume_24h REAL,
             volume_24h_delta REAL,
             last_liquidity REAL,
+            yes_token_id TEXT,
+            no_token_id TEXT,
+            clob_status TEXT,
+            clob_spread REAL,
+            clob_liquidity_usd REAL,
+            clob_depth_score REAL,
             trend_direction TEXT,
             raw_json TEXT NOT NULL
         );
@@ -338,6 +357,12 @@ def init_schema(con: sqlite3.Connection) -> None:
             volume REAL,
             volume_24h REAL,
             liquidity REAL,
+            yes_token_id TEXT,
+            no_token_id TEXT,
+            clob_status TEXT,
+            clob_spread REAL,
+            clob_liquidity_usd REAL,
+            clob_depth_score REAL,
             risk TEXT,
             risk_flags_json TEXT,
             ai_rule_score REAL,
@@ -594,6 +619,49 @@ def init_schema(con: sqlite3.Connection) -> None:
             "related_asset_opportunity_rows": "INTEGER NOT NULL DEFAULT 0",
         },
     )
+    ensure_columns(
+        con,
+        "qd_polymarket_asset_opportunities",
+        {
+            "probability_source": "TEXT",
+            "outcome_tokens_json": "TEXT",
+            "yes_token_id": "TEXT",
+            "no_token_id": "TEXT",
+            "yes_price": "REAL",
+            "no_price": "REAL",
+            "clob_status": "TEXT",
+            "clob_best_bid": "REAL",
+            "clob_best_ask": "REAL",
+            "clob_midpoint": "REAL",
+            "clob_spread": "REAL",
+            "clob_liquidity_usd": "REAL",
+            "clob_depth_score": "REAL",
+        },
+    )
+    ensure_columns(
+        con,
+        "qd_polymarket_radar_trends",
+        {
+            "yes_token_id": "TEXT",
+            "no_token_id": "TEXT",
+            "clob_status": "TEXT",
+            "clob_spread": "REAL",
+            "clob_liquidity_usd": "REAL",
+            "clob_depth_score": "REAL",
+        },
+    )
+    ensure_columns(
+        con,
+        "qd_polymarket_radar_queue",
+        {
+            "yes_token_id": "TEXT",
+            "no_token_id": "TEXT",
+            "clob_status": "TEXT",
+            "clob_spread": "REAL",
+            "clob_liquidity_usd": "REAL",
+            "clob_depth_score": "REAL",
+        },
+    )
 
 
 def upsert_radar(con: sqlite3.Connection, radar: dict[str, Any], now_iso: str) -> int:
@@ -613,6 +681,9 @@ def upsert_radar(con: sqlite3.Connection, radar: dict[str, Any], now_iso: str) -
                 id, first_seen_at, last_seen_at, snapshot_id, snapshot_generated_at,
                 rank, market_id, event_id, question, event_title, slug, polymarket_url,
                 category, probability, volume, volume_24h, liquidity, spread,
+                probability_source, outcome_tokens_json, yes_token_id, no_token_id,
+                yes_price, no_price, clob_status, clob_best_bid, clob_best_ask,
+                clob_midpoint, clob_spread, clob_liquidity_usd, clob_depth_score,
                 divergence, abs_divergence, rule_score, ai_rule_score, ai_scoring_mode,
                 risk, risk_flags_json, recommended_action, suggested_shadow_track,
                 end_date, accepting_orders, source, raw_json
@@ -620,6 +691,9 @@ def upsert_radar(con: sqlite3.Connection, radar: dict[str, Any], now_iso: str) -
                 :id, :first_seen_at, :last_seen_at, :snapshot_id, :snapshot_generated_at,
                 :rank, :market_id, :event_id, :question, :event_title, :slug, :polymarket_url,
                 :category, :probability, :volume, :volume_24h, :liquidity, :spread,
+                :probability_source, :outcome_tokens_json, :yes_token_id, :no_token_id,
+                :yes_price, :no_price, :clob_status, :clob_best_bid, :clob_best_ask,
+                :clob_midpoint, :clob_spread, :clob_liquidity_usd, :clob_depth_score,
                 :divergence, :abs_divergence, :rule_score, :ai_rule_score, :ai_scoring_mode,
                 :risk, :risk_flags_json, :recommended_action, :suggested_shadow_track,
                 :end_date, :accepting_orders, :source, :raw_json
@@ -634,6 +708,19 @@ def upsert_radar(con: sqlite3.Connection, radar: dict[str, Any], now_iso: str) -
                 volume_24h=excluded.volume_24h,
                 liquidity=excluded.liquidity,
                 spread=excluded.spread,
+                probability_source=excluded.probability_source,
+                outcome_tokens_json=excluded.outcome_tokens_json,
+                yes_token_id=excluded.yes_token_id,
+                no_token_id=excluded.no_token_id,
+                yes_price=excluded.yes_price,
+                no_price=excluded.no_price,
+                clob_status=excluded.clob_status,
+                clob_best_bid=excluded.clob_best_bid,
+                clob_best_ask=excluded.clob_best_ask,
+                clob_midpoint=excluded.clob_midpoint,
+                clob_spread=excluded.clob_spread,
+                clob_liquidity_usd=excluded.clob_liquidity_usd,
+                clob_depth_score=excluded.clob_depth_score,
                 divergence=excluded.divergence,
                 abs_divergence=excluded.abs_divergence,
                 rule_score=excluded.rule_score,
@@ -663,6 +750,19 @@ def upsert_radar(con: sqlite3.Connection, radar: dict[str, Any], now_iso: str) -
                 "volume_24h": safe_number(item.get("volume24h")),
                 "liquidity": safe_number(item.get("liquidity")),
                 "spread": safe_number(item.get("spread")),
+                "probability_source": str(item.get("probabilitySource") or ""),
+                "outcome_tokens_json": compact_json(item.get("outcomeTokens") if isinstance(item.get("outcomeTokens"), list) else []),
+                "yes_token_id": str(item.get("yesTokenId") or ""),
+                "no_token_id": str(item.get("noTokenId") or ""),
+                "yes_price": safe_number(item.get("yesPrice")),
+                "no_price": safe_number(item.get("noPrice")),
+                "clob_status": str(item.get("clobStatus") or ""),
+                "clob_best_bid": safe_number(item.get("clobBestBid")),
+                "clob_best_ask": safe_number(item.get("clobBestAsk")),
+                "clob_midpoint": safe_number(item.get("clobMidpoint")),
+                "clob_spread": safe_number(item.get("clobSpread")),
+                "clob_liquidity_usd": safe_number(item.get("clobLiquidityUsd")),
+                "clob_depth_score": safe_number(item.get("clobDepthScore")),
                 "divergence": safe_number(item.get("divergence")),
                 "abs_divergence": safe_number(item.get("absDivergence")),
                 "rule_score": safe_number(item.get("ruleScore")),
@@ -971,7 +1071,8 @@ def upsert_radar_trends(
                 previous_probability, probability_delta, last_ai_rule_score,
                 previous_ai_rule_score, ai_rule_score_delta, best_ai_rule_score,
                 last_volume_24h, previous_volume_24h, volume_24h_delta, last_liquidity,
-                trend_direction, raw_json
+                yes_token_id, no_token_id, clob_status, clob_spread,
+                clob_liquidity_usd, clob_depth_score, trend_direction, raw_json
             ) VALUES (
                 :id, :run_id, :generated_at, :market_key, :market_id, :event_id, :question,
                 :polymarket_url, :category, :suggested_shadow_track, :risk, :risk_flags_json,
@@ -979,7 +1080,8 @@ def upsert_radar_trends(
                 :previous_probability, :probability_delta, :last_ai_rule_score,
                 :previous_ai_rule_score, :ai_rule_score_delta, :best_ai_rule_score,
                 :last_volume_24h, :previous_volume_24h, :volume_24h_delta, :last_liquidity,
-                :trend_direction, :raw_json
+                :yes_token_id, :no_token_id, :clob_status, :clob_spread,
+                :clob_liquidity_usd, :clob_depth_score, :trend_direction, :raw_json
             )
             """,
             {
@@ -1010,6 +1112,12 @@ def upsert_radar_trends(
                 "previous_volume_24h": safe_number(item.get("previousVolume24h")),
                 "volume_24h_delta": safe_number(item.get("volume24hDelta")),
                 "last_liquidity": safe_number(item.get("lastLiquidity")),
+                "yes_token_id": str(item.get("yesTokenId") or ""),
+                "no_token_id": str(item.get("noTokenId") or ""),
+                "clob_status": str(item.get("clobStatus") or ""),
+                "clob_spread": safe_number(item.get("clobSpread")),
+                "clob_liquidity_usd": safe_number(item.get("clobLiquidityUsd")),
+                "clob_depth_score": safe_number(item.get("clobDepthScore")),
                 "trend_direction": str(item.get("trendDirection") or ""),
                 "raw_json": compact_json(item),
             },
@@ -1038,14 +1146,18 @@ def upsert_radar_queue(
             INSERT OR REPLACE INTO qd_polymarket_radar_queue (
                 id, candidate_id, run_id, generated_at, queue_state, execution_mode,
                 market_id, event_id, question, polymarket_url, category, probability,
-                divergence, volume, volume_24h, liquidity, risk, risk_flags_json,
+                divergence, volume, volume_24h, liquidity,
+                yes_token_id, no_token_id, clob_status, clob_spread,
+                clob_liquidity_usd, clob_depth_score, risk, risk_flags_json,
                 ai_rule_score, rule_score, priority_score, suggested_shadow_track,
                 trend_direction, seen_count, probability_delta, ai_rule_score_delta,
                 next_action, wallet_write_allowed, order_send_allowed, raw_json
             ) VALUES (
                 :id, :candidate_id, :run_id, :generated_at, :queue_state, :execution_mode,
                 :market_id, :event_id, :question, :polymarket_url, :category, :probability,
-                :divergence, :volume, :volume_24h, :liquidity, :risk, :risk_flags_json,
+                :divergence, :volume, :volume_24h, :liquidity,
+                :yes_token_id, :no_token_id, :clob_status, :clob_spread,
+                :clob_liquidity_usd, :clob_depth_score, :risk, :risk_flags_json,
                 :ai_rule_score, :rule_score, :priority_score, :suggested_shadow_track,
                 :trend_direction, :seen_count, :probability_delta, :ai_rule_score_delta,
                 :next_action, :wallet_write_allowed, :order_send_allowed, :raw_json
@@ -1068,6 +1180,12 @@ def upsert_radar_queue(
                 "volume": safe_number(item.get("volume")),
                 "volume_24h": safe_number(item.get("volume24h")),
                 "liquidity": safe_number(item.get("liquidity")),
+                "yes_token_id": str(item.get("yesTokenId") or ""),
+                "no_token_id": str(item.get("noTokenId") or ""),
+                "clob_status": str(item.get("clobStatus") or ""),
+                "clob_spread": safe_number(item.get("clobSpread")),
+                "clob_liquidity_usd": safe_number(item.get("clobLiquidityUsd")),
+                "clob_depth_score": safe_number(item.get("clobDepthScore")),
                 "risk": str(item.get("risk") or ""),
                 "risk_flags_json": compact_json(item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else []),
                 "ai_rule_score": safe_number(item.get("aiRuleScore")),
@@ -1572,6 +1690,10 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         """
         SELECT last_seen_at AS seenAt, rank, market_id AS marketId, question, category,
                probability, volume, liquidity, divergence, ai_rule_score AS aiRuleScore,
+               probability_source AS probabilitySource, yes_token_id AS yesTokenId,
+               no_token_id AS noTokenId, clob_status AS clobStatus,
+               clob_spread AS clobSpread, clob_liquidity_usd AS clobLiquidityUsd,
+               clob_depth_score AS clobDepthScore,
                risk, recommended_action AS recommendedAction,
                suggested_shadow_track AS suggestedShadowTrack
         FROM qd_polymarket_asset_opportunities
@@ -1650,6 +1772,9 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
                last_ai_rule_score AS lastAiRuleScore, ai_rule_score_delta AS aiRuleScoreDelta,
                best_ai_rule_score AS bestAiRuleScore, last_volume_24h AS lastVolume24h,
                volume_24h_delta AS volume24hDelta, last_liquidity AS lastLiquidity,
+               yes_token_id AS yesTokenId, no_token_id AS noTokenId,
+               clob_status AS clobStatus, clob_spread AS clobSpread,
+               clob_liquidity_usd AS clobLiquidityUsd, clob_depth_score AS clobDepthScore,
                trend_direction AS trendDirection
         FROM qd_polymarket_radar_trends
         ORDER BY generated_at DESC, best_ai_rule_score DESC
@@ -1664,6 +1789,9 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
                queue_state AS queueState, execution_mode AS executionMode, market_id AS marketId,
                question, category, probability, divergence, volume_24h AS volume24h,
                liquidity, risk, ai_rule_score AS aiRuleScore, priority_score AS priorityScore,
+               yes_token_id AS yesTokenId, no_token_id AS noTokenId,
+               clob_status AS clobStatus, clob_spread AS clobSpread,
+               clob_liquidity_usd AS clobLiquidityUsd, clob_depth_score AS clobDepthScore,
                suggested_shadow_track AS suggestedShadowTrack, trend_direction AS trendDirection,
                seen_count AS seenCount, probability_delta AS probabilityDelta,
                ai_rule_score_delta AS aiRuleScoreDelta, next_action AS nextAction,

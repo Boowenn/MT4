@@ -22,10 +22,12 @@ from typing import Any
 from build_polymarket_market_radar import (
     DEFAULT_ENDPOINT,
     atomic_write_text,
+    enrich_clob_depth,
     flatten_event,
     request_gamma_events,
     safe_number,
 )
+from polymarket_quantdinger_core import infer_related_assets
 
 
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
@@ -47,6 +49,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-volume", type=float, default=5000.0)
     parser.add_argument("--min-liquidity", type=float, default=1000.0)
     parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--skip-clob-depth", action="store_true")
+    parser.add_argument("--clob-timeout", type=float, default=4.0)
     return parser.parse_args()
 
 
@@ -111,8 +115,7 @@ def load_request_query(args: argparse.Namespace, runtime_dir: Path, dashboard_di
     if args.query.strip():
         return args.query.strip(), "cli_query"
     for path in request_candidate_paths(args, runtime_dir, dashboard_dir):
-        payload = load_json(path)
-        query = query_from_request(payload)
+        query = query_from_request(load_json(path))
         if query:
             return query, str(path)
     radar = load_json(runtime_dir / RADAR_NAME)
@@ -127,14 +130,8 @@ def load_request_query(args: argparse.Namespace, runtime_dir: Path, dashboard_di
 
 
 def url_target_parts(query: str) -> dict[str, Any]:
-    text = query.strip()
-    parts: dict[str, Any] = {
-        "raw": text,
-        "isUrl": False,
-        "marketId": "",
-        "slug": "",
-        "tokens": [],
-    }
+    text = str(query or "").strip()
+    parts: dict[str, Any] = {"raw": text, "isUrl": False, "marketId": "", "slug": "", "tokens": []}
     if not text:
         return parts
     parsed = urllib.parse.urlparse(text)
@@ -151,19 +148,13 @@ def url_target_parts(query: str) -> dict[str, Any]:
         if not parts["slug"] and path_bits:
             parts["slug"] = path_bits[-1]
         query_bits = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
-        parts["marketId"] = first_text(
-            query_bits.get("market"),
-            query_bits.get("marketId"),
-            query_bits.get("id"),
-            query_bits.get("tid"),
-        )
+        parts["marketId"] = first_text(query_bits.get("market"), query_bits.get("marketId"), query_bits.get("id"), query_bits.get("tid"))
         text = " ".join([parts["slug"], parts["marketId"]])
     elif re.fullmatch(r"\d+", text):
         parts["marketId"] = text
     elif "/" not in text and len(text) > 8 and re.fullmatch(r"[A-Za-z0-9_-]+", text):
         parts["slug"] = text
-    tokens = [token for token in re.split(r"[^A-Za-z0-9\u4e00-\u9fff]+", text.lower()) if len(token) >= 2]
-    parts["tokens"] = tokens[:24]
+    parts["tokens"] = [token for token in re.split(r"[^A-Za-z0-9\u4e00-\u9fff]+", text.lower()) if len(token) >= 2][:24]
     return parts
 
 
@@ -181,7 +172,7 @@ def row_search_text(row: dict[str, Any]) -> str:
 
 
 def match_score(row: dict[str, Any], target: dict[str, Any]) -> int:
-    if not target.get("raw"):
+    if not row:
         return 0
     search = row_search_text(row)
     market_id = str(target.get("marketId") or "").lower()
@@ -192,18 +183,14 @@ def match_score(row: dict[str, Any], target: dict[str, Any]) -> int:
     if slug and slug == str(row.get("slug") or "").lower():
         return 110
     if slug and slug in search:
-        return 92
-    if target.get("isUrl") and raw and raw in search:
-        return 85
-    tokens = target.get("tokens") or []
+        return 95
+    if raw and raw in search:
+        return 80
+    tokens = [str(token) for token in target.get("tokens") or []]
     if not tokens:
         return 0
     hits = sum(1 for token in tokens if token in search)
-    if hits == len(tokens):
-        return 75 + min(20, hits)
-    if hits:
-        return min(70, 24 + hits * 10)
-    return 0
+    return min(70, hits * 10) if hits else 0
 
 
 def fetch_and_rank_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -239,6 +226,12 @@ def choose_market(rows: list[dict[str, Any]], query: str) -> tuple[dict[str, Any
     return (rows[0], 0) if rows else (None, 0)
 
 
+def enrich_selected_market(row: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    selected = dict(row)
+    enrich_clob_depth([selected], limit=1, timeout=max(1.0, float(args.clob_timeout or 4.0)), skip=bool(args.skip_clob_depth))
+    return selected
+
+
 def ai_probability_proxy(row: dict[str, Any]) -> tuple[float | None, float | None, float]:
     probability_raw = row.get("probability")
     if probability_raw is None or probability_raw == "":
@@ -247,13 +240,19 @@ def ai_probability_proxy(row: dict[str, Any]) -> tuple[float | None, float | Non
     score = safe_number(row.get("aiRuleScore"), default=0.0)
     risk = str(row.get("risk") or "medium")
     risk_factor = {"low": 1.0, "medium": 0.55, "high": 0.18}.get(risk, 0.4)
+    depth_bonus = max(0.0, safe_number(row.get("clobDepthScore"), 0.0) - 50.0) / 100.0
     direction = 1.0 if market_probability >= 50.0 else -1.0
     neutral_gap = abs(market_probability - 50.0)
     score_component = max(0.0, score - 35.0) / 65.0
-    adjustment = min(14.0, neutral_gap * 0.18 + score_component * 8.0) * risk_factor * direction
+    adjustment = min(14.0, neutral_gap * 0.18 + score_component * 8.0 + depth_bonus * 2.5) * risk_factor * direction
     ai_probability = clamp(market_probability + adjustment, 1.0, 99.0)
     divergence = ai_probability - market_probability
-    confidence = clamp(score * 0.72 + safe_number(row.get("liquidity")) ** 0.12 + safe_number(row.get("volume")) ** 0.08)
+    confidence = clamp(
+        score * 0.68
+        + safe_number(row.get("liquidity")) ** 0.12
+        + safe_number(row.get("volume")) ** 0.08
+        + safe_number(row.get("clobDepthScore")) * 0.08
+    )
     return round(ai_probability, 2), round(divergence, 2), round(confidence, 1)
 
 
@@ -280,10 +279,60 @@ def risk_factor_notes(row: dict[str, Any]) -> list[str]:
     else:
         notes.extend([f"风险标记：{flag}" for flag in flags[:8]])
     if safe_number(row.get("liquidity")) <= 0:
-        notes.append("流动性未知或盘口过薄，禁止进入执行层。")
+        notes.append("流动性未知或为 0，只能保留为研究候选。")
     if row.get("acceptingOrders") is False:
-        notes.append("市场不接收订单，只能保留研究记录。")
+        notes.append("市场当前不接受订单，只能保留研究记录。")
+    if row.get("clobStatus"):
+        notes.append(
+            f"CLOB 公共盘口：{row.get('clobStatus')}，spread={row.get('clobSpread', '--')}，深度评分={row.get('clobDepthScore', '--')}。"
+        )
     return notes
+
+
+def build_key_factors(selected: dict[str, Any], related_assets: list[dict[str, Any]]) -> list[str]:
+    factors = [
+        f"市场概率 {selected.get('probability', '--')}%，雷达评分 {selected.get('aiRuleScore', '--')}。",
+        f"成交量 {selected.get('volume', '--')}，24h 成交 {selected.get('volume24h', '--')}，Gamma 流动性 {selected.get('liquidity', '--')}。",
+    ]
+    if selected.get("clobStatus"):
+        factors.append(
+            f"CLOB YES 盘口 {selected.get('clobStatus')}，bid/ask {selected.get('clobBestBid', '--')}/{selected.get('clobBestAsk', '--')}，深度 ${selected.get('clobLiquidityUsd', '--')}。"
+        )
+    if related_assets:
+        factors.append("关联资产：" + "、".join(item.get("symbol", "") for item in related_assets[:6] if item.get("symbol")))
+    return factors
+
+
+def build_market_payload(selected: dict[str, Any]) -> dict[str, Any]:
+    fields = [
+        "marketId",
+        "eventId",
+        "question",
+        "eventTitle",
+        "slug",
+        "polymarketUrl",
+        "category",
+        "probability",
+        "probabilitySource",
+        "yesTokenId",
+        "noTokenId",
+        "yesPrice",
+        "noPrice",
+        "volume",
+        "volume24h",
+        "liquidity",
+        "spread",
+        "clobStatus",
+        "clobBestBid",
+        "clobBestAsk",
+        "clobMidpoint",
+        "clobSpread",
+        "clobLiquidityUsd",
+        "clobDepthScore",
+        "endDate",
+        "acceptingOrders",
+    ]
+    return {field: selected.get(field, "") for field in fields}
 
 
 def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: Path | None) -> dict[str, Any]:
@@ -291,6 +340,7 @@ def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: P
     query, query_source = load_request_query(args, runtime_dir, dashboard_dir)
     safety = {
         "publicGammaReadOnly": True,
+        "publicClobReadOnly": not bool(args.skip_clob_depth),
         "loadsEnv": False,
         "readsPrivateKey": False,
         "walletWriteAllowed": False,
@@ -298,18 +348,20 @@ def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: P
         "startsExecutor": False,
         "mutatesMt5": False,
     }
+    base_mode = "POLYMARKET_SINGLE_MARKET_AI_ANALYSIS_V2"
+    decision = "RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING"
     if not query:
         return {
-            "mode": "POLYMARKET_SINGLE_MARKET_AI_ANALYSIS_V1",
+            "mode": base_mode,
             "generatedAt": generated_at,
             "status": "NO_TARGET",
-            "decision": "RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING",
+            "decision": decision,
             "request": {"query": "", "source": query_source},
             "summary": {"market": "", "recommendation": "NO_TARGET", "risk": "unknown", "confidencePct": 0},
             "market": {},
             "analysis": {
                 "recommendation": "NO_TARGET",
-                "rationale": ["请在 QuantGod_PolymarketSingleMarketRequest.json 写入 query/url/marketId，或先生成机会雷达。"],
+                "rationale": ["请在 Dashboard 单市场输入框提交 URL、标题或 marketId，或先生成机会雷达。"],
             },
             "safety": safety,
         }
@@ -318,11 +370,13 @@ def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: P
         selected, match = choose_market(rows, query)
         if not selected:
             raise RuntimeError("Gamma API returned no active markets to analyze.")
+        selected = enrich_selected_market(selected, args)
+        related_assets = infer_related_assets(selected)
         ai_probability, divergence, confidence = ai_probability_proxy(selected)
         recommendation = recommendation_for(selected, divergence, confidence)
         probability = selected.get("probability")
         analysis = {
-            "aiScoringMode": "RULE_PROXY_NO_LLM",
+            "aiScoringMode": "RULE_PROXY_PLUS_PUBLIC_CLOB_AND_RELATED_ASSETS",
             "marketProbabilityPct": probability,
             "aiProbabilityPct": ai_probability,
             "divergencePct": divergence,
@@ -330,41 +384,27 @@ def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: P
             "recommendation": recommendation,
             "riskLevel": selected.get("risk", "unknown"),
             "riskFactors": selected.get("riskFlags") or [],
+            "relatedAssets": related_assets,
             "suggestedShadowTrack": selected.get("suggestedShadowTrack") or "poly_single_market_shadow_review_v1",
+            "keyFactors": build_key_factors(selected, related_assets),
             "rationale": [
-                "这是 Gamma 公共 API 的单市场研究分析，不是下注信号。",
+                "这是 Gamma API + 公共 CLOB 盘口的单市场研究分析，不是下注信号。",
                 f"AI/规则代理概率 {ai_probability if ai_probability is not None else '--'}%，市场概率 {probability if probability is not None else '--'}%。",
-                f"成交量 {selected.get('volume', '--')}，流动性 {selected.get('liquidity', '--')}，雷达评分 {selected.get('aiRuleScore', '--')}。",
                 "所有输出只能进入 shadow track / retune planner；执行层仍由独立 Gate、dry-run 和钱包守卫决定。",
             ],
             "riskNotes": risk_factor_notes(selected),
             "nextActions": [
-                "如果 recommendation 不是 SHADOW_REVIEW，继续观察或重调筛选，不进入 dry-run。",
-                "如果后续要模拟订单，先让 Execution Gate 和 dry-run simulator 读取这条 shadow track。",
-                "不要从单市场分析直接恢复下注执行。"
+                "若 recommendation 不是 SHADOW_REVIEW，继续观察或重调筛选，不进入 dry-run。",
+                "若后续要模拟订单，先让 Execution Gate 和 dry-run simulator 读取这条 shadow track。",
+                "不要从单市场分析直接恢复下注执行。",
             ],
         }
-        market = {
-            "marketId": selected.get("marketId", ""),
-            "eventId": selected.get("eventId", ""),
-            "question": selected.get("question", ""),
-            "eventTitle": selected.get("eventTitle", ""),
-            "slug": selected.get("slug", ""),
-            "polymarketUrl": selected.get("polymarketUrl", ""),
-            "category": selected.get("category", ""),
-            "probability": selected.get("probability"),
-            "volume": selected.get("volume"),
-            "volume24h": selected.get("volume24h"),
-            "liquidity": selected.get("liquidity"),
-            "spread": selected.get("spread"),
-            "endDate": selected.get("endDate", ""),
-            "acceptingOrders": selected.get("acceptingOrders"),
-        }
+        market = build_market_payload(selected)
         return {
-            "mode": "POLYMARKET_SINGLE_MARKET_AI_ANALYSIS_V1",
+            "mode": base_mode,
             "generatedAt": generated_at,
             "status": "OK",
-            "decision": "RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING",
+            "decision": decision,
             "request": {
                 "query": query,
                 "source": query_source,
@@ -378,6 +418,8 @@ def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: P
                 "confidencePct": confidence,
                 "divergencePct": divergence,
                 "suggestedShadowTrack": analysis["suggestedShadowTrack"],
+                "clobStatus": market.get("clobStatus"),
+                "relatedAssets": [item.get("symbol") for item in related_assets[:8]],
             },
             "market": market,
             "analysis": analysis,
@@ -385,10 +427,10 @@ def build_analysis(args: argparse.Namespace, runtime_dir: Path, dashboard_dir: P
         }
     except Exception as exc:  # noqa: BLE001 - keep dashboard diagnostic instead of failing silently.
         return {
-            "mode": "POLYMARKET_SINGLE_MARKET_AI_ANALYSIS_V1",
+            "mode": base_mode,
             "generatedAt": generated_at,
             "status": "ERROR",
-            "decision": "RESEARCH_ONLY_SINGLE_MARKET_NO_BETTING",
+            "decision": decision,
             "request": {"query": query, "source": query_source},
             "summary": {"market": "", "recommendation": "ERROR", "risk": "unknown", "confidencePct": 0},
             "market": {},
@@ -407,8 +449,8 @@ def ledger_row(snapshot: dict[str, Any]) -> dict[str, Any]:
     request = snapshot.get("request") if isinstance(snapshot.get("request"), dict) else {}
     return {
         "generated_at": snapshot.get("generatedAt", ""),
+        "mode": snapshot.get("mode", ""),
         "status": snapshot.get("status", ""),
-        "decision": snapshot.get("decision", ""),
         "query": request.get("query", ""),
         "query_source": request.get("source", ""),
         "market_id": market.get("marketId", ""),
@@ -421,6 +463,10 @@ def ledger_row(snapshot: dict[str, Any]) -> dict[str, Any]:
         "recommendation": analysis.get("recommendation", ""),
         "risk": analysis.get("riskLevel", ""),
         "shadow_track": analysis.get("suggestedShadowTrack", ""),
+        "clob_status": market.get("clobStatus", ""),
+        "clob_spread": market.get("clobSpread", ""),
+        "clob_depth_score": market.get("clobDepthScore", ""),
+        "related_assets": ";".join(item.get("symbol", "") for item in analysis.get("relatedAssets", []) if isinstance(item, dict)),
         "url": market.get("polymarketUrl", ""),
         "wallet_write": snapshot.get("safety", {}).get("walletWriteAllowed", False),
         "order_send": snapshot.get("safety", {}).get("orderSendAllowed", False),
@@ -429,10 +475,9 @@ def ledger_row(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def append_ledger(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = list(row.keys())
-    exists = path.exists() and path.stat().st_size > 0
+    exists = path.exists()
     with path.open("a", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=list(row.keys()), lineterminator="\n")
         if not exists:
             writer.writeheader()
         writer.writerow(row)
@@ -456,7 +501,7 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
 def main() -> int:
     args = parse_args()
     runtime_dir = Path(args.runtime_dir)
-    dashboard_dir = Path(args.dashboard_dir) if args.dashboard_dir else None
+    dashboard_dir = Path(args.dashboard_dir) if str(args.dashboard_dir or "").strip() else None
     snapshot = build_analysis(args, runtime_dir, dashboard_dir)
     written = write_outputs(snapshot, runtime_dir, dashboard_dir)
     summary = snapshot.get("summary", {})

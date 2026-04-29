@@ -55,6 +55,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--queue-risk", default="low,medium")
     parser.add_argument("--stale-retention-cycles", type=int, default=12)
     parser.add_argument("--input-radar", default="", help="Optional existing radar JSON for offline validation.")
+    parser.add_argument("--skip-clob-depth", action="store_true", help="Skip public CLOB order-book depth enrichment.")
+    parser.add_argument("--clob-depth-limit", type=int, default=12)
+    parser.add_argument("--clob-timeout", type=float, default=4.0)
     return parser.parse_args()
 
 
@@ -156,6 +159,9 @@ def build_gamma_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         min_volume=args.min_volume,
         min_liquidity=args.min_liquidity,
         timeout=args.timeout,
+        skip_clob_depth=args.skip_clob_depth,
+        clob_depth_limit=args.clob_depth_limit,
+        clob_timeout=args.clob_timeout,
     )
     return build_snapshot(radar_args)
 
@@ -269,6 +275,12 @@ def update_trend_cache(
             "previousVolume24h": previous.get("lastVolume24h"),
             "volume24hDelta": volume_delta,
             "lastLiquidity": item.get("liquidity"),
+            "yesTokenId": item.get("yesTokenId"),
+            "noTokenId": item.get("noTokenId"),
+            "clobStatus": item.get("clobStatus"),
+            "clobSpread": item.get("clobSpread"),
+            "clobLiquidityUsd": item.get("clobLiquidityUsd"),
+            "clobDepthScore": item.get("clobDepthScore"),
             "trendDirection": trend_direction,
             "lastRunId": run_id,
         }
@@ -326,9 +338,10 @@ def priority_score(item: dict[str, Any]) -> float:
     abs_prob_delta = abs(safe_number(item.get("probabilityDelta"), 0.0))
     liquidity_bonus = min(8.0, safe_number(item.get("liquidity"), 0.0) / 25000.0)
     volume_bonus = min(8.0, safe_number(item.get("volume24h"), 0.0) / 25000.0)
+    clob_bonus = min(8.0, safe_number(item.get("clobDepthScore"), 0.0) / 12.5)
     recurrence_bonus = min(6.0, safe_number(item.get("seenCount"), 0.0))
     risk_penalty = {"low": 0.0, "medium": 4.0, "high": 20.0}.get(str(item.get("risk") or "").lower(), 10.0)
-    return round(score + abs_score_delta * 0.5 + abs_prob_delta * 0.35 + liquidity_bonus + volume_bonus + recurrence_bonus - risk_penalty, 3)
+    return round(score + abs_score_delta * 0.5 + abs_prob_delta * 0.35 + liquidity_bonus + volume_bonus + clob_bonus + recurrence_bonus - risk_penalty, 3)
 
 
 def build_candidate_queue(rows: list[dict[str, Any]], args: argparse.Namespace, generated_at: str, run_id: str) -> list[dict[str, Any]]:
@@ -362,6 +375,12 @@ def build_candidate_queue(rows: list[dict[str, Any]], args: argparse.Namespace, 
                 "volume": item.get("volume"),
                 "volume24h": item.get("volume24h"),
                 "liquidity": item.get("liquidity"),
+                "yesTokenId": item.get("yesTokenId"),
+                "noTokenId": item.get("noTokenId"),
+                "clobStatus": item.get("clobStatus"),
+                "clobSpread": item.get("clobSpread"),
+                "clobLiquidityUsd": item.get("clobLiquidityUsd"),
+                "clobDepthScore": item.get("clobDepthScore"),
                 "risk": item.get("risk"),
                 "riskFlags": item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else [],
                 "aiRuleScore": item.get("aiRuleScore"),
@@ -426,6 +445,9 @@ def queue_csv(queue: list[dict[str, Any]]) -> str:
             "market_id",
             "question",
             "risk",
+            "clob_status",
+            "clob_depth_score",
+            "clob_spread",
             "ai_rule_score",
             "probability",
             "probability_delta",
@@ -446,6 +468,9 @@ def queue_csv(queue: list[dict[str, Any]]) -> str:
                 "market_id": item.get("marketId", ""),
                 "question": item.get("question", ""),
                 "risk": item.get("risk", ""),
+                "clob_status": item.get("clobStatus", ""),
+                "clob_depth_score": item.get("clobDepthScore", ""),
+                "clob_spread": item.get("clobSpread", ""),
                 "ai_rule_score": item.get("aiRuleScore", ""),
                 "probability": item.get("probability", ""),
                 "probability_delta": item.get("probabilityDelta", ""),

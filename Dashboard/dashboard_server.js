@@ -1,4 +1,5 @@
-const http = require('http');
+﻿const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -1052,6 +1053,24 @@ function numericScore(...values) {
   return 0;
 }
 
+function clobDetailFields(item = {}) {
+  return {
+    probabilitySource: firstDefined(item.probabilitySource),
+    outcomeTokens: firstDefined(item.outcomeTokens, item.outcomeTokensJson),
+    yesTokenId: firstDefined(item.yesTokenId),
+    noTokenId: firstDefined(item.noTokenId),
+    yesPrice: firstDefined(item.yesPrice),
+    noPrice: firstDefined(item.noPrice),
+    clobStatus: firstDefined(item.clobStatus),
+    clobBestBid: firstDefined(item.clobBestBid),
+    clobBestAsk: firstDefined(item.clobBestAsk),
+    clobMidpoint: firstDefined(item.clobMidpoint),
+    clobSpread: firstDefined(item.clobSpread),
+    clobLiquidityUsd: firstDefined(item.clobLiquidityUsd),
+    clobDepthScore: firstDefined(item.clobDepthScore)
+  };
+}
+
 function compactRadarResult(item = {}, generatedAt = '') {
   return {
     sourceType: 'radar',
@@ -1069,9 +1088,10 @@ function compactRadarResult(item = {}, generatedAt = '') {
     score: numericScore(item.aiRuleScore, item.ruleScore),
     detail: {
       rank: item.rank,
-      volume: item.volume,
+      volume: firstDefined(item.volume, item.volume24h),
       liquidity: item.liquidity,
-      riskFlags: item.riskFlags || []
+      riskFlags: firstDefined(item.riskFlags, item.riskFlagsJson, []),
+      ...clobDetailFields(item)
     }
   };
 }
@@ -1104,7 +1124,8 @@ function compactMarketCatalogResult(item = {}, generatedAt = '') {
       relatedAssets: firstDefined(item.relatedAssets, item.relatedAssetsJson),
       riskFlags: firstDefined(item.riskFlags, item.riskFlagsJson),
       acceptingOrders: firstDefined(item.acceptingOrders),
-      endDate: firstDefined(item.endDate)
+      endDate: firstDefined(item.endDate),
+      ...clobDetailFields(item)
     }
   };
 }
@@ -1112,7 +1133,7 @@ function compactMarketCatalogResult(item = {}, generatedAt = '') {
 function compactRelatedAssetResult(item = {}, generatedAt = '') {
   return {
     sourceType: 'related-assets',
-    sourceLabel: '相关资产机会',
+    sourceLabel: '关联资产机会',
     title: firstDefined(item.question, item.marketId, item.opportunityId, '--'),
     subtitle: `${firstDefined(item.assetSymbol, '--')} · ${firstDefined(item.suggestedAction, item.directionalHint, 'OBSERVE')}`,
     marketId: firstDefined(item.marketId),
@@ -1168,7 +1189,8 @@ function compactAiScoreResult(item = {}, generatedAt = '') {
       semanticRecommendation: item.semanticRecommendation,
       semanticRisk: item.semanticRisk,
       llmReviewed: item.llmReviewed,
-      llmReason: item.llmReview?.reason || ''
+      llmReason: item.llmReview?.reason || '',
+      ...clobDetailFields(item)
     }
   };
 }
@@ -1185,13 +1207,17 @@ function compactAnalysisResult(row = {}) {
     risk: firstDefined(row.risk),
     recommendation: firstDefined(row.recommendation, row.decision, row.status),
     track: firstDefined(row.shadowTrack, row.suggestedShadowTrack),
-    probability: firstDefined(row.marketProbability, row.marketProbabilityPct),
+    probability: firstDefined(row.marketProbability, row.marketProbabilityPct, row.probability),
     divergence: firstDefined(row.divergence, row.divergencePct),
-    score: numericScore(row.confidence, row.confidencePct),
+    score: numericScore(row.confidence, row.confidencePct, row.aiRuleScore),
     detail: {
       aiProbability: firstDefined(row.aiProbability, row.aiProbabilityPct),
       confidence: firstDefined(row.confidence, row.confidencePct),
-      historyType: firstDefined(row.historyType, 'analyses')
+      relatedAssets: firstDefined(row.relatedAssets, row.relatedAssetsJson),
+      keyFactors: firstDefined(row.keyFactors, row.keyFactorsJson),
+      riskNotes: firstDefined(row.riskNotes, row.riskNotesJson),
+      historyType: firstDefined(row.historyType, 'analyses'),
+      ...clobDetailFields(row)
     }
   };
 }
@@ -1267,7 +1293,7 @@ function compactCanaryContractResult(item = {}, generatedAt = '') {
 function compactCanaryExecutorRunResult(item = {}, generatedAt = '') {
   return {
     sourceType: 'canary-executor-run',
-    sourceLabel: '真钱预检',
+    sourceLabel: '真钱执行守卫',
     title: firstDefined(item.runId, item.executionMode, '--'),
     subtitle: firstDefined(item.decision, item.status, item.executionMode),
     marketId: firstDefined(item.marketId),
@@ -1332,7 +1358,6 @@ function compactCanaryOrderAuditResult(item = {}, generatedAt = '') {
   };
 }
 
-/*
 function compactAutoGovernanceResult(item = {}, generatedAt = '') {
   return {
     sourceType: 'auto-governance',
@@ -1375,51 +1400,6 @@ function compactAutoGovernanceResult(item = {}, generatedAt = '') {
     }
   };
 }
-
-*/
-function compactAutoGovernanceResult(item = {}, generatedAt = '') {
-  return {
-    sourceType: 'auto-governance',
-    sourceLabel: '自动治理',
-    title: firstDefined(item.question, item.marketId, item.governanceId, '--'),
-    subtitle: firstDefined(item.governanceState, item.track, item.riskLevel),
-    marketId: firstDefined(item.marketId),
-    url: firstDefined(item.polymarketUrl, item.url),
-    generatedAt: firstDefined(item.generatedAt, generatedAt),
-    risk: firstDefined(item.riskLevel, item.crossRiskTag, item.macroRiskState, item.aiColor),
-    recommendation: firstDefined(item.recommendedAction, item.governanceState, 'AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE'),
-    track: firstDefined(item.track),
-    probability: null,
-    divergence: null,
-    score: numericScore(item.score, item.aiScore, item.sourceScore),
-    detail: {
-      historyType: 'auto-governance',
-      rawType: 'auto-governance',
-      governanceId: firstDefined(item.governanceId),
-      currentState: firstDefined(item.currentState),
-      governanceState: firstDefined(item.governanceState),
-      recommendedAction: firstDefined(item.recommendedAction),
-      riskLevel: firstDefined(item.riskLevel),
-      aiScore: firstDefined(item.aiScore),
-      sourceScore: firstDefined(item.sourceScore),
-      canaryState: firstDefined(item.canaryState),
-      dryRunState: firstDefined(item.dryRunState),
-      outcomeState: firstDefined(item.outcomeState),
-      wouldExitReason: firstDefined(item.wouldExitReason),
-      crossRiskTag: firstDefined(item.crossRiskTag),
-      macroRiskState: firstDefined(item.macroRiskState),
-      blockers: firstDefined(item.blockers, item.blockersJson),
-      sourceTypes: firstDefined(item.sourceTypes, item.sourceTypesJson),
-      nextTest: firstDefined(item.nextTest),
-      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
-      orderSendAllowed: firstDefined(item.orderSendAllowed),
-      startsExecutor: firstDefined(item.startsExecutor),
-      mutatesMt5: firstDefined(item.mutatesMt5),
-      canPromoteToLiveExecution: firstDefined(item.canPromoteToLiveExecution)
-    }
-  };
-}
-
 function isWorkerHistoryType(historyType = '') {
   return ['worker-runs', 'worker-trends', 'worker-queue'].includes(String(historyType || '').trim());
 }
@@ -1604,6 +1584,19 @@ function compactHistoryResult(row = {}) {
       probabilityDelta: firstDefined(row.probabilityDelta),
       aiRuleScoreDelta: firstDefined(row.aiRuleScoreDelta),
       volume24hDelta: firstDefined(row.volume24hDelta),
+      probabilitySource: firstDefined(row.probabilitySource),
+      outcomeTokens: firstDefined(row.outcomeTokens, row.outcomeTokensJson),
+      yesTokenId: firstDefined(row.yesTokenId),
+      noTokenId: firstDefined(row.noTokenId),
+      yesPrice: firstDefined(row.yesPrice),
+      noPrice: firstDefined(row.noPrice),
+      clobStatus: firstDefined(row.clobStatus),
+      clobBestBid: firstDefined(row.clobBestBid),
+      clobBestAsk: firstDefined(row.clobBestAsk),
+      clobMidpoint: firstDefined(row.clobMidpoint),
+      clobSpread: firstDefined(row.clobSpread),
+      clobLiquidityUsd: firstDefined(row.clobLiquidityUsd),
+      clobDepthScore: firstDefined(row.clobDepthScore),
       candidateQueueSize: firstDefined(row.candidateQueueSize),
       uniqueMarkets: firstDefined(row.uniqueMarkets),
       recurringMarkets: firstDefined(row.recurringMarkets),
@@ -1859,6 +1852,129 @@ async function handlePolymarketReadOnlyJson(req, res, fileName, endpoint) {
       safety: {
         walletWriteAllowed: false,
         orderSendAllowed: false,
+        mutatesMt5: false,
+        readOnly: true
+      }
+    });
+  }
+}
+
+function requestPublicJson(url, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        'accept': 'application/json',
+        'user-agent': 'QuantGod-Polymarket-ReadOnly/1.0'
+      },
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 2_000_000) {
+          req.destroy(new Error('response_too_large'));
+        }
+      });
+      response.on('end', () => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`HTTP ${response.statusCode}: ${body.slice(0, 240)}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(body));
+        } catch (error) {
+          reject(new Error(`invalid_json: ${error.message || error}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`timeout_${timeoutMs}ms`));
+    });
+  });
+}
+
+function summarizePolymarketBookSide(side = [], depth = 8) {
+  const rows = Array.isArray(side) ? side : [];
+  return rows.slice(0, depth).reduce((acc, row) => {
+    const price = Number(row.price ?? row.px ?? row[0]);
+    const size = Number(row.size ?? row.sz ?? row[1]);
+    if (Number.isFinite(price) && Number.isFinite(size)) {
+      acc.notional += price * size;
+      acc.size += size;
+      acc.levels += 1;
+    }
+    return acc;
+  }, { notional: 0, size: 0, levels: 0 });
+}
+
+function summarizePolymarketOrderBook(book = {}) {
+  const bids = Array.isArray(book.bids) ? book.bids : [];
+  const asks = Array.isArray(book.asks) ? book.asks : [];
+  const bestBid = bids.length ? Number(bids[0].price ?? bids[0].px ?? bids[0][0]) : null;
+  const bestAsk = asks.length ? Number(asks[0].price ?? asks[0].px ?? asks[0][0]) : null;
+  const spread = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? Math.max(0, bestAsk - bestBid) : null;
+  const bidDepth = summarizePolymarketBookSide(bids);
+  const askDepth = summarizePolymarketBookSide(asks);
+  const liquidityUsd = bidDepth.notional + askDepth.notional;
+  const depthScore = Math.max(0, Math.min(100,
+    (bidDepth.levels + askDepth.levels) * 3 +
+    Math.min(30, liquidityUsd / 200) +
+    (spread !== null ? Math.max(0, 30 - spread * 300) : 0)
+  ));
+  return {
+    bestBid: Number.isFinite(bestBid) ? bestBid : null,
+    bestAsk: Number.isFinite(bestAsk) ? bestAsk : null,
+    midpoint: Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : null,
+    spread,
+    bidLevels: bidDepth.levels,
+    askLevels: askDepth.levels,
+    bidDepthUsd: bidDepth.notional,
+    askDepthUsd: askDepth.notional,
+    liquidityUsd,
+    depthScore
+  };
+}
+
+async function handlePolymarketBook(req, res) {
+  try {
+    const parsed = new URL(req.url || '/', `http://${host}:${port}`);
+    const tokenId = String(parsed.searchParams.get('token_id') || parsed.searchParams.get('tokenId') || '').trim();
+    if (!tokenId || !/^[A-Za-z0-9_-]{8,140}$/.test(tokenId)) {
+      sendJson(res, 400, { ok: false, error: 'token_id_required', endpoint: '/api/polymarket/book' });
+      return;
+    }
+    const timeoutMs = Math.max(1000, Math.min(10000, Number(parsed.searchParams.get('timeoutMs') || 5000)));
+    const url = `https://clob.polymarket.com/book?token_id=${encodeURIComponent(tokenId)}`;
+    const book = await requestPublicJson(url, timeoutMs);
+    const summary = summarizePolymarketOrderBook(book);
+    sendJson(res, 200, {
+      mode: 'POLYMARKET_PUBLIC_CLOB_BOOK_API_V1',
+      status: 'OK',
+      generatedAt: new Date().toISOString(),
+      source: 'clob.polymarket.com/book',
+      tokenId,
+      summary,
+      book,
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
+        mutatesMt5: false,
+        readOnly: true
+      }
+    });
+  } catch (error) {
+    sendJson(res, 502, {
+      ok: false,
+      error: error.message || String(error),
+      endpoint: '/api/polymarket/book',
+      safety: {
+        readsPrivateKey: false,
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        startsExecutor: false,
         mutatesMt5: false,
         readOnly: true
       }
@@ -2557,6 +2673,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/market') {
     handlePolymarketMarketDetail(req, res);
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/book') {
+    handlePolymarketBook(req, res);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/asset-opportunities') {
