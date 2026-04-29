@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.15"
+#property version   "3.16"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.15-mt5-live-risk-iteration";
+input string DashboardBuild      = "QuantGod-v3.16-mt5-non-rsi-live-auth-lock";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -48,6 +48,8 @@ input bool   PilotRsiBlockSellInUptrend   = true;
 input bool   PilotRsiRangeTightBuyOnly    = true;
 input bool   EnablePilotBBH1Candidate = true;
 input bool   EnablePilotBBH1Live      = false;
+input bool   EnableNonRsiLegacyLiveAuthorization = false;
+input string NonRsiLegacyLiveAuthorizationTag = "";
 input ENUM_TIMEFRAMES PilotBBTimeframe = PERIOD_H1;
 input int    PilotBBPeriod            = 20;
 input double PilotBBDeviation         = 2.0;
@@ -1265,6 +1267,41 @@ bool IsLegacyPilotRouteCandidateEnabled(string strategyKey)
    return false;
 }
 
+bool IsNonRsiLegacyPilotRoute(string strategyKey)
+{
+   return (strategyKey == "BB_Triple" ||
+           strategyKey == "MACD_Divergence" ||
+           strategyKey == "SR_Breakout");
+}
+
+bool IsNonRsiLegacyAuthorizationTesterMode()
+{
+   return (MQLInfoInteger(MQL_TESTER) != 0);
+}
+
+string NonRsiLegacyLiveAuthorizationExpectedTag()
+{
+   return IsNonRsiLegacyAuthorizationTesterMode()
+      ? "ALLOW_NON_RSI_LEGACY_TESTER"
+      : "ALLOW_NON_RSI_LEGACY_LIVE";
+}
+
+bool NonRsiLegacyLiveAuthorizationActive()
+{
+   string normalizedTag = ToUpperString(NonRsiLegacyLiveAuthorizationTag);
+   return (EnableNonRsiLegacyLiveAuthorization &&
+           normalizedTag == NonRsiLegacyLiveAuthorizationExpectedTag());
+}
+
+string NonRsiLegacyLiveAuthorizationState()
+{
+   if(!EnableNonRsiLegacyLiveAuthorization)
+      return "DISABLED";
+   if(NonRsiLegacyLiveAuthorizationActive())
+      return IsNonRsiLegacyAuthorizationTesterMode() ? "TESTER_AUTHORIZED" : "LIVE_AUTHORIZED";
+   return IsNonRsiLegacyAuthorizationTesterMode() ? "TESTER_TAG_MISMATCH" : "LIVE_TAG_MISMATCH";
+}
+
 bool IsLegacyPilotRouteLiveEnabled(string strategyKey)
 {
    if(!IsPilotLiveMode())
@@ -1272,11 +1309,11 @@ bool IsLegacyPilotRouteLiveEnabled(string strategyKey)
    if(strategyKey == "RSI_Reversal")
       return EnablePilotRsiH1Live;
    if(strategyKey == "BB_Triple")
-      return EnablePilotBBH1Live;
+      return (EnablePilotBBH1Live && NonRsiLegacyLiveAuthorizationActive());
    if(strategyKey == "MACD_Divergence")
-      return EnablePilotMacdH1Live;
+      return (EnablePilotMacdH1Live && NonRsiLegacyLiveAuthorizationActive());
    if(strategyKey == "SR_Breakout")
-      return EnablePilotSRM15Live;
+      return (EnablePilotSRM15Live && NonRsiLegacyLiveAuthorizationActive());
    return false;
 }
 
@@ -1376,7 +1413,7 @@ void ResetPilotRuntimeStates()
       g_bbRuntimeStates[i].status = bbEnabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_bbRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("BB_Triple") ? "CAUTION" : "CANDIDATE";
       g_bbRuntimeStates[i].adaptiveReason = bbEnabled
-         ? "BB_Triple H1 route ported from MT4; live entry gated by EnablePilotBBH1Live and shared pilot risk controls"
+         ? "BB_Triple H1 route ported from MT4; live entry requires EnablePilotBBH1Live plus the non-RSI legacy authorization tag"
          : "MT5 BB_Triple route is disabled";
       g_bbRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("BB_Triple") ? 1.0 : 0.0;
       g_bbRuntimeStates[i].score = 0.0;
@@ -1389,7 +1426,7 @@ void ResetPilotRuntimeStates()
       g_macdRuntimeStates[i].status = macdEnabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_macdRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("MACD_Divergence") ? "CAUTION" : "CANDIDATE";
       g_macdRuntimeStates[i].adaptiveReason = macdEnabled
-         ? "MACD_Divergence H1 route ported from MT4; live entry gated by EnablePilotMacdH1Live and shared pilot risk controls"
+         ? "MACD_Divergence H1 route ported from MT4; live entry requires EnablePilotMacdH1Live plus the non-RSI legacy authorization tag"
          : "MT5 MACD_Divergence route is disabled";
       g_macdRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("MACD_Divergence") ? 1.0 : 0.0;
       g_macdRuntimeStates[i].score = 0.0;
@@ -1402,7 +1439,7 @@ void ResetPilotRuntimeStates()
       g_srRuntimeStates[i].status = srEnabled ? "WAIT_SIGNAL" : "NO_DATA";
       g_srRuntimeStates[i].adaptiveState = IsLegacyPilotRouteLiveEnabled("SR_Breakout") ? "CAUTION" : "CANDIDATE";
       g_srRuntimeStates[i].adaptiveReason = srEnabled
-         ? "SR_Breakout M15 route ported from MT4; live entry gated by EnablePilotSRM15Live and shared pilot risk controls"
+         ? "SR_Breakout M15 route ported from MT4; live entry requires EnablePilotSRM15Live plus the non-RSI legacy authorization tag"
          : "MT5 SR_Breakout route is disabled";
       g_srRuntimeStates[i].riskMultiplier = IsLegacyPilotRouteLiveEnabled("SR_Breakout") ? 1.0 : 0.0;
       g_srRuntimeStates[i].score = 0.0;
@@ -2646,7 +2683,7 @@ string LegacyPilotAggregateJson(string strategyKey, string scopeSymbol)
    bool liveEnabled = enabled && IsLegacyPilotRouteLiveEnabled(strategyKey);
    string aggregateState = hasState ? state.adaptiveState : (liveEnabled ? "CAUTION" : "CANDIDATE");
    string aggregateReason = hasState ? state.reason :
-      (enabled ? "MT4 legacy route is ported as candidate/backtest first; live entry requires explicit live switch and shared pilot risk controls"
+      (enabled ? "MT4 legacy route is ported as candidate/backtest first; non-RSI live entry requires explicit route switch plus authorization tag"
                : "MT4 legacy route is disabled or out of scope for this symbol");
 
    string json = "{";
@@ -3415,7 +3452,9 @@ bool ProcessLegacyPilotRoute(string strategyKey, string symbol, int symbolIndex,
    states[symbolIndex].active = false;
    states[symbolIndex].runtimeLabel = (candidateEnabled && inScope) ? (liveEnabled ? "ON" : "CAND") : "PORT";
    states[symbolIndex].adaptiveState = liveEnabled ? "CAUTION" : "CANDIDATE";
-   states[symbolIndex].adaptiveReason = strategyKey + " route ported from MT4; live entry gated by strategy-specific live switch and shared pilot risk controls";
+   states[symbolIndex].adaptiveReason = IsNonRsiLegacyPilotRoute(strategyKey)
+      ? strategyKey + " route ported from MT4; live entry requires the strategy switch plus the non-RSI legacy authorization tag"
+      : strategyKey + " route ported from MT4; live entry gated by strategy-specific live switch and shared pilot risk controls";
    states[symbolIndex].riskMultiplier = liveEnabled ? 1.0 : 0.0;
 
    if(!candidateEnabled || !inScope)
@@ -3504,6 +3543,13 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
          Print("QuantGod MT5 pilot order blocked: MA_Cross live switch disabled symbol=", symbol);
          return false;
       }
+   }
+   else if(IsNonRsiLegacyPilotRoute(strategyKey) && !NonRsiLegacyLiveAuthorizationActive())
+   {
+      Print("QuantGod MT5 pilot order blocked: non-RSI legacy live authorization lock disabled strategy=", strategyKey,
+            " symbol=", symbol, " state=", NonRsiLegacyLiveAuthorizationState(),
+            " expectedTag=", NonRsiLegacyLiveAuthorizationExpectedTag());
+      return false;
    }
    else if(!IsLegacyPilotRouteLiveEnabled(strategyKey))
    {
@@ -3609,11 +3655,11 @@ bool IsPilotRouteLiveEnabledByComment(string comment)
    if(StringFind(upper, "QG_RSI_REV") >= 0)
       return EnablePilotRsiH1Live;
    if(StringFind(upper, "QG_BB_TRIPLE") >= 0)
-      return EnablePilotBBH1Live;
+      return (EnablePilotBBH1Live && NonRsiLegacyLiveAuthorizationActive());
    if(StringFind(upper, "QG_MACD_DIV") >= 0)
-      return EnablePilotMacdH1Live;
+      return (EnablePilotMacdH1Live && NonRsiLegacyLiveAuthorizationActive());
    if(StringFind(upper, "QG_SR_BREAK") >= 0)
-      return EnablePilotSRM15Live;
+      return (EnablePilotSRM15Live && NonRsiLegacyLiveAuthorizationActive());
    return true;
 }
 
@@ -5720,6 +5766,8 @@ void ExportDashboard()
    json += "    \"readOnlyMode\": " + JsonBool(ReadOnlyMode) + ",\r\n";
    json += "    \"executionEnabled\": " + JsonBool(!ReadOnlyMode) + ",\r\n";
    json += "    \"livePilotMode\": " + JsonBool(IsPilotLiveMode()) + ",\r\n";
+   json += "    \"nonRsiLegacyLiveAuthorization\": " + JsonBool(NonRsiLegacyLiveAuthorizationActive()) + ",\r\n";
+   json += "    \"nonRsiLegacyLiveAuthorizationState\": \"" + JsonEscape(NonRsiLegacyLiveAuthorizationState()) + "\",\r\n";
    json += "    \"pilotKillSwitch\": " + JsonBool(g_pilotKillSwitch) + ",\r\n";
    json += "    \"pilotKillReason\": \"" + JsonEscape(g_pilotKillReason) + "\",\r\n";
    json += "    \"pilotRealizedLossToday\": " + FormatNumber(g_pilotRealizedLossToday, 2) + ",\r\n";
@@ -5809,6 +5857,8 @@ void ExportDashboard()
    string statusFile = "build=" + DashboardBuild + "\r\n";
    statusFile += "tradeStatus=" + tradeStatus + "\r\n";
    statusFile += "livePilotMode=" + (IsPilotLiveMode() ? "true" : "false") + "\r\n";
+   statusFile += "nonRsiLegacyLiveAuthorization=" + (NonRsiLegacyLiveAuthorizationActive() ? "true" : "false") + "\r\n";
+   statusFile += "nonRsiLegacyLiveAuthorizationState=" + NonRsiLegacyLiveAuthorizationState() + "\r\n";
    statusFile += "pilotKillSwitch=" + (g_pilotKillSwitch ? "true" : "false") + "\r\n";
    statusFile += "pilotKillReason=" + g_pilotKillReason + "\r\n";
    statusFile += "pilotRealizedLossToday=" + FormatNumber(g_pilotRealizedLossToday, 2) + "\r\n";
@@ -5868,7 +5918,8 @@ int OnInit()
    Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,
          " watchlist=", g_resolvedWatchlist, " suffix=", g_detectedSuffix,
          " readOnly=", (ReadOnlyMode ? "true" : "false"),
-         " livePilot=", (IsPilotLiveMode() ? "true" : "false"));
+         " livePilot=", (IsPilotLiveMode() ? "true" : "false"),
+         " nonRsiLegacyLiveAuthorization=", NonRsiLegacyLiveAuthorizationState());
    return(INIT_SUCCEEDED);
 }
 

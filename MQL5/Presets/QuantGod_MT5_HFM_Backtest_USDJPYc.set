@@ -1,4 +1,4 @@
-DashboardBuild=QuantGod-v3.15-mt5-live-risk-iteration-backtest
+DashboardBuild=QuantGod-v3.16-mt5-non-rsi-live-auth-lock-backtest
 Watchlist=USDJPYc
 PreferredSymbolSuffix=AUTO
 ShadowMode=false
@@ -37,6 +37,8 @@ PilotRsiBlockSellInUptrend=true
 PilotRsiRangeTightBuyOnly=true
 EnablePilotBBH1Candidate=true
 EnablePilotBBH1Live=false
+EnableNonRsiLegacyLiveAuthorization=false
+NonRsiLegacyLiveAuthorizationTag=
 PilotBBTimeframe=16385
 PilotBBPeriod=20
 PilotBBDeviation=2.0

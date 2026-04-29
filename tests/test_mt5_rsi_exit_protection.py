@@ -6,12 +6,13 @@ ROOT = Path(__file__).resolve().parents[1]
 EA_PATH = ROOT / "MQL5" / "Experts" / "QuantGod_MultiStrategy.mq5"
 LIVE_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_LivePilot.set"
 BACKTEST_USDJPY_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_USDJPYc.set"
+BACKTEST_EURUSD_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_EURUSDc.set"
 
 
 class Mt5RsiExitProtectionTests(unittest.TestCase):
     def test_ea_has_rsi_only_fast_exit_inputs(self):
         text = EA_PATH.read_text(encoding="utf-8")
-        self.assertIn('DashboardBuild      = "QuantGod-v3.15-mt5-live-risk-iteration"', text)
+        self.assertIn('DashboardBuild      = "QuantGod-v3.16-mt5-non-rsi-live-auth-lock"', text)
         self.assertIn("input bool   EnablePilotRsiFastExitProtect = true;", text)
         self.assertIn("input int    PilotRsiProtectMinAgeMinutes = 10;", text)
         self.assertIn("input double PilotRsiBreakevenTriggerPips = 5.0;", text)
@@ -62,8 +63,25 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice, string strategyKey)", text)
         self.assertIn('strategyKey == "MA_Cross"', text)
         self.assertIn("if(!EnablePilotMA)", text)
+        self.assertIn("IsNonRsiLegacyPilotRoute(strategyKey) && !NonRsiLegacyLiveAuthorizationActive()", text)
+        self.assertIn("non-RSI legacy live authorization lock disabled", text)
         self.assertIn("else if(!IsLegacyPilotRouteLiveEnabled(strategyKey))", text)
         self.assertIn("legacy route live switch disabled", text)
+
+    def test_non_rsi_legacy_routes_need_second_live_authorization_key(self):
+        text = EA_PATH.read_text(encoding="utf-8")
+        self.assertIn("input bool   EnableNonRsiLegacyLiveAuthorization = false;", text)
+        self.assertIn('input string NonRsiLegacyLiveAuthorizationTag = "";', text)
+        self.assertIn("bool IsNonRsiLegacyPilotRoute(string strategyKey)", text)
+        self.assertIn("MQLInfoInteger(MQL_TESTER)", text)
+        self.assertIn('"ALLOW_NON_RSI_LEGACY_TESTER"', text)
+        self.assertIn('"ALLOW_NON_RSI_LEGACY_LIVE"', text)
+        self.assertIn("bool NonRsiLegacyLiveAuthorizationActive()", text)
+        self.assertIn("return (EnablePilotBBH1Live && NonRsiLegacyLiveAuthorizationActive());", text)
+        self.assertIn("return (EnablePilotMacdH1Live && NonRsiLegacyLiveAuthorizationActive());", text)
+        self.assertIn("return (EnablePilotSRM15Live && NonRsiLegacyLiveAuthorizationActive());", text)
+        self.assertIn('\\"nonRsiLegacyLiveAuthorization\\"', text)
+        self.assertIn("nonRsiLegacyLiveAuthorizationState=", text)
 
     def test_ma_disabled_does_not_disable_legacy_route_loop(self):
         text = EA_PATH.read_text(encoding="utf-8")
@@ -83,11 +101,13 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
 
     def test_live_preset_is_downshifted_to_usdjpy_rsi_iteration(self):
         text = LIVE_PRESET_PATH.read_text(encoding="utf-8")
-        self.assertIn("DashboardBuild=QuantGod-v3.15-mt5-live-risk-iteration", text)
+        self.assertIn("DashboardBuild=QuantGod-v3.16-mt5-non-rsi-live-auth-lock", text)
         self.assertIn("Watchlist=USDJPY", text)
         self.assertIn("EnablePilotMA=false", text)
         self.assertIn("EnablePilotRsiH1Live=true", text)
         self.assertIn("EnablePilotBBH1Live=false", text)
+        self.assertIn("EnableNonRsiLegacyLiveAuthorization=false", text)
+        self.assertIn("NonRsiLegacyLiveAuthorizationTag=", text)
         self.assertIn("EnablePilotMacdH1Live=false", text)
         self.assertIn("EnablePilotSRM15Live=false", text)
         self.assertIn("PilotRsiOverbought=85", text)
@@ -122,6 +142,15 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
             self.assertIn("PilotRsiCloseOnServerDayChange=true", text)
             self.assertIn("PilotRsiBlockSellInUptrend=true", text)
             self.assertIn("PilotRsiRangeTightBuyOnly=true", text)
+
+    def test_eurusd_backtest_only_authorizes_non_rsi_legacy_routes_in_tester(self):
+        text = BACKTEST_EURUSD_PATH.read_text(encoding="utf-8")
+        self.assertIn("DashboardBuild=QuantGod-v3.16-mt5-non-rsi-live-auth-lock-backtest", text)
+        self.assertIn("EnablePilotBBH1Live=true", text)
+        self.assertIn("EnablePilotMacdH1Live=true", text)
+        self.assertIn("EnablePilotSRM15Live=true", text)
+        self.assertIn("EnableNonRsiLegacyLiveAuthorization=true", text)
+        self.assertIn("NonRsiLegacyLiveAuthorizationTag=ALLOW_NON_RSI_LEGACY_TESTER", text)
 
     def test_shadow_outcome_unknown_direction_keeps_opportunity_signal(self):
         text = EA_PATH.read_text(encoding="utf-8")
