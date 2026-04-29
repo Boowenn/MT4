@@ -47,6 +47,14 @@ const state = reactive({
 const routeFilters = ['全部', 'MA', 'RSI', 'BB', 'MACD', 'SR'];
 const activeRoute = ref('全部');
 
+const routeDisplayMap = {
+  MA_CROSS: 'MA',
+  RSI_REVERSAL: 'RSI',
+  BB_TRIPLE: 'BB',
+  MACD_DIVERGENCE: 'MACD',
+  SR_BREAKOUT: 'SR'
+};
+
 function normalizeWorkspace(id) {
   return workspaces.some((item) => item.id === id) ? id : 'home';
 }
@@ -100,7 +108,49 @@ function shortText(value, max = 120) {
 }
 
 function routeName(row) {
-  return String(first(row?.route, row?.strategy, row?.strategyName, row?.name, row?.candidateId, '')).toUpperCase();
+  return String(first(row?.key, row?.route, row?.strategy, row?.strategyName, row?.name, row?.candidateId, '')).toUpperCase();
+}
+
+function routeShortName(row) {
+  const name = routeName(row);
+  return Object.entries(routeDisplayMap).find(([key]) => name.includes(key))?.[1] || first(row?.strategy, row?.route, row?.key, '--');
+}
+
+function routeActionLabel(row) {
+  return first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '观察');
+}
+
+function routeBlockerText(row) {
+  const blockers = row?.blockers || row?.paramLabResult?.blockers || row?.feedback?.riskAreas;
+  if (Array.isArray(blockers)) return blockers.slice(0, 3).join(' / ') || '暂无 blocker';
+  return first(blockers, row?.blocker, '暂无 blocker');
+}
+
+function routeWhyText(row) {
+  const why = row?.feedback?.why;
+  if (Array.isArray(why) && why.length) return why.slice(0, 2).join(' ');
+  return first(row?.feedback?.nextStep, row?.nextAction, row?.reason, routeBlockerText(row));
+}
+
+function routeParamText(row) {
+  return shortText(
+    first(
+      row?.paramOptimization?.candidateId,
+      row?.paramLab?.candidateId,
+      row?.paramLabResult?.candidateId,
+      row?.candidateRoute,
+      '等待候选'
+    ),
+    64
+  );
+}
+
+function routeToneClass(row) {
+  const action = String(first(row?.recommendedAction, row?.mode, row?.tone, '')).toUpperCase();
+  if (action.includes('LIVE') || action.includes('KEEP_LIVE')) return 'green';
+  if (action.includes('RETUNE') || action.includes('DEMOTE')) return 'amber';
+  if (action.includes('SIM') || action.includes('CANDIDATE')) return 'blue';
+  return '';
 }
 
 async function refresh() {
@@ -216,6 +266,59 @@ const healthCards = computed(() => {
   ];
 });
 
+const archiveGateCards = computed(() => [
+  {
+    label: '旧页冻结',
+    value: '暂缓',
+    detail: 'Vue 缺陷修复完成前不冻结旧页'
+  },
+  {
+    label: '正常监盘',
+    value: '待确认',
+    detail: '需要一轮 Vue 监盘无缺口'
+  },
+  {
+    label: 'ParamLab 复盘',
+    value: '待确认',
+    detail: '需要一次 /vue/#paramlab 与 /vue/#charts 复盘'
+  },
+  {
+    label: '新功能入口',
+    value: 'Vue only',
+    detail: '旧 HTML 只做 fallback 显示修复'
+  }
+]);
+
+const homeFocusCards = computed(() => {
+  const govSummary = mt5.value.governance?.summary || {};
+  const latestRoute = mt5Routes.value.find((row) => first(row.recommendedAction, row.feedback?.actionLabel));
+  const latestRadar = radarRows.value[0] || {};
+  return [
+    {
+      title: 'MT5 路线焦点',
+      badge: first(latestRoute?.feedback?.actionLabel, latestRoute?.recommendedAction, '--'),
+      body: latestRoute
+        ? `${first(latestRoute.label, latestRoute.strategy, latestRoute.key)} · PF ${first(latestRoute.liveForward?.profitFactor, '--')} · 胜率 ${pct(first(latestRoute.liveForward?.winRatePct, latestRoute.liveForward?.winRate))}`
+        : '等待 Governance Advisor 路线证据。',
+      foot: `路线 ${first(govSummary.routeCount, mt5Routes.value.length)} / open ${first(govSummary.openPositions, mt5Positions.value.length)}`
+    },
+    {
+      title: 'ParamLab 队列',
+      badge: first(govSummary.paramLabReportWatcherPending, paramTasks.value.length),
+      body: `待报告 ${first(govSummary.paramLabReportWatcherPending, '--')} · 已解析 ${first(govSummary.paramLabReportWatcherParsed, '--')} · recovery 红灯 ${first(govSummary.paramLabRunRecoveryRiskRed, '--')}`,
+      foot: '仅 tester-only，不写 live preset'
+    },
+    {
+      title: 'Polymarket 研究',
+      badge: first(poly.value.radar?.status, 'OK'),
+      body: latestRadar
+        ? `${shortText(first(latestRadar.market, latestRadar.title, latestRadar.question), 82)} · 评分 ${first(latestRadar.aiRuleScore, latestRadar.score, '--')}`
+        : '等待 Radar / AI score 证据。',
+      foot: `雷达 ${radarRows.value.length} / AI ${aiScores.value.length} / Canary ${canaryRows.value.length}`
+    }
+  ];
+});
+
 const reportCards = computed(() => [
   { name: 'ParamLab', payload: mt5.value.paramStatus, count: paramTasks.value.length },
   { name: '回测结果', payload: mt5.value.backtest, count: arrayFrom(mt5.value.backtest, ['results', 'summaries']).length },
@@ -291,34 +394,62 @@ onBeforeUnmount(() => {
 
       <section v-if="state.error" class="notice danger">{{ state.error }}</section>
 
-      <section v-if="state.active === 'home'" class="section-grid">
-        <article class="hero-panel">
-          <p class="eyebrow">系统入口</p>
-          <h2>MT5 与 Polymarket 分开管理，同一证据层复盘</h2>
-          <p>
-            新 Vue 工作台保留旧 dashboard 的证据能力，但用应用式侧边栏切换视图。
-            Polymarket 默认不碰真钱，MT5 继续沿用现有 EA 风控边界。
-          </p>
-          <div class="route-tabs">
-            <button type="button" @click="setActive('mt5')">进入 MT5 工作台</button>
-            <button type="button" @click="setActive('polymarket')">进入 Polymarket 工作台</button>
-          </div>
-        </article>
+      <section v-if="state.active === 'home'" class="stack">
+        <div class="section-grid">
+          <article class="hero-panel compact-hero">
+            <p class="eyebrow">系统入口</p>
+            <h2>MT5 与 Polymarket 分开管理，同一证据层复盘</h2>
+            <p>
+              Vue 现在是默认入口，但旧页不会马上冻结。先把监盘、ParamLab、趋势图和 Polymarket 细节补到不输旧页，再进入真正只读归档。
+            </p>
+            <div class="route-tabs">
+              <button type="button" @click="setActive('mt5')">进入 MT5 工作台</button>
+              <button type="button" @click="setActive('polymarket')">进入 Polymarket 工作台</button>
+              <button type="button" @click="setActive('paramlab')">进入 ParamLab</button>
+              <button type="button" @click="setActive('charts')">查看趋势图表</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-title">
+              <ShieldCheck :size="18" />
+              <span>运行快照</span>
+            </div>
+            <div class="metric-grid">
+              <div v-for="card in healthCards" :key="card.label" class="metric">
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+                <small>{{ card.detail }}</small>
+              </div>
+            </div>
+            <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
+          </article>
+        </div>
 
         <article class="panel">
-          <div class="panel-title">
-            <ShieldCheck :size="18" />
-            <span>运行快照</span>
+          <div class="panel-title split">
+            <span>Vue 替代旧页缺口追踪</span>
+            <small>未达标前不冻结旧 HTML</small>
           </div>
-          <div class="metric-grid">
-            <div v-for="card in healthCards" :key="card.label" class="metric">
+          <div class="metric-grid four compact">
+            <div v-for="card in archiveGateCards" :key="card.label" class="metric">
               <span>{{ card.label }}</span>
               <strong>{{ card.value }}</strong>
               <small>{{ card.detail }}</small>
             </div>
           </div>
-          <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
         </article>
+
+        <div class="card-grid three">
+          <article v-for="card in homeFocusCards" :key="card.title" class="panel dense focus-card">
+            <div class="panel-title split">
+              <span>{{ card.title }}</span>
+              <b class="pill blue">{{ card.badge }}</b>
+            </div>
+            <p>{{ card.body }}</p>
+            <small>{{ card.foot }}</small>
+          </article>
+        </div>
       </section>
 
       <section v-if="state.active === 'mt5'" class="stack">
@@ -350,15 +481,28 @@ onBeforeUnmount(() => {
         <div class="card-grid">
           <article v-for="row in mt5Routes" :key="first(row.versionId, row.route, row.name)" class="panel dense">
             <div class="panel-title split">
-              <span>{{ first(row.route, row.strategy, row.name, row.versionId) }}</span>
-              <b class="pill">{{ first(row.currentState, row.state, row.action, '观察') }}</b>
+              <span>{{ first(row.label, row.route, row.strategy, row.name, row.versionId) }}</span>
+              <b class="pill" :class="routeToneClass(row)">{{ routeActionLabel(row) }}</b>
             </div>
-            <p>{{ shortText(first(row.reason, row.nextAction, row.blocker, row.readiness), 160) }}</p>
+            <p>{{ shortText(routeWhyText(row), 170) }}</p>
             <div class="mini-row">
-              <span>PF {{ first(row.profitFactor, row.pf, '--') }}</span>
-              <span>胜率 {{ pct(first(row.winRate, row.win_rate)) }}</span>
-              <span>{{ first(row.liveSwitch, row.authority, '权限待证据') }}</span>
+              <span>{{ routeShortName(row) }}</span>
+              <span>PF {{ first(row.liveForward?.profitFactor, row.profitFactor, row.pf, '--') }}</span>
+              <span>胜率 {{ pct(first(row.liveForward?.winRatePct, row.winRate, row.win_rate)) }}</span>
+              <span>{{ first(row.mode, row.live ? 'LIVE_0_01' : 'SIM/CANDIDATE') }}</span>
             </div>
+            <div class="mini-row secondary">
+              <span>实盘 {{ first(row.liveForward?.closedTrades, '--') }} 笔 / 净 {{ money(row.liveForward?.netProfitUSC) }}</span>
+              <span>候选 {{ first(row.candidateSamples?.rows, row.candidateSamples?.ledgerRows, '--') }}</span>
+              <span>后验 {{ first(row.candidateSamples?.horizonRows, '--') }}</span>
+              <span>阻断 {{ routeBlockerText(row) }}</span>
+            </div>
+            <p class="route-param">参数候选：{{ routeParamText(row) }}</p>
+            <p v-if="row.openPosition?.openTrades" class="route-warning">
+              当前持仓 {{ row.openPosition.openTrades }}，浮动 {{ money(row.openPosition.floatingProfitUSC) }}，先按原风控与保护处理。
+            </p>
+            <p v-else class="route-param">当前无该路线持仓。</p>
+            <p class="route-param">下一步：{{ shortText(first(row.feedback?.nextStep, row.paramLabResult?.promotionReadiness, row.recommendedAction), 130) }}</p>
           </article>
           <article v-if="!mt5Routes.length" class="panel empty">当前没有可展示的 MT5 路线证据，等待运行文件或只读桥刷新。</article>
         </div>

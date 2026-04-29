@@ -2,7 +2,7 @@
 
 Updated: 2026-04-29
 
-Status: READ-ONLY ARCHIVE CANDIDATE ACTIVE
+Status: READ-ONLY ARCHIVE CANDIDATE ACTIVE, FINAL FREEZE BLOCKED BY VUE PARITY POLISH
 
 ## Current Vue Coverage
 
@@ -12,6 +12,17 @@ The Vue workbench is now the primary operator surface at `http://localhost:8080/
 - Deep evidence panels: MT5 positions/routes, Polymarket radar/search/AI/canary/cross-linkage, and ParamLab queue/result details have Vue equivalents.
 - Chart/trend visuals: the old single-file dashboard chart layer has Vue coverage for MT5 Shadow blocker distribution, Shadow Outcome 15/30/60 minute posterior pips, Candidate route speed, MFE/MAE trend, ParamLab score/PF trend, Polymarket radar score/probability trend, AI score trend, Canary state, automatic governance actions, and cross-market risk tags.
 - Data boundary: all Vue chart panels read existing JSON/CSV evidence only. They do not mutate MT5 execution, Polymarket wallet state, EA presets, or tester queues.
+
+## Vue Parity Polish Before Freeze
+
+The legacy page must not be fully frozen while the Vue workbench still feels materially weaker for daily operation.
+
+Current parity priorities:
+
+- Home must be denser than a landing screen and show live MT5 / ParamLab / Polymarket operational focus.
+- MT5 route cards must show actual live-forward, candidate, blocker, ParamLab, and next-step evidence instead of placeholder dashes.
+- ParamLab and charts must survive one review cycle without requiring operators to open the old HTML page.
+- Any remaining missing old-page detail must be either migrated or explicitly marked obsolete here.
 
 ## Legacy `QuantGod_Dashboard.html` Status
 

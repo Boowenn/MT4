@@ -338,6 +338,10 @@ h2 {
     var(--panel);
 }
 
+.hero-panel.compact-hero {
+  min-height: 220px;
+}
+
 .hero-panel p,
 .panel p {
   color: var(--muted);
@@ -384,6 +388,14 @@ h2 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.metric-grid.compact .metric {
+  min-height: 72px;
+}
+
+.metric-grid.compact .metric strong {
+  font-size: 18px;
+}
+
 .metric {
   min-width: 0;
   min-height: 86px;
@@ -415,10 +427,27 @@ h2 {
   gap: 14px;
 }
 
+.card-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.focus-card p {
+  min-height: 44px;
+}
+
 .mini-row {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.mini-row.secondary {
+  margin-top: 8px;
+}
+
+.mini-row.secondary span {
+  color: #9fb1c6;
+  background: rgba(31, 155, 255, 0.08);
 }
 
 .mini-row span,
@@ -440,6 +469,29 @@ h2 {
   color: #95ceff;
   background: var(--blue-soft);
   border-color: rgba(31, 155, 255, 0.44);
+}
+
+.pill.green {
+  color: #8ff0c2;
+  background: var(--green-soft);
+  border-color: rgba(51, 217, 154, 0.38);
+}
+
+.pill.amber {
+  color: #ffd08a;
+  background: var(--amber-soft);
+  border-color: rgba(255, 184, 77, 0.42);
+}
+
+.route-param,
+.route-warning {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.route-warning {
+  color: #ffd08a;
 }
 
 .status-chip {
