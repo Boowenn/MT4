@@ -4,11 +4,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+load_env_file() {
+  local env_file="$1"
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#$'\xef\xbb\xbf'}"
+    line="${line#export }"
+    [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+    export "$line"
+  done < "$env_file"
+}
+
 if [[ -f .env.local ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env.local
-  set +a
+  load_env_file .env.local
 fi
 
 RUNTIME_CONFIGURED=0
