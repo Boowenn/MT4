@@ -18,6 +18,11 @@ function cellValue(row, column) {
   }
   return row?.[column.key];
 }
+
+function cellClass(row, column) {
+  const dynamic = typeof column.tone === 'function' ? column.tone(row) : '';
+  return [column.class || '', dynamic].filter(Boolean).join(' ');
+}
 </script>
 
 <template>
@@ -40,7 +45,7 @@ function cellValue(row, column) {
         </thead>
         <tbody>
           <tr v-for="(row, index) in rows" :key="first(row?.id, row?.candidateId, row?.marketId, row?.ticket, row?.versionId, index)">
-            <td v-for="column in columns" :key="column.label" :class="column.class || ''" :title="String(first(cellValue(row, column), '--'))">
+            <td v-for="column in columns" :key="column.label" :class="cellClass(row, column)" :title="String(first(cellValue(row, column), '--'))">
               <span v-if="column.badge" class="pill">{{ first(cellValue(row, column), '--') }}</span>
               <span v-else>{{ shortText(first(cellValue(row, column), '--'), column.max || 72) }}</span>
             </td>

@@ -56,6 +56,8 @@ const state = reactive({
   }
 });
 
+let autoRefreshTimer = null;
+
 const routeFilters = ['全部', 'MA', 'RSI', 'BB', 'MACD', 'SR'];
 const activeRoute = ref('全部');
 const paramTaskFilter = ref('全部');
@@ -75,7 +77,7 @@ const mt5DefaultFocus = {
 
 const mt5NavItems = [
   { id: 'mt5', focus: 'overview', label: 'MT5 总览', sub: '执行雷达', icon: Gauge },
-  { id: 'mt5', focus: 'strategy', label: '策略实盘', sub: '路线与风控', icon: LineChart },
+  { id: 'mt5', focus: 'strategy', label: '策略路线', sub: '实盘 / 候选', icon: LineChart },
   { id: 'charts', focus: 'monitor', label: '趋势图表', sub: '品种监控', icon: TrendingUp },
   { id: 'paramlab', focus: 'paramlab', label: '参数实验', sub: '回测闭环', icon: ClipboardList },
   { id: 'mt5', focus: 'trades', label: '交易只读', sub: 'EA 与人工单', icon: Activity },
@@ -140,6 +142,14 @@ const routeDisplayMap = {
   BB_TRIPLE: 'BB',
   MACD_DIVERGENCE: 'MACD',
   SR_BREAKOUT: 'SR'
+};
+
+const routeRuntimeKeyMap = {
+  MA: 'MA_Cross',
+  RSI: 'RSI_Reversal',
+  BB: 'BB_Triple',
+  MACD: 'MACD_Divergence',
+  SR: 'SR_Breakout'
 };
 
 function normalizeWorkspace(id) {
@@ -283,7 +293,49 @@ function routeShortName(row) {
   return Object.entries(routeDisplayMap).find(([key]) => name.includes(key))?.[1] || first(row?.strategy, row?.route, row?.key, '--');
 }
 
+function routeRuntimeKey(row) {
+  const short = String(routeShortName(row)).toUpperCase();
+  return routeRuntimeKeyMap[short] || first(row?.strategyKey, row?.strategy, row?.route, row?.key, '');
+}
+
+function strategyToken(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function routeRuntime(row) {
+  const key = routeRuntimeKey(row);
+  const latest = mt5.value.latest || {};
+  const direct = latest.strategies?.[key] || latest.diagnostics?.[key];
+  if (direct) return direct;
+  const symbolRows = Array.isArray(latest.symbols) ? latest.symbols : [];
+  return symbolRows.find((symbol) => symbol?.strategies?.[key])?.strategies?.[key] || {};
+}
+
+function routeHasOpenPosition(row) {
+  const key = strategyToken(routeRuntimeKey(row));
+  if (!key) return false;
+  return mt5Positions.value.some((position) => {
+    const strategy = strategyToken(first(position.strategy, position.route, ''));
+    const comment = strategyToken(first(position.comment, position.Comment, ''));
+    return strategy === key || comment.includes(key) || (key === 'RSIREVERSAL' && comment.includes('RSIREV'));
+  });
+}
+
+function routeIsRuntimeLive(row) {
+  const runtime = routeRuntime(row);
+  const risk = asNumber(runtime.riskMultiplier);
+  const enabled = runtime.enabled === true || String(first(runtime.runtimeLabel, runtime.state, '')).toUpperCase() === 'ON';
+  return enabled && (risk === null || risk > 0);
+}
+
 function routeActionLabel(row) {
+  if (!row || Object.keys(row).length === 0) return '等待路线';
+  if (routeHasOpenPosition(row)) return '实盘持仓';
+  const runtime = routeRuntime(row);
+  const action = String(first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '')).toUpperCase();
+  const risk = asNumber(runtime.riskMultiplier);
+  if (routeIsRuntimeLive(row)) return '实盘观察';
+  if (runtime.enabled === false || risk === 0) return action.includes('LIVE') ? '实盘暂停' : '模拟候选';
   return first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '观察');
 }
 
@@ -296,7 +348,8 @@ function routeBlockerText(row) {
 function routeWhyText(row) {
   const why = row?.feedback?.why;
   if (Array.isArray(why) && why.length) return why.slice(0, 2).join(' ');
-  return first(row?.feedback?.nextStep, row?.nextAction, row?.reason, routeBlockerText(row));
+  const runtime = routeRuntime(row);
+  return first(runtime.adaptiveReason, runtime.reason, row?.feedback?.nextStep, row?.nextAction, row?.reason, routeBlockerText(row));
 }
 
 function routeParamText(row) {
@@ -313,6 +366,10 @@ function routeParamText(row) {
 }
 
 function routeToneClass(row) {
+  if (routeHasOpenPosition(row) || routeIsRuntimeLive(row)) return 'green';
+  const runtime = routeRuntime(row);
+  const risk = asNumber(runtime.riskMultiplier);
+  if (runtime.enabled === false || risk === 0) return 'amber';
   const action = String(first(row?.recommendedAction, row?.mode, row?.tone, '')).toUpperCase();
   if (action.includes('LIVE') || action.includes('KEEP_LIVE')) return 'green';
   if (action.includes('RETUNE') || action.includes('DEMOTE')) return 'amber';
@@ -745,7 +802,7 @@ const mt5FocusMetrics = computed(() => {
 
 const mt5RouteLaneCards = computed(() => ['MA', 'RSI', 'BB', 'MACD', 'SR'].map((route) => {
   const rows = allMt5Routes.value.filter((row) => routeName(row).includes(route));
-  const live = rows.filter((row) => String(first(row.mode, row.recommendedAction, row.currentState, '')).toUpperCase().includes('LIVE')).length;
+  const live = rows.filter((row) => routeHasOpenPosition(row) || routeIsRuntimeLive(row)).length;
   const blocker = rows.find((row) => routeBlockerText(row) !== '暂无 blocker');
   return {
     route,
@@ -753,7 +810,7 @@ const mt5RouteLaneCards = computed(() => ['MA', 'RSI', 'BB', 'MACD', 'SR'].map((
     live,
     pf: first(rows[0]?.liveForward?.profitFactor, rows[0]?.profitFactor, '--'),
     blocker: blocker ? routeBlockerText(blocker) : '等待样本',
-    tone: live ? 'green' : rows.length ? 'blue' : 'amber'
+    tone: live ? 'green' : rows.some((row) => routeRuntime(row).enabled === false) ? 'amber' : rows.length ? 'blue' : 'amber'
   };
 }));
 
@@ -1110,7 +1167,8 @@ const reportEvidenceRows = computed(() => reportCards.value.map((card) => ({
 
 const activeWorkspaceMeta = computed(() => workspaces.find((item) => item.id === state.active) || workspaces[0]);
 
-const primaryRoute = computed(() => mt5Routes.value.find((row) => String(first(row?.mode, row?.recommendedAction, '')).toUpperCase().includes('LIVE'))
+const primaryRoute = computed(() => mt5Routes.value.find((row) => routeHasOpenPosition(row))
+  || mt5Routes.value.find((row) => routeIsRuntimeLive(row))
   || mt5Routes.value[0]
   || {});
 
@@ -1353,10 +1411,14 @@ onMounted(() => {
   syncActiveFromHash();
   window.addEventListener('hashchange', syncActiveFromHash);
   refresh();
+  autoRefreshTimer = window.setInterval(() => {
+    if (!state.loading) refresh();
+  }, 15000);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('hashchange', syncActiveFromHash);
+  if (autoRefreshTimer) window.clearInterval(autoRefreshTimer);
 });
 </script>
 
@@ -1996,7 +2058,7 @@ onBeforeUnmount(() => {
 
           <section class="panel dense qd-center-stage strategy-stage">
             <div class="panel-title split">
-              <span>策略实盘工作台</span>
+              <span>策略路线工作台</span>
               <b class="pill" :class="routeToneClass(primaryRoute)">{{ routeActionLabel(primaryRoute) }}</b>
             </div>
             <div class="strategy-focus-head">
@@ -2008,9 +2070,9 @@ onBeforeUnmount(() => {
               <button class="ghost-button small" type="button" @click="setActive('paramlab')">ParamLab</button>
             </div>
             <div class="strategy-performance-grid">
-              <span><small>Live PF</small><b>{{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, primaryRoute.pf, '--') }}</b></span>
+              <span><small>Forward PF</small><b>{{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, primaryRoute.pf, '--') }}</b></span>
               <span><small>胜率</small><b>{{ pct(first(primaryRoute.liveForward?.winRatePct, primaryRoute.winRate, primaryRoute.win_rate)) }}</b></span>
-              <span><small>实盘样本</small><b>{{ first(primaryRoute.liveForward?.closedTrades, primaryRoute.liveForward?.trades, '--') }}</b></span>
+              <span><small>已平仓样本</small><b>{{ first(primaryRoute.liveForward?.closedTrades, primaryRoute.liveForward?.trades, '--') }}</b></span>
               <span><small>净收益</small><b>{{ money(primaryRoute.liveForward?.netProfitUSC) }}</b></span>
               <span><small>候选样本</small><b>{{ first(primaryRoute.candidateSamples?.rows, primaryRoute.candidateSamples?.ledgerRows, '--') }}</b></span>
               <span><small>阻断</small><b>{{ shortText(routeBlockerText(primaryRoute), 36) }}</b></span>
@@ -2047,7 +2109,18 @@ onBeforeUnmount(() => {
             { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '74px', class: 'col-number' },
             { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '104px', class: 'col-number' },
             { label: '平仓价', value: (r) => first(r.price_current, r.currentPrice, r.price, r.closePrice), width: '104px', class: 'col-number' },
-            { label: '浮盈', value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)), width: '96px', class: 'col-pnl' },
+            {
+              label: '浮盈',
+              value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)),
+              tone: (r) => {
+                const value = asNumber(first(r.profit, r.pnl, r.unrealizedPnl));
+                if (value < 0) return 'pnl-negative';
+                if (value > 0) return 'pnl-positive';
+                return 'pnl-flat';
+              },
+              width: '96px',
+              class: 'col-pnl'
+            },
             { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 120 }
           ]"
           empty="当前没有 MT5 持仓，或只读桥未返回 positions。"

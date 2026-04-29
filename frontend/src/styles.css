@@ -2048,8 +2048,20 @@ h2 {
 }
 
 .data-table .col-pnl {
-  color: #8ff0c2;
+  color: #b5bfcc;
   font-weight: 900;
+}
+
+.data-table .col-pnl.pnl-positive {
+  color: #60f0bd;
+}
+
+.data-table .col-pnl.pnl-negative {
+  color: #ff7890;
+}
+
+.data-table .col-pnl.pnl-flat {
+  color: #9aa7b8;
 }
 
 .panel.empty,
