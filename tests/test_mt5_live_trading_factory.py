@@ -18,6 +18,7 @@ class LiveTradingFactoryTests(unittest.TestCase):
         mt5 = payload["clients"][0]
         self.assertTrue(mt5["guardedMutation"])
         self.assertTrue(mt5["defaultDryRun"])
+        self.assertTrue(mt5["queueDryRunRequired"])
         self.assertTrue(mt5["authorizationLockRequired"])
         self.assertFalse(mt5["livePresetMutationAllowed"])
 
@@ -37,6 +38,26 @@ class LiveTradingFactoryTests(unittest.TestCase):
             self.assertEqual(result["decision"], "DRY_RUN_ACCEPTED")
             self.assertFalse(result["safety"]["orderSendAllowed"])
             self.assertTrue((Path(tmp) / "QuantGod_MT5TradingAuditLedger.csv").exists())
+
+    def test_factory_can_enqueue_platform_order_without_live_send(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = factory.create_client("MT5", market_category="Forex", runtime_dir=tmp)
+            result = client.enqueue_order(
+                {
+                    "strategyId": "MA_EURUSD_M15",
+                    "route": "MA_Cross",
+                    "symbol": "EURUSDc",
+                    "side": "buy",
+                    "orderType": "buy_limit",
+                    "lots": 0.01,
+                    "price": 1.099,
+                }
+            )
+            self.assertTrue(result["ok"])
+            self.assertFalse(result["safety"]["orderSendAllowed"])
+            self.assertTrue(result["action"]["pendingOrder"]["dryRunRequired"])
+            self.assertEqual(result["summary"]["queuedOrders"], 1)
+            self.assertTrue((Path(tmp) / "QuantGod_MT5Platform.db").exists())
 
     def test_rejects_unknown_broker(self):
         with self.assertRaises(ValueError):

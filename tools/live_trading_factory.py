@@ -16,9 +16,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    import mt5_platform_store
     import mt5_trading_client
 except ImportError:  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parent))
+    import mt5_platform_store  # type: ignore
     import mt5_trading_client  # type: ignore
 
 
@@ -72,6 +74,12 @@ class GuardedMt5Client:
     def cancel_order(self, payload: dict[str, Any]) -> dict[str, Any]:
         return mt5_trading_client.execute_endpoint("cancel", payload, runtime_dir=self.runtime_dir, config_path=self.config_path)
 
+    def enqueue_order(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return mt5_platform_store.run(self.runtime_dir, endpoint="enqueue", payload={**dict(payload), "dryRun": True})
+
+    def quick_trade(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return mt5_platform_store.run(self.runtime_dir, endpoint="quick-trade", payload={**dict(payload), "dryRun": True})
+
 
 def create_client(
     broker: str,
@@ -102,8 +110,10 @@ def describe_factory() -> dict[str, Any]:
                 "broker": "MT5",
                 "marketCategories": ["Forex", "multi_asset"],
                 "implementation": "tools/mt5_trading_client.py",
+                "platformStore": "tools/mt5_platform_store.py",
                 "guardedMutation": True,
                 "defaultDryRun": True,
+                "queueDryRunRequired": True,
                 "authorizationLockRequired": True,
                 "auditLedgerRequired": True,
                 "livePresetMutationAllowed": False,
