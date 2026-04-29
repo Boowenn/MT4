@@ -1388,6 +1388,8 @@ bool IsLegacyPilotRouteLiveEnabled(string strategyKey)
 {
    if(!IsPilotLiveMode())
       return false;
+   // RSI is intentionally governed by its own live switch; the non-RSI
+   // authorization lock applies only to BB/MACD/SR legacy routes.
    if(strategyKey == "RSI_Reversal")
       return EnablePilotRsiH1Live;
    if(strategyKey == "BB_Triple")

@@ -9,6 +9,8 @@ This patch adds a second authorization key for BB_Triple, MACD_Divergence, and S
 - Its route live switch, for example `EnablePilotBBH1Live=true`.
 - `EnableNonRsiLegacyLiveAuthorization=true` with the correct environment tag.
 
+`RSI_Reversal` is intentionally outside this non-RSI lock. It is governed by its own `EnablePilotRsiH1Live` switch plus the RSI-specific risk guards, so disabling `EnableNonRsiLegacyLiveAuthorization` does not pause RSI.
+
 ## Tags
 
 - MT5 Strategy Tester only: `ALLOW_NON_RSI_LEGACY_TESTER`
@@ -33,7 +35,7 @@ The tester tag does not authorize a real HFM live terminal. The live tag is not 
 
 After deployment, these fields should appear in the dashboard/status files:
 
-- `build=QuantGod-v3.16-mt5-non-rsi-live-auth-lock`
+- `build=QuantGod-v3.17-mt5-startup-entry-guard` or newer
 - `nonRsiLegacyLiveAuthorization=false`
 - `nonRsiLegacyLiveAuthorizationState=DISABLED`
 
