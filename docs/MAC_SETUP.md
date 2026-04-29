@@ -40,6 +40,7 @@ set +a
 Important defaults for Mac:
 
 ```bash
+QG_PYTHON_BIN=python3
 QG_RUNTIME_DIR=./runtime/mac_import/mt5_files_snapshot
 QG_MT5_FILES_DIR=./runtime/mac_import/mt5_files_snapshot
 QG_POLYMARKET_HISTORY_DB=./runtime/mac_import/polymarket_history/QuantGod_PolymarketHistory.sqlite
@@ -101,6 +102,18 @@ If `runtime/mac_import/manifest.json` reports missing MT5 realtime files, the Ma
 
 ## 4. Start the Dashboard
 
+Recommended local launcher:
+
+```bash
+./Start_QuantGod_mac.sh
+```
+
+This syncs the Vue build, local runtime snapshots, MT5 EA source/presets, and a compiled `QuantGod_MultiStrategy.ex5` into the macOS MetaTrader 5 Wine prefix when it exists. If `.env.local` points at `runtime/mac_import`, the dashboard keeps using that imported snapshot; set `QG_MAC_RUNTIME_SOURCE=mt5` only when you intentionally want to read the Wine MT5 `MQL5/Files` folder directly.
+
+If account balance or history is missing, log in inside MetaTrader 5 and attach `QuantGod_MultiStrategy` with `QuantGod_MT5_HFM_Shadow.set`. The dashboard only shows live MT5 account/history after the EA exports `QuantGod_Dashboard.json`, `QuantGod_TradeJournal.csv`, and `QuantGod_CloseHistory.csv` into `MQL5/Files`.
+
+Manual dashboard-only start:
+
 ```bash
 node Dashboard/dashboard_server.js
 ```
@@ -135,7 +148,7 @@ set -a
 source .env.local
 source .env.local.secrets
 set +a
-python tools/score_polymarket_ai_v1.py --llm-mode auto
+python3 tools/score_polymarket_ai_v1.py --llm-mode auto
 ```
 
 Do not put wallet/private-key values in this file unless you are intentionally preparing a real canary executor session.
@@ -165,7 +178,7 @@ QG_POLYMARKET_CANARY_KILL_SWITCH=false
 ```bash
 npm --prefix frontend run build
 node --check Dashboard/dashboard_server.js
-python tools/query_polymarket_history_api.py --table all --limit 5
+python3 tools/query_polymarket_history_api.py --table all --limit 5
 ```
 
 Expected behavior:

@@ -5,13 +5,37 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 
-const host = process.env.QG_DASHBOARD_HOST || '127.0.0.1';
-const port = Number.parseInt(process.env.QG_DASHBOARD_PORT || '8080', 10) || 8080;
 const rootDir = __dirname;
 const repoRoot = path.resolve(rootDir, '..');
-const defaultRuntimeDir = process.env.QG_RUNTIME_DIR
+
+function loadEnvFile(envPath) {
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = trimmed.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match || process.env[match[1]] !== undefined) continue;
+    let value = match[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[match[1]] = value;
+  }
+}
+
+loadEnvFile(path.join(repoRoot, '.env.local'));
+loadEnvFile(path.join(repoRoot, '.env'));
+
+const host = process.env.QG_DASHBOARD_HOST || '127.0.0.1';
+const port = Number.parseInt(process.env.QG_DASHBOARD_PORT || '8080', 10) || 8080;
+const pythonBin = process.env.QG_PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+const configuredRuntimeDir = process.env.QG_RUNTIME_DIR
   || process.env.QG_MT5_FILES_DIR
   || 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
+const defaultRuntimeDir = path.isAbsolute(configuredRuntimeDir)
+  ? configuredRuntimeDir
+  : path.resolve(repoRoot, configuredRuntimeDir);
 const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
 const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
 const polymarketRadarWorkerName = 'QuantGod_PolymarketRadarWorkerV2.json';
@@ -207,7 +231,7 @@ function runSingleMarketAnalyzer() {
       resolve({ skipped: true, reason: 'analyzer_not_found' });
       return;
     }
-    const child = spawn('python', [
+    const child = spawn(pythonBin, [
       script,
       '--runtime-dir',
       defaultRuntimeDir,
@@ -241,7 +265,7 @@ function runJsonPython(script, args = [], timeoutMs = 15000) {
       resolve({ ok: false, skipped: true, reason: 'script_not_found', script });
       return;
     }
-    const child = spawn('python', [script, ...args], {
+    const child = spawn(pythonBin, [script, ...args], {
       cwd: repoRoot,
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }

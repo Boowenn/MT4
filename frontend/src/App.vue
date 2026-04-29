@@ -1221,13 +1221,13 @@ const mt5FocusMeta = computed(() => ({
   overview: {
     eyebrow: 'MT5 总览 / 入场证据',
     title: 'MT5 执行态势与入场证据',
-    body: '把旧页总览雷达迁回 Vue：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要查看路线或持仓详情。',
+    body: 'Vue 工作台已接管总览雷达：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要查看路线或持仓详情。',
     badge: '只读'
   },
   strategy: {
     eyebrow: '策略实盘 / 路线工作台',
     title: 'MA / RSI / BB / MACD / SR 路线工作台',
-    body: '按旧页路线卡结构查看 live、candidate、ParamLab、blocker 和下一步。这里仍只展示证据，不改变 EA 风控或 live switch。',
+    body: '按路线卡结构查看 live、candidate、ParamLab、blocker 和下一步。这里仍只展示证据，不改变 EA 风控或 live switch。',
     badge: '0.01 门控'
   },
   trades: {
@@ -1250,7 +1250,7 @@ const mt5FocusMetrics = computed(() => {
     {
       label: '连接',
       value: first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '未连接'),
-      detail: first(account.server, 'HFM 只读桥')
+      detail: first(account.server, '等待 MT5 导出')
     },
     {
       label: '净值',
@@ -1695,7 +1695,7 @@ const healthCards = computed(() => {
     {
       label: 'MT5 连接',
       value: first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '未连接'),
-      detail: first(acct.server, acct.company, 'HFM 只读桥')
+      detail: first(acct.server, acct.company, '等待 MT5 导出')
     },
     {
       label: 'MT5 净值',
@@ -1714,29 +1714,6 @@ const healthCards = computed(() => {
     }
   ];
 });
-
-const archiveGateCards = computed(() => [
-  {
-    label: '旧页冻结',
-    value: '暂缓',
-    detail: 'Vue 缺陷修复完成前不冻结旧页'
-  },
-  {
-    label: '正常监盘',
-    value: '待确认',
-    detail: '需要一轮 Vue 监盘无缺口'
-  },
-  {
-    label: 'ParamLab 复盘',
-    value: '待确认',
-    detail: '需要一次 /vue/#paramlab 与 /vue/#charts 复盘'
-  },
-  {
-    label: '新功能入口',
-    value: 'Vue only',
-    detail: '旧 HTML 只做 fallback 显示修复'
-  }
-]);
 
 const homeFocusCards = computed(() => {
   const govSummary = mt5.value.governance?.summary || {};
@@ -1806,7 +1783,7 @@ const operatorRadarCards = computed(() => {
     {
       label: 'MT5 净值',
       title: money(first(acct.equity, mt5.value.latest?.equity)),
-      meta: `${first(acct.server, 'HFM 只读桥')} · 持仓 ${mt5Positions.value.length}`,
+      meta: `${first(acct.server, '等待 MT5 导出')} · 持仓 ${mt5Positions.value.length}`,
       tone: mt5Positions.value.length ? 'green' : 'blue',
       target: 'mt5'
     },
@@ -2292,7 +2269,7 @@ onBeforeUnmount(() => {
             <p class="eyebrow">AI Opportunity Radar</p>
             <h2>MT5 与 Polymarket 分开管理，同一证据层复盘</h2>
             <p>
-              这里按 QuantDinger 的操作台思路重排：顶部看机会雷达，中间处理监盘与研究队列，右侧保留 Watchlist 和待办。旧页先继续作为 fallback，不冻结。
+              这里按 QuantDinger 的操作台思路重排：顶部看机会雷达，中间处理监盘与研究队列，右侧保留 Watchlist 和待办。旧入口已跳转到 Vue。
             </p>
             <div class="route-tabs">
               <button type="button" @click="setActive('mt5')">进入 MT5 工作台</button>
@@ -2317,20 +2294,6 @@ onBeforeUnmount(() => {
             <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
           </article>
         </div>
-
-        <article class="panel">
-          <div class="panel-title split">
-            <span>Vue 替代旧页缺口追踪</span>
-            <small>未达标前不冻结旧 HTML</small>
-          </div>
-          <div class="metric-grid four compact">
-            <div v-for="card in archiveGateCards" :key="card.label" class="metric">
-              <span>{{ card.label }}</span>
-              <strong>{{ card.value }}</strong>
-              <small>{{ card.detail }}</small>
-            </div>
-          </div>
-        </article>
 
         <div class="card-grid three">
           <article v-for="card in homeFocusCards" :key="card.title" class="panel dense focus-card">
@@ -2545,7 +2508,7 @@ onBeforeUnmount(() => {
           <article class="panel overview-radar mt5-radar-board">
             <div class="panel-title split">
               <span>执行雷达</span>
-              <small>旧页总览雷达口径</small>
+              <small>总览雷达口径</small>
             </div>
             <div class="radar-grid dense-radar">
               <div v-for="item in mt5ExecutionRadarItems" :key="item.label" class="radar-item">
@@ -2587,7 +2550,7 @@ onBeforeUnmount(() => {
             <div class="account-strip">
               <span>
                 <small>服务器</small>
-                <strong>{{ first(mt5Account.server, 'HFM 只读桥') }}</strong>
+                <strong>{{ first(mt5Account.server, '等待 MT5 导出') }}</strong>
               </span>
               <span>
                 <small>净值</small>
@@ -3359,7 +3322,7 @@ onBeforeUnmount(() => {
               <b class="pill amber">TESTER-ONLY</b>
             </div>
             <h2>候选参数、批次队列、报告回灌与恢复风险</h2>
-            <p>对照旧页和 QuantDinger 的 worker/queue 体验，把“可运行、等待报告、已评分、失败恢复、守护窗口”放成一张批次看板；这里只生成和展示 tester-only 证据，不启动 Strategy Tester。</p>
+            <p>对照 QuantDinger 的 worker/queue 体验，把“可运行、等待报告、已评分、失败恢复、守护窗口”放成一张批次看板；这里只生成和展示 tester-only 证据，不启动 Strategy Tester。</p>
           </article>
           <article class="param-lane-board">
             <button
@@ -3380,7 +3343,7 @@ onBeforeUnmount(() => {
         <div class="panel dense split-panel">
           <div>
             <div class="panel-title">周末执行清单筛选</div>
-            <p class="muted">按旧页的批次口径聚合 queue / results / watcher；红灯 candidate 只显示风险，不消耗自动重试次数。</p>
+            <p class="muted">按批次口径聚合 queue / results / watcher；红灯 candidate 只显示风险，不消耗自动重试次数。</p>
           </div>
           <div class="filter-stack">
             <div class="route-tabs compact">
