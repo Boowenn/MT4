@@ -3,12 +3,19 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import {
   Activity,
   BarChart3,
+  Bell,
+  CalendarDays,
   ClipboardList,
   Gauge,
+  Globe2,
+  Layers,
   LineChart,
+  Menu,
   Network,
+  Plus,
   RefreshCw,
   Search,
+  Settings,
   ShieldCheck,
   Target,
   TrendingUp,
@@ -52,6 +59,9 @@ const activeRoute = ref('全部');
 const paramTaskFilter = ref('全部');
 const paramRouteFilter = ref('全部');
 const paramSortMode = ref('优先级');
+const polyCategoryFilter = ref('全部');
+const polySortMode = ref('机会评分');
+const polyEvidenceMode = ref('综合证据');
 
 const mt5WorkspaceIds = new Set(['mt5', 'paramlab', 'charts', 'reports']);
 const mt5DefaultFocus = {
@@ -204,6 +214,11 @@ function pct(value) {
   if (n === null) return '--';
   const normalized = Math.abs(n) <= 1 ? n * 100 : n;
   return `${normalized.toFixed(1)}%`;
+}
+
+function pctPoint(value) {
+  const n = asNumber(value);
+  return n === null ? '--' : `${n.toFixed(1)}%`;
 }
 
 function shortText(value, max = 120) {
@@ -712,6 +727,115 @@ const polyFocusMetrics = computed(() => [
   { label: '批量队列', value: workerQueue.value.length, detail: 'shadow-only 队列' }
 ]);
 
+const polyAccountCards = computed(() => {
+  const gov = poly.value.autoGovernance || {};
+  const run = poly.value.canaryRun || {};
+  const global = gov.globalState || gov.accountSnapshot || {};
+  const safety = gov.safety || {};
+  const summary = gov.summary || {};
+  const env = run.envPreflight || {};
+  const cash = first(global.cashUSDC, global.accountCash, global.availableUSDC, global.balanceUSDC, null);
+  const bankroll = first(global.configuredBankrollUSDC, global.bankroll, global.maxBankrollUSDC, null);
+  const hasCash = asNumber(cash) !== null;
+  const walletWrite = first(summary.walletWriteAllowed, safety.walletWriteAllowed, run.summary?.walletWriteAllowed, false);
+  const orderSend = first(summary.orderSendAllowed, safety.orderSendAllowed, run.summary?.orderSendAllowed, false);
+
+  return [
+    {
+      label: '账户现金',
+      value: hasCash ? money(cash) : '未连接',
+      detail: hasCash ? 'Polymarket USDC 口径' : '未读取到 Polymarket 余额',
+      tone: hasCash ? 'green' : 'amber'
+    },
+    {
+      label: '配置本金',
+      value: asNumber(bankroll) !== null ? money(bankroll) : '--',
+      detail: first(global.authState, 'read-only / no wallet write'),
+      tone: 'blue'
+    },
+    {
+      label: '钱包写入',
+      value: walletWrite === true ? '已开启' : '关闭',
+      detail: orderSend === true ? 'order-send 已允许' : '只读/模拟，未下真钱',
+      tone: walletWrite === true ? 'red' : 'green'
+    },
+    {
+      label: '隔离执行',
+      value: env.lockFileOk === true ? '锁已就绪' : '锁定',
+      detail: `阻断 ${Array.isArray(run.preflightBlockers) ? run.preflightBlockers.length : 0} / orders ${first(run.summary?.ordersSent, 0)}`,
+      tone: env.lockFileOk === true ? 'amber' : 'blue'
+    }
+  ];
+});
+
+function marketTitle(row) {
+  return first(row?.market, row?.title, row?.question, row?.eventTitle, row?.slug, row?.marketId);
+}
+
+function marketCategory(row) {
+  return String(first(row?.category, row?.marketType, row?.source, '其他')).toLowerCase();
+}
+
+function marketCategoryLabel(row) {
+  const category = marketCategory(row);
+  const labels = {
+    sports: '体育',
+    politics: '政治',
+    crypto: '加密',
+    finance: '金融',
+    elections: '选举',
+    macro: '宏观',
+    gamma: 'Gamma',
+    radar: '雷达',
+    history: '历史',
+    other: '其他',
+    其他: '其他'
+  };
+  return labels[category] || category.toUpperCase();
+}
+
+function marketProbability(row) {
+  return asNumber(first(row?.probability, row?.marketProbability, row?.marketProbabilityPct, row?.yesPrice, row?.bestProbability));
+}
+
+function marketAiProbability(row) {
+  return asNumber(first(row?.aiProbability, row?.aiProbabilityPct, row?.aiPredictedProbability, row?.analysis?.aiProbabilityPct));
+}
+
+function marketScore(row) {
+  return asNumber(first(row?.aiRuleScore, row?.score, row?.ruleScore, row?.aiScore, row?.opportunityScore)) ?? 0;
+}
+
+function marketVolume(row) {
+  return asNumber(first(row?.volume24h, row?.volume, row?.volumeUsd, row?.liquidity, row?.liquidityUsd)) ?? 0;
+}
+
+function marketDivergence(row) {
+  const explicit = asNumber(first(row?.divergence, row?.divergencePct, row?.absDivergence));
+  if (explicit !== null) return explicit;
+  const ai = marketAiProbability(row);
+  const market = marketProbability(row);
+  return ai !== null && market !== null ? ai - market : null;
+}
+
+function marketRiskTone(row) {
+  const risk = String(first(row?.risk, row?.riskLevel, row?.macroRiskState, '')).toLowerCase();
+  if (risk.includes('high') || risk.includes('red')) return 'red';
+  if (risk.includes('medium') || risk.includes('yellow')) return 'amber';
+  if (risk.includes('low') || risk.includes('green')) return 'green';
+  return 'blue';
+}
+
+function dedupeMarkets(rows) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = String(first(row?.marketId, row?.slug, row?.question, row?.title, row?.market, '')).toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 const radarRows = computed(() => {
   const rows = arrayFrom(poly.value.radar, ['radar', 'markets', 'rows']);
   return rows.slice(0, 8);
@@ -728,6 +852,66 @@ const canaryRows = computed(() => arrayFrom(poly.value.canary, ['candidateContra
 const crossRows = computed(() => arrayFrom(poly.value.cross, ['linkages', 'rows']).slice(0, 8));
 const marketRows = computed(() => arrayFrom(poly.value.markets, ['markets', 'marketCatalog', 'rows']).slice(0, 8));
 const workerQueue = computed(() => arrayFrom(poly.value.worker, ['candidateQueue', 'queue']).slice(0, 8));
+
+const polyMarketUniverse = computed(() => dedupeMarkets([
+  ...arrayFrom(poly.value.markets, ['markets', 'marketCatalog', 'rows']),
+  ...arrayFrom(poly.value.radar, ['radar', 'markets', 'rows']),
+  ...arrayFrom(poly.value.assets, ['opportunities', 'rows']),
+  ...aiScores.value
+]));
+
+const polyCategoryOptions = computed(() => {
+  const counts = new Map();
+  for (const row of polyMarketUniverse.value) {
+    const label = marketCategory(row);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return ['全部', ...Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 7)
+    .map(([label]) => label)]
+    .map((label) => ({
+      label,
+      display: label === '全部' ? '全部' : marketCategoryLabel({ category: label }),
+      count: label === '全部' ? polyMarketUniverse.value.length : (counts.get(label) || 0)
+    }));
+});
+
+const polySortOptions = ['机会评分', '24h 成交', '概率偏离', '流动性'];
+
+const polyVisibleMarkets = computed(() => {
+  const rows = polyMarketUniverse.value
+    .filter((row) => polyCategoryFilter.value === '全部' || marketCategory(row) === polyCategoryFilter.value);
+  const sorted = [...rows].sort((a, b) => {
+    if (polySortMode.value === '24h 成交') return marketVolume(b) - marketVolume(a);
+    if (polySortMode.value === '概率偏离') return Math.abs(marketDivergence(b) ?? 0) - Math.abs(marketDivergence(a) ?? 0);
+    if (polySortMode.value === '流动性') {
+      return (asNumber(first(b.liquidity, b.liquidityUsd, b.clobLiquidityUsd)) ?? 0)
+        - (asNumber(first(a.liquidity, a.liquidityUsd, a.clobLiquidityUsd)) ?? 0);
+    }
+    return marketScore(b) - marketScore(a);
+  });
+  return sorted.slice(0, 12);
+});
+
+const singleAnalysis = computed(() => poly.value.singleAnalysis || {});
+
+const singleAnalysisCards = computed(() => {
+  const analysis = singleAnalysis.value.analysis || {};
+  const market = singleAnalysis.value.market || {};
+  return [
+    { label: '市场概率', value: pctPoint(first(analysis.marketProbabilityPct, market.probability, market.yesPrice)), detail: first(market.probabilitySource, 'Gamma / CLOB') },
+    { label: 'AI 概率', value: pctPoint(first(analysis.aiProbabilityPct, analysis.aiPredictedProbability)), detail: first(analysis.aiScoringMode, singleAnalysis.value.mode, '规则/AI') },
+    { label: '偏离度', value: pctPoint(first(analysis.divergencePct, marketDivergence(market))), detail: first(analysis.recommendation, '观察') },
+    { label: '信心', value: pctPoint(first(analysis.confidencePct, analysis.confidenceScore)), detail: first(analysis.riskLevel, singleAnalysis.value.summary?.risk, 'risk --') }
+  ];
+});
+
+const singleHistoryRows = computed(() => [
+  ...arrayFrom(poly.value.ledgers?.singleAnalysis),
+  ...arrayFrom(poly.value.history?.recent, ['analyses']),
+  ...arrayFrom(poly.value.history, ['analyses', 'rows'])
+].slice(0, 10));
 
 const healthCards = computed(() => {
   const acct = mt5Account.value;
@@ -1057,20 +1241,38 @@ onBeforeUnmount(() => {
 
     <main class="workspace">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">{{ activeWorkspaceMeta.sub }}</p>
-          <h1>{{ activeWorkspaceMeta.label }}</h1>
-          <p class="topbar-subtitle">{{ activeWorkspaceMeta.desc }}</p>
+        <div class="topbar-left">
+          <button class="icon-button" type="button" title="菜单">
+            <Menu :size="18" />
+          </button>
+          <div>
+            <p class="eyebrow">{{ activeWorkspaceMeta.sub }}</p>
+            <h1>{{ activeWorkspaceMeta.label }}</h1>
+            <p class="topbar-subtitle">{{ activeWorkspaceMeta.desc }}</p>
+          </div>
         </div>
         <div class="top-actions">
           <label class="search-box">
             <Search :size="16" />
             <input v-model="state.query" type="search" placeholder="搜索市场、路线、候选和证据" @keyup.enter="refresh" />
           </label>
-          <button class="ghost-button" type="button" @click="refresh">
+          <button class="icon-button refresh-icon" type="button" title="刷新" @click="refresh">
             <RefreshCw :size="16" :class="{ spin: state.loading }" />
-            刷新
           </button>
+          <span class="top-divider"></span>
+          <button class="icon-button" type="button" title="通知">
+            <Bell :size="16" />
+          </button>
+          <button class="icon-button" type="button" title="语言">
+            <Globe2 :size="16" />
+          </button>
+          <button class="icon-button" type="button" title="设置">
+            <Settings :size="16" />
+          </button>
+          <div class="user-chip">
+            <span>Q</span>
+            <strong>OWNER</strong>
+          </div>
         </div>
       </header>
 
@@ -1094,6 +1296,97 @@ onBeforeUnmount(() => {
           <section v-if="state.error" class="notice danger">{{ state.error }}</section>
 
       <section v-if="state.active === 'home'" class="stack">
+        <article class="qd-radar-section">
+          <div class="qd-radar-header">
+            <div>
+              <h2>AI Opportunity Radar</h2>
+              <p>按 QuantDinger 的首屏节奏，把 MT5、ParamLab、Polymarket 的可行动证据横向扫一遍。</p>
+            </div>
+            <button class="ghost-button small" type="button" @click="refresh">
+              <RefreshCw :size="14" :class="{ spin: state.loading }" />
+              刷新
+            </button>
+          </div>
+          <div class="qd-radar-track">
+            <button
+              v-for="card in operatorRadarCards"
+              :key="`home-${card.label}`"
+              type="button"
+              class="qd-radar-card"
+              :class="card.tone"
+              @click="setActive(card.target)"
+            >
+              <div class="qd-card-head">
+                <strong>{{ card.title }}</strong>
+                <span>{{ card.label }}</span>
+              </div>
+              <div class="qd-card-metrics">
+                <span>
+                  <small>状态</small>
+                  <b>{{ card.tone === 'green' ? '强' : card.tone === 'amber' ? '观察' : card.tone === 'red' ? '风险' : '待判定' }}</b>
+                </span>
+                <span>
+                  <small>证据</small>
+                  <b>{{ shortText(card.meta, 18) }}</b>
+                </span>
+              </div>
+              <p>{{ card.meta }}</p>
+            </button>
+          </div>
+        </article>
+
+        <article class="qd-workspace-card">
+          <div class="workspace-tabs">
+            <button class="active" type="button"><Activity :size="15" />即时分析</button>
+            <button type="button" @click="setActive('polymarket', 'radar')"><Target :size="15" />预测市场</button>
+            <button type="button" @click="setActive('paramlab')"><ClipboardList :size="15" />回测队列</button>
+          </div>
+          <div class="qd-analysis-grid">
+            <aside class="asset-pool-mini">
+              <div class="pool-tabs">
+                <span>MT5</span>
+                <span>ParamLab</span>
+                <span>Poly</span>
+              </div>
+              <button v-for="item in watchlistItems.slice(0, 6)" :key="`pool-${item.title}`" type="button" :class="item.tone" @click="setActive(item.target)">
+                <strong>{{ item.title }}</strong>
+                <small>{{ item.sub }}</small>
+                <b>{{ item.value }}</b>
+              </button>
+            </aside>
+            <div class="analysis-console qd-console-compact">
+              <div class="console-grid-bg"></div>
+              <div class="console-core">
+                <span>AI-POWERED</span>
+                <h2>QuantGod Analysis Engine</h2>
+                <p>多源证据驱动：MT5 实盘样本、Strategy Tester、Polymarket Gamma、历史库与治理建议。</p>
+                <div class="console-actions">
+                  <button type="button" @click="setActive('mt5')"><Plus :size="14" />MT5 下钻</button>
+                  <button type="button" @click="setActive('polymarket', 'analysis')">单市场分析</button>
+                  <button type="button" @click="setActive('reports')">证据报表</button>
+                </div>
+              </div>
+            </div>
+            <aside class="qd-watchlist-panel">
+              <div class="rail-title">
+                <span><Layers :size="15" /> My Watchlist</span>
+                <small>{{ watchlistItems.length }} 项</small>
+              </div>
+              <button v-for="item in watchlistItems.slice(0, 7)" :key="`home-watch-${item.title}`" class="rail-item compact" :class="item.tone" type="button" @click="setActive(item.target)">
+                <span>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.sub }}</small>
+                </span>
+                <b>{{ item.value }}</b>
+              </button>
+              <div class="calendar-mini">
+                <div><CalendarDays :size="14" /> 今日待办</div>
+                <span v-for="item in actionQueueItems.slice(0, 3)" :key="`cal-${item.title}`">{{ item.title }} · {{ item.sub }}</span>
+              </div>
+            </aside>
+          </div>
+        </article>
+
         <div class="section-grid">
           <article class="hero-panel compact-hero">
             <p class="eyebrow">AI Opportunity Radar</p>
@@ -1124,20 +1417,6 @@ onBeforeUnmount(() => {
             <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
           </article>
         </div>
-
-        <article class="analysis-console">
-          <div class="console-grid-bg"></div>
-          <div class="console-core">
-            <span>AI-POWERED</span>
-            <h2>QuantGod 分析引擎</h2>
-            <p>MT5 forward、ParamLab tester-only、Polymarket research 和审计 ledger 全部从同一证据层读取。</p>
-            <div class="console-actions">
-              <button type="button" @click="setActive('mt5')">策略监盘</button>
-              <button type="button" @click="setActive('paramlab')">参数队列</button>
-              <button type="button" @click="setActive('polymarket')">市场研究</button>
-            </div>
-          </div>
-        </article>
 
         <article class="panel">
           <div class="panel-title split">
@@ -1312,44 +1591,169 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div class="poly-cockpit-grid">
-          <article class="panel poly-market-console">
+        <article class="poly-account-strip" aria-label="Polymarket 账户与执行边界">
+          <div
+            v-for="card in polyAccountCards"
+            :key="card.label"
+            class="poly-account-card"
+            :class="card.tone"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.detail }}</small>
+          </div>
+        </article>
+
+        <article v-if="state.polymarketFocus !== 'analysis'" class="poly-filter-shell">
+          <div class="poly-filter-head">
+            <div>
+              <p class="eyebrow">Prediction Market Browser</p>
+              <h2>市场机会池</h2>
+            </div>
+            <div class="route-tabs compact">
+              <button
+                v-for="option in polyCategoryOptions"
+                :key="option.label"
+                type="button"
+                :class="{ selected: polyCategoryFilter === option.label }"
+                @click="polyCategoryFilter = option.label"
+              >
+                {{ option.display }} {{ option.count }}
+              </button>
+            </div>
+          </div>
+          <div class="poly-filter-row">
+            <label class="search-box poly-local-search">
+              <Search :size="15" />
+              <input v-model="state.query" type="search" placeholder="搜索 Polymarket 市场、事件、风险标签" @keyup.enter="refresh" />
+            </label>
+            <div class="route-tabs compact">
+              <button
+                v-for="option in polySortOptions"
+                :key="option"
+                type="button"
+                :class="{ selected: polySortMode === option }"
+                @click="polySortMode = option"
+              >
+                {{ option }}
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <div v-if="state.polymarketFocus === 'analysis'" class="single-analysis-workspace">
+          <article class="panel single-input-card">
             <div class="panel-title split">
-              <span>{{ state.polymarketFocus === 'browser' ? '市场目录' : state.polymarketFocus === 'execution' ? '执行模拟边界' : '机会雷达' }}</span>
-              <small>研究驾驶舱</small>
+              <span>单市场 AI 分析入口</span>
+              <b class="pill blue">本地请求</b>
             </div>
-            <div v-if="state.polymarketFocus === 'browser'" class="compact-market-list">
-              <div v-for="market in marketRows" :key="first(market.marketId, market.slug)" class="market-line">
-                <strong>{{ shortText(first(market.title, market.question, market.slug), 72) }}</strong>
-                <span>{{ first(market.category, '--') }}</span>
-                <b>{{ pct(first(market.probability, market.bestProbability)) }}</b>
-              </div>
-              <div v-if="!marketRows.length" class="rail-empty">暂无市场目录证据。</div>
+            <p>输入 Polymarket URL、标题或 marketId，只生成研究请求和历史证据；不会触发钱包、不会影响 MT5。</p>
+            <div class="inline-form">
+              <input v-model="state.marketInput" type="text" placeholder="例如：https://polymarket.com/event/... 或 marketId" @keyup.enter="submitSingleMarket" />
+              <button type="button" @click="submitSingleMarket">开始分析</button>
             </div>
-            <div v-else-if="state.polymarketFocus === 'execution'" class="compact-market-list">
-              <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="market-line">
-                <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 72) }}</strong>
-                <span>{{ first(row.canaryState, row.decision, '模拟') }}</span>
-                <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
-              </div>
-              <div v-if="!canaryRows.length" class="rail-empty">暂无小额哨兵契约；真实钱包仍保持锁定。</div>
+            <small>{{ first(state.requestStatus, '等待输入。') }}</small>
+          </article>
+
+          <article class="panel single-result-card">
+            <div class="panel-title split">
+              <span>{{ shortText(first(singleAnalysis.market?.question, singleAnalysis.summary?.market, '最近单市场分析'), 82) }}</span>
+              <b class="pill" :class="marketRiskTone(singleAnalysis.analysis || singleAnalysis.summary || {})">
+                {{ first(singleAnalysis.analysis?.recommendation, singleAnalysis.summary?.recommendation, '观察') }}
+              </b>
             </div>
-            <div v-else class="radar-ticker">
-              <div v-for="row in radarRows.slice(0, 6)" :key="first(row.marketId, row.slug, row.title)" class="radar-ticker-item">
-                <span>{{ shortText(first(row.market, row.title, row.question, row.slug), 52) }}</span>
-                <strong>{{ pct(first(row.probability, row.marketProbability)) }}</strong>
-                <small>评分 {{ first(row.aiRuleScore, row.score, '--') }} · 成交量 {{ money(first(row.volume, row.volumeUsd)) }}</small>
+            <div class="probability-comparison">
+              <div v-for="card in singleAnalysisCards" :key="card.label" class="prob-card">
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+                <small>{{ card.detail }}</small>
               </div>
-              <div v-if="!radarRows.length" class="rail-empty">暂无 radar 快照。</div>
+            </div>
+            <div class="reasoning-box">
+              <strong>分析理由</strong>
+              <p>{{ shortText(first(singleAnalysis.analysis?.rationale?.join?.(' '), singleAnalysis.analysis?.reasoning, singleAnalysis.analysis?.riskNotes?.join?.(' '), '等待单市场分析结果。'), 260) }}</p>
+            </div>
+            <div class="factor-row">
+              <span v-for="factor in (singleAnalysis.analysis?.keyFactors || []).slice(0, 5)" :key="factor">{{ factor }}</span>
+              <span v-if="!(singleAnalysis.analysis?.keyFactors || []).length">暂无关键因子</span>
             </div>
           </article>
 
-          <article class="panel poly-governance-console">
+          <article class="panel single-history-card">
             <div class="panel-title split">
-              <span>治理/联动摘要</span>
+              <span>历史分析</span>
+              <small>{{ singleHistoryRows.length }} 条</small>
+            </div>
+            <div class="history-list">
+              <button v-for="row in singleHistoryRows" :key="first(row.generatedAt, row.marketId, row.question)" type="button">
+                <strong>{{ shortText(first(row.question, row.marketTitle, row.title, row.marketId), 76) }}</strong>
+                <span>{{ first(row.recommendation, row.decision, row.risk, '--') }} · 偏离 {{ pctPoint(first(row.divergence, row.divergencePct)) }}</span>
+                <small>{{ first(row.generatedAt, row.createdAt, row.updatedAt, '--') }}</small>
+              </button>
+              <div v-if="!singleHistoryRows.length" class="rail-empty">暂无单市场历史。</div>
+            </div>
+          </article>
+        </div>
+
+        <div v-else class="poly-cockpit-grid qd-poly-grid">
+          <article class="panel poly-market-console">
+            <div class="panel-title split">
+              <span>{{ state.polymarketFocus === 'execution' ? '执行模拟边界' : '机会雷达 / 市场浏览' }}</span>
+              <small>Gamma API + 历史库 + AI score</small>
+            </div>
+            <div v-if="state.polymarketFocus === 'execution'" class="canary-contract-grid">
+              <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="canary-card">
+                <div>
+                  <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 76) }}</strong>
+                  <span>{{ first(row.canaryState, row.decision, '模拟') }}</span>
+                </div>
+                <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
+                <p>{{ shortText(first(row.blockers?.join?.(' / '), row.blocker, row.exitRule, '钱包锁定，等待模拟后验。'), 120) }}</p>
+              </div>
+              <div v-if="!canaryRows.length" class="rail-empty">暂无小额哨兵契约；真实钱包仍保持锁定。</div>
+            </div>
+            <div v-else class="market-browser-grid">
+              <button
+                v-for="market in polyVisibleMarkets"
+                :key="first(market.marketId, market.slug, market.question)"
+                type="button"
+                class="qd-market-card"
+                :class="marketRiskTone(market)"
+              >
+                <div class="qd-market-head">
+                  <strong>{{ shortText(marketTitle(market), 88) }}</strong>
+                  <span :title="marketCategory(market)">{{ marketCategoryLabel(market) }}</span>
+                </div>
+                <div class="qd-market-metrics">
+                  <span><small>市场概率</small><b>{{ pctPoint(marketProbability(market)) }}</b></span>
+                  <span><small>AI/规则</small><b>{{ first(market.aiScoringMode, market.source, '规则评分') }}</b></span>
+                  <span><small>机会评分</small><b>{{ first(market.aiRuleScore, market.score, market.ruleScore, '--') }}</b></span>
+                </div>
+                <div class="qd-market-foot">
+                  <span>成交 {{ money(first(market.volume24h, market.volume, market.volumeUsd)) }}</span>
+                  <span>流动性 {{ money(first(market.liquidity, market.liquidityUsd, market.clobLiquidityUsd)) }}</span>
+                  <b :title="first(market.recommendedAction, market.recommendation, 'SHADOW')">
+                    {{ shortText(first(market.recommendedAction, market.recommendation, 'SHADOW'), 16) }}
+                  </b>
+                </div>
+              </button>
+              <div v-if="!polyVisibleMarkets.length" class="rail-empty">暂无市场目录或 radar 证据。</div>
+            </div>
+          </article>
+
+          <article class="panel poly-side-console">
+            <div class="panel-title split">
+              <span>AI 结果 / 关联风险</span>
               <small>只读证据，不下注</small>
             </div>
-            <div class="governance-lanes">
+            <div class="poly-score-stack">
+              <div v-for="row in aiScores.slice(0, 4)" :key="first(row.marketId, row.title, row.question)" class="score-line">
+                <strong>{{ shortText(marketTitle(row), 64) }}</strong>
+                <span>评分 {{ first(row.score, row.aiScore, '--') }} · {{ first(row.action, row.recommendation, row.risk, '观察') }}</span>
+              </div>
+              <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
+            </div>
+            <div class="governance-lanes compact-governance">
               <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
                 <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
                 <span>{{ shortText(first(row.market, row.title, row.marketId, row.reason), 86) }}</span>
@@ -1359,25 +1763,21 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div class="poly-radar-grid">
-          <article v-for="row in radarRows" :key="first(row.marketId, row.slug, row.title)" class="panel dense radar-evidence-card">
-            <div class="panel-title split">
-              <span>{{ shortText(first(row.market, row.title, row.question, row.slug), 78) }}</span>
-              <b class="pill blue">评分 {{ first(row.aiRuleScore, row.score, '--') }}</b>
-            </div>
-            <p>{{ shortText(first(row.reason, row.suggestedShadowTrack, row.category), 150) }}</p>
-            <div class="mini-row">
-              <span>概率 {{ pct(first(row.probability, row.marketProbability)) }}</span>
-              <span>成交量 {{ money(first(row.volume, row.volumeUsd)) }}</span>
-              <span>流动性 {{ money(first(row.liquidity, row.liquidityUsd, row.clobLiquidityUsd)) }}</span>
-            </div>
-          </article>
-        </div>
-
         <div class="panel evidence-console">
           <div class="panel-title split">
             <span>统一搜索综合证据卡</span>
             <small>{{ searchGroups.length }} 条</small>
+          </div>
+          <div class="route-tabs compact evidence-mode-tabs">
+            <button
+              v-for="mode in ['综合证据', 'Radar', '历史分析', 'AI Score']"
+              :key="mode"
+              type="button"
+              :class="{ selected: polyEvidenceMode === mode }"
+              @click="polyEvidenceMode = mode"
+            >
+              {{ mode }}
+            </button>
           </div>
           <div class="evidence-list">
             <div v-for="group in searchGroups" :key="first(group.marketId, group.id, group.title)" class="evidence-row">
