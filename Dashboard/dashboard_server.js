@@ -17,6 +17,7 @@ const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnaly
 const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.json';
 const polymarketCanaryExecutorContractName = 'QuantGod_PolymarketCanaryExecutorContract.json';
 const polymarketAutoGovernanceName = 'QuantGod_PolymarketAutoGovernance.json';
+const polymarketCanaryExecutorRunName = 'QuantGod_PolymarketCanaryExecutorRun.json';
 const polymarketMarketCatalogName = 'QuantGod_PolymarketMarketCatalog.json';
 const polymarketAssetOpportunitiesName = 'QuantGod_PolymarketAssetOpportunities.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
@@ -40,6 +41,8 @@ const polymarketHistoryTables = new Set([
   'cross-linkage',
   'canary-contracts',
   'auto-governance',
+  'canary-executor-runs',
+  'canary-order-audit',
   'markets',
   'related-assets',
 ]);
@@ -58,6 +61,7 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketCrossMarketLinkageName,
   polymarketCanaryExecutorContractName,
   polymarketAutoGovernanceName,
+  polymarketCanaryExecutorRunName,
   polymarketMarketCatalogName,
   polymarketAssetOpportunitiesName
 ]);
@@ -1199,6 +1203,74 @@ function compactCanaryContractResult(item = {}, generatedAt = '') {
   };
 }
 
+function compactCanaryExecutorRunResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'canary-executor-run',
+    sourceLabel: '真钱预检',
+    title: firstDefined(item.runId, item.executionMode, '--'),
+    subtitle: firstDefined(item.decision, item.status, item.executionMode),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, generatedAt),
+    risk: firstDefined(item.decision, item.executionMode),
+    recommendation: firstDefined(item.decision, 'NO_REAL_ORDER_SENT'),
+    track: firstDefined(item.track),
+    probability: null,
+    divergence: null,
+    score: numericScore(item.plannedOrders, item.ordersSent),
+    detail: {
+      historyType: 'canary-executor-runs',
+      rawType: 'canary-executor-run',
+      runId: firstDefined(item.runId),
+      executionMode: firstDefined(item.executionMode),
+      status: firstDefined(item.status),
+      plannedOrders: firstDefined(item.summary?.plannedOrders, item.plannedOrders),
+      ordersSent: firstDefined(item.summary?.ordersSent, item.ordersSent),
+      walletWriteAllowed: firstDefined(item.summary?.walletWriteAllowed, item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.summary?.orderSendAllowed, item.orderSendAllowed),
+      preflightBlockers: firstDefined(item.preflightBlockers, item.preflightBlockersJson),
+      lockFile: firstDefined(item.envPreflight?.lockFile, item.lockFile),
+      adapter: firstDefined(item.envPreflight?.walletAdapter, item.walletAdapter)
+    }
+  };
+}
+
+function compactCanaryOrderAuditResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'canary-order-audit',
+    sourceLabel: '真钱订单审计',
+    title: firstDefined(item.question, item.marketId, item.candidateId, item.runId, '--'),
+    subtitle: firstDefined(item.decision, item.adapterStatus, item.side),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, generatedAt),
+    risk: firstDefined(item.decision, item.adapterStatus),
+    recommendation: firstDefined(item.decision, item.adapterStatus, 'BLOCKED_PRE_ORDER'),
+    track: firstDefined(item.track),
+    probability: firstDefined(item.limitPrice),
+    divergence: null,
+    score: numericScore(item.stakeUSDC, item.size),
+    detail: {
+      historyType: 'canary-order-audit',
+      rawType: 'canary-order-audit',
+      runId: firstDefined(item.runId),
+      candidateId: firstDefined(item.candidateId),
+      governanceId: firstDefined(item.governanceId),
+      side: firstDefined(item.side),
+      tokenIdPresent: firstDefined(item.tokenIdPresent),
+      limitPrice: firstDefined(item.limitPrice),
+      stakeUSDC: firstDefined(item.stakeUSDC),
+      size: firstDefined(item.size),
+      orderSent: firstDefined(item.orderSent),
+      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.orderSendAllowed),
+      blockers: firstDefined(item.blockers, item.blockersJson),
+      adapterStatus: firstDefined(item.adapterStatus),
+      responseId: firstDefined(item.responseId)
+    }
+  };
+}
+
 /*
 function compactAutoGovernanceResult(item = {}, generatedAt = '') {
   return {
@@ -1307,6 +1379,14 @@ function isAutoGovernanceHistoryRow(row = {}) {
   return String(row.historyType || '').trim() === 'auto-governance';
 }
 
+function isCanaryExecutorRunHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'canary-executor-runs';
+}
+
+function isCanaryOrderAuditHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'canary-order-audit';
+}
+
 function isMarketCatalogHistoryRow(row = {}) {
   return String(row.historyType || '').trim() === 'markets';
 }
@@ -1355,20 +1435,22 @@ function getHistorySourceLabel(historyType = '') {
 */
 function getHistorySourceLabel(historyType = '') {
   const normalized = String(historyType || '').trim();
-  if (normalized === 'markets') return 'Market Catalog';
-  if (normalized === 'related-assets') return 'Related Asset';
-  if (normalized === 'worker-runs') return 'Worker Run';
-  if (normalized === 'worker-trends') return 'Trend Cache';
-  if (normalized === 'worker-queue') return 'Radar Queue';
-  if (normalized === 'cross-linkage') return 'Cross Linkage';
-  if (normalized === 'canary-contracts') return 'Canary Contract';
-  if (normalized === 'auto-governance') return 'Auto Governance';
-  if (normalized === 'opportunities') return 'Opportunity History';
-  if (normalized === 'analyses') return 'Analysis History';
-  if (normalized === 'simulations') return 'Simulation History';
-  if (normalized === 'runs') return 'History Run';
-  if (normalized === 'snapshots') return 'Research Snapshot';
-  return 'History';
+  if (normalized === 'markets') return '市场目录';
+  if (normalized === 'related-assets') return '相关资产机会';
+  if (normalized === 'worker-runs') return 'Worker 批次';
+  if (normalized === 'worker-trends') return '趋势缓存';
+  if (normalized === 'worker-queue') return '雷达队列';
+  if (normalized === 'cross-linkage') return '跨市场联动';
+  if (normalized === 'canary-contracts') return 'Canary 契约';
+  if (normalized === 'auto-governance') return '自动治理';
+  if (normalized === 'canary-executor-runs') return '真钱预检';
+  if (normalized === 'canary-order-audit') return '真钱订单审计';
+  if (normalized === 'opportunities') return '机会历史';
+  if (normalized === 'analyses') return '分析历史';
+  if (normalized === 'simulations') return '模拟历史';
+  if (normalized === 'runs') return '历史批次';
+  if (normalized === 'snapshots') return '研究快照';
+  return '历史库';
 }
 
 function compactHistoryResult(row = {}) {
@@ -1377,6 +1459,8 @@ function compactHistoryResult(row = {}) {
   const crossRow = isCrossLinkageHistoryRow(row);
   const canaryRow = isCanaryContractHistoryRow(row);
   const autoGovernanceRow = isAutoGovernanceHistoryRow(row);
+  const executorRunRow = isCanaryExecutorRunHistoryRow(row);
+  const orderAuditRow = isCanaryOrderAuditHistoryRow(row);
   const marketCatalogRow = isMarketCatalogHistoryRow(row);
   const relatedAssetRow = isRelatedAssetHistoryRow(row);
   const workerSubtitle = firstDefined(
@@ -1388,7 +1472,7 @@ function compactHistoryResult(row = {}) {
     row.schemaVersion
   );
   return {
-    sourceType: workerRow || crossRow || canaryRow || autoGovernanceRow || marketCatalogRow || relatedAssetRow ? historyType : firstDefined(row.historyType, 'history'),
+    sourceType: workerRow || crossRow || canaryRow || autoGovernanceRow || executorRunRow || orderAuditRow || marketCatalogRow || relatedAssetRow ? historyType : firstDefined(row.historyType, 'history'),
     sourceLabel: getHistorySourceLabel(historyType),
     title: firstDefined(row.question, row.query, row.topMarket, row.marketId, row.runId, row.mode, '--'),
     subtitle: marketCatalogRow
@@ -1401,6 +1485,10 @@ function compactHistoryResult(row = {}) {
       ? firstDefined(row.canaryState, row.track, row.side)
       : autoGovernanceRow
       ? firstDefined(row.governanceState, row.recommendedAction, row.riskLevel)
+      : executorRunRow
+      ? firstDefined(row.decision, row.executionMode, row.status)
+      : orderAuditRow
+      ? firstDefined(row.decision, row.adapterStatus, row.side)
       : workerRow
       ? workerSubtitle
       : firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
@@ -1418,6 +1506,10 @@ function compactHistoryResult(row = {}) {
       ? firstDefined(row.decision, row.canaryState, 'CANARY_CONTRACT_ONLY_NO_WALLET_WRITE')
       : autoGovernanceRow
       ? firstDefined(row.recommendedAction, row.governanceState, 'AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE')
+      : executorRunRow
+      ? firstDefined(row.decision, 'NO_REAL_ORDER_SENT')
+      : orderAuditRow
+      ? firstDefined(row.decision, row.adapterStatus, 'BLOCKED_PRE_ORDER')
       : workerRow
       ? firstDefined(row.nextAction, row.queueState, row.status, row.decision, 'WORKER_EVIDENCE')
       : firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
@@ -1428,7 +1520,7 @@ function compactHistoryResult(row = {}) {
     detail: {
       historyType,
       source: firstDefined(row.source),
-      rawType: marketCatalogRow ? 'market-catalog-history' : (relatedAssetRow ? 'related-asset-history' : (workerRow ? 'worker-history' : (autoGovernanceRow ? 'auto-governance-history' : (canaryRow ? 'canary-history' : 'history')))),
+      rawType: marketCatalogRow ? 'market-catalog-history' : (relatedAssetRow ? 'related-asset-history' : (workerRow ? 'worker-history' : (orderAuditRow ? 'canary-order-audit-history' : (executorRunRow ? 'canary-executor-run-history' : (autoGovernanceRow ? 'auto-governance-history' : (canaryRow ? 'canary-history' : 'history')))))),
       catalogRank: firstDefined(row.catalogRank),
       relatedAssetCount: firstDefined(row.relatedAssetCount),
       relatedAssets: firstDefined(row.relatedAssets, row.relatedAssetsJson),
@@ -1473,6 +1565,16 @@ function compactHistoryResult(row = {}) {
       riskLevel: firstDefined(row.riskLevel),
       nextTest: firstDefined(row.nextTest),
       canPromoteToLiveExecution: firstDefined(row.canPromoteToLiveExecution),
+      preflightBlockers: firstDefined(row.preflightBlockersJson),
+      plannedOrders: firstDefined(row.plannedOrders),
+      ordersSent: firstDefined(row.ordersSent),
+      tokenIdPresent: firstDefined(row.tokenIdPresent),
+      limitPrice: firstDefined(row.limitPrice),
+      stakeUSDC: firstDefined(row.stakeUSDC),
+      size: firstDefined(row.size),
+      orderSent: firstDefined(row.orderSent),
+      adapterStatus: firstDefined(row.adapterStatus),
+      responseId: firstDefined(row.responseId),
       maxSingleBetUSDC: firstDefined(row.maxSingleBetUSDC),
       maxDailyLossUSDC: firstDefined(row.maxDailyLossUSDC),
       takeProfitPct: firstDefined(row.takeProfitPct),
@@ -1968,6 +2070,16 @@ async function handlePolymarketSearch(req, res) {
       errors.push({ source: 'auto-governance', error: error.message || String(error) });
     }
 
+    let canaryExecutorRun = null;
+    let canaryExecutorRunPath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketCanaryExecutorRunName);
+      canaryExecutorRun = withServiceMeta(read.payload, '/api/polymarket/canary-executor-run', read.filePath);
+      canaryExecutorRunPath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'canary-executor-run', error: error.message || String(error) });
+    }
+
     let latestAnalysis = null;
     let latestAnalysisPath = '';
     try {
@@ -2023,6 +2135,12 @@ async function handlePolymarketSearch(req, res) {
     const autoGovernanceItems = Array.isArray(autoGovernance?.governanceDecisions)
       ? autoGovernance.governanceDecisions.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
       : [];
+    const canaryExecutorRunItems = canaryExecutorRun && matchesSearchQuery(canaryExecutorRun, query)
+      ? [canaryExecutorRun]
+      : [];
+    const canaryOrderAuditItems = Array.isArray(canaryExecutorRun?.plannedOrders)
+      ? canaryExecutorRun.plannedOrders.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : [];
     const marketCatalogItems = Array.isArray(marketCatalog?.marketCatalog)
       ? marketCatalog.marketCatalog.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
       : (Array.isArray(marketCatalog?.markets) ? marketCatalog.markets.filter((item) => matchesSearchQuery(item, query)).slice(0, limit) : []);
@@ -2060,6 +2178,16 @@ async function handlePolymarketSearch(req, res) {
       : [
           ...(historyPayload.recent?.['auto-governance'] || historyPayload.recent?.autoGovernance || []),
         ].slice(0, limit);
+    const canaryExecutorRunRows = query
+      ? rawHistoryRows.filter(isCanaryExecutorRunHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['canary-executor-runs'] || historyPayload.recent?.canaryExecutorRuns || []),
+        ].slice(0, limit);
+    const canaryOrderAuditRows = query
+      ? rawHistoryRows.filter(isCanaryOrderAuditHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['canary-order-audit'] || historyPayload.recent?.canaryOrderAudit || []),
+        ].slice(0, limit);
     const marketCatalogRows = query
       ? rawHistoryRows.filter(isMarketCatalogHistoryRow).slice(0, limit)
       : [
@@ -2071,7 +2199,7 @@ async function handlePolymarketSearch(req, res) {
           ...(historyPayload.recent?.['related-assets'] || historyPayload.recent?.relatedAssetOpportunities || []),
         ].slice(0, limit);
     const historyRows = query
-      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row) && !isAutoGovernanceHistoryRow(row) && !isMarketCatalogHistoryRow(row) && !isRelatedAssetHistoryRow(row)).slice(0, limit)
+      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row) && !isAutoGovernanceHistoryRow(row) && !isCanaryExecutorRunHistoryRow(row) && !isCanaryOrderAuditHistoryRow(row) && !isMarketCatalogHistoryRow(row) && !isRelatedAssetHistoryRow(row)).slice(0, limit)
       : rawHistoryRows;
     const analysisRows = normalizeAnalyzeHistoryRows(
       analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
@@ -2131,6 +2259,12 @@ async function handlePolymarketSearch(req, res) {
         ...autoGovernanceItems.map((item) => compactAutoGovernanceResult(item, autoGovernance?.generatedAt)),
         ...autoGovernanceRows.slice(0, limit).map(compactHistoryResult)
       ].slice(0, limit),
+      canaryExecutor: [
+        ...canaryExecutorRunItems.map((item) => compactCanaryExecutorRunResult(item, canaryExecutorRun?.generatedAt)),
+        ...canaryOrderAuditItems.map((item) => compactCanaryOrderAuditResult(item, canaryExecutorRun?.generatedAt)),
+        ...canaryExecutorRunRows.slice(0, limit).map(compactHistoryResult),
+        ...canaryOrderAuditRows.slice(0, limit).map(compactHistoryResult)
+      ].slice(0, limit),
       history: historyRows.slice(0, limit).map(compactHistoryResult)
     };
     const rawSearchResults = sortSearchResults([
@@ -2143,12 +2277,13 @@ async function handlePolymarketSearch(req, res) {
       ...sections.crossLinkage,
       ...sections.canary,
       ...sections.autoGovernance,
+      ...sections.canaryExecutor,
       ...sections.history
     ]);
     const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
 
     sendJson(res, 200, {
-      mode: 'POLYMARKET_SEARCH_API_V6_QUANTDINGER_MARKET_CATALOG_EVIDENCE_GROUPS',
+      mode: 'POLYMARKET_SEARCH_API_V7_REAL_CANARY_GOVERNANCE_EVIDENCE_GROUPS',
       status: errors.length ? 'PARTIAL' : 'OK',
       generatedAt: new Date().toISOString(),
       source: 'quantgod_dashboard_local_api',
@@ -2168,6 +2303,7 @@ async function handlePolymarketSearch(req, res) {
         crossLinkageMatches: sections.crossLinkage.length,
         canaryMatches: sections.canary.length,
         autoGovernanceMatches: sections.autoGovernance.length,
+        canaryExecutorMatches: sections.canaryExecutor.length,
         historyMatches: sections.history.length,
         historyTotalRows: historyPayload.summary?.totalRows || 0
       },
@@ -2181,6 +2317,7 @@ async function handlePolymarketSearch(req, res) {
         crossLinkagePath,
         canaryContractPath,
         autoGovernancePath,
+        canaryExecutorRunPath,
         marketCatalogPath,
         relatedAssetsPath,
         latestAnalysisPath,
@@ -2377,6 +2514,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/auto-governance') {
     handlePolymarketReadOnlyJson(req, res, polymarketAutoGovernanceName, '/api/polymarket/auto-governance');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/canary-executor-run') {
+    handlePolymarketReadOnlyJson(req, res, polymarketCanaryExecutorRunName, '/api/polymarket/canary-executor-run');
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {

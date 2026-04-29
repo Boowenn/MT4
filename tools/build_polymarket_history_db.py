@@ -38,10 +38,11 @@ OUTCOME_NAME = "QuantGod_PolymarketDryRunOutcomeWatcher.json"
 CROSS_LINKAGE_NAME = "QuantGod_PolymarketCrossMarketLinkage.json"
 CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
 AUTO_GOVERNANCE_NAME = "QuantGod_PolymarketAutoGovernance.json"
+CANARY_EXECUTOR_RUN_NAME = "QuantGod_PolymarketCanaryExecutorRun.json"
 MARKET_CATALOG_NAME = "QuantGod_PolymarketMarketCatalog.json"
 RELATED_ASSET_OPPORTUNITY_NAME = "QuantGod_PolymarketAssetOpportunities.json"
 
-SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V6_QUANTDINGER_PARITY"
+SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V7_REAL_CANARY_GOVERNANCE"
 
 
 def parse_args() -> argparse.Namespace:
@@ -449,6 +450,43 @@ def init_schema(con: sqlite3.Connection) -> None:
             raw_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS qd_polymarket_canary_executor_runs (
+            run_id TEXT PRIMARY KEY,
+            generated_at TEXT NOT NULL,
+            execution_mode TEXT,
+            decision TEXT,
+            planned_orders INTEGER NOT NULL DEFAULT 0,
+            orders_sent INTEGER NOT NULL DEFAULT 0,
+            eligible_governance_rows INTEGER NOT NULL DEFAULT 0,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            preflight_blockers_json TEXT,
+            raw_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qd_polymarket_canary_order_audit (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            candidate_id TEXT,
+            governance_id TEXT,
+            market_id TEXT,
+            question TEXT,
+            track TEXT,
+            side TEXT,
+            token_id_present INTEGER NOT NULL DEFAULT 0,
+            limit_price REAL,
+            stake_usdc REAL,
+            size REAL,
+            decision TEXT,
+            order_sent INTEGER NOT NULL DEFAULT 0,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            blockers_json TEXT,
+            adapter_status TEXT,
+            raw_json TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS qd_polymarket_markets (
             id TEXT PRIMARY KEY,
             first_seen_at TEXT NOT NULL,
@@ -531,6 +569,9 @@ def init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_poly_canary_state ON qd_polymarket_canary_contracts(canary_state, decision);
         CREATE INDEX IF NOT EXISTS idx_poly_auto_gov_market ON qd_polymarket_auto_governance(market_id, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_auto_gov_state ON qd_polymarket_auto_governance(governance_state, risk_level);
+        CREATE INDEX IF NOT EXISTS idx_poly_executor_generated ON qd_polymarket_canary_executor_runs(generated_at, execution_mode);
+        CREATE INDEX IF NOT EXISTS idx_poly_order_audit_market ON qd_polymarket_canary_order_audit(market_id, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_order_audit_decision ON qd_polymarket_canary_order_audit(decision, order_sent);
         CREATE INDEX IF NOT EXISTS idx_poly_markets_market ON qd_polymarket_markets(market_id, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_poly_markets_score ON qd_polymarket_markets(ai_rule_score, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_related_asset_symbol ON qd_polymarket_related_asset_opportunities(asset_symbol, generated_at);
@@ -547,6 +588,8 @@ def init_schema(con: sqlite3.Connection) -> None:
             "cross_linkage_rows": "INTEGER NOT NULL DEFAULT 0",
             "canary_contract_rows": "INTEGER NOT NULL DEFAULT 0",
             "auto_governance_rows": "INTEGER NOT NULL DEFAULT 0",
+            "canary_executor_run_rows": "INTEGER NOT NULL DEFAULT 0",
+            "canary_order_audit_rows": "INTEGER NOT NULL DEFAULT 0",
             "market_catalog_rows": "INTEGER NOT NULL DEFAULT 0",
             "related_asset_opportunity_rows": "INTEGER NOT NULL DEFAULT 0",
         },
@@ -1243,6 +1286,84 @@ def upsert_auto_governance(con: sqlite3.Connection, governance_payload: dict[str
     return count
 
 
+def upsert_canary_executor_run(con: sqlite3.Connection, run_payload: dict[str, Any], now_iso: str) -> tuple[int, int]:
+    if not run_payload:
+        return 0, 0
+    generated = str(run_payload.get("generatedAt") or now_iso)
+    run_id = str(run_payload.get("runId") or stable_id("canary_executor_run", generated))
+    summary = run_payload.get("summary") if isinstance(run_payload.get("summary"), dict) else {}
+    con.execute(
+        """
+        INSERT OR REPLACE INTO qd_polymarket_canary_executor_runs (
+            run_id, generated_at, execution_mode, decision, planned_orders,
+            orders_sent, eligible_governance_rows, wallet_write_allowed,
+            order_send_allowed, preflight_blockers_json, raw_json
+        ) VALUES (
+            :run_id, :generated_at, :execution_mode, :decision, :planned_orders,
+            :orders_sent, :eligible_governance_rows, :wallet_write_allowed,
+            :order_send_allowed, :preflight_blockers_json, :raw_json
+        )
+        """,
+        {
+            "run_id": run_id,
+            "generated_at": generated,
+            "execution_mode": str(run_payload.get("executionMode") or ""),
+            "decision": str(run_payload.get("decision") or ""),
+            "planned_orders": safe_int(summary.get("plannedOrders"), 0),
+            "orders_sent": safe_int(summary.get("ordersSent"), 0),
+            "eligible_governance_rows": safe_int(summary.get("eligibleGovernanceRows"), 0),
+            "wallet_write_allowed": as_bool_int(summary.get("walletWriteAllowed")),
+            "order_send_allowed": as_bool_int(summary.get("orderSendAllowed")),
+            "preflight_blockers_json": compact_json(run_payload.get("preflightBlockers") if isinstance(run_payload.get("preflightBlockers"), list) else []),
+            "raw_json": compact_json(run_payload),
+        },
+    )
+    audit_count = 0
+    for item in run_payload.get("plannedOrders") if isinstance(run_payload.get("plannedOrders"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        audit_id = stable_id("canary_order_audit", run_id, item.get("candidateId"), item.get("marketId"), item.get("decision"))
+        con.execute(
+            """
+            INSERT OR REPLACE INTO qd_polymarket_canary_order_audit (
+                id, run_id, generated_at, candidate_id, governance_id, market_id,
+                question, track, side, token_id_present, limit_price, stake_usdc,
+                size, decision, order_sent, wallet_write_allowed, order_send_allowed,
+                blockers_json, adapter_status, raw_json
+            ) VALUES (
+                :id, :run_id, :generated_at, :candidate_id, :governance_id, :market_id,
+                :question, :track, :side, :token_id_present, :limit_price, :stake_usdc,
+                :size, :decision, :order_sent, :wallet_write_allowed, :order_send_allowed,
+                :blockers_json, :adapter_status, :raw_json
+            )
+            """,
+            {
+                "id": audit_id,
+                "run_id": run_id,
+                "generated_at": generated,
+                "candidate_id": str(item.get("candidateId") or ""),
+                "governance_id": str(item.get("governanceId") or ""),
+                "market_id": str(item.get("marketId") or ""),
+                "question": str(item.get("question") or ""),
+                "track": str(item.get("track") or ""),
+                "side": str(item.get("side") or ""),
+                "token_id_present": as_bool_int(item.get("tokenIdPresent")),
+                "limit_price": safe_number(item.get("limitPrice")),
+                "stake_usdc": safe_number(item.get("stakeUSDC")),
+                "size": safe_number(item.get("size")),
+                "decision": str(item.get("decision") or ""),
+                "order_sent": as_bool_int(item.get("orderSent")),
+                "wallet_write_allowed": as_bool_int(summary.get("walletWriteAllowed")),
+                "order_send_allowed": as_bool_int(summary.get("orderSendAllowed")),
+                "blockers_json": compact_json(item.get("blockers") if isinstance(item.get("blockers"), list) else []),
+                "adapter_status": str(item.get("adapterStatus") or ""),
+                "raw_json": compact_json(item),
+            },
+        )
+        audit_count += 1
+    return 1, audit_count
+
+
 def upsert_market_catalog(con: sqlite3.Connection, catalog_payload: dict[str, Any], now_iso: str) -> int:
     rows = catalog_payload.get("marketCatalog") if isinstance(catalog_payload.get("marketCatalog"), list) else []
     if not rows:
@@ -1440,6 +1561,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         "qd_polymarket_cross_market_linkage": table_summary(con, "qd_polymarket_cross_market_linkage"),
         "qd_polymarket_canary_contracts": table_summary(con, "qd_polymarket_canary_contracts"),
         "qd_polymarket_auto_governance": table_summary(con, "qd_polymarket_auto_governance"),
+        "qd_polymarket_canary_executor_runs": table_summary(con, "qd_polymarket_canary_executor_runs"),
+        "qd_polymarket_canary_order_audit": table_summary(con, "qd_polymarket_canary_order_audit"),
         "qd_polymarket_markets": table_summary(con, "qd_polymarket_markets", "last_seen_at"),
         "qd_polymarket_related_asset_opportunities": table_summary(con, "qd_polymarket_related_asset_opportunities", "last_seen_at"),
     }
@@ -1626,6 +1749,37 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         """,
         (recent_limit,),
     )
+    recent_executor_runs = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, run_id AS runId, execution_mode AS executionMode,
+               decision, planned_orders AS plannedOrders, orders_sent AS ordersSent,
+               eligible_governance_rows AS eligibleGovernanceRows,
+               wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed,
+               preflight_blockers_json AS preflightBlockersJson
+        FROM qd_polymarket_canary_executor_runs
+        ORDER BY generated_at DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
+    recent_order_audit = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, run_id AS runId, candidate_id AS candidateId,
+               governance_id AS governanceId, market_id AS marketId, question, track, side,
+               token_id_present AS tokenIdPresent, limit_price AS limitPrice,
+               stake_usdc AS stakeUSDC, size, decision, order_sent AS orderSent,
+               wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed,
+               blockers_json AS blockersJson, adapter_status AS adapterStatus
+        FROM qd_polymarket_canary_order_audit
+        ORDER BY generated_at DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
     recent_market_catalog = fetch_rows(
         con,
         """
@@ -1672,13 +1826,13 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
     )
     return {
         "generatedAt": now_iso,
-        "mode": "POLYMARKET_HISTORY_DB_V6",
+        "mode": "POLYMARKET_HISTORY_DB_V7",
         "schemaVersion": SCHEMA_VERSION,
         "decision": "LOCAL_HISTORY_DB_NO_WALLET_WRITE",
         "database": {
             "path": str(db_path),
             "tables": list(tables.keys()),
-            "purpose": "Long-lived local Polymarket research memory for radar, QuantDinger-style market catalog, related asset opportunities, worker trend cache, worker queue, cross-market linkage, canary contracts, auto-governance, analysis, dry-run, outcome, and bridge snapshots.",
+            "purpose": "Long-lived local Polymarket research memory for radar, QuantDinger-style market catalog, related asset opportunities, worker trend cache, worker queue, cross-market linkage, canary contracts, auto-governance, guarded canary executor audit, analysis, dry-run, outcome, and bridge snapshots.",
         },
         "sourceFiles": source_files,
         "summary": {
@@ -1694,6 +1848,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "crossMarketLinkages": tables["qd_polymarket_cross_market_linkage"]["rows"],
             "canaryContracts": tables["qd_polymarket_canary_contracts"]["rows"],
             "autoGovernanceDecisions": tables["qd_polymarket_auto_governance"]["rows"],
+            "canaryExecutorRuns": tables["qd_polymarket_canary_executor_runs"]["rows"],
+            "canaryOrderAuditRows": tables["qd_polymarket_canary_order_audit"]["rows"],
             "marketCatalogRows": tables["qd_polymarket_markets"]["rows"],
             "relatedAssetOpportunities": tables["qd_polymarket_related_asset_opportunities"]["rows"],
             "latestAt": max((item["latestAt"] for item in tables.values() if item["latestAt"]), default=""),
@@ -1709,6 +1865,8 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "crossMarketLinkage": recent_cross_linkage,
             "canaryContracts": recent_canary_contracts,
             "autoGovernance": recent_auto_governance,
+            "canaryExecutorRuns": recent_executor_runs,
+            "canaryOrderAudit": recent_order_audit,
             "marketCatalog": recent_market_catalog,
             "relatedAssetOpportunities": recent_related_assets,
             "research": latest_research[0] if latest_research else {},
@@ -1769,6 +1927,7 @@ def main() -> int:
     cross_linkage, cross_linkage_path = read_json_candidate(CROSS_LINKAGE_NAME, runtime_dir, dashboard_dir)
     canary_contract, canary_contract_path = read_json_candidate(CANARY_CONTRACT_NAME, runtime_dir, dashboard_dir)
     auto_governance, auto_governance_path = read_json_candidate(AUTO_GOVERNANCE_NAME, runtime_dir, dashboard_dir)
+    canary_executor_run, canary_executor_run_path = read_json_candidate(CANARY_EXECUTOR_RUN_NAME, runtime_dir, dashboard_dir)
     market_catalog, market_catalog_path = read_json_candidate(MARKET_CATALOG_NAME, runtime_dir, dashboard_dir)
     related_asset_opportunities, related_asset_opportunities_path = read_json_candidate(
         RELATED_ASSET_OPPORTUNITY_NAME,
@@ -1787,6 +1946,7 @@ def main() -> int:
         CROSS_LINKAGE_NAME: cross_linkage_path,
         CANARY_CONTRACT_NAME: canary_contract_path,
         AUTO_GOVERNANCE_NAME: auto_governance_path,
+        CANARY_EXECUTOR_RUN_NAME: canary_executor_run_path,
         MARKET_CATALOG_NAME: market_catalog_path,
         RELATED_ASSET_OPPORTUNITY_NAME: related_asset_opportunities_path,
     }
@@ -1805,6 +1965,7 @@ def main() -> int:
         cross_linkage_rows = upsert_cross_market_linkage(con, cross_linkage, now_iso)
         canary_contract_rows = upsert_canary_contracts(con, canary_contract, now_iso)
         auto_governance_rows = upsert_auto_governance(con, auto_governance, now_iso)
+        canary_executor_run_rows, canary_order_audit_rows = upsert_canary_executor_run(con, canary_executor_run, now_iso)
         market_catalog_rows = upsert_market_catalog(con, market_catalog, now_iso)
         related_asset_opportunity_rows = upsert_related_asset_opportunities(con, related_asset_opportunities, now_iso)
         simulation_rows = dry_run_rows + outcome_rows
@@ -1816,9 +1977,10 @@ def main() -> int:
                 radar_rows, analysis_rows, simulation_rows, research_rows,
                 worker_rows, trend_rows, queue_rows, cross_linkage_rows,
                 canary_contract_rows, auto_governance_rows,
+                canary_executor_run_rows, canary_order_audit_rows,
                 market_catalog_rows, related_asset_opportunity_rows,
                 wallet_write_allowed, order_send_allowed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 run_id,
@@ -1836,6 +1998,8 @@ def main() -> int:
                 cross_linkage_rows,
                 canary_contract_rows,
                 auto_governance_rows,
+                canary_executor_run_rows,
+                canary_order_audit_rows,
                 market_catalog_rows,
                 related_asset_opportunity_rows,
             ),
