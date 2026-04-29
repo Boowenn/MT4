@@ -6187,6 +6187,7 @@
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
         .polymarket-canary-grid,
+        .polymarket-canary-run-grid,
         .polymarket-governance-grid,
         .polymarket-retune-grid,
         .polymarket-historydb-grid,
@@ -7993,6 +7994,21 @@
                 <div class="panel">
                     <div class="panel-header">
                         <div class="panel-title">
+                            <div class="icon" style="background: rgba(34,197,94,0.16); color: var(--accent-green);">R</div>
+                            真钱执行预检 / 审计
+                        </div>
+                        <span class="eval-summary" id="polymarketCanaryExecutorRunSummary">等待 executor 预检</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-canary-run-grid" id="polymarketCanaryExecutorRunBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketCanaryExecutorRun.json`；默认不下单。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
                             <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">G</div>
                             自动升降级治理
                         </div>
@@ -8058,6 +8074,8 @@
                                     <option value="cross-linkage">跨市场联动</option>
                                     <option value="canary-contracts">Canary 契约</option>
                                     <option value="auto-governance">自动治理</option>
+                                    <option value="canary-executor-runs">真钱预检</option>
+                                    <option value="canary-order-audit">真钱订单审计</option>
                                 </select>
                             </label>
                             <label class="polymarket-request-field polymarket-history-api-query-field">
@@ -9199,6 +9217,7 @@ const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.js
 const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
 const LOCAL_POLYMARKET_CANARY_CONTRACT_PATH = 'QuantGod_PolymarketCanaryExecutorContract.json';
 const LOCAL_POLYMARKET_AUTO_GOVERNANCE_PATH = 'QuantGod_PolymarketAutoGovernance.json';
+const LOCAL_POLYMARKET_CANARY_EXECUTOR_RUN_PATH = 'QuantGod_PolymarketCanaryExecutorRun.json';
 const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
 const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
@@ -9213,6 +9232,7 @@ const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
 const POLYMARKET_SEARCH_API_PATH = '/api/polymarket/search';
 const POLYMARKET_CANARY_CONTRACT_API_PATH = '/api/polymarket/canary-executor-contract';
 const POLYMARKET_AUTO_GOVERNANCE_API_PATH = '/api/polymarket/auto-governance';
+const POLYMARKET_CANARY_EXECUTOR_RUN_API_PATH = '/api/polymarket/canary-executor-run';
 const MT5_READONLY_SNAPSHOT_API_PATH = '/api/mt5-readonly/snapshot';
 const MT5_SYMBOL_REGISTRY_API_PATH = '/api/mt5-symbol-registry';
 const MT5_TRADING_STATUS_API_PATH = '/api/mt5/status';
@@ -10431,7 +10451,7 @@ async function loadPolymarketApiJson(path) {
 }
 
 function getPolymarketHistoryApiFilter() {
-    const table = ['all', 'markets', 'related-assets', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue', 'cross-linkage', 'canary-contracts', 'auto-governance'].includes(polymarketHistoryApiFilter.table)
+    const table = ['all', 'markets', 'related-assets', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue', 'cross-linkage', 'canary-contracts', 'auto-governance', 'canary-executor-runs', 'canary-order-audit'].includes(polymarketHistoryApiFilter.table)
         ? polymarketHistoryApiFilter.table
         : 'all';
     return {
@@ -10565,6 +10585,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         polymarketDryRunOutcomeWatcher: baseData?.polymarketDryRunOutcomeWatcher || previousData?.polymarketDryRunOutcomeWatcher || null,
         polymarketCanaryContract: baseData?.polymarketCanaryContract || previousData?.polymarketCanaryContract || null,
         polymarketAutoGovernance: baseData?.polymarketAutoGovernance || previousData?.polymarketAutoGovernance || null,
+        polymarketCanaryExecutorRun: baseData?.polymarketCanaryExecutorRun || previousData?.polymarketCanaryExecutorRun || null,
         polymarketHistoryDb: baseData?.polymarketHistoryDb || previousData?.polymarketHistoryDb || null,
         polymarketAiScore: baseData?.polymarketAiScore || previousData?.polymarketAiScore || null
     };
@@ -11011,6 +11032,22 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.polymarketCanaryExecutorRun = await loadPolymarketApiJson(POLYMARKET_CANARY_EXECUTOR_RUN_API_PATH);
+        data._polymarketCanaryExecutorRunError = false;
+        data._polymarketCanaryExecutorRunSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketCanaryExecutorRun = await loadLocalJsonSupplement(LOCAL_POLYMARKET_CANARY_EXECUTOR_RUN_PATH);
+            data._polymarketCanaryExecutorRunError = false;
+            data._polymarketCanaryExecutorRunSource = 'file';
+        } catch (fileError) {
+            data._polymarketCanaryExecutorRunError = true;
+            data._polymarketCanaryExecutorRunSource = 'unavailable';
+            console.warn('Polymarket canary executor run API/file load failed.', apiError, fileError);
+        }
+    }
+
+    try {
         data.polymarketHistoryDb = await loadPolymarketHistoryApiSupplement();
         data._polymarketHistoryDbError = false;
         data._polymarketHistoryDbSource = 'api';
@@ -11211,6 +11248,10 @@ function getPolymarketAutoGovernance(d) {
     return d?.polymarketAutoGovernance || null;
 }
 
+function getPolymarketCanaryExecutorRun(d) {
+    return d?.polymarketCanaryExecutorRun || null;
+}
+
 function getPolymarketHistoryDb(d) {
     return d?.polymarketHistoryDb || null;
 }
@@ -11275,6 +11316,37 @@ function translatePolymarketToken(value) {
         CROSS_MARKET_RISK_REVIEW: '跨市场风险需要复核',
         CROSS_LINKAGE_BOUNDARY_UNCLEAR: '跨市场边界不清晰',
         POLYMARKET_CANARY_EXECUTOR_CONTRACT_V1: 'Polymarket Canary 执行契约 V1',
+        POLYMARKET_CANARY_EXECUTOR_CONTRACT_V2: 'Polymarket Canary 执行契约 V2',
+        POLYMARKET_CANARY_EXECUTOR_RUN_V1: '真钱 Canary 执行预检 V1',
+        GUARDED_CANARY_CONTRACT_READY_NO_WALLET_WRITE_FROM_BUILDER: 'Canary 契约已生成：构建器不写钱包',
+        CANARY_CONTRACT_ONLY_NO_WALLET_WRITE: 'Canary 契约只读：不写钱包',
+        EVIDENCE_ELIGIBLE_SWITCH_REQUIRED: '证据达标，但仍需运行开关',
+        EVIDENCE_BLOCKED: '证据不足，阻断',
+        ELIGIBLE_FOR_CANARY_EXECUTOR_WHEN_RUNTIME_SWITCHES_ON: '运行开关全通过后可进入小额 Canary',
+        KEEP_DRY_RUN_UNTIL_POLICY_PASS: '继续 dry-run，直到策略阈值达标',
+        GUARDed_PLAN_ONLY_NO_ORDER: '受控计划模式：未下单',
+        GUARDED_PLAN_ONLY_NO_ORDER: '受控计划模式：未下单',
+        NO_REAL_ORDER_SENT: '未发送真钱订单',
+        ORDERS_SENT: '已发送真钱订单',
+        READY_TO_SEND_IF_ADAPTER_OK: '适配器通过即可发送',
+        BLOCKED_PRE_ORDER: '下单前已阻断',
+        PLAN_ONLY_FORCED: 'plan-only 强制开启',
+        REAL_EXECUTION_SWITCH_FALSE: '真钱执行开关关闭',
+        CANARY_ACK_MISSING: '真钱 Canary ACK 缺失',
+        CANARY_KILL_SWITCH_ON_OR_UNSET: 'Kill switch 开启或未设置',
+        REAL_MONEY_LOCK_FILE_MISSING: '真钱锁文件缺失',
+        WALLET_ADAPTER_NOT_ISOLATED_CLOB: '钱包适配器不是 isolated_clob',
+        PRIVATE_KEY_ENV_MISSING: '私钥环境变量缺失',
+        CLOB_HOST_ENV_MISSING: 'CLOB host 缺失',
+        GOVERNANCE_NOT_PROMOTED: '治理未提升',
+        AUTO_EXECUTOR_PERMISSION_BLOCKED: '自动执行权限阻断',
+        CONTRACT_EVIDENCE_NOT_READY: '契约证据未达标',
+        CLOB_TOKEN_ID_MISSING: 'CLOB tokenId 缺失',
+        STAKE_NOT_POSITIVE: '下注金额不是正数',
+        ORDER_SIZE_LT_MIN: '订单 size 小于最小值',
+        CONTRACT_BUILDER_SHOULD_NOT_GRANT_WALLET_WRITE: '构建器不得直接授权钱包写入',
+        AUTO_CANARY_EXECUTION_ELIGIBLE: '已达真钱 Canary 自动门槛',
+        CANARY_EXECUTOR_ALLOWED_WHEN_RUNTIME_SWITCHES_ON: '运行开关全通过后允许 executor',
         LIVE_BETTING_SWITCH_FALSE: '实盘下注开关关闭',
         OPERATOR_PROMOTION_REQUIRED: '需要人工明确提升到执行层',
         RESEARCH_GOVERNANCE_BLOCKS_LIVE: '研究治理仍阻止实盘',
@@ -12764,7 +12836,7 @@ function updatePolymarketCanaryContract(d) {
     const blockers = Array.isArray(contract.globalBlockers) ? contract.globalBlockers : [];
     const sourceLabel = d?._polymarketCanaryContractSource === 'api' || contract._api?.endpoint ? 'API' : '文件';
     if (summaryEl) {
-        summaryEl.textContent = `${sourceLabel} | 契约 ${summary.candidateContracts || 0} | 可执行 ${summary.eligibleNow || 0} | 钱包写入 ${safety.walletWriteAllowed ? '开' : '关'}`;
+        summaryEl.textContent = `${sourceLabel} | 契约 ${summary.candidateContracts || 0} | 证据达标 ${summary.evidenceEligible || 0} | 立即可执行 ${summary.eligibleNow || 0} | 钱包写入 ${safety.walletWriteAllowed ? '开' : '关'}`;
     }
     const boundaryCard = `
         <div class="polymarket-card danger">
@@ -12826,6 +12898,95 @@ function updatePolymarketCanaryContract(d) {
     ].join('') || '<div class="empty-state">暂无 Canary 契约候选。</div>';
 }
 
+function renderPolymarketCanaryOrderAuditCard(row = {}) {
+    const blockers = Array.isArray(row.blockers) ? row.blockers : safeParseJsonList(row.blockersJson);
+    const decision = String(row.decision || '').toUpperCase();
+    const sent = row.orderSent === true || row.orderSent === 'True' || row.orderSent === 'true';
+    const tone = sent ? 'good' : (decision.includes('BLOCK') || blockers.length ? 'danger' : 'watch');
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">订单审计</div>
+            <div class="polymarket-title">${escapeHtml(row.question || row.marketId || row.candidateId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('决策', translatePolymarketToken(row.decision || '--'))}
+                ${renderPolymarketMetric('发送', sent ? '是' : '否')}
+                ${renderPolymarketMetric('金额', `${formatMoney(row.stakeUSDC || 0)} USDC`)}
+                ${renderPolymarketMetric('限价', row.limitPrice ?? '--')}
+                ${renderPolymarketMetric('Token', row.tokenIdPresent ? '已配置' : '缺失')}
+                ${renderPolymarketMetric('适配器', row.adapterStatus || '--')}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">run ${escapeHtml(row.runId || '--')} · ${escapeHtml(row.side || 'YES')} · ${escapeHtml(row.track || '--')}</div>
+                <div class="polymarket-action">阻断 ${escapeHtml(translatePolymarketList(blockers, 8))}</div>
+            </div>
+            <div class="polymarket-note">只记录订单计划/预检/响应 id；不会记录私钥或钱包密钥。</div>
+        </div>
+    `;
+}
+
+function updatePolymarketCanaryExecutorRun(d) {
+    const run = getPolymarketCanaryExecutorRun(d);
+    const summaryEl = document.getElementById('polymarketCanaryExecutorRunSummary');
+    const body = document.getElementById('polymarketCanaryExecutorRunBody');
+    if (!body) return;
+    if (!run || d?._polymarketCanaryExecutorRunError) {
+        if (summaryEl) summaryEl.textContent = '等待 executor 预检';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketCanaryExecutorRun.json`；默认不下单。</div>';
+        return;
+    }
+    const summary = run.summary || {};
+    const env = run.envPreflight || {};
+    const safety = run.safety || {};
+    const blockers = Array.isArray(run.preflightBlockers) ? run.preflightBlockers : [];
+    const orders = Array.isArray(run.plannedOrders) ? run.plannedOrders : [];
+    const sourceLabel = d?._polymarketCanaryExecutorRunSource === 'api' || run._api?.endpoint ? 'API' : '文件';
+    if (summaryEl) {
+        summaryEl.textContent = `${sourceLabel} | 计划 ${summary.plannedOrders || 0} | 已发 ${summary.ordersSent || 0} | 钱包写入 ${summary.walletWriteAllowed ? '开' : '关'} | ${translatePolymarketToken(run.decision || 'NO_REAL_ORDER_SENT')}`;
+    }
+    const boundaryCard = `
+        <div class="polymarket-card ${summary.ordersSent ? 'good' : 'danger'}">
+            <div class="polymarket-eyebrow">真钱执行结论</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(run.executionMode || run.decision || 'GUARDED_PLAN_ONLY_NO_ORDER'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('读取私钥', safety.readsPrivateKeyValueOnlyInsideFinalAdapter ? '仅最终适配器' : '否')}
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('下单', safety.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">当前运行没有全部通过前置条件时不会发送真钱订单；这是 executor 级别的最后闸门。</div>
+        </div>
+    `;
+    const envCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">运行开关 / 锁文件</div>
+            <div class="polymarket-title">${escapeHtml(env.lockFile || 'runtime/Polymarket_Canary_Isolated/REAL_MONEY_CANARY.lock')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('真钱开关', env.realExecutionSwitch ? '开' : '关')}
+                ${renderPolymarketMetric('ACK', env.ackMatches ? '通过' : '缺失')}
+                ${renderPolymarketMetric('Kill switch', env.killSwitchOff ? '关闭' : '开启/未设')}
+                ${renderPolymarketMetric('锁文件', env.lockFileOk ? '通过' : '缺失')}
+                ${renderPolymarketMetric('适配器', env.walletAdapter || '--')}
+                ${renderPolymarketMetric('CLOB host', env.clobHostConfigured ? '已配置' : '缺失')}
+            </div>
+        </div>
+    `;
+    const blockerCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">预检阻断</div>
+            <div class="polymarket-title">${escapeHtml(blockers.length ? `${blockers.length} 个阻断` : '全部通过')}</div>
+            <div class="polymarket-action-list">
+                ${(blockers.length ? blockers : ['READY_BUT_NO_ORDER_UNLESS_ADAPTER_SENDS']).slice(0, 10).map((blocker) => `<div class="polymarket-action">${escapeHtml(translatePolymarketToken(blocker))}</div>`).join('')}
+            </div>
+        </div>
+    `;
+    body.innerHTML = [
+        boundaryCard,
+        envCard,
+        blockerCard,
+        ...orders.slice(0, 8).map(renderPolymarketCanaryOrderAuditCard)
+    ].join('') || '<div class="empty-state">暂无 executor 预检记录。</div>';
+}
+
 function renderPolymarketAutoGovernanceCard(row = {}) {
     const state = String(row.governanceState || '').toUpperCase();
     const risk = String(row.riskLevel || row.risk || '').toUpperCase();
@@ -12850,7 +13011,7 @@ function renderPolymarketAutoGovernanceCard(row = {}) {
                 <div class="polymarket-action">Canary ${escapeHtml(translatePolymarketToken(row.canaryState || '--'))} · dry-run ${escapeHtml(translatePolymarketToken(row.dryRunState || row.outcomeState || '--'))}</div>
                 <div class="polymarket-action">下一轮 ${escapeHtml(row.nextTest || '继续收集历史 / dry-run / AI 证据')}</div>
             </div>
-            <div class="polymarket-note">${escapeHtml(row.polymarketUrl || row.marketId || 'Polymarket')} · 自动治理只改研究建议，不开钱包、不下单、不影响 MT5。</div>
+            <div class="polymarket-note">${escapeHtml(row.polymarketUrl || row.marketId || 'Polymarket')} · 自动治理可放行到 isolated canary executor，但自身不开钱包、不下单、不影响 MT5。</div>
         </div>
     `;
 }
@@ -12871,7 +13032,7 @@ function updatePolymarketAutoGovernance(d) {
     const blockers = Array.isArray(governance.globalBlockers) ? governance.globalBlockers : [];
     const sourceLabel = d?._polymarketAutoGovernanceSource === 'api' || governance._api?.endpoint ? 'API' : '文件';
     if (summaryEl) {
-        summaryEl.textContent = `${sourceLabel} | 决策 ${summary.totalDecisions || rows.length || 0} | 提升复核 ${summary.promotionReview || 0} | 重调 ${summary.retuneRequired || 0} | 降级 ${summary.demote || 0} | 隔离 ${summary.quarantine || 0} | 钱包写入 ${safety.walletWriteAllowed ? '开' : '关'}`;
+        summaryEl.textContent = `${sourceLabel} | 决策 ${summary.totalDecisions || rows.length || 0} | 自动 Canary ${summary.autoCanaryEligible || 0} | 提升复核 ${summary.promotionReview || 0} | 重调 ${summary.retuneRequired || summary.retune || 0} | 降级 ${summary.demote || 0} | 隔离 ${summary.quarantine || 0} | 钱包写入 ${safety.walletWriteAllowed ? '开' : '关'}`;
     }
     const boundaryCard = `
         <div class="polymarket-card danger">
@@ -12883,7 +13044,7 @@ function updatePolymarketAutoGovernance(d) {
                 ${renderPolymarketMetric('启动执行器', safety.startsExecutor ? '是' : '否')}
                 ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
             </div>
-            <div class="polymarket-note">第 7 项只产生 promotion/demotion 研究建议；任何真钱 executor 仍需要单独授权和独立验收。</div>
+            <div class="polymarket-note">第 7 项已给出机器可读 promotion/demotion/retune/quarantine；真钱 executor 仍必须独立重检开关、锁、预算和钱包适配器。</div>
         </div>
     `;
     const summaryCard = `
@@ -12893,10 +13054,10 @@ function updatePolymarketAutoGovernance(d) {
             <div class="polymarket-metric">
                 ${renderPolymarketMetric('提升复核', summary.promotionReview || 0)}
                 ${renderPolymarketMetric('继续影子', summary.keepShadow || 0)}
-                ${renderPolymarketMetric('重调', summary.retuneRequired || 0)}
+                ${renderPolymarketMetric('重调', summary.retuneRequired || summary.retune || 0)}
                 ${renderPolymarketMetric('降级', summary.demote || 0)}
                 ${renderPolymarketMetric('隔离', summary.quarantine || 0)}
-                ${renderPolymarketMetric('可真执行', summary.liveExecutionAllowed || 0)}
+                ${renderPolymarketMetric('可真执行', summary.autoCanaryEligible || summary.liveExecutionAllowed || 0)}
             </div>
             <div class="polymarket-note">自动治理综合历史库、Worker、AI 分、dry-run/outcome、联动风险和 canary 契约。</div>
         </div>
@@ -18082,6 +18243,7 @@ function updateDashboard() {
     updatePolymarketDryRunOrders(d);
     updatePolymarketDryRunOutcomeWatcher(d);
     updatePolymarketCanaryContract(d);
+    updatePolymarketCanaryExecutorRun(d);
     updatePolymarketAutoGovernance(d);
     updatePolymarketRetunePlanner(d);
     updatePolymarketHistoryDb(d);

@@ -1,23 +1,45 @@
 #!/usr/bin/env python3
-"""Build Polymarket automatic promotion/demotion governance recommendations.
+"""Build Polymarket automatic promotion/demotion governance.
 
-This is a governance layer, not an executor. It reads existing research,
-history-aware AI score, dry-run outcome, cross-market linkage, Worker V2,
-retune, and canary-contract evidence, then writes auditable promotion/demotion
-states for shadow tracks. It never reads wallet secrets, writes wallets, calls
-CLOB/order APIs, starts an executor, or mutates MT5.
+V2 can mark a track as eligible for a future isolated real-money canary
+executor when dry-run outcome statistics, AI score, cross-market linkage, and
+risk policy all pass. This script itself remains side-effect free: no wallet
+secret reads, no order sends, no executor loop, and no MT5 mutation.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import io
 import json
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
 from typing import Any
+
+from polymarket_governance_utils import (
+    DEFAULT_REAL_MONEY_POLICY,
+    atomic_write_text,
+    build_outcome_profiles,
+    choose_evidence_profile,
+    evaluate_real_money_readiness,
+    first_text,
+    get_rows,
+    index_by_market,
+    index_outcomes,
+    market_key,
+    merge_policy,
+    read_json_candidate,
+    safe_int,
+    safe_number,
+    stable_id,
+    track_key,
+    unique,
+    utc_now_iso,
+)
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
@@ -35,7 +57,7 @@ CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
 
 OUTPUT_NAME = "QuantGod_PolymarketAutoGovernance.json"
 LEDGER_NAME = "QuantGod_PolymarketAutoGovernanceLedger.csv"
-SCHEMA_VERSION = "POLYMARKET_AUTO_GOVERNANCE_V1"
+SCHEMA_VERSION = "POLYMARKET_AUTO_GOVERNANCE_V2"
 
 LEDGER_FIELDS = [
     "generated_at",
@@ -51,25 +73,18 @@ LEDGER_FIELDS = [
     "score",
     "ai_score",
     "source_score",
-    "canary_state",
-    "dry_run_state",
-    "outcome_state",
-    "cross_risk_tag",
-    "macro_risk_state",
+    "samples",
+    "win_rate_pct",
+    "profit_factor",
+    "stop_loss_rate_pct",
+    "avg_return_pct",
     "blockers",
     "next_test",
+    "can_promote_to_live_execution",
     "wallet_write_allowed",
     "order_send_allowed",
     "starts_executor",
     "mutates_mt5",
-]
-
-HARD_EXECUTION_BLOCKERS = [
-    "WALLET_WRITE_DISABLED",
-    "ORDER_SEND_DISABLED",
-    "REAL_WALLET_EXECUTOR_NOT_WIRED",
-    "CANARY_ENABLE_SWITCH_FALSE",
-    "CANARY_CONTRACT_ONLY_NO_WALLET_WRITE",
 ]
 
 
@@ -90,117 +105,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--promotion-review-score", type=float, default=78.0)
     parser.add_argument("--keep-shadow-score", type=float, default=58.0)
     parser.add_argument("--demote-score", type=float, default=35.0)
-    parser.add_argument("--min-dry-run-outcomes", type=int, default=3)
+    parser.add_argument("--min-dry-run-outcomes", type=int, default=int(DEFAULT_REAL_MONEY_POLICY["minDryRunOutcomeSamples"]))
+    parser.add_argument("--min-dry-run-win-rate-pct", type=float, default=float(DEFAULT_REAL_MONEY_POLICY["minDryRunWinRatePct"]))
+    parser.add_argument("--min-dry-run-profit-factor", type=float, default=float(DEFAULT_REAL_MONEY_POLICY["minDryRunProfitFactor"]))
+    parser.add_argument("--max-dry-run-stop-loss-rate-pct", type=float, default=float(DEFAULT_REAL_MONEY_POLICY["maxDryRunStopLossRatePct"]))
+    parser.add_argument("--max-dry-run-consecutive-losses", type=int, default=int(DEFAULT_REAL_MONEY_POLICY["maxDryRunConsecutiveLosses"]))
+    parser.add_argument("--min-dry-run-average-return-pct", type=float, default=float(DEFAULT_REAL_MONEY_POLICY["minDryRunAverageReturnPct"]))
+    parser.add_argument("--min-ai-score", type=float, default=float(DEFAULT_REAL_MONEY_POLICY["minAiScore"]))
+    parser.add_argument("--min-composite-score", type=float, default=float(DEFAULT_REAL_MONEY_POLICY["minCompositeScore"]))
     return parser.parse_args()
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def utc_now_iso() -> str:
-    return utc_now().isoformat()
-
-
-def stable_id(*parts: Any) -> str:
-    raw = "|".join(str(part or "") for part in parts)
-    return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
-
-
-def atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8", newline="")
-    tmp.replace(path)
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def read_json_candidate(name: str, runtime_dir: Path, dashboard_dir: Path, explicit: str = "") -> tuple[dict[str, Any], str]:
-    candidates = [Path(explicit)] if explicit else []
-    candidates.extend([dashboard_dir / name, runtime_dir / name])
-    for path in candidates:
-        if not path or not path.exists():
-            continue
-        data = load_json(path)
-        if data:
-            return data, str(path)
-    return {}, ""
-
-
-def safe_number(value: Any, default: float | None = None) -> float | None:
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def safe_int(value: Any, default: int = 0) -> int:
-    try:
-        if value is None or value == "":
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def unique(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in items:
-        text = str(item or "").strip()
-        if text and text not in seen:
-            seen.add(text)
-            out.append(text)
-    return out
-
-
-def get_rows(payload: dict[str, Any], *keys: str) -> list[dict[str, Any]]:
-    for key in keys:
-        value = payload.get(key)
-        if isinstance(value, list):
-            return [row for row in value if isinstance(row, dict)]
-    return []
-
-
-def market_key(row: dict[str, Any]) -> str:
-    return str(row.get("marketId") or row.get("market_id") or "").strip()
-
-
-def first_text(*values: Any) -> str:
-    for value in values:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def index_by_market(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    out: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        key = market_key(row)
-        if key and key not in out:
-            out[key] = row
-    return out
-
-
-def index_outcomes(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    out: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        for key in (str(row.get("trackingKey") or "").strip(), market_key(row)):
-            if key and key not in out:
-                out[key] = row
-    return out
+def policy_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    return merge_policy(
+        {
+            "minDryRunOutcomeSamples": args.min_dry_run_outcomes,
+            "minDryRunWinRatePct": args.min_dry_run_win_rate_pct,
+            "minDryRunProfitFactor": args.min_dry_run_profit_factor,
+            "maxDryRunStopLossRatePct": args.max_dry_run_stop_loss_rate_pct,
+            "maxDryRunConsecutiveLosses": args.max_dry_run_consecutive_losses,
+            "minDryRunAverageReturnPct": args.min_dry_run_average_return_pct,
+            "minAiScore": args.min_ai_score,
+            "minCompositeScore": args.min_composite_score,
+        }
+    )
 
 
 def extract_global_state(research: dict[str, Any]) -> dict[str, Any]:
@@ -209,19 +137,18 @@ def extract_global_state(research: dict[str, Any]) -> dict[str, Any]:
     shadow = summary.get("shadow") if isinstance(summary.get("shadow"), dict) else {}
     account = research.get("accountSnapshot") if isinstance(research.get("accountSnapshot"), dict) else {}
     risk = research.get("risk") if isinstance(research.get("risk"), dict) else {}
-    executed_pnl = safe_number(executed.get("realizedPnl"), 0.0) or 0.0
-    shadow_pnl = safe_number(shadow.get("realizedPnl"), 0.0) or 0.0
+    executed_pnl = safe_number(executed.get("realizedPnl"), safe_number(research.get("latestPnl", {}).get("realizedPnl"), 0.0)) or 0.0
     executed_pf = safe_number(executed.get("profitFactor"), None)
     shadow_pf = safe_number(shadow.get("profitFactor"), None)
     return {
         "executedPnl": executed_pnl,
-        "shadowPnl": shadow_pnl,
         "executedProfitFactor": executed_pf,
-        "shadowProfitFactor": shadow_pf,
         "executedClosed": safe_int(executed.get("closed"), 0),
+        "shadowPnl": safe_number(shadow.get("realizedPnl"), 0.0) or 0.0,
+        "shadowProfitFactor": shadow_pf,
         "shadowClosed": safe_int(shadow.get("closed"), 0),
-        "cashUSDC": safe_number(account.get("cashUSDC"), None),
-        "configuredBankrollUSDC": safe_number(account.get("configuredBankrollUSDC"), None),
+        "cashUSDC": safe_number(account.get("cashUSDC"), safe_number(account.get("accountCash"), None)),
+        "configuredBankrollUSDC": safe_number(account.get("configuredBankrollUSDC"), safe_number(account.get("bankroll"), None)),
         "authState": str(account.get("authState") or ""),
         "riskState": str(risk.get("state") or risk.get("riskState") or ""),
         "lossQuarantine": bool(executed_pnl < 0 or (executed_pf is not None and executed_pf < 1.0)),
@@ -232,16 +159,13 @@ def global_blockers(global_state: dict[str, Any], missing_inputs: list[str]) -> 
     blockers: list[str] = []
     if global_state.get("lossQuarantine"):
         blockers.append("GLOBAL_LOSS_QUARANTINE")
-    if (global_state.get("executedProfitFactor") is not None and float(global_state["executedProfitFactor"]) < 1.0):
+    if global_state.get("executedProfitFactor") is not None and float(global_state["executedProfitFactor"]) < 1.0:
         blockers.append("EXECUTED_PF_BELOW_1")
-    if (global_state.get("shadowProfitFactor") is not None and float(global_state["shadowProfitFactor"]) < 1.0):
-        blockers.append("SHADOW_PF_BELOW_1")
     cash = global_state.get("cashUSDC")
     bankroll = global_state.get("configuredBankrollUSDC")
     if cash is not None and bankroll is not None and float(cash) < min(float(bankroll), 1.0):
         blockers.append("ACCOUNT_CASH_BELOW_BANKROLL")
     blockers.extend(f"MISSING_{name}" for name in missing_inputs)
-    blockers.extend(HARD_EXECUTION_BLOCKERS)
     return unique(blockers)
 
 
@@ -273,8 +197,7 @@ def make_seed_rows(
         add(row, "retune")
     for row in get_rows(radar_queue, "queue", "candidateQueue", "candidates"):
         add(row, "worker-queue")
-    worker_queue = radar_worker.get("candidateQueue") if isinstance(radar_worker.get("candidateQueue"), list) else []
-    for row in worker_queue:
+    for row in radar_worker.get("candidateQueue") if isinstance(radar_worker.get("candidateQueue"), list) else []:
         if isinstance(row, dict):
             add(row, "worker-v2")
     for row in get_rows(radar, "radar"):
@@ -283,134 +206,98 @@ def make_seed_rows(
 
 
 def score_for(seed: dict[str, Any], ai: dict[str, Any]) -> float:
-    score = safe_number(seed.get("score"), None)
+    score = safe_number(seed.get("score"), safe_number(seed.get("sourceScore"), None))
     if score is None:
-        score = safe_number(seed.get("sourceScore"), None)
-    if score is None:
-        score = safe_number(seed.get("aiRuleScore"), None)
-    ai_value = safe_number(ai.get("score"), None)
-    if score is None and ai_value is not None:
-        score = ai_value
-    if score is not None and ai_value is not None:
+        score = safe_number(seed.get("aiRuleScore"), safe_number(seed.get("radarScore"), 0.0)) or 0.0
+    ai_value = safe_number(ai.get("score"), safe_number(seed.get("aiScore"), None))
+    if ai_value is not None:
         score = (float(score) * 0.45) + (float(ai_value) * 0.55)
     return round(float(score or 0.0), 3)
 
 
-def row_blockers(
-    seed: dict[str, Any],
-    ai: dict[str, Any],
-    cross: dict[str, Any],
-    outcome: dict[str, Any],
-    score: float,
-    args: argparse.Namespace,
-) -> list[str]:
-    blockers: list[str] = []
-    ai_color = str(ai.get("color") or seed.get("aiColor") or "").lower()
-    ai_score = safe_number(ai.get("score"), safe_number(seed.get("aiScore"), None))
-    risk_text = str(seed.get("risk") or ai.get("risk") or cross.get("sourceRisk") or "").lower()
-    canary_blockers = seed.get("blockers") if isinstance(seed.get("blockers"), list) else []
-    blockers.extend(str(item) for item in canary_blockers)
-    if ai_color in {"red", "yellow"}:
-        blockers.append(f"AI_SCORE_{ai_color.upper()}_REVIEW")
-    if ai_score is not None and float(ai_score) < args.keep_shadow_score:
-        blockers.append("AI_SCORE_BELOW_KEEP_SHADOW_MIN")
-    if score < args.demote_score:
-        blockers.append("COMPOSITE_SCORE_DEMOTE_ZONE")
-    if risk_text and risk_text not in {"low", "green"}:
-        blockers.append("MARKET_RISK_NOT_LOW")
-    macro_state = str(cross.get("macroRiskState") or seed.get("macroRiskState") or "").upper()
-    if macro_state in {"HIGH", "RISK_ON", "REVIEW"}:
-        blockers.append("CROSS_MARKET_RISK_REVIEW")
-    if cross and cross.get("mt5ExecutionAllowed") is not False:
-        blockers.append("CROSS_LINKAGE_BOUNDARY_UNCLEAR")
-    if not outcome:
-        blockers.append("NO_DRY_RUN_OUTCOME_EVIDENCE")
-    elif str(outcome.get("state") or "").startswith("WOULD_EXIT"):
-        blockers.append("DRY_RUN_EXIT_TRIGGERED_REVIEW")
-    if seed.get("canaryEligibleNow") is False:
-        blockers.append("CANARY_NOT_ELIGIBLE_NOW")
-    return unique(blockers)
-
-
 def classify_decision(
     score: float,
-    blockers: list[str],
+    real_money_ready: bool,
+    readiness_blockers: list[str],
     global_blocker_list: list[str],
     args: argparse.Namespace,
 ) -> tuple[str, str, str, str]:
-    all_blockers = set(blockers + global_blocker_list)
-    hard_quarantine = {
-        "GLOBAL_LOSS_QUARANTINE",
-        "ACCOUNT_CASH_BELOW_BANKROLL",
-        "EXECUTED_PF_BELOW_1",
-        "DRY_RUN_EXIT_TRIGGERED_REVIEW",
-    }
-    if all_blockers.intersection(hard_quarantine):
+    all_blockers = set(readiness_blockers + global_blocker_list)
+    if {"GLOBAL_LOSS_QUARANTINE", "ACCOUNT_CASH_BELOW_BANKROLL", "EXECUTED_PF_BELOW_1"}.intersection(all_blockers):
         return (
             "QUARANTINE_NO_PROMOTION",
-            "禁止提升，保留研究/影子观察",
+            "进入隔离：不允许真钱 canary，继续只读研究和 dry-run。",
             "high",
-            "先修复亏损隔离、退出后验或资金/风险证据，再重新评分。",
+            "先修复亏损来源与退出后验；禁止自动下注。",
         )
-    if score < args.demote_score or "AI_SCORE_RED_REVIEW" in all_blockers:
+    if real_money_ready:
+        return (
+            "AUTO_CANARY_EXECUTION_ELIGIBLE",
+            "证据达标：允许 isolated executor 在开关与钱包适配器全部通过后自动开小额 canary。",
+            "low",
+            "只允许 0/1 个小额 canary，继续跟踪 TP/SL、撤单、退出与日亏预算。",
+        )
+    if score < args.demote_score or "AI_COLOR_RED_BLOCKED" in all_blockers:
         return (
             "DEMOTE_TO_RESEARCH_ONLY",
-            "降级到 research-only，停止进入 canary 候选",
+            "降级到 research-only：停止 canary 候选，重新设计筛选或题材边界。",
             "high",
-            "重跑单市场分析、重调筛选参数，只有新证据转绿后再回到影子队列。",
+            "回到机会雷达和单市场分析，先做反例归因。",
         )
-    if score < args.keep_shadow_score or "MARKET_RISK_NOT_LOW" in all_blockers or "CROSS_MARKET_RISK_REVIEW" in all_blockers:
+    if score < args.keep_shadow_score or "SIM_PROFIT_FACTOR_LT_MIN" in all_blockers or "SIM_WIN_RATE_LT_MIN" in all_blockers:
         return (
             "RETUNE_REQUIRED",
-            "保持影子，进入重调队列",
+            "继续模拟重调：当前 dry-run 胜率/PF/收益风险未达到真钱 canary 门槛。",
             "medium",
-            "优先调整筛选阈值、风险标签和退出参数，再生成新的 dry-run 样本。",
+            "优先调整筛选、价格边界、止损止盈和超时退出参数。",
         )
-    promotion_blockers = all_blockers.difference(HARD_EXECUTION_BLOCKERS).difference(
-        {
-            "CANARY_NOT_ELIGIBLE_NOW",
-            "CANARY_ENABLE_SWITCH_FALSE",
-            "OPERATOR_PROMOTION_REQUIRED",
-            "REAL_WALLET_EXECUTOR_NOT_WIRED",
-            "CANARY_CONTRACT_ONLY_NO_WALLET_WRITE",
-            "WALLET_WRITE_DISABLED",
-            "ORDER_SEND_DISABLED",
-        }
-    )
-    if score >= args.promotion_review_score and not promotion_blockers:
+    if score >= args.promotion_review_score:
         return (
-            "PROMOTION_REVIEW_SHADOW_ONLY",
-            "进入人工提升复核，但仍不允许真实下注",
-            "low",
-            "补齐人工复核、隔离钱包只读确认、canary 审计账本后，才允许考虑小额执行器。",
+            "PROMOTION_REVIEW_DRY_RUN",
+            "评分较强但证据不完整：继续 dry-run，不开放真钱。",
+            "watch",
+            "补齐 outcome 样本、AI 风险和 cross-market 联动后再复核。",
         )
     return (
         "KEEP_SHADOW_COLLECT_EVIDENCE",
-        "继续影子采样",
+        "保持 shadow/dry-run：样本还不够或缺关键证据。",
         "watch",
-        "继续积累 Worker/AI/dry-run/outcome 后验；样本足够后自动重新治理。",
+        "继续收集 Worker/AI/dry-run/outcome 证据。",
     )
 
 
 def build_decisions(
     args: argparse.Namespace,
+    policy: dict[str, Any],
     seeds: list[dict[str, Any]],
     ai_index: dict[str, dict[str, Any]],
     cross_index: dict[str, dict[str, Any]],
     outcome_index: dict[str, dict[str, Any]],
+    outcome_profiles: dict[str, dict[str, Any]],
     global_blocker_list: list[str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for seed in seeds[: max(1, args.max_decisions)]:
         market_id = market_key(seed)
-        track = first_text(seed.get("track"), seed.get("suggestedShadowTrack"), seed.get("shadowTrack"), "poly_shadow")
+        track = first_text(track_key(seed), "poly_shadow")
         tracking_key = str(seed.get("trackingKey") or "").strip()
         ai = ai_index.get(market_id) or {}
         cross = cross_index.get(market_id) or {}
         outcome = outcome_index.get(tracking_key) or outcome_index.get(market_id) or {}
         score = score_for(seed, ai)
-        blockers = unique([*global_blocker_list, *row_blockers(seed, ai, cross, outcome, score, args)])
-        governance_state, action, risk_level, next_test = classify_decision(score, blockers, global_blocker_list, args)
+        profile = choose_evidence_profile(seed, outcome_profiles, int(policy["minDryRunOutcomeSamples"]))
+        real_ready, readiness_blockers = evaluate_real_money_readiness(
+            candidate=seed,
+            ai=ai,
+            cross=cross,
+            evidence_profile=profile,
+            composite_score=score,
+            policy=policy,
+            global_blockers=global_blocker_list,
+        )
+        governance_state, action, risk_level, next_test = classify_decision(
+            score, real_ready, readiness_blockers, global_blocker_list, args
+        )
         row_id = "GOV-" + stable_id(market_id, seed.get("question"), track, governance_state)
         row = {
             "governanceId": row_id,
@@ -433,18 +320,20 @@ def build_decisions(
             "wouldExitReason": first_text(outcome.get("wouldExitReason")),
             "crossRiskTag": first_text(cross.get("primaryRiskTag"), seed.get("crossRiskTag")),
             "macroRiskState": first_text(cross.get("macroRiskState"), seed.get("macroRiskState")),
-            "blockers": blockers,
+            "evidenceProfile": profile,
+            "blockers": readiness_blockers,
             "sourceTypes": seed.get("sourceTypes") or [],
             "nextTest": next_test,
+            "autoExecutorPermission": "CANARY_EXECUTOR_ALLOWED_WHEN_RUNTIME_SWITCHES_ON" if real_ready else "BLOCKED",
+            "canPromoteToLiveExecution": real_ready,
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
             "startsExecutor": False,
             "mutatesMt5": False,
-            "canPromoteToLiveExecution": False,
             "auditLedger": LEDGER_NAME,
         }
         rows.append(row)
-    rows.sort(key=lambda item: (str(item["governanceState"]), -float(item.get("score") or 0.0)))
+    rows.sort(key=lambda item: (0 if item["canPromoteToLiveExecution"] else 1, str(item["governanceState"]), -float(item.get("score") or 0.0)))
     return rows
 
 
@@ -473,17 +362,29 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         CANARY_CONTRACT_NAME: canary_path,
     }
     missing_inputs = [name for name, path in source_files.items() if not path]
+    policy = policy_from_args(args)
     seeds = make_seed_rows(canary, ai_score, retune, radar_queue, radar_worker, radar)
     ai_index = index_by_market(get_rows(ai_score, "scores"))
     cross_index = index_by_market(get_rows(cross, "linkages"))
     outcome_rows = get_rows(outcome, "outcomes")
     outcome_index = index_outcomes(outcome_rows)
+    outcome_profiles = build_outcome_profiles(outcome_rows)
     global_state = extract_global_state(research)
     global_blocker_list = global_blockers(global_state, missing_inputs)
-    decisions = build_decisions(args, seeds, ai_index, cross_index, outcome_index, global_blocker_list)
+    decisions = build_decisions(
+        args,
+        policy,
+        seeds,
+        ai_index,
+        cross_index,
+        outcome_index,
+        outcome_profiles,
+        global_blocker_list,
+    )
     counts = {
         "totalDecisions": len(decisions),
-        "promotionReview": sum(1 for row in decisions if row["governanceState"] == "PROMOTION_REVIEW_SHADOW_ONLY"),
+        "autoCanaryEligible": sum(1 for row in decisions if row["governanceState"] == "AUTO_CANARY_EXECUTION_ELIGIBLE"),
+        "promotionReview": sum(1 for row in decisions if row["governanceState"] == "PROMOTION_REVIEW_DRY_RUN"),
         "keepShadow": sum(1 for row in decisions if row["governanceState"] == "KEEP_SHADOW_COLLECT_EVIDENCE"),
         "retune": sum(1 for row in decisions if row["governanceState"] == "RETUNE_REQUIRED"),
         "demote": sum(1 for row in decisions if row["governanceState"] == "DEMOTE_TO_RESEARCH_ONLY"),
@@ -491,23 +392,15 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     }
     generated = utc_now_iso()
     return {
-        "mode": "POLYMARKET_AUTO_GOVERNANCE_V1",
+        "mode": "POLYMARKET_AUTO_GOVERNANCE_V2",
         "schemaVersion": SCHEMA_VERSION,
         "generatedAt": generated,
         "status": "OK",
-        "decision": "AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE",
+        "decision": "AUTO_GOVERNANCE_WITH_REAL_MONEY_CANARY_GATE_NO_WALLET_WRITE",
         "sourceFiles": source_files,
         "globalState": global_state,
         "globalBlockers": global_blocker_list,
-        "policy": {
-            "promotionReviewScore": args.promotion_review_score,
-            "keepShadowScore": args.keep_shadow_score,
-            "demoteScore": args.demote_score,
-            "minDryRunOutcomes": args.min_dry_run_outcomes,
-            "promotionNeverEnablesWalletByItself": True,
-            "demotionCanBeAutomatic": True,
-            "walletExecutorRequiresSeparateModule": True,
-        },
+        "realMoneyPromotionPolicy": policy,
         "summary": {
             **counts,
             "inputSeeds": len(seeds),
@@ -531,15 +424,14 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "callsClobApi": False,
             "mutatesMt5": False,
             "mt5ExecutionAllowed": False,
-            "canPromoteToLiveExecution": False,
-            "boundary": "Automatic governance only writes recommendations and audit rows.",
+            "boundary": "Governance writes eligibility only. Executor must independently re-check all guardrails.",
         },
         "governanceDecisions": decisions,
         "nextActions": [
-            "Use QUARANTINE_NO_PROMOTION and DEMOTE_TO_RESEARCH_ONLY rows to stop weak tracks from entering canary review.",
-            "Use RETUNE_REQUIRED rows to create new shadow-only parameter/risk filter experiments.",
-            "Use PROMOTION_REVIEW_SHADOW_ONLY only as a human review queue; it does not permit wallet writes.",
-            "Before any real executor, require separate wallet isolation, order audit, position ledger, exit ledger, and kill switch verification.",
+            "AUTO_CANARY_EXECUTION_ELIGIBLE 才允许 isolated executor 在 runtime 开关通过后考虑真钱 canary。",
+            "RETUNE_REQUIRED 和 DEMOTE_TO_RESEARCH_ONLY 不得下注，只能进入重调与研究。",
+            "QUARANTINE_NO_PROMOTION 会阻断所有真钱权限。",
+            "真钱 executor 必须再次验证样本、AI 风险、预算、kill switch 和钱包适配器。",
         ],
     }
 
@@ -550,6 +442,7 @@ def to_csv(snapshot: dict[str, Any]) -> str:
     writer.writeheader()
     generated = snapshot.get("generatedAt", "")
     for row in snapshot.get("governanceDecisions") or []:
+        profile = row.get("evidenceProfile") if isinstance(row.get("evidenceProfile"), dict) else {}
         writer.writerow(
             {
                 "generated_at": generated,
@@ -565,13 +458,14 @@ def to_csv(snapshot: dict[str, Any]) -> str:
                 "score": row.get("score", ""),
                 "ai_score": row.get("aiScore", ""),
                 "source_score": row.get("sourceScore", ""),
-                "canary_state": row.get("canaryState", ""),
-                "dry_run_state": row.get("dryRunState", ""),
-                "outcome_state": row.get("outcomeState", ""),
-                "cross_risk_tag": row.get("crossRiskTag", ""),
-                "macro_risk_state": row.get("macroRiskState", ""),
+                "samples": profile.get("samples", 0),
+                "win_rate_pct": profile.get("winRatePct", 0),
+                "profit_factor": profile.get("profitFactor", 0),
+                "stop_loss_rate_pct": profile.get("stopLossRatePct", 0),
+                "avg_return_pct": profile.get("averageReturnPct", 0),
                 "blockers": " / ".join(row.get("blockers") or []),
                 "next_test": row.get("nextTest", ""),
+                "can_promote_to_live_execution": row.get("canPromoteToLiveExecution", False),
                 "wallet_write_allowed": row.get("walletWriteAllowed", False),
                 "order_send_allowed": row.get("orderSendAllowed", False),
                 "starts_executor": row.get("startsExecutor", False),
@@ -597,14 +491,16 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
 
 def main() -> int:
     args = parse_args()
-    runtime_dir = Path(args.runtime_dir)
-    dashboard_dir = Path(args.dashboard_dir) if args.dashboard_dir else None
     snapshot = build_snapshot(args)
-    written = write_outputs(snapshot, runtime_dir, dashboard_dir)
+    written = write_outputs(
+        snapshot,
+        Path(args.runtime_dir),
+        Path(args.dashboard_dir) if args.dashboard_dir else None,
+    )
     summary = snapshot["summary"]
     print(
         f"{snapshot['mode']} | decisions={summary['totalDecisions']} "
-        f"| promote_review={summary['promotionReview']} | quarantine={summary['quarantine']} "
+        f"| auto_canary={summary['autoCanaryEligible']} | quarantine={summary['quarantine']} "
         f"| wrote={len(written)}"
     )
     return 0
