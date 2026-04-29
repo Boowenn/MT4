@@ -1568,6 +1568,63 @@ h2 {
   grid-template-columns: 96px minmax(0, 1fr);
 }
 
+.governance-lane-rich,
+.compact-governance .governance-lane-rich,
+.risk-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+  gap: 10px;
+  align-items: center;
+}
+
+.governance-lane-rich.compact,
+.compact-governance .governance-lane-rich.compact,
+.wallet-boundary-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.lane-copy {
+  min-width: 0;
+}
+
+.lane-copy strong,
+.risk-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #f3f8ff;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-copy small {
+  display: block;
+  min-width: 0;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-chipset {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.governance-lane-rich.compact .lane-chipset,
+.wallet-boundary-row .lane-chipset {
+  justify-content: flex-start;
+}
+
 .canary-contract-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1799,6 +1856,18 @@ h2 {
 
 .radar-ticker-item {
   grid-template-columns: minmax(0, 1fr) 74px minmax(190px, 0.68fr);
+}
+
+.risk-link-row {
+  grid-template-columns: minmax(0, 1fr) minmax(210px, auto) minmax(0, 0.7fr);
+}
+
+.risk-link-row small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .governance-lane {
@@ -2173,22 +2242,32 @@ h2 {
   font-weight: 700;
 }
 
-.pill.blue {
+.pill.blue,
+.status-chip.blue {
   color: #95ceff;
   background: var(--blue-soft);
   border-color: rgba(31, 155, 255, 0.44);
 }
 
-.pill.green {
+.pill.green,
+.status-chip.green {
   color: #8ff0c2;
   background: var(--green-soft);
   border-color: rgba(51, 217, 154, 0.38);
 }
 
-.pill.amber {
+.pill.amber,
+.status-chip.amber {
   color: #ffd08a;
   background: var(--amber-soft);
   border-color: rgba(255, 184, 77, 0.42);
+}
+
+.pill.red,
+.status-chip.red {
+  color: #ff9aaa;
+  background: var(--red-soft);
+  border-color: rgba(255, 107, 134, 0.46);
 }
 
 .route-param,

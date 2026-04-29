@@ -285,6 +285,119 @@ function shortText(value, max = 120) {
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 }
 
+const evidenceLabelMap = {
+  EVIDENCE_BLOCKED: '证据不足',
+  SHADOW_OR_RESEARCH: '仅研究',
+  LOCKED: '已锁定',
+  BLOCKED: '阻断',
+  GLOBAL_LOSS_QUARANTINE: '全局亏损隔离',
+  LOSS_QUARANTINE: '亏损隔离',
+  EXECUTED_PF_BELOW_1: '实盘 PF < 1',
+  EXECUTED_WIN_RATE_LOW: '实盘胜率偏低',
+  EXECUTED_REALIZED_PNL_NEGATIVE: '实盘净损',
+  SIM_SAMPLE_LT_MIN: '模拟样本不足',
+  SIM_WIN_RATE_LT_MIN: '模拟胜率不足',
+  SIM_PROFIT_FACTOR_LT_MIN: '模拟 PF 不足',
+  SIM_AVG_RETURN_LT_MIN: '模拟均值不足',
+  AI_SCORE_LT_REAL_MONEY_MIN: 'AI 分不足',
+  AI_COLOR_YELLOW_BLOCKED: 'AI 黄灯阻断',
+  COMPOSITE_SCORE_LT_REAL_MONEY_MIN: '综合分不足',
+  REAL_EXECUTION_SWITCH_FALSE: '真钱开关关闭',
+  LIVE_BETTING_SWITCH_FALSE: '下注开关关闭',
+  CANARY_ACK_MISSING: '缺少哨兵确认',
+  CANARY_KILL_SWITCH_REQUIRED: '需要熔断开关',
+  WALLET_ADAPTER_NOT_VERIFIED: '钱包适配未验证',
+  ORDER_AUDIT_REQUIRED: '需要订单审计',
+  CONTRACT_ONLY_NO_WALLET_WRITE: '仅契约不写钱包',
+  OPERATOR_PROMOTION_REQUIRED: '需要人工晋级',
+  RESEARCH_GOVERNANCE_BLOCKS_LIVE: '研究治理阻断',
+  LOCAL_PNL_NEGATIVE_QUARANTINE: '本地亏损隔离',
+  RETUNE_RED_ROUTES_PRESENT: '存在红灯重调',
+  RETUNE_YELLOW_ROUTES_PRESENT: '存在黄灯重调',
+  QUARANTINE_NO_PROMOTION: '隔离中不晋级',
+  DRY_RUN_BLOCKED_BY_GATE: '模拟被 Gate 阻断',
+  GATE_BLOCKED_PRICE_WATCH_ONLY: '仅价格观察',
+  KEEP_DRY_RUN_UNTIL_POLICY_PASS: '继续模拟',
+  MACRO_RISK: '宏观风险',
+  WAR_GEOPOLITICS: '战争/地缘',
+  RATES: '利率',
+  USD: '美元',
+  JPY: '日元',
+  XAU: '黄金',
+  POLITICS: '政治',
+  SPORTS: '体育',
+  CRYPTO: '加密',
+  HIGH: '高',
+  MEDIUM: '中',
+  LOW: '低',
+  GREEN: '绿灯',
+  YELLOW: '黄灯',
+  RED: '红灯'
+};
+
+function humanEvidenceLabel(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '--';
+  const key = raw.toUpperCase().replace(/[\s-]+/g, '_');
+  if (evidenceLabelMap[key]) return evidenceLabelMap[key];
+  if (/[A-Z0-9]+_[A-Z0-9_]+/.test(raw)) {
+    return raw.toLowerCase().replace(/_/g, ' ');
+  }
+  return raw;
+}
+
+function evidenceTokens(...values) {
+  const flattened = values.flatMap((value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'object') return Object.keys(value);
+    return String(value)
+      .split(/[,/|;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  });
+  const seen = new Set();
+  return flattened
+    .map(humanEvidenceLabel)
+    .filter((label) => label && label !== '--')
+    .filter((label) => {
+      const key = label.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function governanceTitle(row) {
+  return shortText(first(row?.question, row?.market, row?.title, row?.marketId, row?.governanceId), 86);
+}
+
+function governanceDecisionLabel(row) {
+  return humanEvidenceLabel(first(row?.decision, row?.currentState, row?.governanceState, row?.action, row?.canaryState, '观察'));
+}
+
+function governanceDetail(row) {
+  return shortText(first(row?.nextTest, row?.reason, row?.blocker, row?.marketId, '保持只读/模拟，等待证据改善。'), 96);
+}
+
+function crossRiskLabel(row) {
+  return humanEvidenceLabel(first(row?.primaryRiskTag, row?.macroRiskState, row?.category, '风险'));
+}
+
+function crossAssetLabels(row) {
+  return evidenceTokens(row?.linkedMt5Symbols).slice(0, 4);
+}
+
+function crossDetail(row) {
+  const keywordMap = row?.matchedKeywords || {};
+  const keywords = Object.values(keywordMap).flat().slice(0, 4).join(' / ');
+  return shortText(first(row?.reason, keywords, row?.riskTags?.join?.(', '), row?.sourceTypes?.join?.(', '), '只做风险联动证据'), 110);
+}
+
+function blockerChips(row, max = 3) {
+  return evidenceTokens(row?.blockers, row?.globalBlockers, row?.reason, row?.blocker).slice(0, max);
+}
+
 function routeName(row) {
   return String(first(row?.key, row?.route, row?.strategy, row?.strategyName, row?.name, row?.candidateId, '')).toUpperCase();
 }
@@ -2358,9 +2471,15 @@ onBeforeUnmount(() => {
               <small>账户 / 钱包 / 自动治理边界</small>
             </div>
             <div class="governance-lanes">
-              <div v-for="row in governanceRows.slice(0, 5)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
-                <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
-                <span>{{ shortText(first(row.market, row.title, row.reason, row.marketId), 110) }}</span>
+              <div v-for="row in governanceRows.slice(0, 5)" :key="first(row.governanceId, row.marketId)" class="governance-lane governance-lane-rich">
+                <div class="lane-copy">
+                  <strong>{{ governanceTitle(row) }}</strong>
+                  <small>{{ governanceDetail(row) }}</small>
+                </div>
+                <div class="lane-chipset">
+                  <b class="status-chip amber">{{ governanceDecisionLabel(row) }}</b>
+                  <span v-for="chip in blockerChips(row, 2)" :key="chip" class="status-chip">{{ chip }}</span>
+                </div>
               </div>
               <div v-if="!governanceRows.length" class="rail-empty">暂无自动治理建议；保持只读与模拟执行。</div>
             </div>
@@ -2371,10 +2490,13 @@ onBeforeUnmount(() => {
               <small>{{ crossRows.length }} 条</small>
             </div>
             <div class="radar-ticker">
-              <div v-for="row in crossRows.slice(0, 5)" :key="first(row.eventTitle, row.marketId)" class="radar-ticker-item">
-                <span>{{ shortText(first(row.eventTitle, row.market, row.marketId), 66) }}</span>
-                <strong>{{ first(row.primaryRiskTag, row.macroRiskState, row.category, '风险') }}</strong>
-                <small>{{ shortText(first(row.linkedMt5Symbols?.join?.(', '), row.reason, row.matchedKeywords?.join?.(', ')), 92) }}</small>
+              <div v-for="row in crossRows.slice(0, 5)" :key="first(row.eventTitle, row.marketId)" class="radar-ticker-item risk-link-row">
+                <span class="risk-title">{{ shortText(first(row.eventTitle, row.question, row.market, row.marketId), 76) }}</span>
+                <div class="lane-chipset">
+                  <strong class="status-chip red">{{ crossRiskLabel(row) }}</strong>
+                  <span v-for="asset in crossAssetLabels(row)" :key="asset" class="status-chip blue">{{ asset }}</span>
+                </div>
+                <small>{{ crossDetail(row) }}</small>
               </div>
               <div v-if="!crossRows.length" class="rail-empty">暂无 USD / JPY / XAU / 宏观联动证据。</div>
             </div>
@@ -2455,9 +2577,15 @@ onBeforeUnmount(() => {
               <div v-if="!aiScores.length" class="rail-empty">暂无 AI score。</div>
             </div>
             <div class="governance-lanes compact-governance">
-              <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
-                <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
-                <span>{{ shortText(first(row.market, row.title, row.marketId, row.reason), 86) }}</span>
+              <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane governance-lane-rich compact">
+                <div class="lane-copy">
+                  <strong>{{ governanceTitle(row) }}</strong>
+                  <small>{{ governanceDetail(row) }}</small>
+                </div>
+                <div class="lane-chipset">
+                  <b class="status-chip amber">{{ governanceDecisionLabel(row) }}</b>
+                  <span v-for="chip in blockerChips(row, 1)" :key="chip" class="status-chip">{{ chip }}</span>
+                </div>
               </div>
               <div v-if="!governanceRows.length" class="rail-empty">暂无自动治理建议。</div>
             </div>
@@ -2510,11 +2638,11 @@ onBeforeUnmount(() => {
             <div class="canary-contract-grid">
               <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="canary-card">
                 <div>
-                  <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 76) }}</strong>
-                  <span>{{ first(row.canaryState, row.decision, '模拟') }}</span>
+                  <strong>{{ shortText(first(row.question, row.market, row.title, row.marketId, row.canaryContractId), 76) }}</strong>
+                  <span>{{ humanEvidenceLabel(first(row.canaryState, row.decision, '模拟')) }}</span>
                 </div>
                 <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
-                <p>{{ shortText(first(row.blockers?.join?.(' / '), row.blocker, row.exitRule, '钱包锁定，等待模拟后验。'), 120) }}</p>
+                <p>{{ blockerChips(row, 4).join(' / ') || shortText(first(row.exitRule, '钱包锁定，等待模拟后验。'), 120) }}</p>
               </div>
               <div v-if="!canaryRows.length" class="rail-empty">暂无小额哨兵契约；真实钱包仍保持锁定。</div>
             </div>
@@ -2522,13 +2650,19 @@ onBeforeUnmount(() => {
           <article class="panel poly-side-console">
             <div class="panel-title split">
               <span>真钱边界</span>
-              <b class="pill red">LOCKED</b>
+              <b class="pill red">已锁定</b>
             </div>
             <p>真实钱包 executor 仍未启用。这里只验证准入、单笔金额、止盈止损、最大日亏、撤单/退出和 ledger 审计契约。</p>
             <div class="governance-lanes compact-governance">
-              <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
-                <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
-                <span>{{ shortText(first(row.reason, row.blockers?.join?.(', '), row.market), 86) }}</span>
+              <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane governance-lane-rich wallet-boundary-row">
+                <div class="lane-copy">
+                  <strong>{{ governanceTitle(row) }}</strong>
+                  <small>{{ governanceDetail(row) }}</small>
+                </div>
+                <div class="lane-chipset">
+                  <b class="status-chip red">{{ governanceDecisionLabel(row) }}</b>
+                  <span v-for="chip in blockerChips(row, 2)" :key="chip" class="status-chip">{{ chip }}</span>
+                </div>
               </div>
             </div>
           </article>
