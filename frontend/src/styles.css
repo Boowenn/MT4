@@ -56,7 +56,7 @@ button {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
   padding: 16px 12px;
   background: rgba(2, 5, 8, 0.94);
   border-right: 1px solid var(--line);
@@ -100,13 +100,30 @@ nav {
   gap: 7px;
 }
 
+.nav-structured {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(129, 151, 178, 0.35) transparent;
+}
+
+.nav-separator {
+  margin: 10px 8px 2px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 50px;
-  padding: 10px 12px;
+  min-height: 46px;
+  padding: 9px 12px;
   color: var(--muted);
   text-align: left;
   background: transparent;
@@ -485,6 +502,54 @@ h2 {
 .route-tabs button.selected {
   background: var(--blue-soft);
   border-color: rgba(31, 155, 255, 0.55);
+}
+
+.overview-radar {
+  border-color: rgba(31, 155, 255, 0.24);
+}
+
+.radar-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.radar-item {
+  min-width: 0;
+  min-height: 96px;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(13, 21, 30, 0.96), rgba(17, 24, 34, 0.96));
+  border: 1px solid rgba(129, 151, 178, 0.22);
+  border-radius: 8px;
+}
+
+.radar-label,
+.radar-sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.radar-value {
+  display: block;
+  margin: 12px 0 6px;
+  overflow: hidden;
+  color: #f6fbff;
+  font-size: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-sub {
+  color: var(--faint);
+  font-size: 12px;
 }
 
 .section-grid {

@@ -33,6 +33,8 @@ const workspaces = [
 
 const state = reactive({
   active: 'home',
+  mt5Focus: 'overview',
+  polymarketFocus: 'overview',
   loading: false,
   loadedAt: '',
   error: '',
@@ -51,6 +53,26 @@ const paramTaskFilter = ref('全部');
 const paramRouteFilter = ref('全部');
 const paramSortMode = ref('优先级');
 
+const mt5WorkspaceIds = new Set(['mt5', 'paramlab', 'charts', 'reports']);
+
+const mt5NavItems = [
+  { id: 'mt5', focus: 'overview', label: 'AI Evidence', sub: '总览雷达', icon: Gauge },
+  { id: 'mt5', focus: 'strategy', label: 'Strategy & Live', sub: '策略工作台', icon: LineChart },
+  { id: 'charts', focus: 'monitor', label: 'Indicator Market', sub: '品种监控', icon: TrendingUp },
+  { id: 'paramlab', focus: 'paramlab', label: 'ParamLab', sub: '回测闭环', icon: ClipboardList },
+  { id: 'mt5', focus: 'trades', label: '交易机器人', sub: 'EA 只读', icon: Activity },
+  { id: 'reports', focus: 'reports', label: 'Reports', sub: '证据报表', icon: BarChart3 }
+];
+
+const polymarketNavItems = [
+  { id: 'polymarket', focus: 'overview', label: '治理总览', sub: '账户与边界', icon: Network },
+  { id: 'polymarket', focus: 'browser', label: '市场浏览', sub: '目录 / 详情', icon: ClipboardList },
+  { id: 'polymarket', focus: 'radar', label: '机会雷达', sub: 'Gamma 扫描', icon: Target },
+  { id: 'polymarket', focus: 'analysis', label: '单市场分析', sub: 'URL/标题入口', icon: Search },
+  { id: 'polymarket', focus: 'execution', label: '执行模拟', sub: 'Gate / dry-run', icon: WalletCards },
+  { id: 'polymarket', focus: 'ledger', label: '重调账本', sub: '样本与日志', icon: BarChart3 }
+];
+
 const routeDisplayMap = {
   MA_CROSS: 'MA',
   RSI_REVERSAL: 'RSI',
@@ -68,12 +90,32 @@ function syncActiveFromHash() {
   state.active = normalizeWorkspace(hash || 'home');
 }
 
-function setActive(id) {
+function workspaceDomainFor(id) {
+  if (id === 'polymarket') return 'polymarket';
+  if (mt5WorkspaceIds.has(id)) return 'mt5';
+  return 'home';
+}
+
+function setActive(id, focus = '') {
   state.active = normalizeWorkspace(id);
+  if (workspaceDomainFor(state.active) === 'mt5' && focus) {
+    state.mt5Focus = focus;
+  }
+  if (state.active === 'polymarket' && focus) {
+    state.polymarketFocus = focus;
+  }
   const nextHash = state.active === 'home' ? '' : `#${state.active}`;
   if (window.location.hash !== nextHash) {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
   }
+}
+
+function navItemActive(item) {
+  if (item.focus) {
+    if (item.id === 'polymarket') return state.active === item.id && state.polymarketFocus === item.focus;
+    return state.active === item.id && state.mt5Focus === item.focus;
+  }
+  return state.active === item.id;
 }
 
 function arrayFrom(value, keys = []) {
@@ -242,6 +284,18 @@ function summaryValue(payload, key, fallback = '--') {
   return first(payload?.summary?.[key], payload?.[key], fallback);
 }
 
+function nextWindowLabel(minutes) {
+  const now = new Date();
+  const next = new Date(now);
+  if (minutes >= 60) {
+    next.setHours(now.getHours() + 1, 0, 0, 0);
+  } else {
+    const nextMinute = Math.ceil((now.getMinutes() + 1) / minutes) * minutes;
+    next.setMinutes(nextMinute, 0, 0);
+  }
+  return next.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 async function refresh() {
   state.loading = true;
   state.error = '';
@@ -300,6 +354,66 @@ const mt5Routes = computed(() => {
     if (activeRoute.value === '全部') return true;
     return routeName(row).includes(activeRoute.value);
   }).slice(0, 10);
+});
+
+const mt5ExecutionRadarItems = computed(() => {
+  const snap = mt5.value.snapshot || {};
+  const latest = mt5.value.latest || {};
+  const account = mt5Account.value;
+  const route = primaryRoute.value;
+  const news = first(latest.newsStatus, snap.newsStatus, snap.calendar?.status, '等待日历');
+  return [
+    {
+      label: '运行状态',
+      value: first(snap.status, snap.ok === true ? '已连接' : '未连接'),
+      sub: first(snap.mode, snap.permissions?.mode, latest.mode, '只读监控')
+    },
+    {
+      label: '服务器时钟',
+      value: shortText(first(snap.serverTime, snap.serverTimeIso, latest.serverTime, '--'), 18),
+      sub: `本地 ${first(state.loadedAt, '--')}`
+    },
+    {
+      label: '行情新鲜度',
+      value: first(snap.tickAgeSeconds, latest.tickAgeSeconds, latest.tickAge, '--'),
+      sub: `点差 ${first(snap.spread, latest.spread, latest.spreadPoints, '--')}`
+    },
+    {
+      label: '仓位容量',
+      value: `${mt5Positions.value.length}/${first(snap.maxTotalPositions, snap.risk?.maxTotalPositions, latest.maxTotalPositions, 1)}`,
+      sub: `净值 ${money(first(account.equity, latest.equity))}`
+    },
+    {
+      label: 'M15 评估窗口',
+      value: nextWindowLabel(15),
+      sub: 'MA / SR / 短周期候选'
+    },
+    {
+      label: 'H1 评估窗口',
+      value: nextWindowLabel(60),
+      sub: 'RSI / BB / MACD'
+    },
+    {
+      label: '机会焦点',
+      value: shortText(first(route.label, route.route, route.strategy, '等待机会'), 22),
+      sub: routeActionLabel(route)
+    },
+    {
+      label: '阻塞摘要',
+      value: shortText(routeBlockerText(route), 24),
+      sub: first(route.feedback?.riskLevel, route.riskLevel, '等待信号')
+    },
+    {
+      label: 'USD 新闻过滤',
+      value: news,
+      sub: first(snap.calendar?.blocker, latest.newsBlocker, '无新增高危新闻')
+    },
+    {
+      label: '下一条新闻',
+      value: shortText(first(snap.nextNewsEvent, latest.nextNewsEvent, '--'), 22),
+      sub: first(snap.nextNewsTime, latest.nextNewsTime, '服务器时间 --')
+    }
+  ];
 });
 
 const rawParamTasks = computed(() => {
@@ -692,14 +806,44 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <nav>
+      <nav class="nav-structured">
         <button
-          v-for="item in workspaces"
-          :key="item.id"
           class="nav-item"
-          :class="{ active: state.active === item.id }"
+          :class="{ active: state.active === 'home' }"
           type="button"
-          @click="setActive(item.id)"
+          @click="setActive('home')"
+        >
+          <Gauge :size="18" />
+          <span>
+            <strong>Entry</strong>
+            <small>系统入口</small>
+          </span>
+        </button>
+
+        <div class="nav-separator">MT5</div>
+        <button
+          v-for="item in mt5NavItems"
+          :key="`${item.id}-${item.focus}`"
+          class="nav-item"
+          :class="{ active: navItemActive(item) }"
+          type="button"
+          @click="setActive(item.id, item.focus)"
+        >
+          <component :is="item.icon" :size="18" />
+          <span>
+            <strong>{{ item.label }}</strong>
+            <small>{{ item.sub }}</small>
+          </span>
+        </button>
+
+        <div class="nav-separator">Polymarket</div>
+        <button
+          v-for="item in polymarketNavItems"
+          :key="`${item.id}-${item.focus}`"
+          class="nav-item"
+          :class="{ active: navItemActive(item) }"
+          type="button"
+          @click="setActive(item.id, item.focus)"
         >
           <component :is="item.icon" :size="18" />
           <span>
@@ -851,6 +995,20 @@ onBeforeUnmount(() => {
           <div class="metric"><span>持仓</span><strong>{{ mt5Positions.length }}</strong><small>单仓和 0.01 约束由 EA 控制</small></div>
           <div class="metric"><span>状态</span><strong>{{ first(mt5.snapshot?.status, mt5.snapshot?.ok ? '已连接' : '未连接') }}</strong><small>只读桥 / dashboard snapshot</small></div>
         </div>
+
+        <article class="panel overview-radar">
+          <div class="panel-title split">
+            <span>执行雷达</span>
+            <small>从旧页 AI Evidence / 总览雷达迁回 Vue</small>
+          </div>
+          <div class="radar-grid">
+            <div v-for="item in mt5ExecutionRadarItems" :key="item.label" class="radar-item">
+              <span class="radar-label">{{ item.label }}</span>
+              <strong class="radar-value">{{ item.value }}</strong>
+              <small class="radar-sub">{{ item.sub }}</small>
+            </div>
+          </div>
+        </article>
 
         <div class="card-grid">
           <article v-for="row in mt5Routes" :key="first(row.versionId, row.route, row.name)" class="panel dense">
