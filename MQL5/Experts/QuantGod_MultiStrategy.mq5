@@ -4,12 +4,12 @@
 //+------------------------------------------------------------------+
 #property copyright "QuantGod"
 #property link      "https://github.com/Boowenn/MT4"
-#property version   "3.14"
+#property version   "3.15"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string DashboardBuild      = "QuantGod-v3.14-mt5-rsi-failfast";
+input string DashboardBuild      = "QuantGod-v3.15-mt5-live-risk-iteration";
 input string Watchlist           = "EURUSD,USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
@@ -23,9 +23,9 @@ input bool   EnablePilotRsiH1Candidate = true;
 input bool   EnablePilotRsiH1Live      = false;
 input ENUM_TIMEFRAMES PilotRsiTimeframe = PERIOD_H1;
 input int    PilotRsiPeriod           = 2;
-input int    PilotRsiOverbought       = 80;
-input int    PilotRsiOversold         = 20;
-input double PilotRsiBandTolerancePct = 0.008;
+input int    PilotRsiOverbought       = 85;
+input int    PilotRsiOversold         = 15;
+input double PilotRsiBandTolerancePct = 0.006;
 input double PilotRsiATRMultiplierSL  = 1.5;
 input bool   EnablePilotRsiFastExitProtect = true;
 input int    PilotRsiProtectMinAgeMinutes = 10;
@@ -40,7 +40,12 @@ input double PilotRsiFailFastMinLossPips   = 8.0;
 input double PilotRsiFailFastMaxLossUSC    = 1.20;
 input double PilotRsiFailFastStopBufferPips = 2.5;
 input double PilotRsiFailFastStepPips      = 0.5;
-input bool   PilotRsiFailFastCloseOnMaxLoss = false;
+input bool   PilotRsiFailFastCloseOnMaxLoss = true;
+input bool   EnablePilotRsiTimeStopProtect = true;
+input int    PilotRsiMaxHoldMinutes       = 90;
+input bool   PilotRsiCloseOnServerDayChange = true;
+input bool   PilotRsiBlockSellInUptrend   = true;
+input bool   PilotRsiRangeTightBuyOnly    = true;
 input bool   EnablePilotBBH1Candidate = true;
 input bool   EnablePilotBBH1Live      = false;
 input ENUM_TIMEFRAMES PilotBBTimeframe = PERIOD_H1;
@@ -101,12 +106,13 @@ input int    PilotMaxTotalPositions   = 1;
 input int    PilotMaxPositionsPerSymbol = 1;
 input bool   PilotBlockManualPerSymbol  = false;
 input bool   PilotRestrictSession       = true;
-input int    PilotSessionStartHour      = 7;
-input int    PilotSessionEndHour        = 21;
+input int    PilotSessionStartHour      = 8;
+input int    PilotSessionEndHour        = 15;
 input bool   EnablePilotNewsFilter      = true;
-input int    PilotNewsPreBlockMinutes   = 10;
-input int    PilotNewsPostBlockMinutes  = 5;
-input int    PilotNewsBiasMinutes       = 45;
+input int    PilotNewsPreBlockMinutes   = 30;
+input int    PilotNewsHighImpactPreBlockMinutes = 60;
+input int    PilotNewsPostBlockMinutes  = 30;
+input int    PilotNewsBiasMinutes       = 60;
 input int    PilotNewsRefreshSeconds    = 15;
 input bool   EnableShadowOutcomeLedger  = true;
 input int    ShadowOutcomeMaxSourceRows = 800;
@@ -363,6 +369,7 @@ ulong g_usdTrackedEventIds[];
 string g_usdTrackedEventNames[];
 string g_usdTrackedEventCodes[];
 int g_usdTrackedEventKinds[];
+int g_usdTrackedEventImportance[];
 NewsFilterState g_newsState;
 datetime g_lastNewsRefresh = 0;
 
@@ -747,6 +754,7 @@ void LoadTrackedUsdCalendarEvents()
    ArrayResize(g_usdTrackedEventNames, 0);
    ArrayResize(g_usdTrackedEventCodes, 0);
    ArrayResize(g_usdTrackedEventKinds, 0);
+   ArrayResize(g_usdTrackedEventImportance, 0);
 
    if(!EnablePilotNewsFilter)
       return;
@@ -774,6 +782,7 @@ void LoadTrackedUsdCalendarEvents()
       PushString(g_usdTrackedEventNames, events[i].name);
       PushString(g_usdTrackedEventCodes, events[i].event_code);
       PushInt(g_usdTrackedEventKinds, kind);
+      PushInt(g_usdTrackedEventImportance, (int)events[i].importance);
    }
 
    if(ArraySize(g_usdTrackedEventIds) > 0)
@@ -864,8 +873,9 @@ void RefreshNewsFilterState(bool force=false)
 
    g_newsState.calendarAvailable = true;
 
+   int maxPreBlockMinutes = MathMax(PilotNewsPreBlockMinutes, PilotNewsHighImpactPreBlockMinutes);
    datetime fromTime = now - (MathMax(PilotNewsBiasMinutes, PilotNewsPostBlockMinutes) + 60) * 60;
-   datetime toTime = now + 360 * 60;
+   datetime toTime = now + MathMax(360, maxPreBlockMinutes + 60) * 60;
 
    bool hasPreBlock = false;
    datetime preBlockTime = 0;
@@ -916,9 +926,13 @@ void RefreshNewsFilterState(bool force=false)
          string eventName = g_usdTrackedEventNames[i];
          string eventCode = (i < ArraySize(g_usdTrackedEventCodes)) ? g_usdTrackedEventCodes[i] : "";
          int eventKind = (i < ArraySize(g_usdTrackedEventKinds)) ? g_usdTrackedEventKinds[i] : USD_NEWS_UNKNOWN;
+         int eventImportance = (i < ArraySize(g_usdTrackedEventImportance)) ? g_usdTrackedEventImportance[i] : (int)CALENDAR_IMPORTANCE_MODERATE;
          if(eventTime > now)
          {
             int minutesToEvent = (int)MathMax(0, (long)(eventTime - now) / 60);
+            int preBlockWindow = PilotNewsPreBlockMinutes;
+            if(eventImportance >= (int)CALENDAR_IMPORTANCE_HIGH)
+               preBlockWindow = MathMax(preBlockWindow, PilotNewsHighImpactPreBlockMinutes);
             if(!hasUpcoming || eventTime < upcomingTime)
             {
                hasUpcoming = true;
@@ -928,7 +942,7 @@ void RefreshNewsFilterState(bool force=false)
                upcomingKind = eventKind;
                upcomingMinutes = minutesToEvent;
             }
-            if(minutesToEvent <= PilotNewsPreBlockMinutes && (!hasPreBlock || eventTime < preBlockTime))
+            if(minutesToEvent <= preBlockWindow && (!hasPreBlock || eventTime < preBlockTime))
             {
                hasPreBlock = true;
                preBlockTime = eventTime;
@@ -1222,6 +1236,20 @@ bool IsPilotLiveMode()
 bool IsUsdJpySymbol(string symbol)
 {
    return (StringFind(ToUpperString(symbol), "USDJPY") >= 0);
+}
+
+bool IsRangeTightRegimeLabel(string label)
+{
+   return (ToUpperString(label) == "RANGE_TIGHT");
+}
+
+int ServerDayKeyFromTime(datetime value)
+{
+   if(value <= 0)
+      return 0;
+   MqlDateTime dt;
+   TimeToStruct(value, dt);
+   return dt.year * 10000 + dt.mon * 100 + dt.day;
 }
 
 bool IsLegacyPilotRouteCandidateEnabled(string strategyKey)
@@ -2307,19 +2335,24 @@ bool CalculateShadowOutcome(string symbol, datetime eventBarTime, int horizonBar
 string ShadowDirectionalOutcome(string direction, double longClosePips, double shortClosePips)
 {
    double neutral = MathMax(0.1, ShadowOutcomeNeutralPips);
-   if(direction == "BUY")
+   string normalizedDirection = ToUpperString(direction);
+   if(normalizedDirection == "BUY")
    {
       if(longClosePips >= neutral) return "WIN";
       if(longClosePips <= -neutral) return "LOSS";
       return "FLAT";
    }
-   if(direction == "SELL")
+   if(normalizedDirection == "SELL")
    {
       if(shortClosePips >= neutral) return "WIN";
       if(shortClosePips <= -neutral) return "LOSS";
       return "FLAT";
    }
-   return "NO_DIRECTION";
+   if(longClosePips >= neutral && longClosePips >= shortClosePips)
+      return "LONG_OPPORTUNITY";
+   if(shortClosePips >= neutral && shortClosePips > longClosePips)
+      return "SHORT_OPPORTUNITY";
+   return "NEUTRAL_OPPORTUNITY";
 }
 
 string ShadowBestOpportunity(double longClosePips, double shortClosePips)
@@ -2875,7 +2908,7 @@ bool IsDowntrendRegimeLabel(string regime)
 bool IsUptrendRegimeLabel(string regime)
 {
    string upper = ToUpperString(regime);
-   return (StringFind(upper, "UP") >= 0);
+   return (upper == "TREND_UP" || upper == "TREND_EXP_UP");
 }
 
 bool CommonLegacyPilotPrecheck(string symbol, ENUM_TIMEFRAMES timeframe, int minBars, MqlTick &tick, string &reason, int &evalCode)
@@ -2954,6 +2987,25 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
    double sellScore = (double)((sellReversal ? 1 : 0) + (sellBand ? 1 : 0)) / 2.0 * 100.0;
    double stopDistance = atr1 * MathMax(0.5, PilotRsiATRMultiplierSL);
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotRsiTimeframe, 0);
+
+   if(sellReversal && sellBand)
+   {
+      if(PilotRsiBlockSellInUptrend && IsUptrendRegimeLabel(regime.label))
+      {
+         score = sellScore;
+         reason = "RSI H1 SELL blocked in " + regime.label + " regime after live loss review";
+         evalCode = PILOT_EVAL_RANGE_BLOCK;
+         return false;
+      }
+      if(PilotRsiRangeTightBuyOnly && IsRangeTightRegimeLabel(regime.label))
+      {
+         score = sellScore;
+         reason = "RSI H1 SELL blocked in RANGE_TIGHT; this regime is buy-only after live loss review";
+         evalCode = PILOT_EVAL_RANGE_BLOCK;
+         return false;
+      }
+   }
 
    if(buyReversal && buyBand)
    {
@@ -3439,6 +3491,29 @@ bool ProcessLegacyPilotRoute(string strategyKey, string symbol, int symbolIndex,
 
 bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice, string strategyKey)
 {
+   if(!IsPilotLiveMode())
+   {
+      Print("QuantGod MT5 pilot order blocked: live mode is disabled strategy=", strategyKey,
+            " symbol=", symbol);
+      return false;
+   }
+   if(strategyKey == "MA_Cross")
+   {
+      if(!EnablePilotMA)
+      {
+         Print("QuantGod MT5 pilot order blocked: MA_Cross live switch disabled symbol=", symbol);
+         return false;
+      }
+   }
+   else if(!IsLegacyPilotRouteLiveEnabled(strategyKey))
+   {
+      Print("QuantGod MT5 pilot order blocked: legacy route live switch disabled strategy=", strategyKey,
+            " symbol=", symbol);
+      return false;
+   }
+   if(direction == 0)
+      return false;
+
    double volume = NormalizeVolumeForSymbol(symbol, PilotLotSize);
    g_trade.SetExpertMagicNumber(PilotMagic);
    g_trade.SetDeviationInPoints(PilotDeviationPoints);
@@ -3578,6 +3653,59 @@ void ManageDemotedPilotRouteExits()
             " net=", DoubleToString(netProfit, 2),
             " comment=", comment,
             " reason=", (profitExit ? "profit-or-breakeven" : "demoted-route-max-loss"),
+            " ok=", (closed ? "true" : "false"),
+            " retcode=", g_trade.ResultRetcode());
+   }
+}
+
+void ManagePilotRsiTimeStops()
+{
+   if(!EnablePilotRsiTimeStopProtect)
+      return;
+
+   bool maxHoldOn = (PilotRsiMaxHoldMinutes > 0);
+   bool dayChangeOn = PilotRsiCloseOnServerDayChange;
+   if(!maxHoldOn && !dayChangeOn)
+      return;
+
+   datetime now = CurrentServerTime();
+   int nowDayKey = ServerDayKeyFromTime(now);
+   int total = PositionsTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic))
+         continue;
+      if(!IsPilotRsiPositionComment(comment))
+         continue;
+
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      int ageMinutes = (int)MathMax(0, (long)(now - openTime) / 60);
+      bool maxHoldTriggered = (maxHoldOn && ageMinutes >= MathMax(1, PilotRsiMaxHoldMinutes));
+      bool serverDayChanged = (dayChangeOn &&
+                               nowDayKey > 0 &&
+                               ServerDayKeyFromTime(openTime) > 0 &&
+                               ServerDayKeyFromTime(openTime) != nowDayKey);
+      if(!maxHoldTriggered && !serverDayChanged)
+         continue;
+
+      double netProfit = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      g_trade.SetExpertMagicNumber(PilotMagic);
+      g_trade.SetDeviationInPoints(PilotDeviationPoints);
+      g_trade.SetTypeFillingBySymbol(symbol);
+      bool closed = g_trade.PositionClose(ticket);
+      Print("QuantGod MT5 RSI time stop close ticket=", ticket,
+            " symbol=", symbol,
+            " age=", ageMinutes, "m",
+            " net=", DoubleToString(netProfit, 2),
+            " routeProtect=RSI_TIME_STOP",
+            " trigger=", (serverDayChanged ? "server-day-change" : "max-hold"),
             " ok=", (closed ? "true" : "false"),
             " retcode=", g_trade.ResultRetcode());
    }
@@ -3963,7 +4091,7 @@ void RunPilotExecutionLoop()
 {
    ResetPilotRuntimeStates();
    EnsurePilotTelemetryState();
-   if(!IsPilotLiveMode() || !EnablePilotMA)
+   if(!IsPilotLiveMode())
       return;
    UpdatePilotClosedStats();
    RefreshNewsFilterState();
@@ -3989,18 +4117,22 @@ void RunPilotExecutionLoop()
    ManageDemotedPilotRouteExits();
    ManageManualSafetyGuard();
    if(!g_pilotKillSwitch)
+      ManagePilotRsiTimeStops();
+   if(!g_pilotKillSwitch)
       ManagePilotRsiFailFastStops();
    if(!g_pilotKillSwitch)
       ManagePilotBreakevenStops();
    for(int i = 0; i < ArraySize(g_symbols); i++)
    {
       string symbol = g_symbols[i];
-      g_maRuntimeStates[i].enabled = true;
-      g_maRuntimeStates[i].riskMultiplier = 1.0;
-      g_maRuntimeStates[i].adaptiveState = g_pilotKillSwitch ? "COOLDOWN" : "CAUTION";
+      g_maRuntimeStates[i].enabled = EnablePilotMA;
+      g_maRuntimeStates[i].riskMultiplier = EnablePilotMA ? 1.0 : 0.0;
+      g_maRuntimeStates[i].adaptiveState = g_pilotKillSwitch ? "COOLDOWN" : (EnablePilotMA ? "CAUTION" : "CANDIDATE");
       g_maRuntimeStates[i].adaptiveReason = g_pilotKillSwitch
          ? g_pilotKillReason
-         : "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, range guard, post-loss cooldown, USD news filter, hard SL/TP, and kill switch";
+         : (EnablePilotMA
+            ? "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, range guard, post-loss cooldown, USD news filter, hard SL/TP, and kill switch"
+            : "MA_Cross live route is disabled while USDJPY RSI_Reversal is iterated after live loss review");
       if(g_pilotKillSwitch)
       {
          g_maRuntimeStates[i].active = false;
@@ -4083,6 +4215,17 @@ void RunPilotExecutionLoop()
          continue;
       if(ProcessLegacyPilotRoute("SR_Breakout", symbol, i, g_srRuntimeStates, g_lastSRPilotBarTime))
          continue;
+
+      if(!EnablePilotMA)
+      {
+         g_maRuntimeStates[i].active = false;
+         g_maRuntimeStates[i].runtimeLabel = "OFF";
+         g_maRuntimeStates[i].status = "ROUTE_DISABLED";
+         g_maRuntimeStates[i].score = 0.0;
+         g_maRuntimeStates[i].reason = "MA_Cross live route disabled by EnablePilotMA=false; legacy RSI/candidate routes continue independently";
+         UpdatePilotTelemetrySnapshot(i, g_maRuntimeStates[i].status, g_maRuntimeStates[i].reason);
+         continue;
+      }
 
       if(!IsNewPilotBar(symbol, PilotSignalTimeframe, i))
       {
