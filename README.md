@@ -94,6 +94,8 @@ The dashboard home Route Watchlist and the Strategy Workspace tabs are the main 
 
 The left dashboard sidebar is a workbench switcher, not a long-page jump list. Clicking `概览`, `策略`, `监控`, `交易`, `研究`, or `报表` hides the other dashboard sections and shows only the selected workspace while keeping the hash URL for direct links.
 
+The new Vue workbench lives at `http://localhost:8080/vue/`. It is the engineering-forward replacement shell for the old single-file dashboard: MT5, Polymarket, ParamLab, and reports are separated into app-style workspaces while the original `QuantGod_Dashboard.html` remains available as a fallback during the migration.
+
 Backtest-loop autonomy planning lives in `docs/QuantGod_Backtest_Autonomy_Plan.md`. It tracks the remaining QuantDinger-inspired pieces, explains which parts of the backtest loop can become fully automatic, and keeps live-preset mutation outside the default automation boundary.
 
 ## Strategies
@@ -358,7 +360,19 @@ The active runtime path is HFM MT5. MT4/MQL4 source and the old MT4 runtime arch
 If you only want the dashboard server:
 
 ```bat
-Dashboard\start_dashboard.bat
+    Dashboard\start_dashboard.bat
+```
+
+Then open either the legacy dashboard:
+
+```text
+http://localhost:8080/QuantGod_Dashboard.html
+```
+
+or the Vue workbench:
+
+```text
+http://localhost:8080/vue/
 ```
 
 ## Optional Cloudflare Deployment

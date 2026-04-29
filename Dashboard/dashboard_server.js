@@ -2548,6 +2548,31 @@ function safeResolve(urlPath) {
   return target;
 }
 
+function safeResolveVue(urlPath) {
+  const pathname = decodeURIComponent(urlPath.split('?')[0] || '/');
+  if (pathname !== '/vue' && pathname !== '/vue/' && !pathname.startsWith('/vue/')) {
+    return null;
+  }
+
+  const vueRoot = path.join(rootDir, 'vue-dist');
+  const indexPath = path.join(vueRoot, 'index.html');
+  if (pathname === '/vue' || pathname === '/vue/') {
+    return indexPath;
+  }
+
+  const relative = pathname.slice('/vue/'.length);
+  const target = path.resolve(vueRoot, relative);
+  if (!target.startsWith(vueRoot)) {
+    return null;
+  }
+
+  if (fs.existsSync(target)) {
+    return target;
+  }
+
+  return path.extname(target) ? target : indexPath;
+}
+
 function resolveRuntimeFallback(target) {
   const base = path.basename(target || '');
   if (!base.startsWith('QuantGod_')) return null;
@@ -2723,6 +2748,11 @@ const server = http.createServer((req, res) => {
     handleSingleMarketRequest(req, res);
     return;
   }
+  const vueTarget = safeResolveVue(req.url || '/');
+  if (vueTarget) {
+    sendStaticFile(vueTarget, res);
+    return;
+  }
   const target = safeResolve(req.url || '/');
   if (!target) {
     send(res, 403, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Forbidden');
@@ -2735,6 +2765,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, host, () => {
   console.log(`QuantGod dashboard server running at http://${host}:${port}/QuantGod_Dashboard.html`);
+  console.log(`QuantGod Vue workbench running at http://${host}:${port}/vue/`);
 });
 
 server.on('error', (err) => {

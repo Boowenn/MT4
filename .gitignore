@@ -2,6 +2,9 @@
 *.ex5
 *.log
 __pycache__/
+node_modules/
+frontend/node_modules/
+frontend/.vite/
 cloudflare/.quantgod_ingest_token.local
 cloudflare/.wrangler/
 Dashboard/quantgod_cloud_sync.json
