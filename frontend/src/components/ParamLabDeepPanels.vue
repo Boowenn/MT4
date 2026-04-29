@@ -54,13 +54,14 @@ const researchRows = computed(() => (props.researchRows.length
 
     <DataTable
       title="执行队列"
+      dense
       :rows="tasks"
       :columns="[
-        { label: '候选', value: (r) => first(r.candidateId, r.taskId, r.versionId), width: '230px' },
-        { label: '路线', value: (r) => first(r.route, r.strategy, r.symbol), width: '140px' },
-        { label: '状态', value: (r) => first(r.state, r.status, r.resultState), width: '150px', badge: true },
-        { label: '评分', value: (r) => first(r.score, r.grade, r.profitFactor), width: '90px' },
-        { label: '报告/配置', value: (r) => first(r.reportPath, r.report, r.configPath), max: 120 }
+        { label: '候选', value: (r) => first(r.candidateId, r.taskId, r.versionId), width: '260px', class: 'col-strong' },
+        { label: '路线', value: (r) => first(r.route, r.strategy, r.symbol), width: '132px' },
+        { label: '状态', value: (r) => first(r.state, r.status, r.resultState), width: '138px', badge: true },
+        { label: '评分', value: (r) => first(r.score, r.grade, r.profitFactor), width: '80px', class: 'col-number' },
+        { label: '报告/配置', value: (r) => first(r.reportPath, r.report, r.configPath), max: 150 }
       ]"
       empty="暂无 ParamLab 队列。"
     />
@@ -68,6 +69,7 @@ const researchRows = computed(() => (props.researchRows.length
     <div class="card-grid">
       <DataTable
         title="Auto Scheduler 安全队列"
+        dense
         :rows="autoSchedulerRows"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.taskId), width: '210px' },
@@ -79,6 +81,7 @@ const researchRows = computed(() => (props.researchRows.length
       />
       <DataTable
         title="Report Watcher 回灌"
+        dense
         :rows="reportWatcherRows"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.taskId), width: '210px' },
@@ -90,6 +93,7 @@ const researchRows = computed(() => (props.researchRows.length
       />
       <DataTable
         title="评分回灌"
+        dense
         :rows="scoredRows"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.versionId), width: '190px' },
@@ -102,6 +106,7 @@ const researchRows = computed(() => (props.researchRows.length
       />
       <DataTable
         title="Retry / Failure Drilldown"
+        dense
         :rows="recoveryRows"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.runId), width: '190px' },
@@ -113,6 +118,7 @@ const researchRows = computed(() => (props.researchRows.length
       />
       <DataTable
         title="AUTO_TESTER_WINDOW 守护"
+        dense
         :rows="autoTesterRows"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.taskId), width: '210px' },
@@ -124,6 +130,7 @@ const researchRows = computed(() => (props.researchRows.length
       />
       <DataTable
         title="MT5 闭环研究统计"
+        dense
         :rows="researchRows"
         :columns="[
           { label: '路线', value: (r) => first(r.route, r.Route, r.strategy), width: '160px' },

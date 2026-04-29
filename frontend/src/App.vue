@@ -25,7 +25,7 @@ import EvidenceDrawer from './components/EvidenceDrawer.vue';
 const workspaces = [
   { id: 'home', label: '总控台', sub: '机会雷达', icon: Gauge, desc: 'MT5、ParamLab 与 Polymarket 的统一只读操作台' },
   { id: 'mt5', label: 'MT5 策略', sub: '实盘监控', icon: LineChart, desc: '路线、持仓、风控、手动样本与 EA 审计' },
-  { id: 'polymarket', label: 'Polymarket', sub: '研究治理', icon: Network, desc: '市场雷达、AI 评分、canary 契约与历史证据' },
+  { id: 'polymarket', label: 'Polymarket', sub: '研究治理', icon: Network, desc: '市场雷达、AI 评分、小额哨兵契约与历史证据' },
   { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList, desc: 'tester-only 队列、报告回灌、恢复风险与守护窗口' },
   { id: 'charts', label: '趋势图表', sub: '可视化', icon: TrendingUp, desc: '路线趋势、样本速度、ParamLab 与 Polymarket 图表' },
   { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3, desc: '统一文件/API 新鲜度与核心 ledger 表格' }
@@ -54,6 +54,12 @@ const paramRouteFilter = ref('全部');
 const paramSortMode = ref('优先级');
 
 const mt5WorkspaceIds = new Set(['mt5', 'paramlab', 'charts', 'reports']);
+const mt5DefaultFocus = {
+  mt5: 'overview',
+  paramlab: 'paramlab',
+  charts: 'monitor',
+  reports: 'reports'
+};
 
 const mt5NavItems = [
   { id: 'mt5', focus: 'overview', label: 'AI Evidence', sub: '总览雷达', icon: Gauge },
@@ -88,6 +94,12 @@ function normalizeWorkspace(id) {
 function syncActiveFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, '');
   state.active = normalizeWorkspace(hash || 'home');
+  if (workspaceDomainFor(state.active) === 'mt5') {
+    state.mt5Focus = mt5DefaultFocus[state.active] || state.mt5Focus || 'overview';
+  }
+  if (state.active === 'polymarket') {
+    state.polymarketFocus = state.polymarketFocus || 'overview';
+  }
 }
 
 function workspaceDomainFor(id) {
@@ -98,8 +110,8 @@ function workspaceDomainFor(id) {
 
 function setActive(id, focus = '') {
   state.active = normalizeWorkspace(id);
-  if (workspaceDomainFor(state.active) === 'mt5' && focus) {
-    state.mt5Focus = focus;
+  if (workspaceDomainFor(state.active) === 'mt5') {
+    state.mt5Focus = focus || mt5DefaultFocus[state.active] || state.mt5Focus || 'overview';
   }
   if (state.active === 'polymarket' && focus) {
     state.polymarketFocus = focus;
@@ -592,11 +604,11 @@ const mt5RouteLaneCards = computed(() => ['MA', 'RSI', 'BB', 'MACD', 'SR'].map((
 const paramLaneCards = computed(() => {
   const cards = paramLabDashboardCards.value;
   return [
-    { key: 'queue', label: '候选队列', sub: 'Auto Scheduler', value: cards[0]?.value, detail: cards[0]?.detail, tone: 'blue' },
-    { key: 'report', label: '报告回灌', sub: 'Report Watcher', value: cards[1]?.value, detail: cards[1]?.detail, tone: 'green' },
-    { key: 'recovery', label: '恢复风险', sub: 'Run Recovery', value: cards[2]?.value, detail: cards[2]?.detail, tone: String(cards[2]?.value).includes('0R') ? 'amber' : 'red' },
-    { key: 'guard', label: '守护窗口', sub: 'AUTO_TESTER_WINDOW', value: cards[3]?.value, detail: cards[3]?.detail, tone: cards[3]?.value === '可运行' ? 'green' : 'amber' },
-    { key: 'research', label: '研究切片', sub: 'Strategy Workspace', value: cards[5]?.value, detail: cards[5]?.detail, tone: 'blue' }
+    { key: 'queue', label: '候选队列', sub: '自动排队', value: cards[0]?.value, detail: cards[0]?.detail, tone: 'blue' },
+    { key: 'report', label: '报告回灌', sub: '报告监视', value: cards[1]?.value, detail: cards[1]?.detail, tone: 'green' },
+    { key: 'recovery', label: '恢复风险', sub: '失败恢复', value: cards[2]?.value, detail: cards[2]?.detail, tone: String(cards[2]?.value).includes('0R') ? 'amber' : 'red' },
+    { key: 'guard', label: '守护窗口', sub: '自动回测窗口', value: cards[3]?.value, detail: cards[3]?.detail, tone: cards[3]?.value === '可运行' ? 'green' : 'amber' },
+    { key: 'research', label: '研究切片', sub: '策略工作台', value: cards[5]?.value, detail: cards[5]?.detail, tone: 'blue' }
   ];
 });
 
@@ -604,8 +616,8 @@ const polymarketFocusMeta = computed(() => ({
   overview: {
     eyebrow: 'Polymarket / 治理总览',
     title: '账户边界、研究队列和执行锁',
-    body: 'Polymarket 与 MT5 分开管理：这里只读读取研究证据、dry-run、canary 契约和治理建议，不写钱包。',
-    badge: 'WALLET LOCKED'
+    body: 'Polymarket 与 MT5 分开管理：这里只读读取研究证据、模拟订单、小额哨兵契约和治理建议，不写钱包。',
+    badge: '钱包锁定'
   },
   browser: {
     eyebrow: 'Market Browser / 市场浏览',
@@ -627,30 +639,30 @@ const polymarketFocusMeta = computed(() => ({
   },
   execution: {
     eyebrow: 'Execution Simulation / 执行模拟',
-    title: 'Gate、dry-run、canary 与退出后验',
-    body: '只展示“如果允许下注会怎么做”的模拟契约：stake cap、TP/SL、kill switch、退出 watcher 和审计 ledger。',
-    badge: 'DRY RUN'
+    title: '准入、模拟订单、小额哨兵与退出后验',
+    body: '只展示“如果允许下注会怎么做”的模拟契约：金额上限、止盈止损、熔断、退出监视和审计账本。',
+    badge: '模拟执行'
   },
   ledger: {
     eyebrow: 'Retune Ledger / 重调账本',
-    title: '历史库、Worker、治理和联动证据',
-    body: '把雷达、AI score、cross-market、worker queue 和治理建议作为可审计证据沉淀。',
+    title: '历史库、批量扫描、治理和联动证据',
+    body: '把雷达、AI 评分、跨市场联动、批量扫描队列和治理建议作为可审计证据沉淀。',
     badge: 'AUDIT'
   }
 }[state.polymarketFocus] || {
   eyebrow: 'Polymarket Workbench',
-  title: '机会雷达、历史库、AI 评分与 canary 治理',
+    title: '机会雷达、历史库、AI 评分与小额哨兵治理',
   body: 'Polymarket 研究工作台。',
   badge: 'RESEARCH'
 }));
 
 const polyFocusMetrics = computed(() => [
-  { label: '市场目录', value: marketRows.value.length, detail: 'Gamma / local cache' },
-  { label: '机会雷达', value: radarRows.value.length, detail: 'probability / liquidity / score' },
-  { label: 'AI 评分', value: aiScores.value.length, detail: 'history-aware V1' },
-  { label: 'Canary', value: canaryRows.value.length, detail: 'contract only' },
-  { label: '跨市场', value: crossRows.value.length, detail: 'USD / JPY / XAU / macro' },
-  { label: 'Worker', value: workerQueue.value.length, detail: 'shadow-only queue' }
+  { label: '市场目录', value: marketRows.value.length, detail: 'Gamma / 本地缓存' },
+  { label: '机会雷达', value: radarRows.value.length, detail: '概率 / 流动性 / 评分' },
+  { label: 'AI 评分', value: aiScores.value.length, detail: '历史感知 V1' },
+  { label: '小额哨兵', value: canaryRows.value.length, detail: '仅契约，不写钱包' },
+  { label: '跨市场', value: crossRows.value.length, detail: 'USD / JPY / XAU / 宏观' },
+  { label: '批量队列', value: workerQueue.value.length, detail: 'shadow-only 队列' }
 ]);
 
 const radarRows = computed(() => {
@@ -745,7 +757,7 @@ const homeFocusCards = computed(() => {
       body: latestRadar
         ? `${shortText(first(latestRadar.market, latestRadar.title, latestRadar.question), 82)} · 评分 ${first(latestRadar.aiRuleScore, latestRadar.score, '--')}`
         : '等待 Radar / AI score 证据。',
-      foot: `雷达 ${radarRows.value.length} / AI ${aiScores.value.length} / Canary ${canaryRows.value.length}`
+      foot: `雷达 ${radarRows.value.length} / AI ${aiScores.value.length} / 小额哨兵 ${canaryRows.value.length}`
     }
   ];
 });
@@ -754,12 +766,12 @@ const reportCards = computed(() => [
   { name: 'ParamLab 队列', payload: mt5.value.paramStatus, count: paramTasks.value.length, file: 'QuantGod_ParamLabStatus.json' },
   { name: 'Report Watcher', payload: mt5.value.paramReportWatcher, count: reportWatcherRows.value.length, file: 'QuantGod_ParamLabReportWatcher.json' },
   { name: 'Run Recovery', payload: mt5.value.runRecovery, count: runRecoveryRows.value.length, file: 'QuantGod_ParamLabRunRecovery.json' },
-  { name: 'Auto Tester Gate', payload: mt5.value.autoTesterWindow, count: autoTesterRows.value.length, file: 'QuantGod_AutoTesterWindow.json' },
+  { name: '自动回测守护', payload: mt5.value.autoTesterWindow, count: autoTesterRows.value.length, file: 'QuantGod_AutoTesterWindow.json' },
   { name: 'MT5 研究统计', payload: mt5.value.mt5ResearchStats, count: mt5ResearchRows.value.length, file: 'QuantGod_MT5ResearchStats.json' },
   { name: 'Governance Advisor', payload: mt5.value.governance, count: mt5Routes.value.length, file: 'QuantGod_GovernanceAdvisor.json' },
   { name: 'Polymarket History', payload: poly.value.history, count: first(poly.value.history?.summary?.totalRows, poly.value.history?.rows?.length, '--'), file: 'SQLite/API' },
   { name: 'AI Score', payload: poly.value.aiScore, count: aiScores.value.length, file: 'QuantGod_PolymarketAiScoreV1.json' },
-  { name: 'Canary Contract', payload: poly.value.canary, count: canaryRows.value.length, file: 'QuantGod_PolymarketCanaryExecutorContract.json' }
+  { name: '小额哨兵契约', payload: poly.value.canary, count: canaryRows.value.length, file: 'QuantGod_PolymarketCanaryExecutorContract.json' }
 ]);
 
 const reportEvidenceRows = computed(() => reportCards.value.map((card) => ({
@@ -801,7 +813,7 @@ const operatorRadarCards = computed(() => {
     {
       label: 'ParamLab',
       title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
-      meta: `${first(topTask.state, topTask.status, 'tester-only')} · score ${first(topTask.score, topTask.grade, '--')}`,
+      meta: `${first(topTask.state, topTask.status, 'tester-only')} · 评分 ${first(topTask.score, topTask.grade, '--')}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     }
@@ -817,7 +829,7 @@ const operatorRadarCards = computed(() => {
     {
       label: 'AI 评分',
       title: shortText(first(score.market, score.title, score.marketId, '历史评分'), 30),
-      meta: `score ${first(score.aiScore, score.score, score.grade, '--')} · risk ${first(score.risk, score.riskLevel, '--')}`,
+      meta: `评分 ${first(score.aiScore, score.score, score.grade, '--')} · 风险 ${first(score.risk, score.riskLevel, '--')}`,
       tone: 'blue',
       target: 'polymarket'
     },
@@ -829,7 +841,7 @@ const operatorRadarCards = computed(() => {
       target: 'polymarket'
     },
     {
-      label: 'Canary 契约',
+      label: '小额哨兵契约',
       title: `${canaryRows.value.length} 个候选`,
       meta: '只定义边界，不接钱包写操作',
       tone: 'blue',
@@ -838,7 +850,7 @@ const operatorRadarCards = computed(() => {
     {
       label: '治理建议',
       title: `${governanceRows.value.length} 条`,
-      meta: `worker ${workerQueue.value.length} / history ${first(poly.value.history?.summary?.totalRows, '--')}`,
+      meta: `批量队列 ${workerQueue.value.length} / 历史 ${first(poly.value.history?.summary?.totalRows, '--')}`,
       tone: 'green',
       target: 'polymarket'
     }
@@ -847,7 +859,7 @@ const operatorRadarCards = computed(() => {
     {
       label: '候选队列',
       title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
-      meta: `${first(topTask.state, topTask.status, 'tester-only')} · score ${first(topTask.score, topTask.grade, '--')}`,
+      meta: `${first(topTask.state, topTask.status, 'tester-only')} · 评分 ${first(topTask.score, topTask.grade, '--')}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     },
@@ -992,7 +1004,7 @@ onBeforeUnmount(() => {
       <div class="sidebar-footer">
         <span>执行边界</span>
         <strong>MT5 与 Polymarket 分离</strong>
-        <small>默认只读 / dry-run / canary locked</small>
+        <small>默认只读 / 模拟订单 / 钱包锁定</small>
       </div>
     </aside>
 
@@ -1127,7 +1139,7 @@ onBeforeUnmount(() => {
 
         <div class="toolbar dense-toolbar">
           <div>
-            <p class="eyebrow">Route Filter</p>
+            <p class="eyebrow">路线筛选</p>
             <h2>路线筛选与证据下钻</h2>
           </div>
           <div class="route-tabs compact">
@@ -1183,14 +1195,16 @@ onBeforeUnmount(() => {
         <DataTable
           v-if="state.mt5Focus === 'trades'"
           title="EA / 手动持仓快照"
+          dense
           :rows="mt5Positions"
           :columns="[
-            { label: '品种', key: ['symbol', 'Symbol'], width: '110px' },
-            { label: '方向', key: ['type', 'direction', 'side'], width: '90px', badge: true },
-            { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '90px' },
-            { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '110px' },
-            { label: '浮盈', value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)), width: '110px' },
-            { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 110 }
+            { label: '品种', key: ['symbol', 'Symbol'], width: '112px', class: 'col-strong' },
+            { label: '方向', key: ['type', 'direction', 'side'], width: '84px', badge: true },
+            { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '74px', class: 'col-number' },
+            { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '104px', class: 'col-number' },
+            { label: '平仓价', value: (r) => first(r.price_current, r.currentPrice, r.price, r.closePrice), width: '104px', class: 'col-number' },
+            { label: '浮盈', value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)), width: '96px', class: 'col-pnl' },
+            { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 120 }
           ]"
           empty="当前没有 MT5 持仓，或只读桥未返回 positions。"
         />
@@ -1255,7 +1269,7 @@ onBeforeUnmount(() => {
           <article class="panel poly-market-console">
             <div class="panel-title split">
               <span>{{ state.polymarketFocus === 'browser' ? '市场目录' : state.polymarketFocus === 'execution' ? '执行模拟边界' : '机会雷达' }}</span>
-              <small>QuantDinger research-style cockpit</small>
+              <small>研究驾驶舱</small>
             </div>
             <div v-if="state.polymarketFocus === 'browser'" class="compact-market-list">
               <div v-for="market in marketRows" :key="first(market.marketId, market.slug)" class="market-line">
@@ -1268,16 +1282,16 @@ onBeforeUnmount(() => {
             <div v-else-if="state.polymarketFocus === 'execution'" class="compact-market-list">
               <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="market-line">
                 <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 72) }}</strong>
-                <span>{{ first(row.canaryState, row.decision, 'DRY_RUN') }}</span>
+                <span>{{ first(row.canaryState, row.decision, '模拟') }}</span>
                 <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
               </div>
-              <div v-if="!canaryRows.length" class="rail-empty">暂无 canary 契约；真实钱包仍保持锁定。</div>
+              <div v-if="!canaryRows.length" class="rail-empty">暂无小额哨兵契约；真实钱包仍保持锁定。</div>
             </div>
             <div v-else class="radar-ticker">
               <div v-for="row in radarRows.slice(0, 6)" :key="first(row.marketId, row.slug, row.title)" class="radar-ticker-item">
                 <span>{{ shortText(first(row.market, row.title, row.question, row.slug), 52) }}</span>
                 <strong>{{ pct(first(row.probability, row.marketProbability)) }}</strong>
-                <small>score {{ first(row.aiRuleScore, row.score, '--') }} · {{ money(first(row.volume, row.volumeUsd)) }}</small>
+                <small>评分 {{ first(row.aiRuleScore, row.score, '--') }} · 成交量 {{ money(first(row.volume, row.volumeUsd)) }}</small>
               </div>
               <div v-if="!radarRows.length" class="rail-empty">暂无 radar 快照。</div>
             </div>
@@ -1299,7 +1313,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="poly-radar-grid">
-          <article v-for="row in radarRows" :key="first(row.marketId, row.slug, row.title)" class="panel dense">
+          <article v-for="row in radarRows" :key="first(row.marketId, row.slug, row.title)" class="panel dense radar-evidence-card">
             <div class="panel-title split">
               <span>{{ shortText(first(row.market, row.title, row.question, row.slug), 78) }}</span>
               <b class="pill blue">评分 {{ first(row.aiRuleScore, row.score, '--') }}</b>
@@ -1629,9 +1643,9 @@ onBeforeUnmount(() => {
           <section class="rail-card boundary">
             <div class="rail-title">
               <span>执行边界</span>
-              <small>LOCKED</small>
+              <small>锁定</small>
             </div>
-            <p>MT5 只读展示与既有 EA 风控分离；Polymarket 保持 dry-run/canary 契约，不触发钱包写操作。</p>
+            <p>MT5 只读展示与既有 EA 风控分离；Polymarket 保持模拟订单/小额哨兵契约，不触发钱包写操作。</p>
           </section>
         </aside>
       </div>

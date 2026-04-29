@@ -29,13 +29,14 @@ const historyRows = computed(() => {
     <div class="deep-heading">
       <div>
         <p class="eyebrow">Polymarket 深层细节</p>
-        <h3>雷达、AI、canary、治理、跨市场联动</h3>
+        <h3>雷达、AI、模拟执行、治理、跨市场联动</h3>
       </div>
-      <span class="status-chip locked">默认不写钱包</span>
+      <span class="status-chip locked">钱包写入锁定</span>
     </div>
 
     <DataTable
       title="机会雷达"
+      dense
       :rows="radarRows"
       :columns="[
         { label: '市场', value: (r) => first(r.market, r.title, r.question, r.slug), max: 82 },
@@ -50,6 +51,7 @@ const historyRows = computed(() => {
     <div class="card-grid">
       <DataTable
         title="AI 评分"
+        dense
         :rows="aiScores"
         :columns="[
           { label: '市场', value: (r) => first(r.market, r.title, r.question, r.marketId), max: 70 },
@@ -60,7 +62,8 @@ const historyRows = computed(() => {
         empty="暂无 AI score。"
       />
       <DataTable
-        title="Worker V2 队列"
+        title="批量扫描队列"
+        dense
         :rows="workerQueue"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.marketId), width: '190px' },
@@ -73,10 +76,11 @@ const historyRows = computed(() => {
 
     <div class="card-grid">
       <DataTable
-        title="Canary 契约"
+        title="小额哨兵契约"
+        dense
         :rows="canaryRows"
         :columns="[
-          { label: '合约', value: (r) => first(r.canaryContractId, r.marketId), width: '190px' },
+          { label: '契约', value: (r) => first(r.canaryContractId, r.marketId), width: '190px' },
           { label: '状态', value: (r) => first(r.canaryState, r.decision), width: '120px', badge: true },
           { label: '金额', value: (r) => money(first(r.canaryStakeUSDC, r.stake)), width: '90px' },
           { label: '阻断', value: (r) => first(r.blockers?.join?.(', '), r.blocker), max: 120 }
@@ -85,6 +89,7 @@ const historyRows = computed(() => {
       />
       <DataTable
         title="自动治理"
+        dense
         :rows="governanceRows"
         :columns="[
           { label: '治理 ID', value: (r) => first(r.governanceId, r.marketId), width: '190px' },
@@ -98,6 +103,7 @@ const historyRows = computed(() => {
 
     <DataTable
       title="跨市场风险联动"
+      dense
       :rows="crossRows"
       :columns="[
         { label: '事件', value: (r) => first(r.eventTitle, r.market, r.marketId), max: 92 },
@@ -111,6 +117,7 @@ const historyRows = computed(() => {
 
     <DataTable
       title="历史库最近证据"
+      dense
       :rows="historyRows"
       :columns="[
         { label: '类型', value: (r) => first(r.source, r.tableName, r.type), width: '140px', badge: true },

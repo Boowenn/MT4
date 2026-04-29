@@ -41,20 +41,23 @@ const registryRows = computed(() => {
 
     <DataTable
       title="当前持仓"
+      dense
       :rows="positions"
       :columns="[
-        { label: '品种', key: ['symbol', 'Symbol'], width: '110px' },
-        { label: '方向', key: ['type', 'direction', 'side'], width: '90px', badge: true },
-        { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '90px' },
-        { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '110px' },
-        { label: '浮盈', value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)), width: '110px' },
-        { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 86 }
+        { label: '品种', key: ['symbol', 'Symbol'], width: '112px', class: 'col-strong' },
+        { label: '方向', key: ['type', 'direction', 'side'], width: '84px', badge: true },
+        { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '74px', class: 'col-number' },
+        { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '104px', class: 'col-number' },
+        { label: '平仓价', value: (r) => first(r.price_current, r.currentPrice, r.price, r.closePrice), width: '104px', class: 'col-number' },
+        { label: '浮盈', value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)), width: '96px', class: 'col-pnl' },
+        { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 120 }
       ]"
       empty="当前没有 MT5 持仓，或只读桥未返回 positions。"
     />
 
     <DataTable
       title="路线治理"
+      dense
       :rows="routes"
       :columns="[
         { label: '路线', value: (r) => first(r.route, r.strategy, r.name, r.versionId), width: '190px' },
@@ -69,6 +72,7 @@ const registryRows = computed(() => {
     <div class="card-grid">
       <DataTable
         title="Backtest Lab"
+        dense
         :rows="backtestRows"
         :columns="[
           { label: '策略', value: (r) => first(r.strategy, r.route, r.name), width: '150px' },
@@ -81,6 +85,7 @@ const registryRows = computed(() => {
       />
       <DataTable
         title="Run Recovery"
+        dense
         :rows="runRecoveryRows"
         :columns="[
           { label: '候选', value: (r) => first(r.candidateId, r.versionId, r.runId), width: '190px' },
@@ -93,6 +98,7 @@ const registryRows = computed(() => {
 
     <DataTable
       title="策略版本 Registry"
+      dense
       :rows="registryRows"
       :columns="[
         { label: '版本', value: (r) => first(r.versionId, r.id), width: '230px' },

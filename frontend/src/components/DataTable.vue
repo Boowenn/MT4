@@ -5,7 +5,8 @@ defineProps({
   title: { type: String, default: '' },
   rows: { type: Array, default: () => [] },
   columns: { type: Array, default: () => [] },
-  empty: { type: String, default: '暂无证据。' }
+  empty: { type: String, default: '暂无证据。' },
+  dense: { type: Boolean, default: false }
 });
 
 function cellValue(row, column) {
@@ -20,23 +21,26 @@ function cellValue(row, column) {
 </script>
 
 <template>
-  <article class="panel data-table-card">
+  <article class="panel data-table-card" :class="{ 'is-dense': dense }">
     <div v-if="title" class="panel-title split">
       <span>{{ title }}</span>
       <small>{{ rows.length }} 条</small>
     </div>
     <div class="table-panel embedded">
-      <table>
+      <table class="data-table">
+        <colgroup>
+          <col v-for="column in columns" :key="column.label" :style="{ width: column.width || 'auto' }" />
+        </colgroup>
         <thead>
           <tr>
-            <th v-for="column in columns" :key="column.label" :style="{ width: column.width || 'auto' }">
+            <th v-for="column in columns" :key="column.label" :class="column.class || ''">
               {{ column.label }}
             </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(row, index) in rows" :key="first(row?.id, row?.candidateId, row?.marketId, row?.ticket, row?.versionId, index)">
-            <td v-for="column in columns" :key="column.label" :title="String(first(cellValue(row, column), '--'))">
+            <td v-for="column in columns" :key="column.label" :class="column.class || ''" :title="String(first(cellValue(row, column), '--'))">
               <span v-if="column.badge" class="pill">{{ first(cellValue(row, column), '--') }}</span>
               <span v-else>{{ shortText(first(cellValue(row, column), '--'), column.max || 72) }}</span>
             </td>
