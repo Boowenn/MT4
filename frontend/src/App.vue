@@ -62,12 +62,12 @@ const mt5DefaultFocus = {
 };
 
 const mt5NavItems = [
-  { id: 'mt5', focus: 'overview', label: 'AI Evidence', sub: '总览雷达', icon: Gauge },
-  { id: 'mt5', focus: 'strategy', label: 'Strategy & Live', sub: '策略工作台', icon: LineChart },
-  { id: 'charts', focus: 'monitor', label: 'Indicator Market', sub: '品种监控', icon: TrendingUp },
-  { id: 'paramlab', focus: 'paramlab', label: 'ParamLab', sub: '回测闭环', icon: ClipboardList },
-  { id: 'mt5', focus: 'trades', label: '交易机器人', sub: 'EA 只读', icon: Activity },
-  { id: 'reports', focus: 'reports', label: 'Reports', sub: '证据报表', icon: BarChart3 }
+  { id: 'mt5', focus: 'overview', label: 'AI 总览', sub: '总览雷达', icon: Gauge },
+  { id: 'mt5', focus: 'strategy', label: '策略实盘', sub: '路线与风控', icon: LineChart },
+  { id: 'charts', focus: 'monitor', label: '趋势图表', sub: '品种监控', icon: TrendingUp },
+  { id: 'paramlab', focus: 'paramlab', label: '参数实验', sub: '回测闭环', icon: ClipboardList },
+  { id: 'mt5', focus: 'trades', label: '交易只读', sub: 'EA 与人工单', icon: Activity },
+  { id: 'reports', focus: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3 }
 ];
 
 const polymarketNavItems = [
@@ -536,28 +536,28 @@ const paramLabDashboardCards = computed(() => {
 
 const mt5FocusMeta = computed(() => ({
   overview: {
-    eyebrow: 'AI Evidence / 总览雷达',
+    eyebrow: 'AI 总览 / 入场证据',
     title: 'MT5 执行态势与入场证据',
     body: '把旧页总览雷达迁回 Vue：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要下钻到路线或持仓。',
-    badge: 'READ ONLY'
+    badge: '只读'
   },
   strategy: {
-    eyebrow: 'Strategy & Live / 策略工作台',
+    eyebrow: '策略实盘 / 路线工作台',
     title: 'MA / RSI / BB / MACD / SR 路线工作台',
     body: '按旧页路线卡结构查看 live、candidate、ParamLab、blocker 和下一步。这里仍只展示证据，不改变 EA 风控或 live switch。',
-    badge: '0.01 LIVE GATED'
+    badge: '0.01 门控'
   },
   trades: {
-    eyebrow: 'Trading Bot / EA 只读',
+    eyebrow: '交易只读 / EA 审计',
     title: '持仓、保护状态与交易审计',
     body: '优先看当前持仓、浮盈、EA 注释、手数和审计 ledger。人工单与 EA 单仍分开统计，Vue 只读展示。',
-    badge: 'EA AUDIT'
+    badge: '只读审计'
   }
 }[state.mt5Focus] || {
-  eyebrow: 'MT5 Workbench',
+  eyebrow: 'MT5 工作台',
   title: '策略与实盘证据',
   body: 'MT5 只读工作台。',
-  badge: 'READ ONLY'
+  badge: '只读'
 }));
 
 const mt5FocusMetrics = computed(() => {
@@ -811,9 +811,9 @@ const operatorRadarCards = computed(() => {
       target: 'mt5'
     },
     {
-      label: 'ParamLab',
+      label: '参数实验',
       title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
-      meta: `${first(topTask.state, topTask.status, 'tester-only')} · 评分 ${first(topTask.score, topTask.grade, '--')}`,
+      meta: `${first(topTask.state, topTask.status, '仅回测')} · 评分 ${first(topTask.score, topTask.grade, '--')}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     }
@@ -866,27 +866,27 @@ const operatorRadarCards = computed(() => {
     {
       label: '报告回灌',
       title: `${reportWatcherRows.value.length} 条`,
-      meta: `parsed ${summaryValue(mt5.value.paramReportWatcher, 'parsedReportCount', '--')} / pending ${summaryValue(mt5.value.paramReportWatcher, 'pendingReportCount', '--')}`,
+      meta: `已解析 ${summaryValue(mt5.value.paramReportWatcher, 'parsedReportCount', '--')} / 待报告 ${summaryValue(mt5.value.paramReportWatcher, 'pendingReportCount', '--')}`,
       tone: 'blue',
       target: 'paramlab'
     },
     {
       label: '恢复风险',
       title: `${summaryValue(mt5.value.runRecovery, 'riskRedCount', 0)}R / ${summaryValue(mt5.value.runRecovery, 'riskYellowCount', 0)}Y`,
-      meta: `retry ${summaryValue(mt5.value.runRecovery, 'retryCount', 0)} · ${summaryValue(mt5.value.runRecovery, 'latestStopReason')}`,
+      meta: `重试 ${summaryValue(mt5.value.runRecovery, 'retryCount', 0)} · ${summaryValue(mt5.value.runRecovery, 'latestStopReason')}`,
       tone: summaryValue(mt5.value.runRecovery, 'riskRedCount', 0) > 0 ? 'red' : 'amber',
       target: 'paramlab'
     },
     {
       label: '守护窗口',
       title: summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false) ? '可运行' : '锁定',
-      meta: `blocker ${summaryValue(mt5.value.autoTesterWindow, 'blockerCount', 0)} / 持仓 ${summaryValue(mt5.value.autoTesterWindow, 'openLivePositions', 0)}`,
+      meta: `阻断 ${summaryValue(mt5.value.autoTesterWindow, 'blockerCount', 0)} / 持仓 ${summaryValue(mt5.value.autoTesterWindow, 'openLivePositions', 0)}`,
       tone: 'amber',
       target: 'paramlab'
     },
     {
       label: '守护边界',
-      title: '只读 / dry-run',
+      title: '只读 / 模拟',
       meta: 'MT5 不改执行，Polymarket 不写钱包',
       tone: 'amber',
       target: 'reports'
@@ -1159,7 +1159,7 @@ onBeforeUnmount(() => {
           <article class="panel overview-radar mt5-radar-board">
             <div class="panel-title split">
               <span>执行雷达</span>
-              <small>旧页 AI Evidence / 总览雷达口径</small>
+              <small>旧页总览雷达口径</small>
             </div>
             <div class="radar-grid dense-radar">
               <div v-for="item in mt5ExecutionRadarItems" :key="item.label" class="radar-item">
