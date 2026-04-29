@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import {
   Activity,
   BarChart3,
-  Bot,
   ClipboardList,
   Gauge,
   LineChart,
@@ -24,12 +23,12 @@ import DataTable from './components/DataTable.vue';
 import EvidenceDrawer from './components/EvidenceDrawer.vue';
 
 const workspaces = [
-  { id: 'home', label: '入口', sub: '双工作台', icon: Gauge },
-  { id: 'mt5', label: 'MT5', sub: '策略与实盘', icon: LineChart },
-  { id: 'polymarket', label: 'Polymarket', sub: '研究与治理', icon: Network },
-  { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList },
-  { id: 'charts', label: '趋势图表', sub: '可视化迁移', icon: TrendingUp },
-  { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3 }
+  { id: 'home', label: '总控台', sub: '机会雷达', icon: Gauge, desc: 'MT5、ParamLab 与 Polymarket 的统一只读操作台' },
+  { id: 'mt5', label: 'MT5 策略', sub: '实盘监控', icon: LineChart, desc: '路线、持仓、风控、手动样本与 EA 审计' },
+  { id: 'polymarket', label: 'Polymarket', sub: '研究治理', icon: Network, desc: '市场雷达、AI 评分、canary 契约与历史证据' },
+  { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList, desc: 'tester-only 队列、报告回灌、恢复风险与守护窗口' },
+  { id: 'charts', label: '趋势图表', sub: '可视化', icon: TrendingUp, desc: '路线趋势、样本速度、ParamLab 与 Polymarket 图表' },
+  { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3, desc: '统一文件/API 新鲜度与核心 ledger 表格' }
 ];
 
 const state = reactive({
@@ -522,6 +521,155 @@ const reportEvidenceRows = computed(() => reportCards.value.map((card) => ({
   note: first(card.payload?.note, card.payload?.summary?.latestStopReason, card.payload?.summary?.topCandidateId, card.payload?.decisionGate, '--')
 })));
 
+const activeWorkspaceMeta = computed(() => workspaces.find((item) => item.id === state.active) || workspaces[0]);
+
+const primaryRoute = computed(() => mt5Routes.value.find((row) => String(first(row?.mode, row?.recommendedAction, '')).toUpperCase().includes('LIVE'))
+  || mt5Routes.value[0]
+  || {});
+
+const operatorRadarCards = computed(() => {
+  const acct = mt5Account.value;
+  const route = primaryRoute.value;
+  const radar = radarRows.value[0] || {};
+  const topTask = paramVisibleTasks.value[0] || {};
+  const score = aiScores.value[0] || {};
+  const mt5Cards = [
+    {
+      label: 'MT5 净值',
+      title: money(first(acct.equity, mt5.value.latest?.equity)),
+      meta: `${first(acct.server, 'HFM 只读桥')} · 持仓 ${mt5Positions.value.length}`,
+      tone: mt5Positions.value.length ? 'green' : 'blue',
+      target: 'mt5'
+    },
+    {
+      label: '实盘路线',
+      title: shortText(first(route.label, route.route, route.strategy, '等待路线'), 28),
+      meta: `PF ${first(route.liveForward?.profitFactor, route.profitFactor, '--')} · 胜率 ${pct(first(route.liveForward?.winRatePct, route.winRate))}`,
+      tone: routeToneClass(route) || 'blue',
+      target: 'mt5'
+    },
+    {
+      label: 'ParamLab',
+      title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
+      meta: `${first(topTask.state, topTask.status, 'tester-only')} · score ${first(topTask.score, topTask.grade, '--')}`,
+      tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
+      target: 'paramlab'
+    }
+  ];
+  const polyCards = [
+    {
+      label: 'Polymarket 雷达',
+      title: shortText(first(radar.market, radar.title, radar.question, '等待市场'), 34),
+      meta: `概率 ${pct(first(radar.probability, radar.marketProbability))} · 评分 ${first(radar.aiRuleScore, radar.score, '--')}`,
+      tone: 'green',
+      target: 'polymarket'
+    },
+    {
+      label: 'AI 评分',
+      title: shortText(first(score.market, score.title, score.marketId, '历史评分'), 30),
+      meta: `score ${first(score.aiScore, score.score, score.grade, '--')} · risk ${first(score.risk, score.riskLevel, '--')}`,
+      tone: 'blue',
+      target: 'polymarket'
+    },
+    {
+      label: '跨市场风险',
+      title: `${crossRows.value.length} 条联动`,
+      meta: 'USD / JPY / XAU / 宏观风险只读映射',
+      tone: 'amber',
+      target: 'polymarket'
+    },
+    {
+      label: 'Canary 契约',
+      title: `${canaryRows.value.length} 个候选`,
+      meta: '只定义边界，不接钱包写操作',
+      tone: 'blue',
+      target: 'polymarket'
+    },
+    {
+      label: '治理建议',
+      title: `${governanceRows.value.length} 条`,
+      meta: `worker ${workerQueue.value.length} / history ${first(poly.value.history?.summary?.totalRows, '--')}`,
+      tone: 'green',
+      target: 'polymarket'
+    }
+  ];
+  const paramCards = [
+    {
+      label: '候选队列',
+      title: shortText(first(topTask.candidateId, topTask.versionId, '等待队列'), 30),
+      meta: `${first(topTask.state, topTask.status, 'tester-only')} · score ${first(topTask.score, topTask.grade, '--')}`,
+      tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
+      target: 'paramlab'
+    },
+    {
+      label: '报告回灌',
+      title: `${reportWatcherRows.value.length} 条`,
+      meta: `parsed ${summaryValue(mt5.value.paramReportWatcher, 'parsedReportCount', '--')} / pending ${summaryValue(mt5.value.paramReportWatcher, 'pendingReportCount', '--')}`,
+      tone: 'blue',
+      target: 'paramlab'
+    },
+    {
+      label: '恢复风险',
+      title: `${summaryValue(mt5.value.runRecovery, 'riskRedCount', 0)}R / ${summaryValue(mt5.value.runRecovery, 'riskYellowCount', 0)}Y`,
+      meta: `retry ${summaryValue(mt5.value.runRecovery, 'retryCount', 0)} · ${summaryValue(mt5.value.runRecovery, 'latestStopReason')}`,
+      tone: summaryValue(mt5.value.runRecovery, 'riskRedCount', 0) > 0 ? 'red' : 'amber',
+      target: 'paramlab'
+    },
+    {
+      label: '守护窗口',
+      title: summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false) ? '可运行' : '锁定',
+      meta: `blocker ${summaryValue(mt5.value.autoTesterWindow, 'blockerCount', 0)} / 持仓 ${summaryValue(mt5.value.autoTesterWindow, 'openLivePositions', 0)}`,
+      tone: 'amber',
+      target: 'paramlab'
+    },
+    {
+      label: '守护边界',
+      title: '只读 / dry-run',
+      meta: 'MT5 不改执行，Polymarket 不写钱包',
+      tone: 'amber',
+      target: 'reports'
+    }
+  ];
+  if (state.active === 'polymarket') return [...polyCards, paramCards[paramCards.length - 1]];
+  if (state.active === 'paramlab') return [...paramCards, mt5Cards[1]];
+  if (state.active === 'mt5') return [...mt5Cards, paramCards[1], paramCards[2], paramCards[paramCards.length - 1]];
+  return [...mt5Cards, ...polyCards.slice(0, 2), paramCards[paramCards.length - 1]];
+});
+
+const watchlistItems = computed(() => [
+  ...mt5Routes.value.slice(0, 5).map((row) => ({
+    title: shortText(first(row.label, row.route, row.strategy, row.versionId), 32),
+    sub: `${routeShortName(row)} · ${routeActionLabel(row)}`,
+    value: `PF ${first(row.liveForward?.profitFactor, row.profitFactor, '--')}`,
+    tone: routeToneClass(row) || 'blue',
+    target: 'mt5'
+  })),
+  ...radarRows.value.slice(0, 5).map((row) => ({
+    title: shortText(first(row.market, row.title, row.question), 34),
+    sub: first(row.category, row.suggestedShadowTrack, 'Polymarket'),
+    value: pct(first(row.probability, row.marketProbability)),
+    tone: 'green',
+    target: 'polymarket'
+  }))
+].slice(0, 9));
+
+const actionQueueItems = computed(() => [
+  ...paramVisibleTasks.value.slice(0, 5).map((row) => ({
+    title: shortText(first(row.candidateId, row.versionId, row.taskId), 34),
+    sub: `${paramRouteLabel(row)} · ${first(row.state, row.status, row.resultState, '等待')}`,
+    value: first(row.score, row.grade, row.profitFactor, '--'),
+    tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
+    target: 'paramlab'
+  })),
+  ...governanceRows.value.slice(0, 3).map((row) => ({
+    title: shortText(first(row.market, row.title, row.marketId, row.decision), 34),
+    sub: first(row.action, row.recommendation, row.state, 'Polymarket 治理'),
+    value: first(row.score, row.aiScore, row.confidence, '--'),
+    tone: 'green',
+    target: 'polymarket'
+  }))
+].slice(0, 8));
+
 onMounted(() => {
   syncActiveFromHash();
   window.addEventListener('hashchange', syncActiveFromHash);
@@ -571,13 +719,14 @@ onBeforeUnmount(() => {
     <main class="workspace">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Vue Workbench</p>
-          <h1>{{ workspaces.find((item) => item.id === state.active)?.label }}</h1>
+          <p class="eyebrow">{{ activeWorkspaceMeta.sub }}</p>
+          <h1>{{ activeWorkspaceMeta.label }}</h1>
+          <p class="topbar-subtitle">{{ activeWorkspaceMeta.desc }}</p>
         </div>
         <div class="top-actions">
           <label class="search-box">
             <Search :size="16" />
-            <input v-model="state.query" type="search" placeholder="搜索 Polymarket 证据" @keyup.enter="refresh" />
+            <input v-model="state.query" type="search" placeholder="搜索市场、路线、候选和证据" @keyup.enter="refresh" />
           </label>
           <button class="ghost-button" type="button" @click="refresh">
             <RefreshCw :size="16" :class="{ spin: state.loading }" />
@@ -586,15 +735,32 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <section v-if="state.error" class="notice danger">{{ state.error }}</section>
+      <div class="operator-strip">
+        <button
+          v-for="card in operatorRadarCards"
+          :key="card.label"
+          class="operator-card"
+          :class="card.tone"
+          type="button"
+          @click="setActive(card.target)"
+        >
+          <span>{{ card.label }}</span>
+          <strong>{{ card.title }}</strong>
+          <small>{{ card.meta }}</small>
+        </button>
+      </div>
+
+      <div class="workspace-layout">
+        <div class="workspace-main">
+          <section v-if="state.error" class="notice danger">{{ state.error }}</section>
 
       <section v-if="state.active === 'home'" class="stack">
         <div class="section-grid">
           <article class="hero-panel compact-hero">
-            <p class="eyebrow">系统入口</p>
+            <p class="eyebrow">AI Opportunity Radar</p>
             <h2>MT5 与 Polymarket 分开管理，同一证据层复盘</h2>
             <p>
-              Vue 现在是默认入口，但旧页不会马上冻结。先把监盘、ParamLab、趋势图和 Polymarket 细节补到不输旧页，再进入真正只读归档。
+              这里按 QuantDinger 的操作台思路重排：顶部看机会雷达，中间处理监盘与研究队列，右侧保留 Watchlist 和待办。旧页先继续作为 fallback，不冻结。
             </p>
             <div class="route-tabs">
               <button type="button" @click="setActive('mt5')">进入 MT5 工作台</button>
@@ -619,6 +785,20 @@ onBeforeUnmount(() => {
             <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
           </article>
         </div>
+
+        <article class="analysis-console">
+          <div class="console-grid-bg"></div>
+          <div class="console-core">
+            <span>AI-POWERED</span>
+            <h2>QuantGod 分析引擎</h2>
+            <p>MT5 forward、ParamLab tester-only、Polymarket research 和审计 ledger 全部从同一证据层读取。</p>
+            <div class="console-actions">
+              <button type="button" @click="setActive('mt5')">策略监盘</button>
+              <button type="button" @click="setActive('paramlab')">参数队列</button>
+              <button type="button" @click="setActive('polymarket')">市场研究</button>
+            </div>
+          </div>
+        </article>
 
         <article class="panel">
           <div class="panel-title split">
@@ -1011,6 +1191,62 @@ onBeforeUnmount(() => {
           <EvidenceDrawer title="Polymarket AI raw" :payload="poly.aiScore" />
         </div>
       </section>
+        </div>
+
+        <aside class="command-rail">
+          <section class="rail-card">
+            <div class="rail-title">
+              <span>我的 Watchlist</span>
+              <small>{{ watchlistItems.length }} 项</small>
+            </div>
+            <button
+              v-for="item in watchlistItems"
+              :key="`${item.target}-${item.title}`"
+              type="button"
+              class="rail-item"
+              :class="item.tone"
+              @click="setActive(item.target)"
+            >
+              <span>
+                <strong>{{ item.title }}</strong>
+                <small>{{ item.sub }}</small>
+              </span>
+              <b>{{ item.value }}</b>
+            </button>
+            <div v-if="!watchlistItems.length" class="rail-empty">等待 MT5 路线或 Polymarket 雷达刷新。</div>
+          </section>
+
+          <section class="rail-card">
+            <div class="rail-title">
+              <span>待处理队列</span>
+              <small>{{ actionQueueItems.length }} 条</small>
+            </div>
+            <button
+              v-for="item in actionQueueItems"
+              :key="`${item.target}-${item.title}`"
+              type="button"
+              class="rail-item compact"
+              :class="item.tone"
+              @click="setActive(item.target)"
+            >
+              <span>
+                <strong>{{ item.title }}</strong>
+                <small>{{ item.sub }}</small>
+              </span>
+              <b>{{ item.value }}</b>
+            </button>
+            <div v-if="!actionQueueItems.length" class="rail-empty">暂无需要处理的候选或治理项。</div>
+          </section>
+
+          <section class="rail-card boundary">
+            <div class="rail-title">
+              <span>执行边界</span>
+              <small>LOCKED</small>
+            </div>
+            <p>MT5 只读展示与既有 EA 风控分离；Polymarket 保持 dry-run/canary 契约，不触发钱包写操作。</p>
+          </section>
+        </aside>
+      </div>
     </main>
   </div>
 </template>
