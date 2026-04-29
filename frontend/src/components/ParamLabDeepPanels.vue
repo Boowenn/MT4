@@ -11,8 +11,13 @@ const props = defineProps({
   reportWatcherRows: { type: Array, default: () => [] },
   runRecoveryRows: { type: Array, default: () => [] },
   autoTesterRows: { type: Array, default: () => [] },
-  researchRows: { type: Array, default: () => [] }
+  researchRows: { type: Array, default: () => [] },
+  testerBusy: { type: Boolean, default: false },
+  testerStatus: { type: String, default: '' },
+  autoTesterCanRun: { type: Boolean, default: false }
 });
+
+const emit = defineEmits(['auto-tester-action']);
 
 const scoredRows = computed(() => arrayFrom(props.mt5.paramResults, ['results', 'scoredResults', 'rows']).slice(0, 16));
 const recoveryRows = computed(() => (props.runRecoveryRows.length
@@ -49,8 +54,14 @@ const researchRows = computed(() => (props.researchRows.length
         <p class="eyebrow">ParamLab 深层细节</p>
         <h3>候选队列、评分结果、失败恢复</h3>
       </div>
-      <span class="status-chip">tester-only</span>
+      <div class="deep-heading-actions">
+        <span class="status-chip" :class="autoTesterCanRun ? 'green' : 'amber'">{{ autoTesterCanRun ? '可启动' : 'tester-only' }}</span>
+        <button type="button" :disabled="testerBusy" @click="emit('auto-tester-action', 'evaluate')">刷新守护</button>
+        <button type="button" :disabled="testerBusy" @click="emit('auto-tester-action', 'lock')">短时授权</button>
+        <button type="button" :disabled="testerBusy" @click="emit('auto-tester-action', 'run')">受控启动</button>
+      </div>
     </div>
+    <small v-if="testerStatus" class="deep-status-line">{{ testerStatus }}</small>
 
     <DataTable
       title="执行队列"

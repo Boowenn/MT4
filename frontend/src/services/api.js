@@ -281,3 +281,24 @@ export async function submitPolymarketRequest(payload) {
     error: 'request_failed'
   });
 }
+
+export async function evaluateAutoTesterWindow(payload = {}) {
+  return postJson('/api/paramlab/auto-tester/evaluate', payload, {
+    ok: false,
+    error: 'auto_tester_evaluate_failed'
+  });
+}
+
+export async function createAutoTesterLock(payload = {}) {
+  return postJson('/api/paramlab/auto-tester/lock', payload, {
+    ok: false,
+    error: 'auto_tester_lock_failed'
+  });
+}
+
+export async function startAutoTesterWindow(payload = {}) {
+  return postJson('/api/paramlab/auto-tester/run', payload, {
+    ok: false,
+    error: 'auto_tester_run_failed'
+  });
+}

@@ -56,6 +56,7 @@ const mt5TradingClientScript = path.join(repoRoot, 'tools', 'mt5_trading_client.
 const mt5PendingWorkerScript = path.join(repoRoot, 'tools', 'mt5_pending_order_worker.py');
 const mt5PlatformStoreScript = path.join(repoRoot, 'tools', 'mt5_platform_store.py');
 const mt5AdaptiveControlScript = path.join(repoRoot, 'tools', 'mt5_adaptive_control_executor.py');
+const paramLabAutoTesterScript = path.join(repoRoot, 'tools', 'run_param_lab_auto_tester_window.py');
 const polymarketHistoryTables = new Set([
   'all',
   'opportunities',
@@ -106,6 +107,20 @@ const mt5BackendBacktestName = 'QuantGod_MT5BackendBacktest.json';
 const mt5PendingWorkerName = 'QuantGod_MT5PendingOrderWorker.json';
 const mt5PlatformStateName = 'QuantGod_MT5PlatformState.json';
 const mt5AdaptiveControlName = 'QuantGod_MT5AdaptiveControlActions.json';
+const paramLabAutoTesterName = 'QuantGod_AutoTesterWindow.json';
+const paramLabAutoTesterLockName = 'QuantGod_AutoTesterWindow.lock.json';
+const paramLabAutoTesterLaunchName = 'QuantGod_AutoTesterWindowLaunch.json';
+const configuredParamLabHfmRoot = process.env.QG_PARAMLAB_HFM_ROOT
+  || path.join(repoRoot, 'runtime', 'ParamLab_Tester_Sandbox', 'live_hfm_placeholder');
+const configuredParamLabTesterRoot = process.env.QG_PARAMLAB_TESTER_ROOT
+  || process.env.QG_MT5_TESTER_ROOT
+  || path.join(repoRoot, 'runtime', 'ParamLab_Tester_Sandbox', 'isolated_tester');
+const defaultParamLabHfmRoot = path.isAbsolute(configuredParamLabHfmRoot)
+  ? configuredParamLabHfmRoot
+  : path.resolve(repoRoot, configuredParamLabHfmRoot);
+const defaultParamLabTesterRoot = path.isAbsolute(configuredParamLabTesterRoot)
+  ? configuredParamLabTesterRoot
+  : path.resolve(repoRoot, configuredParamLabTesterRoot);
 const polymarketReadOnlyJsonFiles = new Set([
   polymarketRadarName,
   polymarketRadarWorkerName,
@@ -304,6 +319,53 @@ function runJsonPython(script, args = [], timeoutMs = 15000) {
       } catch (error) {
         resolve({ ok: false, skipped: false, exitCode: code, stdout, stderr: `json_parse_failed: ${error.message}` });
       }
+    });
+  });
+}
+
+function runPlainPython(script, args = [], timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(script)) {
+      resolve({ ok: false, skipped: true, reason: 'script_not_found', script });
+      return;
+    }
+    const child = spawn(pythonBin, [script, ...args], {
+      cwd: repoRoot,
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve({ ok: false, skipped: false, exitCode: -1, stdout, stderr: 'timeout' });
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, skipped: false, exitCode: -1, stdout, stderr: error.message });
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        ok: code === 0,
+        skipped: false,
+        exitCode: code,
+        stdout: stdout.trim(),
+        stderr: stderr.trim()
+      });
     });
   });
 }
@@ -575,6 +637,209 @@ function clampMt5BackendTasks(value, fallback = 20) {
   const parsed = Number.parseInt(String(value || ''), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(parsed, 80));
+}
+
+function clampParamLabAutoTesterTasks(value, fallback = 8) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(parsed, 12));
+}
+
+function clampParamLabAutoTesterMinutes(value, fallback = 90) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(15, Math.min(parsed, 180));
+}
+
+function readJsonIfExists(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+function paramLabAutoTesterPaths() {
+  return {
+    output: path.join(defaultRuntimeDir, paramLabAutoTesterName),
+    lock: path.join(defaultRuntimeDir, paramLabAutoTesterLockName),
+    launch: path.join(defaultRuntimeDir, paramLabAutoTesterLaunchName)
+  };
+}
+
+function buildParamLabAutoTesterArgs(options = {}) {
+  const maxTasks = clampParamLabAutoTesterTasks(options.maxTasks || options.max_tasks, 8);
+  const args = [
+    '--repo-root',
+    repoRoot,
+    '--runtime-dir',
+    defaultRuntimeDir,
+    '--hfm-root',
+    defaultParamLabHfmRoot,
+    '--tester-root',
+    defaultParamLabTesterRoot,
+    '--max-tasks',
+    String(maxTasks),
+    '--login',
+    String(process.env.QG_MT5_LOGIN || process.env.QG_HFM_LOGIN || '186054398'),
+    '--server',
+    String(process.env.QG_MT5_SERVER || process.env.QG_HFM_SERVER || 'HFMarketsGlobal-Live12')
+  ];
+  if (options.continuousWatch) {
+    args.push('--continuous-watch');
+  }
+  if (options.runTerminal) {
+    args.push('--run-terminal', '--authorized-strategy-tester');
+  }
+  return args;
+}
+
+function writeParamLabAutoTesterLock(options = {}) {
+  const paths = paramLabAutoTesterPaths();
+  const minutes = clampParamLabAutoTesterMinutes(options.minutes, 90);
+  const maxTasks = clampParamLabAutoTesterTasks(options.maxTasks || options.max_tasks, 8);
+  const now = new Date();
+  const expires = new Date(now.getTime() + minutes * 60 * 1000);
+  const lock = {
+    schemaVersion: 1,
+    purpose: 'PARAM_LAB_STRATEGY_TESTER_ONLY',
+    authorized: true,
+    testerOnly: true,
+    allowRunTerminal: true,
+    livePresetMutation: false,
+    allowOutsideWindow: false,
+    createdAtIso: now.toISOString(),
+    expiresAtIso: expires.toISOString(),
+    runtimeDir: defaultRuntimeDir,
+    hfmRoot: defaultParamLabTesterRoot,
+    maxTasks,
+    source: 'dashboard_paramlab_auto_tester_button'
+  };
+  fs.mkdirSync(path.dirname(paths.lock), { recursive: true });
+  fs.writeFileSync(paths.lock, JSON.stringify(lock, null, 2), 'utf8');
+  return { lock, lockPath: paths.lock };
+}
+
+async function evaluateParamLabAutoTester(payload = {}) {
+  const args = buildParamLabAutoTesterArgs({
+    maxTasks: payload.maxTasks || payload.max_tasks
+  });
+  const processResult = await runPlainPython(paramLabAutoTesterScript, args, 120000);
+  const paths = paramLabAutoTesterPaths();
+  let status = null;
+  try {
+    status = readJsonIfExists(paths.output);
+  } catch (error) {
+    status = { parseError: error.message || String(error) };
+  }
+  return {
+    ok: processResult.ok,
+    action: 'evaluate',
+    status,
+    process: processResult,
+    safety: {
+      testerOnly: true,
+      guardRequired: true,
+      runTerminalRequested: false,
+      orderSendAllowed: false,
+      livePresetMutationAllowed: false,
+      mutatesLiveMt5: false
+    }
+  };
+}
+
+async function handleParamLabAutoTester(req, res, action) {
+  const body = req.method === 'POST' ? await readRequestBody(req) : '{}';
+  const payload = safeJsonPayload(body);
+  if (action === 'lock') {
+    const lockResult = writeParamLabAutoTesterLock(payload);
+    const evalResult = await evaluateParamLabAutoTester(payload);
+    sendJson(res, 200, {
+      ok: evalResult.ok,
+      action,
+      lock: lockResult.lock,
+      lockPath: lockResult.lockPath,
+      status: evalResult.status,
+      process: evalResult.process,
+      safety: {
+        testerOnly: true,
+        shortLivedAuthorization: true,
+        runTerminalRequested: false,
+        orderSendAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesLiveMt5: false
+      }
+    });
+    return;
+  }
+  if (action === 'evaluate') {
+    sendJson(res, 200, await evaluateParamLabAutoTester(payload));
+    return;
+  }
+  if (action !== 'run') {
+    sendJson(res, 404, { ok: false, error: 'unsupported_paramlab_auto_tester_action', action });
+    return;
+  }
+
+  const preflight = await evaluateParamLabAutoTester(payload);
+  const summary = preflight.status && preflight.status.summary ? preflight.status.summary : {};
+  const gate = preflight.status && preflight.status.gate ? preflight.status.gate : {};
+  if (!summary.canRunTerminal) {
+    sendJson(res, 200, {
+      ok: false,
+      action,
+      started: false,
+      status: preflight.status,
+      process: preflight.process,
+      blockers: Array.isArray(gate.blockers) ? gate.blockers : [],
+      error: 'AUTO_TESTER_WINDOW_BLOCKED',
+      safety: {
+        testerOnly: true,
+        guardRequired: true,
+        runTerminalRequested: true,
+        runTerminalStarted: false,
+        orderSendAllowed: false,
+        livePresetMutationAllowed: false,
+        mutatesLiveMt5: false
+      }
+    });
+    return;
+  }
+
+  const args = buildParamLabAutoTesterArgs({
+    maxTasks: payload.maxTasks || payload.max_tasks,
+    runTerminal: true,
+    continuousWatch: true
+  });
+  const paths = paramLabAutoTesterPaths();
+  const launch = {
+    ok: true,
+    action,
+    started: true,
+    launchedAtIso: new Date().toISOString(),
+    script: paramLabAutoTesterScript,
+    args,
+    runtimeDir: defaultRuntimeDir,
+    testerRoot: defaultParamLabTesterRoot,
+    statusPath: paths.output,
+    logPath: paths.launch,
+    safety: {
+      testerOnly: true,
+      guardRequired: true,
+      runTerminalRequested: true,
+      orderSendAllowed: false,
+      livePresetMutationAllowed: false,
+      mutatesLiveMt5: false
+    }
+  };
+  fs.mkdirSync(path.dirname(paths.launch), { recursive: true });
+  fs.writeFileSync(paths.launch, JSON.stringify(launch, null, 2), 'utf8');
+  const child = spawn(pythonBin, [paramLabAutoTesterScript, ...args], {
+    cwd: repoRoot,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+  });
+  child.unref();
+  sendJson(res, 202, launch);
 }
 
 function buildMt5BackendBacktestArgs(parsedUrl) {
@@ -2739,6 +3004,11 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/mt5-backtest-loop/run') {
     handleMt5BackendBacktest(req, res, true);
+    return;
+  }
+  if (req.method === 'POST' && requestUrl.split('?')[0].startsWith('/api/paramlab/auto-tester/')) {
+    const action = path.basename(requestUrl.split('?')[0]);
+    handleParamLabAutoTester(req, res, action);
     return;
   }
   if ((req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') && (requestUrl.split('?')[0] === '/api/mt5-platform' || requestUrl.split('?')[0].startsWith('/api/mt5-platform/'))) {

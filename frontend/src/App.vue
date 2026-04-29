@@ -8,10 +8,12 @@ import {
   ClipboardList,
   Gauge,
   Globe2,
+  KeyRound,
   Layers,
   LineChart,
   Menu,
   Network,
+  PlayCircle,
   Plus,
   RefreshCw,
   Search,
@@ -21,7 +23,13 @@ import {
   TrendingUp,
   WalletCards
 } from 'lucide-vue-next';
-import { loadDashboardState, submitPolymarketRequest } from './services/api';
+import {
+  createAutoTesterLock,
+  evaluateAutoTesterWindow,
+  loadDashboardState,
+  startAutoTesterWindow,
+  submitPolymarketRequest
+} from './services/api';
 import Mt5DeepPanels from './components/Mt5DeepPanels.vue';
 import ParamLabDeepPanels from './components/ParamLabDeepPanels.vue';
 import PolymarketDeepPanels from './components/PolymarketDeepPanels.vue';
@@ -50,6 +58,8 @@ const state = reactive({
   query: '',
   marketInput: '',
   requestStatus: '',
+  testerBusy: false,
+  testerActionStatus: '',
   data: {
     mt5: {},
     polymarket: {}
@@ -958,6 +968,57 @@ async function submitSingleMarket() {
 
 const mt5 = computed(() => state.data.mt5 || {});
 const poly = computed(() => state.data.polymarket || {});
+
+const autoTesterSummary = computed(() => mt5.value.autoTesterWindow?.summary || {});
+const autoTesterCanRun = computed(() => booleanish(summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false)));
+const autoTesterBlockers = computed(() => {
+  const gateBlockers = mt5.value.autoTesterWindow?.gate?.blockers;
+  const summaryBlockers = mt5.value.autoTesterWindow?.blockers;
+  if (Array.isArray(gateBlockers)) return gateBlockers;
+  if (Array.isArray(summaryBlockers)) return summaryBlockers;
+  return [];
+});
+
+function autoTesterGuardText() {
+  const blockers = autoTesterBlockers.value.slice(0, 3).map((item) => stopReasonLabel(item));
+  if (autoTesterCanRun.value) return 'guard 已放行';
+  return blockers.length ? `锁定：${blockers.join(' / ')}` : '锁定：等待 guard 刷新';
+}
+
+function autoTesterActionText(result, action) {
+  if (action === 'run' && result?.started) return '已提交后台 Strategy Tester 启动，等待报告回灌';
+  if (action === 'run' && !result?.started) {
+    const blockers = (result?.blockers || result?.status?.gate?.blockers || []).slice(0, 3).map((item) => stopReasonLabel(item));
+    return blockers.length ? `启动被守护拦截：${blockers.join(' / ')}` : `启动被守护拦截：${first(result?.error, 'unknown')}`;
+  }
+  if (action === 'lock') return result?.ok ? '短时 tester-only 授权锁已生成' : `授权失败：${first(result?.error, result?.process?.stderr, 'unknown')}`;
+  return result?.ok ? '守护状态已刷新' : `刷新失败：${first(result?.error, result?.process?.stderr, 'unknown')}`;
+}
+
+async function handleAutoTesterAction(action) {
+  if (state.testerBusy) return;
+  state.testerBusy = true;
+  const labels = {
+    evaluate: '正在刷新 AUTO_TESTER_WINDOW guard...',
+    lock: '正在生成短时 tester-only 授权锁...',
+    run: '正在提交受控 Strategy Tester 启动...'
+  };
+  state.testerActionStatus = labels[action] || '正在处理...';
+  const payload = { maxTasks: 8, minutes: 90, source: 'vue_paramlab_workbench' };
+  try {
+    const result = action === 'lock'
+      ? await createAutoTesterLock(payload)
+      : action === 'run'
+        ? await startAutoTesterWindow(payload)
+        : await evaluateAutoTesterWindow(payload);
+    state.testerActionStatus = autoTesterActionText(result, action);
+    await refresh();
+  } catch (error) {
+    state.testerActionStatus = `操作失败：${error.message || String(error)}`;
+  } finally {
+    state.testerBusy = false;
+  }
+}
 
 const mt5Account = computed(() => {
   const snap = mt5.value.snapshot || {};
@@ -3322,7 +3383,31 @@ onBeforeUnmount(() => {
               <b class="pill amber">TESTER-ONLY</b>
             </div>
             <h2>候选参数、批次队列、报告回灌与恢复风险</h2>
-            <p>对照 QuantDinger 的 worker/queue 体验，把“可运行、等待报告、已评分、失败恢复、守护窗口”放成一张批次看板；这里只生成和展示 tester-only 证据，不启动 Strategy Tester。</p>
+            <p>对照 QuantDinger 的 worker/queue 体验，把“可运行、等待报告、已评分、失败恢复、守护窗口”放成一张批次看板；Strategy Tester 启动只走 AUTO_TESTER_WINDOW guard。</p>
+            <div class="auto-tester-control">
+              <div class="panel-title split">
+                <span class="eyebrow">AUTO_TESTER_WINDOW</span>
+                <b class="pill" :class="autoTesterCanRun ? 'green' : 'amber'">{{ autoTesterCanRun ? '可启动' : '守护锁定' }}</b>
+              </div>
+              <div class="tester-guard-grid">
+                <span><small>窗口</small><b>{{ summaryValue(mt5.autoTesterWindow, 'windowOk', false) ? 'OK' : 'LOCK' }}</b></span>
+                <span><small>授权</small><b>{{ summaryValue(mt5.autoTesterWindow, 'lockOk', false) ? 'OK' : 'LOCK' }}</b></span>
+                <span><small>队列</small><b>{{ summaryValue(mt5.autoTesterWindow, 'queueCount', 0) }}</b></span>
+                <span><small>阻断</small><b>{{ summaryValue(mt5.autoTesterWindow, 'blockerCount', 0) }}</b></span>
+              </div>
+              <div class="tester-action-row">
+                <button type="button" class="ghost-button small" :disabled="state.testerBusy" @click="handleAutoTesterAction('evaluate')">
+                  <RefreshCw :size="14" />刷新守护
+                </button>
+                <button type="button" class="ghost-button small" :disabled="state.testerBusy" @click="handleAutoTesterAction('lock')">
+                  <KeyRound :size="14" />短时授权
+                </button>
+                <button type="button" class="ghost-button small tester-run-button" :class="{ armed: autoTesterCanRun }" :disabled="state.testerBusy" @click="handleAutoTesterAction('run')">
+                  <PlayCircle :size="14" />受控启动
+                </button>
+              </div>
+              <small class="tester-status-line">{{ state.testerActionStatus || autoTesterGuardText() }}</small>
+            </div>
           </article>
           <article class="param-lane-board">
             <button
@@ -3412,6 +3497,10 @@ onBeforeUnmount(() => {
           :run-recovery-rows="runRecoveryRows"
           :auto-tester-rows="autoTesterRows"
           :research-rows="mt5ResearchRows"
+          :tester-busy="state.testerBusy"
+          :tester-status="state.testerActionStatus || autoTesterGuardText()"
+          :auto-tester-can-run="autoTesterCanRun"
+          @auto-tester-action="handleAutoTesterAction"
         />
       </section>
 

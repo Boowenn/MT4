@@ -1306,17 +1306,38 @@ h2 {
 }
 
 .paramlab-hero {
-  grid-template-columns: minmax(0, 0.72fr) minmax(560px, 1.28fr);
+  grid-template-columns: minmax(420px, 0.92fr) minmax(0, 1.08fr);
+  align-items: start;
+}
+
+.paramlab-hero > * {
+  align-self: start;
+}
+
+.paramlab-hero .hero-copy .panel-title.split {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+}
+
+.paramlab-hero .hero-copy .pill {
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .param-lane-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  align-content: start;
+  align-items: start;
   gap: 8px;
   padding: 12px;
 }
 
 .param-lane {
+  display: grid;
+  align-content: start;
+  align-self: start;
   min-height: 92px;
 }
 
@@ -1347,6 +1368,68 @@ h2 {
   overflow: visible;
   text-overflow: clip;
   white-space: normal;
+}
+
+.auto-tester-control {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(129, 151, 178, 0.2);
+}
+
+.tester-guard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tester-guard-grid span {
+  min-width: 0;
+  padding: 8px;
+  background: rgba(13, 20, 29, 0.7);
+  border: 1px solid rgba(129, 151, 178, 0.18);
+  border-radius: 8px;
+}
+
+.tester-guard-grid small,
+.tester-guard-grid b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tester-guard-grid small,
+.tester-status-line,
+.deep-status-line {
+  color: var(--muted);
+}
+
+.tester-action-row,
+.deep-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tester-action-row .ghost-button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tester-run-button.armed {
+  color: #06111d;
+  background: #8ff0c2;
+  border-color: rgba(51, 217, 154, 0.7);
+}
+
+.tester-action-row button:disabled,
+.deep-heading-actions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .poly-hero {
@@ -2016,6 +2099,25 @@ h2 {
 .deep-heading h3 {
   margin: 0;
   font-size: 19px;
+}
+
+.deep-heading-actions {
+  justify-content: flex-end;
+}
+
+.deep-heading-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--text);
+  background: #101923;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.deep-status-line {
+  display: block;
+  margin-top: -6px;
 }
 
 .toolbar {
@@ -3952,6 +4054,11 @@ tbody tr:hover td {
     grid-template-columns: repeat(auto-fit, minmax(min(172px, 100%), 1fr));
   }
 
+  .paramlab-hero {
+    grid-template-columns: minmax(380px, 0.92fr) minmax(0, 1.08fr);
+    align-items: start;
+  }
+
   .strategy-card-grid,
   .page-ai > .card-grid.three {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4164,6 +4271,10 @@ tbody tr:hover td {
   .workspace-tabs button {
     flex: 0 0 auto;
   }
+
+  .tester-guard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -4280,6 +4391,12 @@ tbody tr:hover td {
     flex: 1 1 132px;
   }
 
+  .tester-action-row button,
+  .deep-heading-actions button {
+    flex: 1 1 132px;
+    justify-content: center;
+  }
+
   .bar-row {
     grid-template-columns: minmax(0, 1fr) minmax(54px, auto);
     gap: 6px 8px;
@@ -4327,6 +4444,7 @@ tbody tr:hover td {
   .qd-card-metrics,
   .trade-metric-grid,
   .strategy-performance-grid,
+  .tester-guard-grid,
   .page-mt5[data-focus="trades"] .card-grid.three,
   .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
     grid-template-columns: minmax(0, 1fr);
