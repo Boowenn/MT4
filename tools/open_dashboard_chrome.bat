@@ -2,7 +2,7 @@
 setlocal
 
 set "TARGET_URL=%~1"
-if "%TARGET_URL%"=="" set "TARGET_URL=http://localhost:8080/QuantGod_Dashboard.html"
+if "%TARGET_URL%"=="" set "TARGET_URL=http://localhost:8080/vue/"
 
 set "CHROME_PATH="
 

@@ -4,11 +4,11 @@ Cloudflare is optional. The repository is designed to run in **local-first** mod
 
 If you are only running HFM MT5 and the dashboard on your own machine, stop here and do not enable this folder.
 
-This folder deploys the existing dashboard plus a lightweight ingest API.
+This folder deploys the Vue dashboard bundle plus a lightweight ingest API.
 
 ## What It Does
 
-- Serves `../Dashboard/QuantGod_Dashboard.html` on Cloudflare
+- Serves `../Dashboard/vue-dist/` on Cloudflare
 - Accepts MT5 dashboard snapshot pushes at `/api/ingest`
 - Stores the latest snapshot in Cloudflare KV
 - Exposes the latest snapshot at `/api/latest`

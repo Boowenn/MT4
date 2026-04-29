@@ -94,7 +94,7 @@ The dashboard home Route Watchlist and the Strategy Workspace tabs are the main 
 
 The left dashboard sidebar is a workbench switcher, not a long-page jump list. Clicking `概览`, `策略`, `监控`, `交易`, `研究`, or `报表` hides the other dashboard sections and shows only the selected workspace while keeping the hash URL for direct links.
 
-The new Vue workbench lives at `http://localhost:8080/vue/`. It is the default operator surface and engineering-forward replacement shell for the old single-file dashboard: MT5, Polymarket, ParamLab, trend charts, and reports are separated into app-style workspaces while the original `QuantGod_Dashboard.html` remains available as an active fallback and is not frozen yet. Final legacy freeze is blocked until Vue parity is good enough for daily operation; the home view and MT5 route cards now show denser live-forward, candidate, blocker, ParamLab, and next-step evidence instead of acting like a landing page. The Vue shell also includes deep detail components for MT5 positions/governance/backtests, Polymarket radar/AI/canary/governance/linkage/history, ParamLab queue/results/recovery evidence, route/status/sort controls for ParamLab batch review, evidence freshness and report tables, and a read-only chart/trend workspace for MT5 Shadow/Candidate outcomes, ParamLab score trends, Report Watcher, Run Recovery, AutoTester gate, research slices, and Polymarket radar/AI/canary/governance distributions. The migration/archive status is tracked in `docs/QuantGod_Dashboard_Vue_Migration_Status.md`.
+The Vue workbench lives at `http://localhost:8080/vue/`. It is now the only active operator frontend: MT5, Polymarket, ParamLab, trend charts, and reports are separated into app-style workspaces, and the retired `QuantGod_Dashboard.html` route redirects to `/vue/`. The Vue shell includes deep detail components for MT5 positions/governance/backtests, Polymarket radar/AI/canary/governance/linkage/history, ParamLab queue/results/recovery evidence, route/status/sort controls for ParamLab batch review, evidence freshness and report tables, and a read-only chart/trend workspace for MT5 Shadow/Candidate outcomes, ParamLab score trends, Report Watcher, Run Recovery, AutoTester gate, research slices, and Polymarket radar/AI/canary/governance distributions. The retirement status is tracked in `docs/QuantGod_Dashboard_Vue_Migration_Status.md`.
 
 Backtest-loop autonomy planning lives in `docs/QuantGod_Backtest_Autonomy_Plan.md`. It tracks the remaining QuantDinger-inspired pieces, explains which parts of the backtest loop can become fully automatic, and keeps live-preset mutation outside the default automation boundary.
 
@@ -132,7 +132,7 @@ QuantGod_MT4/
 |   |   `-- QuantGod_MultiStrategy.mq5
 |   `-- Config/
 |-- Dashboard/
-|   |-- QuantGod_Dashboard.html
+|   |-- vue-dist/
 |   |-- dashboard_server.js
 |   `-- start_dashboard.bat
 |-- tools/
@@ -146,7 +146,7 @@ Copy these files into your MT5 installation:
 
 ```text
 MQL5/Experts/QuantGod_MultiStrategy.mq5  -> [HFM MT5]/MQL5/Experts/
-Dashboard/QuantGod_Dashboard.html        -> [HFM MT5]/MQL5/Files/
+Dashboard/vue-dist/                      -> [HFM MT5]/MQL5/Files/vue-dist/
 Dashboard/dashboard_server.js            -> [HFM MT5]/MQL5/Files/
 ```
 
@@ -369,7 +369,7 @@ Then open the Vue workbench:
 http://localhost:8080/vue/
 ```
 
-The legacy single-file dashboard is still kept as an active fallback while Vue parity is being verified:
+The retired single-file dashboard route now redirects to Vue:
 
 ```text
 http://localhost:8080/QuantGod_Dashboard.html

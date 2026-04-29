@@ -29,7 +29,7 @@ description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system 
 - HFM shadow startup automation lives in `MQL5/Config/QuantGod_MT5_HFM_Shadow.ini` and `Start_QuantGod_MT5_HFM_Shadow.bat`.
 - HFM live-pilot startup automation lives in `MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini`, `MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set`, and `Start_QuantGod_MT5_HFM_LivePilot.bat`.
 - MT4 runtime archive automation lives in `tools/archive_mt4_runtime.ps1`.
-- Dashboard rendering lives in `Dashboard/QuantGod_Dashboard.html`.
+- Dashboard rendering lives in the Vue workbench under `frontend/src/**`, published to `Dashboard/vue-dist/**`, with local serving handled by `Dashboard/dashboard_server.js`.
 
 3. Protect research statistics before trusting conclusions.
 - Validate how `researchLots`, `researchNet`, `TradeEventLinks`, and `TradeOutcomeLabels` are derived.
@@ -80,7 +80,7 @@ description: Operate, review, and modify the QuantGod HFM MT5 live-pilot system 
 - Re-run the MT5 JSON export and placeholder CSV export after changing the phase 1 MT5 skeleton.
 - Check at least `QuantGod_Dashboard.json`, `QuantGod_TradeOutcomeLabels.csv`, `QuantGod_TradeJournal.csv`, and `QuantGod_BalanceHistory.csv` when a fix touches profit scaling or trade labeling.
 - Check `QuantGod_RegimeEvaluationReport.csv` whenever you change event linkage, regime attribution, or outcome labeling.
-- Check the heatmap panel in `Dashboard/QuantGod_Dashboard.html` whenever you change regime-report columns, aggregation meaning, or symbol filtering behavior.
+- Check the Vue heatmap/chart panels under `http://localhost:8080/vue/` whenever you change regime-report columns, aggregation meaning, or symbol filtering behavior.
 - Check the research suggestion panel whenever you change regime scoring thresholds, confidence handling, or the recommendation wording/priority logic.
 - Check the strategy evaluation table whenever you change research recommendation matching, especially the fallback behavior when the current regime has no closed sample yet.
 - Check the symbol overview strategy chips whenever you change research recommendation matching, because they now expose the same current-slice action without requiring the operator to scroll to the evaluation section.

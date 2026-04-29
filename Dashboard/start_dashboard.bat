@@ -7,7 +7,6 @@ echo ============================================
 echo.
 echo Starting server at http://localhost:8080
 echo Vue workbench: http://localhost:8080/vue/
-echo Legacy fallback: http://localhost:8080/QuantGod_Dashboard.html
 echo.
 echo Press Ctrl+C to stop the server.
 echo.

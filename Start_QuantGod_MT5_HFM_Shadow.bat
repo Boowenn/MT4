@@ -19,7 +19,8 @@ exit /b 1
 )
 
 echo 1. Syncing dashboard assets to MT5 Files...
-copy /Y "%REPO_ROOT%\Dashboard\QuantGod_Dashboard.html" "%QG_FILES%\QuantGod_Dashboard.html" >nul
+if not exist "%QG_FILES%\vue-dist" mkdir "%QG_FILES%\vue-dist"
+xcopy /E /I /Y "%REPO_ROOT%\Dashboard\vue-dist" "%QG_FILES%\vue-dist" >nul
 copy /Y "%REPO_ROOT%\Dashboard\dashboard_server.js" "%QG_FILES%\dashboard_server.js" >nul
 if exist "%REPO_ROOT%\archive\backtests\latest\QuantGod_BacktestSummary.json" (
 copy /Y "%REPO_ROOT%\archive\backtests\latest\QuantGod_BacktestSummary.json" "%QG_FILES%\QuantGod_BacktestSummary.json" >nul
@@ -47,7 +48,7 @@ for /f %%i in ('powershell -NoProfile -Command "[DateTimeOffset]::Now.ToUnixTime
 timeout /t 2 /nobreak >nul
 
 echo 6. Opening dashboard...
-call "%REPO_ROOT%\tools\open_dashboard_chrome.bat" "http://localhost:8080/QuantGod_Dashboard.html?ts=%QG_TS%"
+call "%REPO_ROOT%\tools\open_dashboard_chrome.bat" "http://localhost:8080/vue/?ts=%QG_TS%"
 
 echo.
 echo Read-only shadow mode is ON. HFM account connection is allowed, but live trading stays disabled.

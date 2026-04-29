@@ -2592,12 +2592,26 @@ function maybeTranscodeRuntimeText(target, ext, data) {
 
 function safeResolve(urlPath) {
   const pathname = decodeURIComponent(urlPath.split('?')[0] || '/');
-  const normalized = pathname === '/' ? '/QuantGod_Dashboard.html' : pathname;
+  const normalized = pathname;
   const target = path.resolve(rootDir, '.' + normalized);
   if (!target.startsWith(rootDir)) {
     return null;
   }
   return target;
+}
+
+function shouldRedirectToVue(urlPath) {
+  const pathname = decodeURIComponent(urlPath.split('?')[0] || '/');
+  return pathname === '/' || pathname === '/QuantGod_Dashboard.html';
+}
+
+function redirectToVue(urlPath, res) {
+  const query = urlPath.includes('?') ? `?${urlPath.split('?').slice(1).join('?')}` : '';
+  send(res, 302, {
+    Location: `/vue/${query}`,
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+  }, 'Redirecting to QuantGod Vue workbench');
 }
 
 function safeResolveVue(urlPath) {
@@ -2666,6 +2680,10 @@ const server = http.createServer((req, res) => {
   const requestUrl = req.url || '/';
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, {});
+    return;
+  }
+  if (req.method === 'GET' && shouldRedirectToVue(requestUrl)) {
+    redirectToVue(requestUrl, res);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/latest') {
@@ -2820,8 +2838,8 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`QuantGod dashboard server running at http://${host}:${port}/QuantGod_Dashboard.html`);
   console.log(`QuantGod Vue workbench running at http://${host}:${port}/vue/`);
+  console.log(`Legacy QuantGod_Dashboard.html redirects to /vue/.`);
 });
 
 server.on('error', (err) => {

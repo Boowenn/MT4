@@ -70,7 +70,7 @@ tools\build_polymarket_research_bridge.bat "C:\Program Files\HFM Metatrader 5\MQ
 The bridge writes the snapshot to both:
 
 - HFM runtime files directory, for the MT5-local dashboard data layer.
-- `Dashboard\`, for the local `http://localhost:8080/QuantGod_Dashboard.html` static dashboard server.
+- `Dashboard\`, for the local `http://localhost:8080/vue/` static Vue dashboard server.
 
 ## Opportunity Radar V1
 

@@ -17,7 +17,7 @@ When project knowledge conflicts:
 
 1. Runtime exports under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
 2. Current MT5 live-pilot behavior in `MQL5/Experts/QuantGod_MultiStrategy.mq5`
-3. Dashboard and local server rendering in `Dashboard/QuantGod_Dashboard.html` and `Dashboard/dashboard_server.js`
+3. Dashboard and local server rendering in `frontend/src/**`, `Dashboard/vue-dist/**`, and `Dashboard/dashboard_server.js`
 4. MT5 launch/config files such as `MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini` and `MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set`
 5. Human-facing notes such as `README.md`
 
@@ -54,8 +54,8 @@ Responsibilities:
 - Export `QuantGod_ShadowOutcomeLedger.csv` as a no-trade post-outcome ledger that labels completed 15/30/60 minute horizons from Shadow Signal Ledger rows, including close move, MFE/MAE, directional outcome, and best long/short opportunity
 - Export `QuantGod_ShadowCandidateLedger.csv` and `QuantGod_ShadowCandidateOutcomeLedger.csv` for Shadow Candidate Router V1.1, covering MA continuation/range-soft, RSI reversal, Bollinger reversal, MACD momentum turn, and support/resistance breakout candidates as shadow-only route hypotheses; soft shadow triggers intentionally increase trend-continuation, RSI, MACD, and support/resistance sample speed without changing live `OrderSend` gating
 - Export `QuantGod_ManualAlphaLedger.csv` as a learn-only ledger for manual open/closed trades, including current XAUUSDc-style discretionary trades, so strong human entries can be studied without expanding EA permissions
-- Reuse the existing dashboard assets against the active MT5 terminal files directory
-- Reuse the existing dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
+- Reuse the Vue dashboard assets against the active MT5 terminal files directory
+- Reuse the Vue dashboard assets against `C:\Program Files\HFM Metatrader 5\MQL5\Files\` for the HFM Cent live-account runtime path
 - Use the official MT5 startup config mechanism to auto-open `EURUSD M1` and auto-load the phase 1 skeleton at terminal launch
 - Run a constrained HFM Cent live pilot with `MA_Cross` enabled by default, `0.01` lot, `M15` trigger + `H1` trend filter, a 5-bar fresh-crossover lookback window plus a 24-bar pullback-continuation entry window after recent crosses, pilot-only one-position caps, hard `SL/TP`, kill switches, a same-symbol post-loss cooldown, a range-regime entry block, a 180-minute auto-resume cooldown after consecutive-loss pauses, breakeven plus trailing-stop profit protection for eligible profitable EA positions, conservative SL/max-loss/trailing safety protection for manual positions across all symbols, and a USD high-impact news filter driven by the MT5 economic calendar. Manual positions are protected but separate; they do not block same-symbol EA entries or pollute EA strategy statistics.
 - Port the old MT4 `RSI_Reversal`, `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes into MT5 as candidate/backtest/live-gated signal evaluators. The shipped HFM live preset enables only `USDJPY RSI_Reversal H1` among legacy routes. `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` stay candidate/backtest-only while their stricter confirmation rules are iterated; Strategy Tester presets still validate the same route family in controlled backtests. If a live route is demoted while an old pilot position still exists, the demoted-route exit guard closes it at breakeven/profit or at the small demoted-route loss threshold rather than waiting for the old TP/SL.
@@ -84,7 +84,8 @@ Non-responsibilities in phase 1:
 
 ### Presentation Layer
 
-- `Dashboard/QuantGod_Dashboard.html`
+- `frontend/src/**`
+- `Dashboard/vue-dist/**`
 - `Dashboard/dashboard_server.js`
 
 Responsibilities:
