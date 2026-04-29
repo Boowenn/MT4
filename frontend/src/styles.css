@@ -3864,6 +3864,7 @@ tbody tr:hover td {
   }
 
   .qd-terminal-layout,
+  .qd-analysis-grid,
   .ai-engine-shell {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4009,6 +4010,15 @@ tbody tr:hover td {
     position: static;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .workspace-tabs {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .workspace-tabs button {
+    flex: 0 0 auto;
+  }
 }
 
 @media (max-width: 640px) {
@@ -4090,6 +4100,39 @@ tbody tr:hover td {
     flex: 1 1 136px;
   }
 
+  .workspace-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .workspace-tabs button {
+    flex: 1 1 92px;
+    justify-content: center;
+  }
+
+  .console-actions {
+    flex-wrap: wrap;
+  }
+
+  .console-actions button {
+    flex: 1 1 132px;
+  }
+
+  .bar-row {
+    grid-template-columns: minmax(0, 1fr) minmax(54px, auto);
+    gap: 6px 8px;
+  }
+
+  .bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .bar-row b {
+    justify-self: end;
+  }
+
   .operator-strip,
   .metric-grid,
   .metric-grid.four,
@@ -4110,6 +4153,7 @@ tbody tr:hover td {
   .param-lane-board,
   .radar-grid,
   .dense-radar,
+  .qd-card-metrics,
   .trade-metric-grid,
   .strategy-performance-grid,
   .page-mt5[data-focus="trades"] .card-grid.three,
