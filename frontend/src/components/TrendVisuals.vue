@@ -15,7 +15,11 @@ const props = defineProps({
   governanceRows: { type: Array, default: () => [] },
   canaryRows: { type: Array, default: () => [] },
   crossRows: { type: Array, default: () => [] },
-  workerQueue: { type: Array, default: () => [] }
+  workerQueue: { type: Array, default: () => [] },
+  autoScheduler: { type: Object, default: () => ({}) },
+  reportWatcher: { type: Object, default: () => ({}) },
+  autoTesterWindow: { type: Object, default: () => ({}) },
+  researchStats: { type: Object, default: () => ({}) }
 });
 
 function n(value) {
@@ -32,6 +36,11 @@ function pick(row, keys, fallback = '') {
 
 function rowsFrom(value, keys = []) {
   return arrayFrom(value, keys).filter(Boolean);
+}
+
+function rowsFromAll(value, keys = []) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return keys.flatMap((key) => (Array.isArray(value?.[key]) ? value[key] : [])).filter(Boolean);
 }
 
 function countBy(rows, selector) {
@@ -88,6 +97,21 @@ const shadowOutcomes = computed(() => rowsFrom(mt5Ledgers.value.shadowOutcomes))
 const shadowCandidates = computed(() => rowsFrom(mt5Ledgers.value.shadowCandidates));
 const shadowCandidateOutcomes = computed(() => rowsFrom(mt5Ledgers.value.shadowCandidateOutcomes));
 const paramLabResults = computed(() => rowsFrom(mt5Ledgers.value.paramLabResults));
+const paramAutoSchedulerRows = computed(() => rowsFrom(mt5Ledgers.value.paramLabAutoScheduler).length
+  ? rowsFrom(mt5Ledgers.value.paramLabAutoScheduler)
+  : rowsFromAll(props.autoScheduler, ['selectedTasks', 'backtestTasks']));
+const paramReportWatcherRows = computed(() => rowsFrom(mt5Ledgers.value.paramLabReportWatcher).length
+  ? rowsFrom(mt5Ledgers.value.paramLabReportWatcher)
+  : rowsFromAll(props.reportWatcher, ['watchedResults', 'reportFiles']));
+const paramRecoveryRows = computed(() => rowsFrom(mt5Ledgers.value.paramLabRunRecovery).length
+  ? rowsFrom(mt5Ledgers.value.paramLabRunRecovery)
+  : rowsFromAll(props.mt5?.runRecovery, ['candidateDrilldown', 'recoveryQueue', 'runs']));
+const autoTesterRows = computed(() => rowsFrom(mt5Ledgers.value.autoTesterWindow).length
+  ? rowsFrom(mt5Ledgers.value.autoTesterWindow)
+  : rowsFromAll(props.autoTesterWindow, ['selectedTasks', 'excludedTasks']));
+const researchStatsRows = computed(() => rowsFrom(mt5Ledgers.value.mt5ResearchStats).length
+  ? rowsFrom(mt5Ledgers.value.mt5ResearchStats)
+  : rowsFrom(props.researchStats, ['rows']));
 
 const radarLedger = computed(() => rowsFrom(polyLedgers.value.radar).length ? rowsFrom(polyLedgers.value.radar) : props.radarRows);
 const aiScoreLedger = computed(() => rowsFrom(polyLedgers.value.aiScores).length ? rowsFrom(polyLedgers.value.aiScores) : props.aiScores);
@@ -99,7 +123,11 @@ const mt5Summary = computed(() => [
   { label: 'Shadow 信号', value: shadowSignals.value.length, detail: 'spread/session/range blocker' },
   { label: 'Outcome 后验', value: shadowOutcomes.value.length, detail: '15/30/60 分钟' },
   { label: 'Candidate 候选', value: shadowCandidates.value.length, detail: 'shadow-only 路线' },
-  { label: 'ParamLab 结果', value: paramLabResults.value.length || props.paramTasks.length, detail: 'tester-only 队列' }
+  { label: 'ParamLab 结果', value: paramLabResults.value.length || props.paramTasks.length, detail: 'tester-only 队列' },
+  { label: 'Report Watcher', value: paramReportWatcherRows.value.length, detail: `pending ${props.reportWatcher?.summary?.pendingReportCount ?? '--'}` },
+  { label: 'Recovery 风险', value: `${props.mt5?.runRecovery?.summary?.riskRedCount ?? 0}R/${props.mt5?.runRecovery?.summary?.riskYellowCount ?? 0}Y`, detail: props.mt5?.runRecovery?.summary?.latestStopReason || '无运行恢复阻断' },
+  { label: 'AutoTester Gate', value: props.autoTesterWindow?.summary?.canRunTerminal ? '可运行' : '锁定', detail: `blocker ${props.autoTesterWindow?.summary?.blockerCount ?? '--'}` },
+  { label: '研究切片', value: researchStatsRows.value.length, detail: `closed ${props.researchStats?.summary?.closedTrades ?? '--'}` }
 ]);
 
 const shadowBlockerItems = computed(() => countBy(
@@ -149,6 +177,29 @@ const paramScorePoints = computed(() => latestNumbers(
   36
 ));
 
+const reportWatcherStateItems = computed(() => countBy(
+  paramReportWatcherRows.value,
+  (row) => pick(row, ['resultState', 'state', 'status', 'matchType'], 'UNKNOWN')
+));
+
+const recoveryRiskItems = computed(() => countBy(
+  paramRecoveryRows.value,
+  (row) => pick(row, ['riskColor', 'color', 'state', 'stopReason'], 'UNKNOWN')
+));
+
+const autoTesterGateItems = computed(() => countBy(
+  autoTesterRows.value,
+  (row) => pick(row, ['gateState', 'state', 'status', 'excludedReason', 'reason'], 'UNKNOWN')
+));
+
+const researchRouteItems = computed(() => researchStatsRows.value
+  .map((row) => ({
+    label: shortText(first(row.route, row.Route, row.strategy, row.canonicalSymbol, row.symbol), 34),
+    value: n(pick(row, ['netProfit', 'pnl', 'profit', 'closedProfit'])) ?? n(pick(row, ['closedTrades', 'samples', 'tradeCount'])) ?? 0,
+    detail: `PF ${first(row.profitFactor, row.pf, '--')} · Win ${first(row.winRate, row.winRatePct, '--')}`
+  }))
+  .sort((a, b) => Math.abs(b.value) - Math.abs(a.value)));
+
 const radarScoreItems = computed(() => radarLedger.value
   .map((row) => ({
     label: shortText(first(row.question, row.market, row.title, row.slug, row.market_id), 42),
@@ -188,7 +239,7 @@ const crossRiskItems = computed(() => countBy(
       <span class="status-chip locked">只读迁移层</span>
     </div>
 
-    <div class="metric-grid four">
+    <div class="metric-grid four compact">
       <div v-for="item in mt5Summary" :key="item.label" class="metric">
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
@@ -201,6 +252,10 @@ const crossRiskItems = computed(() => countBy(
       <BarListChart title="Shadow 执行动作" subtitle="MT5 Shadow Ledger" :items="shadowActionItems" value-label="样本数" />
       <BarListChart title="Candidate 路线速度" subtitle="Shadow Candidate" :items="candidateRouteItems" value-label="候选数" />
       <BarListChart title="Candidate 后验方向" subtitle="Candidate Outcome" :items="candidateOutcomeItems" value-label="后验样本" />
+      <BarListChart title="Report Watcher 状态" subtitle="ParamLab 回灌" :items="reportWatcherStateItems" value-label="任务数" />
+      <BarListChart title="Run Recovery 风险" subtitle="Retry budget" :items="recoveryRiskItems" value-label="候选数" />
+      <BarListChart title="AutoTester Gate 阻断" subtitle="Guarded runner" :items="autoTesterGateItems" value-label="任务数" />
+      <BarListChart title="研究切片收益/样本" subtitle="MT5ResearchStats" :items="researchRouteItems" value-label="值" />
       <BarListChart title="Outcome 15/30/60 LONG" subtitle="平均 close pips" :items="horizonLongItems" value-label="pips" />
       <BarListChart title="Outcome 15/30/60 SHORT" subtitle="平均 close pips" :items="horizonShortItems" value-label="pips" />
       <SparklineChart title="MFE - MAE 近期曲线" subtitle="Shadow Outcome" :points="mfeMaePoints" unit="p" :precision="1" tone="green" />
