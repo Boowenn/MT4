@@ -101,6 +101,7 @@ nav {
 }
 
 .nav-structured {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
@@ -158,7 +159,7 @@ nav {
 
 .sidebar-footer {
   margin-top: auto;
-  padding: 14px 12px;
+  padding: 10px 11px;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line-soft);
@@ -183,8 +184,8 @@ nav {
 }
 
 .sidebar-footer small {
-  margin-top: 6px;
-  line-height: 1.45;
+  margin-top: 4px;
+  line-height: 1.35;
 }
 
 .workspace {
@@ -561,6 +562,305 @@ h2 {
 .stack {
   display: grid;
   gap: 16px;
+}
+
+.workbench-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(420px, 0.88fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.hero-copy,
+.hero-metrics,
+.param-lane-board {
+  min-width: 0;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+    linear-gradient(180deg, rgba(20, 27, 36, 0.98), rgba(13, 20, 29, 0.98));
+  border: 1px solid rgba(129, 151, 178, 0.24);
+  border-radius: 10px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.2);
+}
+
+.hero-copy h2 {
+  max-width: 860px;
+  margin-top: 8px;
+  font-size: 25px;
+  line-height: 1.15;
+}
+
+.hero-copy p {
+  max-width: 940px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.58;
+}
+
+.hero-copy .panel-title {
+  margin-bottom: 0;
+}
+
+.hero-copy .eyebrow {
+  margin: 0;
+}
+
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.micro-metric {
+  min-width: 0;
+  min-height: 80px;
+  padding: 11px 12px;
+  background: #101821;
+  border: 1px solid rgba(129, 151, 178, 0.2);
+  border-radius: 8px;
+}
+
+.micro-metric span,
+.micro-metric small {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.micro-metric span {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.micro-metric strong {
+  display: block;
+  margin: 8px 0 4px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dense-toolbar {
+  padding: 12px 14px;
+  background: rgba(15, 22, 31, 0.84);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.mt5-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.dense-radar {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.mt5-lane-board {
+  display: flex;
+  flex-direction: column;
+}
+
+.lane-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.lane-row,
+.param-lane {
+  min-width: 0;
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--text);
+  text-align: left;
+  background: #101821;
+  border: 1px solid rgba(129, 151, 178, 0.22);
+  border-radius: 8px;
+}
+
+.lane-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+}
+
+.lane-row strong,
+.lane-row span,
+.lane-row small,
+.param-lane strong,
+.param-lane span,
+.param-lane small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-row strong {
+  grid-row: 1 / span 2;
+  width: auto;
+  color: #f6fbff;
+  font-size: 16px;
+}
+
+.lane-row span {
+  color: #d8e8ff;
+  font-size: 12px;
+}
+
+.lane-row small {
+  grid-column: 2;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lane-row.green,
+.param-lane.green {
+  border-color: rgba(51, 217, 154, 0.42);
+  background: linear-gradient(180deg, rgba(51, 217, 154, 0.12), rgba(16, 24, 33, 0.98));
+}
+
+.lane-row.blue,
+.param-lane.blue {
+  border-color: rgba(31, 155, 255, 0.4);
+}
+
+.lane-row.amber,
+.param-lane.amber {
+  border-color: rgba(255, 184, 77, 0.42);
+}
+
+.lane-row.red,
+.param-lane.red {
+  border-color: rgba(255, 107, 134, 0.52);
+  background: linear-gradient(180deg, rgba(255, 107, 134, 0.12), rgba(16, 24, 33, 0.98));
+}
+
+.strategy-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(360px, 1fr));
+  gap: 12px;
+}
+
+.paramlab-hero {
+  grid-template-columns: minmax(0, 0.82fr) minmax(520px, 1.18fr);
+}
+
+.param-lane-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.param-lane {
+  min-height: 112px;
+}
+
+.param-lane span {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.param-lane strong {
+  margin: 10px 0 8px;
+  font-size: 16px;
+}
+
+.param-lane small {
+  color: var(--muted);
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.poly-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(480px, 0.9fr);
+}
+
+.poly-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.hero-form {
+  max-width: 760px;
+}
+
+.poly-cockpit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
+  gap: 14px;
+}
+
+.compact-market-list,
+.radar-ticker,
+.governance-lanes {
+  display: grid;
+  gap: 8px;
+}
+
+.market-line,
+.radar-ticker-item,
+.governance-lane {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  min-height: 46px;
+  padding: 9px 11px;
+  background: #101821;
+  border: 1px solid rgba(129, 151, 178, 0.18);
+  border-radius: 8px;
+}
+
+.market-line {
+  grid-template-columns: minmax(0, 1fr) 150px 74px;
+}
+
+.market-line strong,
+.market-line span,
+.radar-ticker-item span,
+.radar-ticker-item small,
+.governance-lane span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-line span,
+.radar-ticker-item small,
+.governance-lane span {
+  color: var(--muted);
+}
+
+.market-line b,
+.radar-ticker-item strong,
+.governance-lane b {
+  color: #96d5ff;
+}
+
+.radar-ticker-item {
+  grid-template-columns: minmax(0, 1fr) 76px minmax(160px, 0.6fr);
+}
+
+.governance-lane {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+
+.poly-radar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .deep-stack {
@@ -1287,7 +1587,21 @@ tbody tr:hover td {
   .card-grid,
   .section-grid,
   .viz-grid,
-  .drawer-grid {
+  .drawer-grid,
+  .workbench-hero,
+  .mt5-command-grid,
+  .poly-cockpit-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .param-lane-board,
+  .poly-metrics,
+  .poly-radar-grid,
+  .strategy-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dense-radar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

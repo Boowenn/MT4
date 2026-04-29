@@ -339,7 +339,7 @@ const mt5Positions = computed(() => {
     .concat(arrayFrom(mt5.value.latest?.positions, ['positions']));
 });
 
-const mt5Routes = computed(() => {
+const allMt5Routes = computed(() => {
   const gov = mt5.value.governance || {};
   const registry = mt5.value.strategyRegistry || {};
   const rows = [
@@ -351,9 +351,14 @@ const mt5Routes = computed(() => {
     const key = first(row?.route, row?.strategy, row?.versionId, row?.name);
     if (seen.has(key)) return false;
     seen.add(key);
-    if (activeRoute.value === '全部') return true;
-    return routeName(row).includes(activeRoute.value);
-  }).slice(0, 10);
+    return true;
+  });
+});
+
+const mt5Routes = computed(() => {
+  return allMt5Routes.value
+    .filter((row) => activeRoute.value === '全部' || routeName(row).includes(activeRoute.value))
+    .slice(0, 10);
 });
 
 const mt5ExecutionRadarItems = computed(() => {
@@ -516,6 +521,137 @@ const paramLabDashboardCards = computed(() => {
     }
   ];
 });
+
+const mt5FocusMeta = computed(() => ({
+  overview: {
+    eyebrow: 'AI Evidence / 总览雷达',
+    title: 'MT5 执行态势与入场证据',
+    body: '把旧页总览雷达迁回 Vue：先看连接、行情新鲜度、仓位容量、新闻过滤和下一根评估窗口，再决定是否需要下钻到路线或持仓。',
+    badge: 'READ ONLY'
+  },
+  strategy: {
+    eyebrow: 'Strategy & Live / 策略工作台',
+    title: 'MA / RSI / BB / MACD / SR 路线工作台',
+    body: '按旧页路线卡结构查看 live、candidate、ParamLab、blocker 和下一步。这里仍只展示证据，不改变 EA 风控或 live switch。',
+    badge: '0.01 LIVE GATED'
+  },
+  trades: {
+    eyebrow: 'Trading Bot / EA 只读',
+    title: '持仓、保护状态与交易审计',
+    body: '优先看当前持仓、浮盈、EA 注释、手数和审计 ledger。人工单与 EA 单仍分开统计，Vue 只读展示。',
+    badge: 'EA AUDIT'
+  }
+}[state.mt5Focus] || {
+  eyebrow: 'MT5 Workbench',
+  title: '策略与实盘证据',
+  body: 'MT5 只读工作台。',
+  badge: 'READ ONLY'
+}));
+
+const mt5FocusMetrics = computed(() => {
+  const account = mt5Account.value;
+  const route = primaryRoute.value;
+  return [
+    {
+      label: '连接',
+      value: first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '未连接'),
+      detail: first(account.server, 'HFM 只读桥')
+    },
+    {
+      label: '净值',
+      value: money(first(account.equity, mt5.value.latest?.equity)),
+      detail: `余额 ${money(account.balance)}`
+    },
+    {
+      label: '持仓',
+      value: `${mt5Positions.value.length}/${first(mt5.value.snapshot?.maxTotalPositions, mt5.value.snapshot?.risk?.maxTotalPositions, 1)}`,
+      detail: '0.01 / 单仓限制'
+    },
+    {
+      label: '焦点路线',
+      value: shortText(first(route.label, route.route, route.strategy, '--'), 24),
+      detail: routeActionLabel(route)
+    }
+  ];
+});
+
+const mt5RouteLaneCards = computed(() => ['MA', 'RSI', 'BB', 'MACD', 'SR'].map((route) => {
+  const rows = allMt5Routes.value.filter((row) => routeName(row).includes(route));
+  const live = rows.filter((row) => String(first(row.mode, row.recommendedAction, row.currentState, '')).toUpperCase().includes('LIVE')).length;
+  const blocker = rows.find((row) => routeBlockerText(row) !== '暂无 blocker');
+  return {
+    route,
+    count: rows.length,
+    live,
+    pf: first(rows[0]?.liveForward?.profitFactor, rows[0]?.profitFactor, '--'),
+    blocker: blocker ? routeBlockerText(blocker) : '等待样本',
+    tone: live ? 'green' : rows.length ? 'blue' : 'amber'
+  };
+}));
+
+const paramLaneCards = computed(() => {
+  const cards = paramLabDashboardCards.value;
+  return [
+    { key: 'queue', label: '候选队列', sub: 'Auto Scheduler', value: cards[0]?.value, detail: cards[0]?.detail, tone: 'blue' },
+    { key: 'report', label: '报告回灌', sub: 'Report Watcher', value: cards[1]?.value, detail: cards[1]?.detail, tone: 'green' },
+    { key: 'recovery', label: '恢复风险', sub: 'Run Recovery', value: cards[2]?.value, detail: cards[2]?.detail, tone: String(cards[2]?.value).includes('0R') ? 'amber' : 'red' },
+    { key: 'guard', label: '守护窗口', sub: 'AUTO_TESTER_WINDOW', value: cards[3]?.value, detail: cards[3]?.detail, tone: cards[3]?.value === '可运行' ? 'green' : 'amber' },
+    { key: 'research', label: '研究切片', sub: 'Strategy Workspace', value: cards[5]?.value, detail: cards[5]?.detail, tone: 'blue' }
+  ];
+});
+
+const polymarketFocusMeta = computed(() => ({
+  overview: {
+    eyebrow: 'Polymarket / 治理总览',
+    title: '账户边界、研究队列和执行锁',
+    body: 'Polymarket 与 MT5 分开管理：这里只读读取研究证据、dry-run、canary 契约和治理建议，不写钱包。',
+    badge: 'WALLET LOCKED'
+  },
+  browser: {
+    eyebrow: 'Market Browser / 市场浏览',
+    title: '市场目录、概率、成交量与风险',
+    body: '对照 QuantDinger 的市场浏览体验，把目录、概率、成交量、流动性和风险标签放在同一个首屏。',
+    badge: `${marketRows.value.length} MARKETS`
+  },
+  radar: {
+    eyebrow: 'Opportunity Radar / 机会雷达',
+    title: 'Gamma 扫描与规则/AI 综合评分',
+    body: '优先展示 active market 的概率偏离、成交量、流动性和 shadow track，不进入真实下注。',
+    badge: `${radarRows.value.length} RADAR`
+  },
+  analysis: {
+    eyebrow: 'Single Market / 单市场分析',
+    title: 'URL / 标题 / marketId 研究入口',
+    body: '本地生成研究请求，沉淀到历史库与 AI score，不需要手写 request 文件。',
+    badge: 'LOCAL REQUEST'
+  },
+  execution: {
+    eyebrow: 'Execution Simulation / 执行模拟',
+    title: 'Gate、dry-run、canary 与退出后验',
+    body: '只展示“如果允许下注会怎么做”的模拟契约：stake cap、TP/SL、kill switch、退出 watcher 和审计 ledger。',
+    badge: 'DRY RUN'
+  },
+  ledger: {
+    eyebrow: 'Retune Ledger / 重调账本',
+    title: '历史库、Worker、治理和联动证据',
+    body: '把雷达、AI score、cross-market、worker queue 和治理建议作为可审计证据沉淀。',
+    badge: 'AUDIT'
+  }
+}[state.polymarketFocus] || {
+  eyebrow: 'Polymarket Workbench',
+  title: '机会雷达、历史库、AI 评分与 canary 治理',
+  body: 'Polymarket 研究工作台。',
+  badge: 'RESEARCH'
+}));
+
+const polyFocusMetrics = computed(() => [
+  { label: '市场目录', value: marketRows.value.length, detail: 'Gamma / local cache' },
+  { label: '机会雷达', value: radarRows.value.length, detail: 'probability / liquidity / score' },
+  { label: 'AI 评分', value: aiScores.value.length, detail: 'history-aware V1' },
+  { label: 'Canary', value: canaryRows.value.length, detail: 'contract only' },
+  { label: '跨市场', value: crossRows.value.length, detail: 'USD / JPY / XAU / macro' },
+  { label: 'Worker', value: workerQueue.value.length, detail: 'shadow-only queue' }
+]);
 
 const radarRows = computed(() => {
   const rows = arrayFrom(poly.value.radar, ['radar', 'markets', 'rows']);
@@ -970,11 +1106,29 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section v-if="state.active === 'mt5'" class="stack">
-        <div class="toolbar">
+      <section v-if="state.active === 'mt5'" class="stack page-mt5" :data-focus="state.mt5Focus">
+        <div class="workbench-hero mt5-hero">
+          <article class="hero-copy">
+            <div class="panel-title split">
+              <span class="eyebrow">{{ mt5FocusMeta.eyebrow }}</span>
+              <b class="pill blue">{{ mt5FocusMeta.badge }}</b>
+            </div>
+            <h2>{{ mt5FocusMeta.title }}</h2>
+            <p>{{ mt5FocusMeta.body }}</p>
+          </article>
+          <article class="hero-metrics">
+            <div v-for="card in mt5FocusMetrics" :key="card.label" class="micro-metric">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+              <small>{{ card.detail }}</small>
+            </div>
+          </article>
+        </div>
+
+        <div class="toolbar dense-toolbar">
           <div>
-            <p class="eyebrow">MT5 Workbench</p>
-            <h2>策略与实盘证据</h2>
+            <p class="eyebrow">Route Filter</p>
+            <h2>路线筛选与证据下钻</h2>
           </div>
           <div class="route-tabs compact">
             <button
@@ -989,28 +1143,59 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="metric-grid four">
-          <div class="metric"><span>账号</span><strong>{{ first(mt5Account.login, mt5Account.account, '--') }}</strong><small>{{ first(mt5Account.server, 'server --') }}</small></div>
-          <div class="metric"><span>净值</span><strong>{{ money(first(mt5Account.equity, mt5.latest?.equity)) }}</strong><small>余额 {{ money(mt5Account.balance) }}</small></div>
-          <div class="metric"><span>持仓</span><strong>{{ mt5Positions.length }}</strong><small>单仓和 0.01 约束由 EA 控制</small></div>
-          <div class="metric"><span>状态</span><strong>{{ first(mt5.snapshot?.status, mt5.snapshot?.ok ? '已连接' : '未连接') }}</strong><small>只读桥 / dashboard snapshot</small></div>
+        <div class="mt5-command-grid">
+          <article class="panel overview-radar mt5-radar-board">
+            <div class="panel-title split">
+              <span>执行雷达</span>
+              <small>旧页 AI Evidence / 总览雷达口径</small>
+            </div>
+            <div class="radar-grid dense-radar">
+              <div v-for="item in mt5ExecutionRadarItems" :key="item.label" class="radar-item">
+                <span class="radar-label">{{ item.label }}</span>
+                <strong class="radar-value">{{ item.value }}</strong>
+                <small class="radar-sub">{{ item.sub }}</small>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel mt5-lane-board">
+            <div class="panel-title split">
+              <span>路线工作台</span>
+              <small>MA / RSI / BB / MACD / SR</small>
+            </div>
+            <div class="lane-stack">
+              <button
+                v-for="lane in mt5RouteLaneCards"
+                :key="lane.route"
+                class="lane-row"
+                :class="lane.tone"
+                type="button"
+                @click="activeRoute = lane.route"
+              >
+                <strong>{{ lane.route }}</strong>
+                <span>{{ lane.count }} 版本 · live {{ lane.live }}</span>
+                <small>PF {{ lane.pf }} · {{ lane.blocker }}</small>
+              </button>
+            </div>
+          </article>
         </div>
 
-        <article class="panel overview-radar">
-          <div class="panel-title split">
-            <span>执行雷达</span>
-            <small>从旧页 AI Evidence / 总览雷达迁回 Vue</small>
-          </div>
-          <div class="radar-grid">
-            <div v-for="item in mt5ExecutionRadarItems" :key="item.label" class="radar-item">
-              <span class="radar-label">{{ item.label }}</span>
-              <strong class="radar-value">{{ item.value }}</strong>
-              <small class="radar-sub">{{ item.sub }}</small>
-            </div>
-          </div>
-        </article>
+        <DataTable
+          v-if="state.mt5Focus === 'trades'"
+          title="EA / 手动持仓快照"
+          :rows="mt5Positions"
+          :columns="[
+            { label: '品种', key: ['symbol', 'Symbol'], width: '110px' },
+            { label: '方向', key: ['type', 'direction', 'side'], width: '90px', badge: true },
+            { label: '手数', value: (r) => first(r.volume, r.lots, r.Volume), width: '90px' },
+            { label: '开仓价', value: (r) => first(r.price_open, r.openPrice, r.priceOpen), width: '110px' },
+            { label: '浮盈', value: (r) => money(first(r.profit, r.pnl, r.unrealizedPnl)), width: '110px' },
+            { label: '策略/备注', value: (r) => first(r.comment, r.route, r.strategy), max: 110 }
+          ]"
+          empty="当前没有 MT5 持仓，或只读桥未返回 positions。"
+        />
 
-        <div class="card-grid">
+        <div class="strategy-card-grid">
           <article v-for="row in mt5Routes" :key="first(row.versionId, row.route, row.name)" class="panel dense">
             <div class="panel-title split">
               <span>{{ first(row.label, row.route, row.strategy, row.name, row.versionId) }}</span>
@@ -1042,41 +1227,78 @@ onBeforeUnmount(() => {
         <Mt5DeepPanels :mt5="mt5" :positions="mt5Positions" :routes="mt5Routes" />
       </section>
 
-      <section v-if="state.active === 'polymarket'" class="stack">
-        <div class="toolbar">
-          <div>
-            <p class="eyebrow">Polymarket Workbench</p>
-            <h2>机会雷达、历史库、AI 评分与 canary 治理</h2>
-          </div>
-          <div class="status-chip locked">
-            <WalletCards :size="16" />
-            钱包写操作默认关闭
-          </div>
-        </div>
-
-        <div class="section-grid">
-          <article class="panel">
-            <div class="panel-title"><Target :size="18" />单市场分析入口</div>
-            <p class="muted">输入 URL、标题或 marketId，只生成本地研究请求和历史证据，不下注。</p>
-            <div class="inline-form">
+      <section v-if="state.active === 'polymarket'" class="stack page-polymarket" :data-focus="state.polymarketFocus">
+        <div class="workbench-hero poly-hero">
+          <article class="hero-copy">
+            <div class="panel-title split">
+              <span class="eyebrow">{{ polymarketFocusMeta.eyebrow }}</span>
+              <b class="pill green">{{ polymarketFocusMeta.badge }}</b>
+            </div>
+            <h2>{{ polymarketFocusMeta.title }}</h2>
+            <p>{{ polymarketFocusMeta.body }}</p>
+            <div v-if="state.polymarketFocus === 'analysis'" class="inline-form hero-form">
               <input v-model="state.marketInput" type="text" placeholder="Polymarket URL / 标题 / marketId" @keyup.enter="submitSingleMarket" />
               <button type="button" @click="submitSingleMarket">生成请求</button>
             </div>
-            <small>{{ state.requestStatus }}</small>
+            <small v-if="state.polymarketFocus === 'analysis'">{{ state.requestStatus }}</small>
           </article>
-
-          <article class="panel">
-            <div class="panel-title"><Activity :size="18" />治理摘要</div>
-            <div class="metric-grid">
-              <div class="metric"><span>AI 评分</span><strong>{{ aiScores.length }}</strong><small>history-aware</small></div>
-              <div class="metric"><span>Canary</span><strong>{{ canaryRows.length }}</strong><small>contract only</small></div>
-              <div class="metric"><span>跨市场</span><strong>{{ crossRows.length }}</strong><small>风险联动</small></div>
-              <div class="metric"><span>队列</span><strong>{{ workerQueue.length }}</strong><small>shadow only</small></div>
+          <article class="hero-metrics poly-metrics">
+            <div v-for="card in polyFocusMetrics" :key="card.label" class="micro-metric">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+              <small>{{ card.detail }}</small>
             </div>
           </article>
         </div>
 
-        <div class="card-grid">
+        <div class="poly-cockpit-grid">
+          <article class="panel poly-market-console">
+            <div class="panel-title split">
+              <span>{{ state.polymarketFocus === 'browser' ? '市场目录' : state.polymarketFocus === 'execution' ? '执行模拟边界' : '机会雷达' }}</span>
+              <small>QuantDinger research-style cockpit</small>
+            </div>
+            <div v-if="state.polymarketFocus === 'browser'" class="compact-market-list">
+              <div v-for="market in marketRows" :key="first(market.marketId, market.slug)" class="market-line">
+                <strong>{{ shortText(first(market.title, market.question, market.slug), 72) }}</strong>
+                <span>{{ first(market.category, '--') }}</span>
+                <b>{{ pct(first(market.probability, market.bestProbability)) }}</b>
+              </div>
+              <div v-if="!marketRows.length" class="rail-empty">暂无市场目录证据。</div>
+            </div>
+            <div v-else-if="state.polymarketFocus === 'execution'" class="compact-market-list">
+              <div v-for="row in canaryRows" :key="first(row.canaryContractId, row.marketId)" class="market-line">
+                <strong>{{ shortText(first(row.market, row.title, row.marketId, row.canaryContractId), 72) }}</strong>
+                <span>{{ first(row.canaryState, row.decision, 'DRY_RUN') }}</span>
+                <b>{{ money(first(row.canaryStakeUSDC, row.stake)) }}</b>
+              </div>
+              <div v-if="!canaryRows.length" class="rail-empty">暂无 canary 契约；真实钱包仍保持锁定。</div>
+            </div>
+            <div v-else class="radar-ticker">
+              <div v-for="row in radarRows.slice(0, 6)" :key="first(row.marketId, row.slug, row.title)" class="radar-ticker-item">
+                <span>{{ shortText(first(row.market, row.title, row.question, row.slug), 52) }}</span>
+                <strong>{{ pct(first(row.probability, row.marketProbability)) }}</strong>
+                <small>score {{ first(row.aiRuleScore, row.score, '--') }} · {{ money(first(row.volume, row.volumeUsd)) }}</small>
+              </div>
+              <div v-if="!radarRows.length" class="rail-empty">暂无 radar 快照。</div>
+            </div>
+          </article>
+
+          <article class="panel poly-governance-console">
+            <div class="panel-title split">
+              <span>治理/联动摘要</span>
+              <small>只读证据，不下注</small>
+            </div>
+            <div class="governance-lanes">
+              <div v-for="row in governanceRows.slice(0, 4)" :key="first(row.governanceId, row.marketId)" class="governance-lane">
+                <b>{{ first(row.decision, row.currentState, row.action, '观察') }}</b>
+                <span>{{ shortText(first(row.market, row.title, row.marketId, row.reason), 86) }}</span>
+              </div>
+              <div v-if="!governanceRows.length" class="rail-empty">暂无自动治理建议。</div>
+            </div>
+          </article>
+        </div>
+
+        <div class="poly-radar-grid">
           <article v-for="row in radarRows" :key="first(row.marketId, row.slug, row.title)" class="panel dense">
             <div class="panel-title split">
               <span>{{ shortText(first(row.market, row.title, row.question, row.slug), 78) }}</span>
@@ -1091,7 +1313,7 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <div class="panel">
+        <div class="panel evidence-console">
           <div class="panel-title split">
             <span>统一搜索综合证据卡</span>
             <small>{{ searchGroups.length }} 条</small>
@@ -1118,22 +1340,30 @@ onBeforeUnmount(() => {
         />
       </section>
 
-      <section v-if="state.active === 'paramlab'" class="stack">
-        <div class="toolbar">
-          <div>
-            <p class="eyebrow">ParamLab</p>
-            <h2>参数候选、回测队列与恢复状态</h2>
-            <p class="muted">对照旧页补齐 Auto Scheduler、Report Watcher、Run Recovery 和守护窗口状态；这里只读展示，不启动 Strategy Tester。</p>
-          </div>
-          <div class="status-chip">tester-only / guarded</div>
-        </div>
-
-        <div class="metric-grid three compact">
-          <div v-for="card in paramLabDashboardCards" :key="card.label" class="metric">
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-            <small>{{ card.detail }}</small>
-          </div>
+      <section v-if="state.active === 'paramlab'" class="stack page-paramlab">
+        <div class="workbench-hero paramlab-hero">
+          <article class="hero-copy">
+            <div class="panel-title split">
+              <span class="eyebrow">ParamLab / 回测闭环</span>
+              <b class="pill amber">TESTER-ONLY</b>
+            </div>
+            <h2>候选参数、批次队列、报告回灌与恢复风险</h2>
+            <p>对照旧页和 QuantDinger 的 worker/queue 体验，把“可运行、等待报告、已评分、失败恢复、守护窗口”放成一张批次看板；这里只生成和展示 tester-only 证据，不启动 Strategy Tester。</p>
+          </article>
+          <article class="param-lane-board">
+            <button
+              v-for="lane in paramLaneCards"
+              :key="lane.key"
+              class="param-lane"
+              :class="lane.tone"
+              type="button"
+              @click="paramTaskFilter = lane.label === '恢复风险' ? '红灯' : lane.label === '报告回灌' ? '等待报告' : '全部'"
+            >
+              <span>{{ lane.sub }}</span>
+              <strong>{{ lane.label }} · {{ lane.value }}</strong>
+              <small>{{ lane.detail }}</small>
+            </button>
+          </article>
         </div>
 
         <div class="panel dense split-panel">
