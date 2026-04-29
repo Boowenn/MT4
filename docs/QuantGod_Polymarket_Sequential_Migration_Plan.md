@@ -84,6 +84,17 @@ Status: completed in this branch as contract-only V1.
 
 ## 7. Polymarket Auto Promotion / Demotion Governance
 
-Status: pending.
+Status: completed in this branch as recommendation-only V1.
 
 Target: use history library, semantic AI score, dry-run outcomes, risk budgets, and worker trend evidence to promote/demote shadow tracks automatically. This must not enable wallet execution by itself.
+
+- Added `tools/build_polymarket_auto_governance.py` and `.bat`.
+- The builder reads Research, Gamma Radar, Worker V2 queue/trend evidence, Retune Planner, AI Score, dry-run outcomes, Cross-Market Linkage, and Canary contract snapshots.
+- It writes `QuantGod_PolymarketAutoGovernance.json` and `QuantGod_PolymarketAutoGovernanceLedger.csv`.
+- V1 emits per-market governance states: `PROMOTION_REVIEW_SHADOW_ONLY`, `KEEP_SHADOW_COLLECT_EVIDENCE`, `RETUNE_REQUIRED`, `DEMOTE_TO_RESEARCH_ONLY`, and `QUARANTINE_NO_PROMOTION`.
+- Upgraded the SQLite history builder/API to `POLYMARKET_HISTORY_DB_V5_AUTO_GOVERNANCE`, adding `qd_polymarket_auto_governance`, `table=auto-governance`, and `/api/polymarket/auto-governance`.
+- `/api/polymarket/search` now folds auto-governance evidence into the same comprehensive evidence cards, with raw details exposing governance state, recommended action, blockers, and next test.
+- Dashboard now shows a dedicated `自动升降级治理` panel and includes auto-governance counts in the history library.
+- Safety remains recommendation-only: no private-key read, no wallet write, no CLOB order call, no canary/executor start, no MT5 mutation, and `canPromoteToLiveExecution=false`.
+
+Sequential migration status: all 7 planned Polymarket migration items are now implemented on this branch. The remaining future work is not migration parity; it is a separate explicit decision to build a real wallet executor, which must stay isolated and pass its own canary, TP/SL, max-loss, audit, and kill-switch acceptance tests before any wallet write is allowed.

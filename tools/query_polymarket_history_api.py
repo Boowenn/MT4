@@ -154,6 +154,31 @@ TABLES: Mapping[str, Dict[str, Any]] = {
             "blockers_json",
         ),
     },
+    "auto-governance": {
+        "table": "qd_polymarket_auto_governance",
+        "order": "generated_at",
+        "summary": "autoGovernanceDecisions",
+        "search": (
+            "governance_id",
+            "market_id",
+            "question",
+            "track",
+            "current_state",
+            "governance_state",
+            "recommended_action",
+            "risk_level",
+            "ai_color",
+            "canary_state",
+            "dry_run_state",
+            "outcome_state",
+            "would_exit_reason",
+            "cross_risk_tag",
+            "macro_risk_state",
+            "blockers_json",
+            "source_types_json",
+            "next_test",
+        ),
+    },
 }
 
 RECENT_TABLES = (
@@ -165,6 +190,7 @@ RECENT_TABLES = (
     "worker-queue",
     "cross-linkage",
     "canary-contracts",
+    "auto-governance",
 )
 
 
@@ -302,7 +328,7 @@ def build_payload(repo_root: Path, table_key: str, query: str, limit: int, offse
         "mode": "POLYMARKET_HISTORY_API_V1",
         "generatedAt": utc_now(),
         "source": "sqlite_api",
-        "schemaVersion": "POLYMARKET_HISTORY_DB_V4_CANARY_CONTRACT",
+        "schemaVersion": "POLYMARKET_HISTORY_DB_V5_AUTO_GOVERNANCE",
         "decision": "LOCAL_HISTORY_DB_READ_ONLY_NO_WALLET_WRITE",
         "api": {"table": table_key, "query": query, "limit": limit, "offset": offset},
         "database": {"path": str(db_path), "exists": db_path.exists(), "readOnly": True},

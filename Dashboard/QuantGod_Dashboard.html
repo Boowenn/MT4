@@ -6102,6 +6102,7 @@
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
         .polymarket-canary-grid,
+        .polymarket-governance-grid,
         .polymarket-retune-grid,
         .polymarket-historydb-grid,
         .polymarket-risk-grid {
@@ -6139,6 +6140,10 @@
         }
 
         .polymarket-outcome-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .polymarket-governance-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
@@ -6853,6 +6858,7 @@
         .polymarket-gate-grid,
         .polymarket-dryrun-grid,
         .polymarket-outcome-grid,
+        .polymarket-governance-grid,
         .polymarket-retune-grid,
         .polymarket-historydb-grid,
         .polymarket-risk-grid {
@@ -7726,6 +7732,21 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <div class="icon" style="background: rgba(59,130,246,0.16); color: var(--accent-blue);">G</div>
+                            自动升降级治理
+                        </div>
+                        <span class="eval-summary" id="polymarketAutoGovernanceSummary">等待自动治理</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="polymarket-governance-grid" id="polymarketAutoGovernanceBody">
+                            <div class="empty-state">等待 `QuantGod_PolymarketAutoGovernance.json`；只生成提升/降级建议，不写钱包、不下单。</div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <section class="content-section fade-in" id="section-polymarket-ledger" data-nav-section="polymarket-ledger">
@@ -7777,6 +7798,7 @@
                                     <option value="worker-queue">雷达队列</option>
                                     <option value="cross-linkage">跨市场联动</option>
                                     <option value="canary-contracts">Canary 契约</option>
+                                    <option value="auto-governance">自动治理</option>
                                 </select>
                             </label>
                             <label class="polymarket-request-field polymarket-history-api-query-field">
@@ -8507,6 +8529,7 @@ const LOCAL_POLYMARKET_EXECUTION_GATE_PATH = 'QuantGod_PolymarketExecutionGate.j
 const LOCAL_POLYMARKET_DRY_RUN_ORDERS_PATH = 'QuantGod_PolymarketDryRunOrders.json';
 const LOCAL_POLYMARKET_DRY_RUN_OUTCOME_WATCHER_PATH = 'QuantGod_PolymarketDryRunOutcomeWatcher.json';
 const LOCAL_POLYMARKET_CANARY_CONTRACT_PATH = 'QuantGod_PolymarketCanaryExecutorContract.json';
+const LOCAL_POLYMARKET_AUTO_GOVERNANCE_PATH = 'QuantGod_PolymarketAutoGovernance.json';
 const LOCAL_POLYMARKET_HISTORY_DB_PATH = 'QuantGod_PolymarketHistoryDb.json';
 const LOCAL_POLYMARKET_AI_SCORE_PATH = 'QuantGod_PolymarketAiScoreV1.json';
 const POLYMARKET_HISTORY_API_PATH = '/api/polymarket/history';
@@ -8517,6 +8540,7 @@ const POLYMARKET_ANALYZE_HISTORY_API_PATH = '/api/polymarket/analyze/history';
 const POLYMARKET_AI_SCORE_API_PATH = '/api/polymarket/ai-score';
 const POLYMARKET_SEARCH_API_PATH = '/api/polymarket/search';
 const POLYMARKET_CANARY_CONTRACT_API_PATH = '/api/polymarket/canary-executor-contract';
+const POLYMARKET_AUTO_GOVERNANCE_API_PATH = '/api/polymarket/auto-governance';
 const MT5_READONLY_SNAPSHOT_API_PATH = '/api/mt5-readonly/snapshot';
 const MT5_SYMBOL_REGISTRY_API_PATH = '/api/mt5-symbol-registry';
 const DEFAULT_CLOUD_API_PATH = '/api/latest';
@@ -9625,7 +9649,7 @@ async function loadPolymarketApiJson(path) {
 }
 
 function getPolymarketHistoryApiFilter() {
-    const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue', 'cross-linkage', 'canary-contracts'].includes(polymarketHistoryApiFilter.table)
+    const table = ['all', 'opportunities', 'analyses', 'simulations', 'runs', 'snapshots', 'worker-runs', 'worker-trends', 'worker-queue', 'cross-linkage', 'canary-contracts', 'auto-governance'].includes(polymarketHistoryApiFilter.table)
         ? polymarketHistoryApiFilter.table
         : 'all';
     return {
@@ -9718,6 +9742,7 @@ async function attachSupplementalData(baseData, previousData = null) {
         polymarketDryRunOrders: baseData?.polymarketDryRunOrders || previousData?.polymarketDryRunOrders || null,
         polymarketDryRunOutcomeWatcher: baseData?.polymarketDryRunOutcomeWatcher || previousData?.polymarketDryRunOutcomeWatcher || null,
         polymarketCanaryContract: baseData?.polymarketCanaryContract || previousData?.polymarketCanaryContract || null,
+        polymarketAutoGovernance: baseData?.polymarketAutoGovernance || previousData?.polymarketAutoGovernance || null,
         polymarketHistoryDb: baseData?.polymarketHistoryDb || previousData?.polymarketHistoryDb || null,
         polymarketAiScore: baseData?.polymarketAiScore || previousData?.polymarketAiScore || null
     };
@@ -10066,6 +10091,22 @@ async function attachSupplementalData(baseData, previousData = null) {
     }
 
     try {
+        data.polymarketAutoGovernance = await loadPolymarketApiJson(POLYMARKET_AUTO_GOVERNANCE_API_PATH);
+        data._polymarketAutoGovernanceError = false;
+        data._polymarketAutoGovernanceSource = 'api';
+    } catch (apiError) {
+        try {
+            data.polymarketAutoGovernance = await loadLocalJsonSupplement(LOCAL_POLYMARKET_AUTO_GOVERNANCE_PATH);
+            data._polymarketAutoGovernanceError = false;
+            data._polymarketAutoGovernanceSource = 'file';
+        } catch (fileError) {
+            data._polymarketAutoGovernanceError = true;
+            data._polymarketAutoGovernanceSource = 'unavailable';
+            console.warn('Polymarket auto-governance API/file load failed.', apiError, fileError);
+        }
+    }
+
+    try {
         data.polymarketHistoryDb = await loadPolymarketHistoryApiSupplement();
         data._polymarketHistoryDbError = false;
         data._polymarketHistoryDbSource = 'api';
@@ -10232,6 +10273,10 @@ function getPolymarketCanaryContract(d) {
     return d?.polymarketCanaryContract || null;
 }
 
+function getPolymarketAutoGovernance(d) {
+    return d?.polymarketAutoGovernance || null;
+}
+
 function getPolymarketHistoryDb(d) {
     return d?.polymarketHistoryDb || null;
 }
@@ -10309,6 +10354,24 @@ function translatePolymarketToken(value) {
         OBSERVATION_ONLY_TRACK: '只允许观察，不允许下注',
         BLOCKED_CONTRACT_ONLY: '已阻断：只定义契约',
         BLOCKED_CONTRACT_ONLY_NO_WALLET_WRITE: '已阻断：契约模式且未写钱包',
+        POLYMARKET_AUTO_GOVERNANCE_V1: 'Polymarket 自动治理 V1',
+        AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE: '自动治理建议：不写钱包',
+        PROMOTION_REVIEW_SHADOW_ONLY: '提升复核：仍只影子',
+        KEEP_SHADOW_COLLECT_EVIDENCE: '继续影子采样',
+        RETUNE_REQUIRED: '需要重调',
+        DEMOTE_TO_RESEARCH_ONLY: '降级到研究-only',
+        QUARANTINE_NO_PROMOTION: '隔离：禁止提升',
+        GLOBAL_LOSS_QUARANTINE: '整体亏损隔离',
+        EXECUTED_PF_BELOW_1: '实盘 PF 低于 1',
+        SHADOW_PF_BELOW_1: '影子 PF 低于 1',
+        AI_SCORE_BELOW_KEEP_SHADOW_MIN: 'AI 分低于保留影子阈值',
+        COMPOSITE_SCORE_DEMOTE_ZONE: '综合分处于降级区',
+        CANARY_NOT_ELIGIBLE_NOW: 'Canary 当前不可执行',
+        NO_EVIDENCE_FOR_PROMOTION: '缺少提升证据',
+        LOW_CONFIDENCE: '信心不足',
+        HIGH_RISK: '高风险',
+        MEDIUM_RISK: '中等风险',
+        LOW_RISK: '低风险',
         DRY_RUN_ONLY_NO_WALLET_WRITE: '只做模拟订单：不写钱包',
         DRY_RUN_READY_NO_WALLET_WRITE: '模拟可开：仍不写钱包',
         DRY_RUN_BLOCKED_BY_GATE: '模拟阻断：执行闸门未通过',
@@ -10595,6 +10658,10 @@ function renderPolymarketUnifiedEvidenceRow(row = {}, item = {}) {
         detail.linkedMt5Symbols ? `linked=${formatPolymarketEvidenceDetailList(detail.linkedMt5Symbols)}` : '',
         detail.macroRiskState ? `macro=${translatePolymarketToken(detail.macroRiskState)}` : '',
         detail.mt5ExecutionAllowed !== undefined && detail.mt5ExecutionAllowed !== '' ? `mt5Exec=${detail.mt5ExecutionAllowed ? '允许' : '禁止'}` : '',
+        detail.governanceState ? `governance=${translatePolymarketToken(detail.governanceState)}` : '',
+        detail.recommendedAction ? `action=${translatePolymarketToken(detail.recommendedAction)}` : '',
+        detail.nextTest ? `nextTest=${translatePolymarketToken(detail.nextTest)}` : '',
+        detail.walletWriteAllowed !== undefined && detail.walletWriteAllowed !== '' ? `wallet=${detail.walletWriteAllowed ? '允许' : '禁止'}` : '',
         row.probability !== undefined && row.probability !== '' ? `prob=${formatPolymarketPercent(row.probability)}` : '',
         row.divergence !== undefined && row.divergence !== '' ? `div=${formatPolymarketSignedPp(row.divergence)}` : ''
     ].filter(Boolean).join(' · ');
@@ -10705,7 +10772,7 @@ function updatePolymarketUnifiedSearch(d) {
     if (summaryEl) {
         const sourceLabel = d?._polymarketUnifiedSearchSource === 'api' || search.source === 'quantgod_dashboard_local_api' ? 'API' : '文件';
         const activeQuery = query ? `关键词 ${query}` : '最近/高分证据';
-        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 雷达/Worker/联动/Canary/分析/历史/AI ${summary.radarMatches || 0}/${summary.workerMatches || 0}/${summary.crossLinkageMatches || 0}/${summary.canaryMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
+        summaryEl.textContent = `${sourceLabel} | ${activeQuery} | 市场 ${summary.marketGroups || summary.totalMatches || results.length || 0} | 原始证据 ${summary.rawMatches || 0} | 雷达/Worker/联动/Canary/治理/分析/历史/AI ${summary.radarMatches || 0}/${summary.workerMatches || 0}/${summary.crossLinkageMatches || 0}/${summary.canaryMatches || 0}/${summary.autoGovernanceMatches || 0}/${summary.analysisMatches || 0}/${summary.historyMatches || 0}/${summary.aiScoreMatches || 0}`;
     }
     const safety = search.safety || {};
     const boundaryCard = `
@@ -11630,6 +11697,98 @@ function updatePolymarketCanaryContract(d) {
     ].join('') || '<div class="empty-state">暂无 Canary 契约候选。</div>';
 }
 
+function renderPolymarketAutoGovernanceCard(row = {}) {
+    const state = String(row.governanceState || '').toUpperCase();
+    const risk = String(row.riskLevel || row.risk || '').toUpperCase();
+    const blockers = Array.isArray(row.blockers) ? row.blockers : safeParseJsonList(row.blockersJson);
+    const tone = state.includes('PROMOTION') && !risk.includes('HIGH')
+        ? 'good'
+        : (state.includes('QUARANTINE') || state.includes('DEMOTE') || risk.includes('HIGH') ? 'danger' : 'watch');
+    return `
+        <div class="polymarket-card ${escapeHtml(tone)}">
+            <div class="polymarket-eyebrow">${escapeHtml(translatePolymarketToken(row.currentState || row.track || '自动治理'))}</div>
+            <div class="polymarket-title">${escapeHtml(row.question || row.marketId || '--')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('治理状态', translatePolymarketToken(row.governanceState || '--'))}
+                ${renderPolymarketMetric('推荐动作', translatePolymarketToken(row.recommendedAction || '--'))}
+                ${renderPolymarketMetric('综合分', formatPolymarketScore(row.score))}
+                ${renderPolymarketMetric('AI/源分', `${row.aiScore ?? '--'} / ${row.sourceScore ?? '--'}`)}
+                ${renderPolymarketMetric('风险', translatePolymarketToken(row.riskLevel || '--'))}
+                ${renderPolymarketMetric('真实下注', row.orderSendAllowed ? '允许' : '禁止')}
+            </div>
+            <div class="polymarket-action-list">
+                <div class="polymarket-action">阻断 ${escapeHtml(translatePolymarketList(blockers, 6))}</div>
+                <div class="polymarket-action">Canary ${escapeHtml(translatePolymarketToken(row.canaryState || '--'))} · dry-run ${escapeHtml(translatePolymarketToken(row.dryRunState || row.outcomeState || '--'))}</div>
+                <div class="polymarket-action">下一轮 ${escapeHtml(row.nextTest || '继续收集历史 / dry-run / AI 证据')}</div>
+            </div>
+            <div class="polymarket-note">${escapeHtml(row.polymarketUrl || row.marketId || 'Polymarket')} · 自动治理只改研究建议，不开钱包、不下单、不影响 MT5。</div>
+        </div>
+    `;
+}
+
+function updatePolymarketAutoGovernance(d) {
+    const governance = getPolymarketAutoGovernance(d);
+    const summaryEl = document.getElementById('polymarketAutoGovernanceSummary');
+    const body = document.getElementById('polymarketAutoGovernanceBody');
+    if (!body) return;
+    if (!governance || d?._polymarketAutoGovernanceError) {
+        if (summaryEl) summaryEl.textContent = '等待自动治理';
+        body.innerHTML = '<div class="empty-state">等待 `QuantGod_PolymarketAutoGovernance.json`；当前不会自动提升到真钱执行。</div>';
+        return;
+    }
+    const summary = governance.summary || {};
+    const safety = governance.safety || {};
+    const rows = Array.isArray(governance.governanceDecisions) ? governance.governanceDecisions : [];
+    const blockers = Array.isArray(governance.globalBlockers) ? governance.globalBlockers : [];
+    const sourceLabel = d?._polymarketAutoGovernanceSource === 'api' || governance._api?.endpoint ? 'API' : '文件';
+    if (summaryEl) {
+        summaryEl.textContent = `${sourceLabel} | 决策 ${summary.totalDecisions || rows.length || 0} | 提升复核 ${summary.promotionReview || 0} | 重调 ${summary.retuneRequired || 0} | 降级 ${summary.demote || 0} | 隔离 ${summary.quarantine || 0} | 钱包写入 ${safety.walletWriteAllowed ? '开' : '关'}`;
+    }
+    const boundaryCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">治理边界</div>
+            <div class="polymarket-title">${escapeHtml(translatePolymarketToken(governance.decision || 'AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE'))}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('写钱包', safety.walletWriteAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('真实下单', safety.orderSendAllowed ? '是' : '否')}
+                ${renderPolymarketMetric('启动执行器', safety.startsExecutor ? '是' : '否')}
+                ${renderPolymarketMetric('影响 MT5', safety.mutatesMt5 ? '是' : '否')}
+            </div>
+            <div class="polymarket-note">第 7 项只产生 promotion/demotion 研究建议；任何真钱 executor 仍需要单独授权和独立验收。</div>
+        </div>
+    `;
+    const summaryCard = `
+        <div class="polymarket-card watch">
+            <div class="polymarket-eyebrow">升降级分布</div>
+            <div class="polymarket-title">${escapeHtml(rows.length ? `${rows.length} 条市场治理建议` : '暂无市场决策')}</div>
+            <div class="polymarket-metric">
+                ${renderPolymarketMetric('提升复核', summary.promotionReview || 0)}
+                ${renderPolymarketMetric('继续影子', summary.keepShadow || 0)}
+                ${renderPolymarketMetric('重调', summary.retuneRequired || 0)}
+                ${renderPolymarketMetric('降级', summary.demote || 0)}
+                ${renderPolymarketMetric('隔离', summary.quarantine || 0)}
+                ${renderPolymarketMetric('可真执行', summary.liveExecutionAllowed || 0)}
+            </div>
+            <div class="polymarket-note">自动治理综合历史库、Worker、AI 分、dry-run/outcome、联动风险和 canary 契约。</div>
+        </div>
+    `;
+    const blockerCard = `
+        <div class="polymarket-card danger">
+            <div class="polymarket-eyebrow">全局阻断</div>
+            <div class="polymarket-title">${escapeHtml(blockers.length ? `${blockers.length} 个阻断` : '保持研究-only')}</div>
+            <div class="polymarket-action-list">
+                ${(blockers.length ? blockers : ['AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE']).slice(0, 8).map((blocker) => `<div class="polymarket-action">${escapeHtml(translatePolymarketToken(blocker))}</div>`).join('')}
+            </div>
+        </div>
+    `;
+    body.innerHTML = [
+        boundaryCard,
+        summaryCard,
+        blockerCard,
+        ...rows.slice(0, 8).map(renderPolymarketAutoGovernanceCard),
+    ].join('') || '<div class="empty-state">暂无 Polymarket 自动治理建议。</div>';
+}
+
 function renderPolymarketStatsCard(title, eyebrow, stats = {}, note = '', extraClass = '') {
     const tone = extraClass || getPolymarketTone(stats);
     return `
@@ -11730,7 +11889,7 @@ function getPolymarketHistoryRenderType(apiTable) {
     const normalized = String(apiTable || '').toLowerCase();
     if (normalized === 'analyses' || normalized === 'analysis') return 'analysis';
     if (normalized === 'simulations' || normalized === 'simulation') return 'simulation';
-    if (normalized === 'runs' || normalized === 'snapshots' || normalized === 'worker-runs' || normalized === 'worker-trends' || normalized === 'worker-queue' || normalized === 'cross-linkage' || normalized === 'canary-contracts' || normalized === 'all' || normalized === 'mixed') return 'mixed';
+    if (normalized === 'runs' || normalized === 'snapshots' || normalized === 'worker-runs' || normalized === 'worker-trends' || normalized === 'worker-queue' || normalized === 'cross-linkage' || normalized === 'canary-contracts' || normalized === 'auto-governance' || normalized === 'all' || normalized === 'mixed') return 'mixed';
     return 'opportunity';
 }
 
@@ -11746,6 +11905,7 @@ function getPolymarketHistoryTypeLabel(type) {
     if (normalized === 'worker-queue') return '队列';
     if (normalized === 'cross-linkage') return '联动';
     if (normalized === 'canary-contracts') return 'Canary';
+    if (normalized === 'auto-governance') return '治理';
     return normalized ? normalized.toUpperCase() : '--';
 }
 
@@ -11794,8 +11954,8 @@ function renderPolymarketHistoryDbTable(title, rows = [], type = 'opportunity') 
             `;
         }
         if (renderType === 'mixed') {
-            const status = row.primaryRiskTag || row.queueState || row.trendDirection || row.status || row.recommendation || row.state || row.decision || row.schemaVersion || row.mode || '--';
-            const score = row.macroRiskState ? translatePolymarketToken(row.macroRiskState) : (row.priorityScore ?? row.aiRuleScore ?? row.ruleScore ?? row.confidence ?? row.sourceScore ?? row.executedPf ?? row.topScore ?? '--');
+            const status = row.governanceState || row.recommendedAction || row.primaryRiskTag || row.queueState || row.trendDirection || row.status || row.recommendation || row.state || row.decision || row.schemaVersion || row.mode || '--';
+            const score = row.riskLevel ? translatePolymarketToken(row.riskLevel) : (row.macroRiskState ? translatePolymarketToken(row.macroRiskState) : (row.score ?? row.priorityScore ?? row.aiRuleScore ?? row.ruleScore ?? row.confidence ?? row.sourceScore ?? row.executedPf ?? row.topScore ?? '--'));
             const track = row.linkedMt5SymbolsJson ? formatPolymarketEvidenceDetailList(row.linkedMt5SymbolsJson, 5) : (row.suggestedShadowTrack || row.track || row.source || row.authState || row.candidateId || row.runId || '--');
             return `
                 <tr>
@@ -11852,7 +12012,7 @@ function updatePolymarketHistoryDb(d) {
     const sourceLabel = history.source === 'sqlite_api' ? 'API' : (d?._polymarketHistoryDbSource === 'api' ? 'API' : '文件');
     const hasActiveFilter = Boolean(String(apiState.query || search.query || '').trim()) || (apiState.table && apiState.table !== 'all');
     if (summaryEl) {
-        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0} | Worker ${summary.radarWorkerRuns || 0} | 趋势 ${summary.radarTrendRows || 0} | 队列 ${summary.radarQueueRows || 0} | 联动 ${summary.crossMarketLinkages || 0} | Canary ${summary.canaryContracts || 0}`;
+        summaryEl.textContent = `${sourceLabel} | 总 ${summary.totalRows || 0} 行 | 市场 ${summary.assetOpportunities || 0} | 分析 ${summary.marketAnalyses || 0} | 模拟 ${summary.executionSimulations || 0} | Worker ${summary.radarWorkerRuns || 0} | 趋势 ${summary.radarTrendRows || 0} | 队列 ${summary.radarQueueRows || 0} | 联动 ${summary.crossMarketLinkages || 0} | Canary ${summary.canaryContracts || 0} | 治理 ${summary.autoGovernanceDecisions || 0}`;
     }
     const overviewCard = `
         <div class="polymarket-card good">
@@ -11869,6 +12029,7 @@ function updatePolymarketHistoryDb(d) {
                 ${renderPolymarketMetric('雷达队列', summary.radarQueueRows || 0)}
                 ${renderPolymarketMetric('跨市场联动', summary.crossMarketLinkages || 0)}
                 ${renderPolymarketMetric('Canary 契约', summary.canaryContracts || 0)}
+                ${renderPolymarketMetric('自动治理', summary.autoGovernanceDecisions || 0)}
             </div>
             <div class="polymarket-note">${escapeHtml(database.path || 'archive/polymarket/history/QuantGod_PolymarketHistory.sqlite')}；当前筛选 ${escapeHtml(apiState.table || 'all')} / ${escapeHtml(apiState.query || '无关键词')}。</div>
         </div>
@@ -11916,6 +12077,7 @@ function updatePolymarketHistoryDb(d) {
         renderPolymarketHistoryDbTable('雷达队列历史', recent['worker-queue'] || recent.workerQueue || [], 'worker-queue'),
         renderPolymarketHistoryDbTable('跨市场联动历史', recent['cross-linkage'] || recent.crossMarketLinkage || [], 'cross-linkage'),
         renderPolymarketHistoryDbTable('Canary 契约历史', recent['canary-contracts'] || recent.canaryContracts || [], 'canary-contracts'),
+        renderPolymarketHistoryDbTable('自动治理历史', recent['auto-governance'] || recent.autoGovernance || [], 'auto-governance'),
     ].filter(Boolean).join('');
 }
 
@@ -16772,6 +16934,7 @@ function updateDashboard() {
     updatePolymarketDryRunOrders(d);
     updatePolymarketDryRunOutcomeWatcher(d);
     updatePolymarketCanaryContract(d);
+    updatePolymarketAutoGovernance(d);
     updatePolymarketRetunePlanner(d);
     updatePolymarketHistoryDb(d);
     updateStrategyVersionOptimizerPanel(d);

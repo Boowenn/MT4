@@ -15,6 +15,7 @@ const polymarketAiScoreName = 'QuantGod_PolymarketAiScoreV1.json';
 const polymarketSingleMarketAnalysisName = 'QuantGod_PolymarketSingleMarketAnalysis.json';
 const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.json';
 const polymarketCanaryExecutorContractName = 'QuantGod_PolymarketCanaryExecutorContract.json';
+const polymarketAutoGovernanceName = 'QuantGod_PolymarketAutoGovernance.json';
 const polymarketHistoryApiScript = path.join(repoRoot, 'tools', 'query_polymarket_history_api.py');
 const mt5ReadonlyBridgeScript = path.join(repoRoot, 'tools', 'mt5_readonly_bridge.py');
 const mt5SymbolRegistryScript = path.join(repoRoot, 'tools', 'mt5_symbol_registry.py');
@@ -30,6 +31,7 @@ const polymarketHistoryTables = new Set([
   'worker-queue',
   'cross-linkage',
   'canary-contracts',
+  'auto-governance',
 ]);
 const mt5ReadonlyEndpoints = new Set(['status', 'account', 'positions', 'orders', 'symbols', 'quote', 'snapshot']);
 const mt5SymbolRegistryEndpoints = new Set(['registry', 'resolve']);
@@ -39,7 +41,8 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketAiScoreName,
   polymarketSingleMarketAnalysisName,
   polymarketCrossMarketLinkageName,
-  polymarketCanaryExecutorContractName
+  polymarketCanaryExecutorContractName,
+  polymarketAutoGovernanceName
 ]);
 
 const contentTypes = {
@@ -679,6 +682,49 @@ function compactCanaryContractResult(item = {}, generatedAt = '') {
   };
 }
 
+function compactAutoGovernanceResult(item = {}, generatedAt = '') {
+  return {
+    sourceType: 'auto-governance',
+    sourceLabel: '自动治理',
+    title: firstDefined(item.question, item.marketId, item.governanceId, '--'),
+    subtitle: firstDefined(item.governanceState, item.track, item.riskLevel),
+    marketId: firstDefined(item.marketId),
+    url: firstDefined(item.polymarketUrl, item.url),
+    generatedAt: firstDefined(item.generatedAt, generatedAt),
+    risk: firstDefined(item.riskLevel, item.crossRiskTag, item.macroRiskState, item.aiColor),
+    recommendation: firstDefined(item.recommendedAction, item.governanceState, 'AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE'),
+    track: firstDefined(item.track),
+    probability: null,
+    divergence: null,
+    score: numericScore(item.score, item.aiScore, item.sourceScore),
+    detail: {
+      historyType: 'auto-governance',
+      rawType: 'auto-governance',
+      governanceId: firstDefined(item.governanceId),
+      currentState: firstDefined(item.currentState),
+      governanceState: firstDefined(item.governanceState),
+      recommendedAction: firstDefined(item.recommendedAction),
+      riskLevel: firstDefined(item.riskLevel),
+      aiScore: firstDefined(item.aiScore),
+      sourceScore: firstDefined(item.sourceScore),
+      canaryState: firstDefined(item.canaryState),
+      dryRunState: firstDefined(item.dryRunState),
+      outcomeState: firstDefined(item.outcomeState),
+      wouldExitReason: firstDefined(item.wouldExitReason),
+      crossRiskTag: firstDefined(item.crossRiskTag),
+      macroRiskState: firstDefined(item.macroRiskState),
+      blockers: firstDefined(item.blockers, item.blockersJson),
+      sourceTypes: firstDefined(item.sourceTypes, item.sourceTypesJson),
+      nextTest: firstDefined(item.nextTest),
+      walletWriteAllowed: firstDefined(item.walletWriteAllowed),
+      orderSendAllowed: firstDefined(item.orderSendAllowed),
+      startsExecutor: firstDefined(item.startsExecutor),
+      mutatesMt5: firstDefined(item.mutatesMt5),
+      canPromoteToLiveExecution: firstDefined(item.canPromoteToLiveExecution)
+    }
+  };
+}
+
 function isWorkerHistoryType(historyType = '') {
   return ['worker-runs', 'worker-trends', 'worker-queue'].includes(String(historyType || '').trim());
 }
@@ -695,6 +741,10 @@ function isCanaryContractHistoryRow(row = {}) {
   return String(row.historyType || '').trim() === 'canary-contracts';
 }
 
+function isAutoGovernanceHistoryRow(row = {}) {
+  return String(row.historyType || '').trim() === 'auto-governance';
+}
+
 function getHistorySourceLabel(historyType = '') {
   const normalized = String(historyType || '').trim();
   if (normalized === 'worker-runs') return 'Worker 批次';
@@ -702,6 +752,7 @@ function getHistorySourceLabel(historyType = '') {
   if (normalized === 'worker-queue') return '雷达队列';
   if (normalized === 'cross-linkage') return '跨市场联动';
   if (normalized === 'canary-contracts') return 'Canary 契约';
+  if (normalized === 'auto-governance') return '自动治理';
   if (normalized === 'opportunities') return '机会历史';
   if (normalized === 'analyses') return '分析历史';
   if (normalized === 'simulations') return '模拟历史';
@@ -715,6 +766,7 @@ function compactHistoryResult(row = {}) {
   const workerRow = isWorkerHistoryType(historyType);
   const crossRow = isCrossLinkageHistoryRow(row);
   const canaryRow = isCanaryContractHistoryRow(row);
+  const autoGovernanceRow = isAutoGovernanceHistoryRow(row);
   const workerSubtitle = firstDefined(
     row.nextAction,
     row.queueState,
@@ -724,13 +776,15 @@ function compactHistoryResult(row = {}) {
     row.schemaVersion
   );
   return {
-    sourceType: workerRow || crossRow || canaryRow ? historyType : firstDefined(row.historyType, 'history'),
+    sourceType: workerRow || crossRow || canaryRow || autoGovernanceRow ? historyType : firstDefined(row.historyType, 'history'),
     sourceLabel: getHistorySourceLabel(historyType),
     title: firstDefined(row.question, row.query, row.topMarket, row.marketId, row.runId, row.mode, '--'),
     subtitle: crossRow
       ? firstDefined(row.primaryRiskTag, row.macroRiskState, row.category)
       : canaryRow
       ? firstDefined(row.canaryState, row.track, row.side)
+      : autoGovernanceRow
+      ? firstDefined(row.governanceState, row.recommendedAction, row.riskLevel)
       : workerRow
       ? workerSubtitle
       : firstDefined(row.recommendation, row.state, row.decision, row.schemaVersion),
@@ -742,17 +796,19 @@ function compactHistoryResult(row = {}) {
       ? firstDefined(row.primaryRiskTag, row.macroRiskState, 'AWARENESS_ONLY')
       : canaryRow
       ? firstDefined(row.decision, row.canaryState, 'CANARY_CONTRACT_ONLY_NO_WALLET_WRITE')
+      : autoGovernanceRow
+      ? firstDefined(row.recommendedAction, row.governanceState, 'AUTO_GOVERNANCE_RECOMMENDATIONS_ONLY_NO_WALLET_WRITE')
       : workerRow
       ? firstDefined(row.nextAction, row.queueState, row.status, row.decision, 'WORKER_EVIDENCE')
       : firstDefined(row.recommendation, row.recommendedAction, row.state, row.decision),
     track: firstDefined(row.suggestedShadowTrack, row.track, row.source),
     probability: firstDefined(row.probability, row.marketProbability, row.lastProbability),
     divergence: firstDefined(row.divergence, row.probabilityDelta),
-    score: numericScore(row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.aiScore, row.executedPf),
+    score: numericScore(row.score, row.priorityScore, row.aiRuleScore, row.ruleScore, row.bestAiRuleScore, row.lastAiRuleScore, row.topScore, row.confidence, row.sourceScore, row.aiScore, row.executedPf),
     detail: {
       historyType,
       source: firstDefined(row.source),
-      rawType: workerRow ? 'worker-history' : (canaryRow ? 'canary-history' : 'history'),
+      rawType: workerRow ? 'worker-history' : (autoGovernanceRow ? 'auto-governance-history' : (canaryRow ? 'canary-history' : 'history')),
       runId: firstDefined(row.runId),
       candidateId: firstDefined(row.candidateId),
       queueState: firstDefined(row.queueState),
@@ -779,6 +835,13 @@ function compactHistoryResult(row = {}) {
       canaryEligibleNow: firstDefined(row.canaryEligibleNow),
       referenceStakeUSDC: firstDefined(row.referenceStakeUSDC),
       canaryStakeUSDC: firstDefined(row.canaryStakeUSDC),
+      governanceId: firstDefined(row.governanceId),
+      currentState: firstDefined(row.currentState),
+      governanceState: firstDefined(row.governanceState),
+      recommendedAction: firstDefined(row.recommendedAction),
+      riskLevel: firstDefined(row.riskLevel),
+      nextTest: firstDefined(row.nextTest),
+      canPromoteToLiveExecution: firstDefined(row.canPromoteToLiveExecution),
       maxSingleBetUSDC: firstDefined(row.maxSingleBetUSDC),
       maxDailyLossUSDC: firstDefined(row.maxDailyLossUSDC),
       takeProfitPct: firstDefined(row.takeProfitPct),
@@ -1115,6 +1178,16 @@ async function handlePolymarketSearch(req, res) {
       errors.push({ source: 'canary-contract', error: error.message || String(error) });
     }
 
+    let autoGovernance = null;
+    let autoGovernancePath = '';
+    try {
+      const read = readQuantGodJsonFile(polymarketAutoGovernanceName);
+      autoGovernance = withServiceMeta(read.payload, '/api/polymarket/auto-governance', read.filePath);
+      autoGovernancePath = read.filePath;
+    } catch (error) {
+      errors.push({ source: 'auto-governance', error: error.message || String(error) });
+    }
+
     let latestAnalysis = null;
     let latestAnalysisPath = '';
     try {
@@ -1147,6 +1220,9 @@ async function handlePolymarketSearch(req, res) {
     const canaryItems = Array.isArray(canaryContract?.candidateContracts)
       ? canaryContract.candidateContracts.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
       : [];
+    const autoGovernanceItems = Array.isArray(autoGovernance?.governanceDecisions)
+      ? autoGovernance.governanceDecisions.filter((item) => matchesSearchQuery(item, query)).slice(0, limit)
+      : [];
 
     const historyPayload = historyResult.payload || {};
     const rawHistoryRows = query
@@ -1173,8 +1249,13 @@ async function handlePolymarketSearch(req, res) {
       : [
           ...(historyPayload.recent?.['canary-contracts'] || historyPayload.recent?.canaryContracts || []),
         ].slice(0, limit);
+    const autoGovernanceRows = query
+      ? rawHistoryRows.filter(isAutoGovernanceHistoryRow).slice(0, limit)
+      : [
+          ...(historyPayload.recent?.['auto-governance'] || historyPayload.recent?.autoGovernance || []),
+        ].slice(0, limit);
     const historyRows = query
-      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row)).slice(0, limit)
+      ? rawHistoryRows.filter((row) => !isWorkerHistoryRow(row) && !isCrossLinkageHistoryRow(row) && !isCanaryContractHistoryRow(row) && !isAutoGovernanceHistoryRow(row)).slice(0, limit)
       : rawHistoryRows;
     const analysisRows = normalizeAnalyzeHistoryRows(
       analysisResult.payload?.search?.rows || analysisResult.payload?.recent?.analyses || []
@@ -1222,6 +1303,10 @@ async function handlePolymarketSearch(req, res) {
         ...canaryItems.map((item) => compactCanaryContractResult(item, canaryContract?.generatedAt)),
         ...canaryRows.slice(0, limit).map(compactHistoryResult)
       ].slice(0, limit),
+      autoGovernance: [
+        ...autoGovernanceItems.map((item) => compactAutoGovernanceResult(item, autoGovernance?.generatedAt)),
+        ...autoGovernanceRows.slice(0, limit).map(compactHistoryResult)
+      ].slice(0, limit),
       history: historyRows.slice(0, limit).map(compactHistoryResult)
     };
     const rawSearchResults = sortSearchResults([
@@ -1231,12 +1316,13 @@ async function handlePolymarketSearch(req, res) {
       ...sections.worker,
       ...sections.crossLinkage,
       ...sections.canary,
+      ...sections.autoGovernance,
       ...sections.history
     ]);
     const groupedResults = groupSearchResultsByMarket(rawSearchResults, limit);
 
     sendJson(res, 200, {
-      mode: 'POLYMARKET_SEARCH_API_V4_CANARY_EVIDENCE_GROUPS',
+      mode: 'POLYMARKET_SEARCH_API_V5_AUTO_GOVERNANCE_EVIDENCE_GROUPS',
       status: errors.length ? 'PARTIAL' : 'OK',
       generatedAt: new Date().toISOString(),
       source: 'quantgod_dashboard_local_api',
@@ -1253,6 +1339,7 @@ async function handlePolymarketSearch(req, res) {
         workerMatches: sections.worker.length,
         crossLinkageMatches: sections.crossLinkage.length,
         canaryMatches: sections.canary.length,
+        autoGovernanceMatches: sections.autoGovernance.length,
         historyMatches: sections.history.length,
         historyTotalRows: historyPayload.summary?.totalRows || 0
       },
@@ -1265,6 +1352,7 @@ async function handlePolymarketSearch(req, res) {
         aiScorePath,
         crossLinkagePath,
         canaryContractPath,
+        autoGovernancePath,
         latestAnalysisPath,
         historyDatabase: historyPayload.database || null
       },
@@ -1398,6 +1486,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/canary-executor-contract') {
     handlePolymarketReadOnlyJson(req, res, polymarketCanaryExecutorContractName, '/api/polymarket/canary-executor-contract');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/auto-governance') {
+    handlePolymarketReadOnlyJson(req, res, polymarketAutoGovernanceName, '/api/polymarket/auto-governance');
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {

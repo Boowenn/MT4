@@ -37,8 +37,9 @@ DRY_RUN_NAME = "QuantGod_PolymarketDryRunOrders.json"
 OUTCOME_NAME = "QuantGod_PolymarketDryRunOutcomeWatcher.json"
 CROSS_LINKAGE_NAME = "QuantGod_PolymarketCrossMarketLinkage.json"
 CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
+AUTO_GOVERNANCE_NAME = "QuantGod_PolymarketAutoGovernance.json"
 
-SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V4_CANARY_CONTRACT"
+SCHEMA_VERSION = "POLYMARKET_HISTORY_DB_V5_AUTO_GOVERNANCE"
 
 
 def parse_args() -> argparse.Namespace:
@@ -146,6 +147,7 @@ def init_schema(con: sqlite3.Connection) -> None:
             queue_rows INTEGER NOT NULL DEFAULT 0,
             cross_linkage_rows INTEGER NOT NULL DEFAULT 0,
             canary_contract_rows INTEGER NOT NULL DEFAULT 0,
+            auto_governance_rows INTEGER NOT NULL DEFAULT 0,
             wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
             order_send_allowed INTEGER NOT NULL DEFAULT 0
         );
@@ -410,6 +412,39 @@ def init_schema(con: sqlite3.Connection) -> None:
             raw_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS qd_polymarket_auto_governance (
+            id TEXT PRIMARY KEY,
+            generated_at TEXT NOT NULL,
+            governance_id TEXT,
+            market_id TEXT,
+            question TEXT,
+            polymarket_url TEXT,
+            track TEXT,
+            current_state TEXT,
+            governance_state TEXT,
+            recommended_action TEXT,
+            risk_level TEXT,
+            score REAL,
+            ai_score REAL,
+            source_score REAL,
+            ai_color TEXT,
+            canary_state TEXT,
+            dry_run_state TEXT,
+            outcome_state TEXT,
+            would_exit_reason TEXT,
+            cross_risk_tag TEXT,
+            macro_risk_state TEXT,
+            blockers_json TEXT,
+            source_types_json TEXT,
+            next_test TEXT,
+            wallet_write_allowed INTEGER NOT NULL DEFAULT 0,
+            order_send_allowed INTEGER NOT NULL DEFAULT 0,
+            starts_executor INTEGER NOT NULL DEFAULT 0,
+            mutates_mt5 INTEGER NOT NULL DEFAULT 0,
+            can_promote_to_live_execution INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_poly_asset_market ON qd_polymarket_asset_opportunities(market_id, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_poly_asset_score ON qd_polymarket_asset_opportunities(ai_rule_score, risk);
         CREATE INDEX IF NOT EXISTS idx_poly_analysis_market ON qd_polymarket_market_analysis(market_id, generated_at);
@@ -424,6 +459,8 @@ def init_schema(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_poly_cross_tag ON qd_polymarket_cross_market_linkage(primary_risk_tag, macro_risk_state);
         CREATE INDEX IF NOT EXISTS idx_poly_canary_market ON qd_polymarket_canary_contracts(market_id, generated_at);
         CREATE INDEX IF NOT EXISTS idx_poly_canary_state ON qd_polymarket_canary_contracts(canary_state, decision);
+        CREATE INDEX IF NOT EXISTS idx_poly_auto_gov_market ON qd_polymarket_auto_governance(market_id, generated_at);
+        CREATE INDEX IF NOT EXISTS idx_poly_auto_gov_state ON qd_polymarket_auto_governance(governance_state, risk_level);
         """
     )
     ensure_columns(
@@ -435,6 +472,7 @@ def init_schema(con: sqlite3.Connection) -> None:
             "queue_rows": "INTEGER NOT NULL DEFAULT 0",
             "cross_linkage_rows": "INTEGER NOT NULL DEFAULT 0",
             "canary_contract_rows": "INTEGER NOT NULL DEFAULT 0",
+            "auto_governance_rows": "INTEGER NOT NULL DEFAULT 0",
         },
     )
 
@@ -1061,6 +1099,74 @@ def upsert_canary_contracts(con: sqlite3.Connection, canary_payload: dict[str, A
     return count
 
 
+def upsert_auto_governance(con: sqlite3.Connection, governance_payload: dict[str, Any], now_iso: str) -> int:
+    rows = governance_payload.get("governanceDecisions") if isinstance(governance_payload.get("governanceDecisions"), list) else []
+    generated_default = str(governance_payload.get("generatedAt") or now_iso)
+    count = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        governance_id = str(item.get("governanceId") or "")
+        row_id = governance_id or stable_id("auto_governance", item.get("marketId"), item.get("question"), item.get("track"))
+        con.execute(
+            """
+            INSERT OR REPLACE INTO qd_polymarket_auto_governance (
+                id, generated_at, governance_id, market_id, question,
+                polymarket_url, track, current_state, governance_state,
+                recommended_action, risk_level, score, ai_score, source_score,
+                ai_color, canary_state, dry_run_state, outcome_state,
+                would_exit_reason, cross_risk_tag, macro_risk_state,
+                blockers_json, source_types_json, next_test,
+                wallet_write_allowed, order_send_allowed, starts_executor,
+                mutates_mt5, can_promote_to_live_execution, raw_json
+            ) VALUES (
+                :id, :generated_at, :governance_id, :market_id, :question,
+                :polymarket_url, :track, :current_state, :governance_state,
+                :recommended_action, :risk_level, :score, :ai_score, :source_score,
+                :ai_color, :canary_state, :dry_run_state, :outcome_state,
+                :would_exit_reason, :cross_risk_tag, :macro_risk_state,
+                :blockers_json, :source_types_json, :next_test,
+                :wallet_write_allowed, :order_send_allowed, :starts_executor,
+                :mutates_mt5, :can_promote_to_live_execution, :raw_json
+            )
+            """,
+            {
+                "id": row_id,
+                "generated_at": str(item.get("generatedAt") or generated_default),
+                "governance_id": governance_id,
+                "market_id": str(item.get("marketId") or ""),
+                "question": str(item.get("question") or ""),
+                "polymarket_url": str(item.get("polymarketUrl") or ""),
+                "track": str(item.get("track") or ""),
+                "current_state": str(item.get("currentState") or ""),
+                "governance_state": str(item.get("governanceState") or ""),
+                "recommended_action": str(item.get("recommendedAction") or ""),
+                "risk_level": str(item.get("riskLevel") or ""),
+                "score": safe_number(item.get("score")),
+                "ai_score": safe_number(item.get("aiScore")),
+                "source_score": safe_number(item.get("sourceScore")),
+                "ai_color": str(item.get("aiColor") or ""),
+                "canary_state": str(item.get("canaryState") or ""),
+                "dry_run_state": str(item.get("dryRunState") or ""),
+                "outcome_state": str(item.get("outcomeState") or ""),
+                "would_exit_reason": str(item.get("wouldExitReason") or ""),
+                "cross_risk_tag": str(item.get("crossRiskTag") or ""),
+                "macro_risk_state": str(item.get("macroRiskState") or ""),
+                "blockers_json": compact_json(item.get("blockers") if isinstance(item.get("blockers"), list) else []),
+                "source_types_json": compact_json(item.get("sourceTypes") if isinstance(item.get("sourceTypes"), list) else []),
+                "next_test": str(item.get("nextTest") or ""),
+                "wallet_write_allowed": as_bool_int(item.get("walletWriteAllowed")),
+                "order_send_allowed": as_bool_int(item.get("orderSendAllowed")),
+                "starts_executor": as_bool_int(item.get("startsExecutor")),
+                "mutates_mt5": as_bool_int(item.get("mutatesMt5")),
+                "can_promote_to_live_execution": as_bool_int(item.get("canPromoteToLiveExecution")),
+                "raw_json": compact_json(item),
+            },
+        )
+        count += 1
+    return count
+
+
 def table_summary(con: sqlite3.Connection, table: str, latest_col: str = "generated_at") -> dict[str, Any]:
     row = con.execute(f"SELECT COUNT(*) AS rows, MAX({latest_col}) AS latest_at FROM {table}").fetchone()
     return {"rows": int(row["rows"] or 0), "latestAt": row["latest_at"] or ""}
@@ -1082,6 +1188,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         "qd_polymarket_radar_queue": table_summary(con, "qd_polymarket_radar_queue"),
         "qd_polymarket_cross_market_linkage": table_summary(con, "qd_polymarket_cross_market_linkage"),
         "qd_polymarket_canary_contracts": table_summary(con, "qd_polymarket_canary_contracts"),
+        "qd_polymarket_auto_governance": table_summary(con, "qd_polymarket_auto_governance"),
     }
     total_rows = sum(item["rows"] for item in tables.values())
     recent_opportunities = fetch_rows(
@@ -1243,15 +1350,38 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
         """,
         (recent_limit,),
     )
+    recent_auto_governance = fetch_rows(
+        con,
+        """
+        SELECT generated_at AS generatedAt, governance_id AS governanceId,
+               market_id AS marketId, question, polymarket_url AS polymarketUrl,
+               track, current_state AS currentState, governance_state AS governanceState,
+               recommended_action AS recommendedAction, risk_level AS riskLevel,
+               score, ai_score AS aiScore, source_score AS sourceScore,
+               ai_color AS aiColor, canary_state AS canaryState,
+               dry_run_state AS dryRunState, outcome_state AS outcomeState,
+               would_exit_reason AS wouldExitReason,
+               cross_risk_tag AS crossRiskTag, macro_risk_state AS macroRiskState,
+               blockers_json AS blockersJson, source_types_json AS sourceTypesJson,
+               next_test AS nextTest, wallet_write_allowed AS walletWriteAllowed,
+               order_send_allowed AS orderSendAllowed, starts_executor AS startsExecutor,
+               mutates_mt5 AS mutatesMt5,
+               can_promote_to_live_execution AS canPromoteToLiveExecution
+        FROM qd_polymarket_auto_governance
+        ORDER BY generated_at DESC, score DESC
+        LIMIT ?
+        """,
+        (recent_limit,),
+    )
     return {
         "generatedAt": now_iso,
-        "mode": "POLYMARKET_HISTORY_DB_V4",
+        "mode": "POLYMARKET_HISTORY_DB_V5",
         "schemaVersion": SCHEMA_VERSION,
         "decision": "LOCAL_HISTORY_DB_NO_WALLET_WRITE",
         "database": {
             "path": str(db_path),
             "tables": list(tables.keys()),
-            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, cross-market linkage, canary contracts, analysis, dry-run, outcome, and bridge snapshots.",
+            "purpose": "Long-lived local Polymarket research memory for radar, worker trend cache, worker queue, cross-market linkage, canary contracts, auto-governance, analysis, dry-run, outcome, and bridge snapshots.",
         },
         "sourceFiles": source_files,
         "summary": {
@@ -1266,6 +1396,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "radarQueueRows": tables["qd_polymarket_radar_queue"]["rows"],
             "crossMarketLinkages": tables["qd_polymarket_cross_market_linkage"]["rows"],
             "canaryContracts": tables["qd_polymarket_canary_contracts"]["rows"],
+            "autoGovernanceDecisions": tables["qd_polymarket_auto_governance"]["rows"],
             "latestAt": max((item["latestAt"] for item in tables.values() if item["latestAt"]), default=""),
         },
         "tables": tables,
@@ -1278,6 +1409,7 @@ def build_summary(con: sqlite3.Connection, db_path: Path, source_files: dict[str
             "workerQueue": recent_worker_queue,
             "crossMarketLinkage": recent_cross_linkage,
             "canaryContracts": recent_canary_contracts,
+            "autoGovernance": recent_auto_governance,
             "research": latest_research[0] if latest_research else {},
         },
         "safety": {
@@ -1335,6 +1467,7 @@ def main() -> int:
     outcome, outcome_path = read_json_candidate(OUTCOME_NAME, runtime_dir, dashboard_dir)
     cross_linkage, cross_linkage_path = read_json_candidate(CROSS_LINKAGE_NAME, runtime_dir, dashboard_dir)
     canary_contract, canary_contract_path = read_json_candidate(CANARY_CONTRACT_NAME, runtime_dir, dashboard_dir)
+    auto_governance, auto_governance_path = read_json_candidate(AUTO_GOVERNANCE_NAME, runtime_dir, dashboard_dir)
     source_files = {
         RESEARCH_NAME: research_path,
         RADAR_NAME: radar_path,
@@ -1346,6 +1479,7 @@ def main() -> int:
         OUTCOME_NAME: outcome_path,
         CROSS_LINKAGE_NAME: cross_linkage_path,
         CANARY_CONTRACT_NAME: canary_contract_path,
+        AUTO_GOVERNANCE_NAME: auto_governance_path,
     }
 
     con = connect_db(db_path)
@@ -1361,6 +1495,7 @@ def main() -> int:
         queue_rows = upsert_radar_queue(con, radar_queue, radar_worker, now_iso)
         cross_linkage_rows = upsert_cross_market_linkage(con, cross_linkage, now_iso)
         canary_contract_rows = upsert_canary_contracts(con, canary_contract, now_iso)
+        auto_governance_rows = upsert_auto_governance(con, auto_governance, now_iso)
         simulation_rows = dry_run_rows + outcome_rows
         run_id = "POLYHIST-" + utc_now().strftime("%Y%m%d-%H%M%S")
         con.execute(
@@ -1369,9 +1504,9 @@ def main() -> int:
                 run_id, generated_at, schema_version, db_path, source_files_json,
                 radar_rows, analysis_rows, simulation_rows, research_rows,
                 worker_rows, trend_rows, queue_rows, cross_linkage_rows,
-                canary_contract_rows,
+                canary_contract_rows, auto_governance_rows,
                 wallet_write_allowed, order_send_allowed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 run_id,
@@ -1388,6 +1523,7 @@ def main() -> int:
                 queue_rows,
                 cross_linkage_rows,
                 canary_contract_rows,
+                auto_governance_rows,
             ),
         )
         con.commit()

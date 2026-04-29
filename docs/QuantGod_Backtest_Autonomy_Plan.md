@@ -33,6 +33,7 @@ Implemented:
 - Polymarket Dry-Run Outcome Watcher: `tools/watch_polymarket_dry_run_outcomes.py` consumes dry-run orders and the latest Radar prices, writes `QuantGod_PolymarketDryRunOutcomeWatcher.json` and `QuantGod_PolymarketDryRunOutcomeLedger.csv`, carries forward observed high/low prices by stable tracking key, and reports whether TP, SL, trailing exit, max-hold, or pre-resolution exits would have fired without placing or closing orders.
 - Polymarket Cross-Market Linkage V1: `tools/build_polymarket_cross_market_linkage.py` maps radar/worker/analysis/AI-score market text into USD, JPY, XAU, rates, war/geopolitical, and macro risk awareness tags, writes `QuantGod_PolymarketCrossMarketLinkage.json/csv`, and keeps `walletWriteAllowed=false`, `orderSendAllowed=false`, and `mt5ExecutionAllowed=false`.
 - Polymarket Canary / Wallet Executor Contract V1: `tools/build_polymarket_canary_executor_contract.py` defines an isolated canary root/profile, future env switch names, canary stake caps, daily loss, TP/SL, trailing, cancel, max-hold, exit-before-resolution, kill switch, and audit ledger requirements, writes `QuantGod_PolymarketCanaryExecutorContract.json` plus CSV, persists rows to `qd_polymarket_canary_contracts`, and keeps `readsPrivateKey=false`, `walletWriteAllowed=false`, `orderSendAllowed=false`, `callsClobApi=false`, and `startsExecutor=false`.
+- Polymarket Auto Promotion / Demotion Governance V1: `tools/build_polymarket_auto_governance.py` consumes research, radar, Worker V2, retune, AI score, dry-run outcome, cross-linkage, and canary contract evidence, writes `QuantGod_PolymarketAutoGovernance.json/csv`, persists rows to `qd_polymarket_auto_governance`, folds governance into `/api/polymarket/search`, and keeps `walletWriteAllowed=false`, `orderSendAllowed=false`, `startsExecutor=false`, `mutatesMt5=false`, and `canPromoteToLiveExecution=false`.
 
 Current live-trading boundary:
 
@@ -40,7 +41,7 @@ Current live-trading boundary:
 - `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` remain candidate/backtest/simulation routes.
 - Research tools do not mutate `QuantGod_MT5_HFM_LivePilot.set`.
 - Research tools do not connect to HFM, store credentials, bypass EA `OrderSend`, or change lot size, account, server, SL/TP, position caps, kill switches, spread/session/news/cooldown/portfolio/order-send controls.
-- The Polymarket bridge/radar/single-market analyzer/planner/execution-gate/dry-run simulator/outcome watcher/cross-market linkage/canary contract are external evidence and contract layers only. Future Polymarket execution is allowed only as a separate promoted module with wallet isolation, TP/SL, max-loss, order-send audit, and kill-switch checks; it must not share loops, wallets, canary switches, or order paths with MT5/HFM.
+- The Polymarket bridge/radar/single-market analyzer/planner/execution-gate/dry-run simulator/outcome watcher/cross-market linkage/canary contract/auto-governance layer are external evidence, contract, and recommendation layers only. Future Polymarket execution is allowed only as a separate promoted module with wallet isolation, TP/SL, max-loss, order-send audit, and kill-switch checks; it must not share loops, wallets, canary switches, or order paths with MT5/HFM.
 
 ## Remaining Migration Work
 
