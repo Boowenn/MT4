@@ -25,14 +25,22 @@
 
 body {
   margin: 0;
-  min-width: 1120px;
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.016) 1px, transparent 1px),
     linear-gradient(145deg, #070a0e 0%, #0b1016 48%, #111821 100%);
   background-size: 44px 44px, 44px 44px, auto;
   color: var(--text);
+}
+
+#app {
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
 }
 
 button,
@@ -47,6 +55,8 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 226px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
 }
 
@@ -203,8 +213,11 @@ nav {
 }
 
 .workspace {
+  width: 100%;
+  max-width: 100vw;
   min-width: 0;
   padding: 18px 20px 44px;
+  overflow-x: hidden;
 }
 
 .topbar {
@@ -215,15 +228,21 @@ nav {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+  min-width: 0;
   padding: 10px 0 14px;
   background: linear-gradient(180deg, rgba(11, 16, 22, 0.98), rgba(11, 16, 22, 0.82) 78%, transparent);
   backdrop-filter: blur(10px);
 }
 
 .topbar-left {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.topbar-left > div {
   min-width: 0;
 }
 
@@ -289,14 +308,20 @@ h2 {
 }
 
 .top-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
   gap: 10px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .search-box {
+  flex: 0 1 320px;
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 320px;
+  width: min(320px, 100%);
+  max-width: 100%;
   height: 40px;
   padding: 0 12px;
   color: var(--muted);
@@ -2369,9 +2394,12 @@ h2 {
 }
 
 .table-panel {
+  max-width: 100%;
   padding: 0;
   overflow-x: auto;
   overflow-y: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table-panel.embedded {
@@ -3715,7 +3743,7 @@ tbody tr:hover td {
 
 @media (max-width: 1280px) {
   body {
-    min-width: 960px;
+    min-width: 0;
   }
 
   .app-shell {
@@ -3766,5 +3794,351 @@ tbody tr:hover td {
 
   .dense-radar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Responsive dashboard pass for MacBook and narrow browser windows. */
+@media (max-width: 1280px) {
+  .workspace {
+    padding-inline: 16px;
+  }
+
+  .topbar {
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+
+  .ai-radar-track,
+  .qd-radar-track {
+    grid-template-columns: repeat(auto-fit, minmax(min(172px, 100%), 1fr));
+  }
+
+  .strategy-card-grid,
+  .page-ai > .card-grid.three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .app-shell .brand {
+    justify-content: center;
+    padding-inline: 10px;
+  }
+
+  .app-shell .brand > div:not(.brand-mark),
+  .app-shell .nav-item span,
+  .app-shell .nav-separator,
+  .app-shell .sidebar-footer {
+    display: none;
+  }
+
+  .app-shell .nav-item {
+    justify-content: center;
+    width: 44px;
+    margin: 0 auto;
+    padding: 10px;
+  }
+
+  .workspace {
+    padding-inline: 14px;
+  }
+
+  .topbar {
+    gap: 12px;
+    margin-inline: -14px;
+    padding-inline: 14px;
+  }
+
+  .workbench-hero,
+  .ai-hero,
+  .paramlab-hero,
+  .poly-hero,
+  .page-mt5[data-focus="trades"] .workbench-hero,
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qd-terminal-layout,
+  .ai-engine-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qd-left-list,
+  .qd-right-rail,
+  .ai-feature-rail,
+  .ai-watch-rail {
+    max-height: min(620px, calc(100vh - 148px));
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
+    max-height: min(520px, calc(100vh - 168px));
+    overflow: auto;
+  }
+
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail,
+  .trade-metric-grid,
+  .strategy-performance-grid,
+  .param-lane-board,
+  .radar-grid,
+  .dense-radar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .metric-grid.four,
+  .drawer-grid,
+  .poly-real-metric-grid,
+  .poly-real-inline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    max-height: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 13px;
+    padding: 12px 0 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-right: 1px solid #181818;
+    border-bottom: 0;
+  }
+
+  .brand {
+    justify-content: center;
+    padding: 0 10px;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .app-shell .brand > div:not(.brand-mark),
+  .app-shell .nav-item span,
+  .app-shell .nav-separator,
+  .app-shell .sidebar-footer {
+    display: none;
+  }
+
+  .nav-structured {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .nav-structured nav {
+    display: grid;
+    gap: 8px;
+  }
+
+  .app-shell .nav-item {
+    justify-content: center;
+    width: 44px;
+    min-width: 44px;
+    margin: 0 auto;
+    padding: 10px;
+  }
+
+  .topbar {
+    position: static;
+    min-height: auto;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-block: 10px;
+  }
+
+  .topbar-left,
+  .top-actions {
+    width: 100%;
+  }
+
+  .top-actions {
+    justify-content: flex-start;
+  }
+
+  .search-box {
+    flex: 1 1 220px;
+  }
+
+  .operator-strip,
+  .metric-grid.four,
+  .metric-grid.three,
+  .card-grid.three,
+  .drawer-grid,
+  .poly-radar-grid,
+  .poly-real-metric-grid,
+  .poly-real-inline,
+  .page-mt5[data-focus="trades"] .card-grid.three,
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail,
+  .trade-metric-grid,
+  .strategy-performance-grid,
+  .param-lane-board,
+  .radar-grid,
+  .dense-radar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section-grid,
+  .workspace-layout,
+  .mt5-command-grid,
+  .poly-cockpit-grid,
+  .card-grid,
+  .viz-grid,
+  .strategy-card-grid,
+  .page-ai > .card-grid.three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .command-rail {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace {
+    padding: 0 10px 28px;
+  }
+
+  .topbar {
+    margin: 0 -10px 12px;
+    padding: 10px;
+  }
+
+  .topbar h1 {
+    overflow: visible;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .sidebar {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .brand {
+    padding-right: 8px;
+  }
+
+  .app-shell .brand > div:not(.brand-mark),
+  .app-shell .nav-item span {
+    display: none;
+  }
+
+  .app-shell .nav-item {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 9px;
+  }
+
+  .top-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .inline-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .search-box {
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .inline-form input,
+  .inline-form button {
+    width: 100%;
+  }
+
+  .split-panel,
+  .deep-heading,
+  .toolbar,
+  .panel-title.split,
+  .trade-ticket-head,
+  .strategy-focus-head,
+  .viz-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .route-tabs {
+    width: 100%;
+  }
+
+  .route-tabs button {
+    flex: 1 1 136px;
+  }
+
+  .operator-strip,
+  .metric-grid,
+  .metric-grid.four,
+  .metric-grid.three,
+  .card-grid,
+  .card-grid.three,
+  .section-grid,
+  .viz-grid,
+  .drawer-grid,
+  .hero-metrics,
+  .mt5-command-grid,
+  .poly-cockpit-grid,
+  .poly-metrics,
+  .poly-radar-grid,
+  .poly-real-metric-grid,
+  .poly-real-inline,
+  .command-rail,
+  .param-lane-board,
+  .radar-grid,
+  .dense-radar,
+  .trade-metric-grid,
+  .strategy-performance-grid,
+  .page-mt5[data-focus="trades"] .card-grid.three,
+  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .evidence-row,
+  .risk-link-row,
+  .governance-lane,
+  .governance-lane-rich,
+  .market-line,
+  .radar-ticker-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  table {
+    min-width: 760px;
+  }
+
+  .poly-real-trade-ledger .data-table {
+    min-width: 1040px;
+  }
+
+  .hero-copy,
+  .hero-metrics,
+  .panel,
+  .hero-panel,
+  .data-table-card {
+    padding: 12px;
   }
 }
