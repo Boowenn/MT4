@@ -12,6 +12,8 @@ load_env_file() {
     line="${line#$'\xef\xbb\xbf'}"
     line="${line#export }"
     [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+    local key="${line%%=*}"
+    [[ -n "${!key+x}" ]] && continue
     export "$line"
   done < "$env_file"
 }

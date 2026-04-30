@@ -93,8 +93,17 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def run_step(name: str, command: list[str], cwd: Path, timeout: int = 900) -> dict[str, Any]:
+def run_step(
+    name: str,
+    command: list[str],
+    cwd: Path,
+    timeout: int = 900,
+    env_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
     started = datetime.now(timezone.utc)
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    if env_overrides:
+        env.update(env_overrides)
     try:
         result = subprocess.run(
             command,
@@ -103,7 +112,7 @@ def run_step(name: str, command: list[str], cwd: Path, timeout: int = 900) -> di
             capture_output=True,
             timeout=timeout,
             check=False,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env=env,
         )
         status = "OK" if result.returncode == 0 else "ERROR"
         return {
@@ -165,7 +174,20 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         steps.append(run_step(name, command, repo_root))
 
     if not args.skip_polymarket:
-        steps.append(run_step("polymarket_readonly_cycle", ["bash", "tools/run_mac_polymarket_readonly_cycle.sh"], repo_root, timeout=1200))
+        mac_files = mac_mt5_files_dir()
+        polymarket_source = "mt5" if runtime_dir == mac_files else "local"
+        steps.append(run_step(
+            "polymarket_readonly_cycle",
+            ["bash", "tools/run_mac_polymarket_readonly_cycle.sh"],
+            repo_root,
+            timeout=1200,
+            env_overrides={
+                "QG_RUNTIME_DIR": str(runtime_dir),
+                "QG_MT5_FILES_DIR": str(runtime_dir),
+                "QG_DASHBOARD_FILES_DIR": str(dashboard_dir),
+                "QG_MAC_RUNTIME_SOURCE": polymarket_source,
+            },
+        ))
 
     if args.allow_tester_run:
         steps.append(run_step(
