@@ -60,8 +60,10 @@ export QG_PARAMLAB_HFM_ROOT="${QG_PARAMLAB_HFM_ROOT:-$SCRIPT_DIR/runtime/ParamLa
 export QG_PARAMLAB_TESTER_ROOT="${QG_PARAMLAB_TESTER_ROOT:-$SCRIPT_DIR/runtime/HFM_MT5_Tester_Isolated}"
 export QG_MT5_TESTER_ROOT="${QG_MT5_TESTER_ROOT:-$QG_PARAMLAB_TESTER_ROOT}"
 MT5_SHADOW_SCREEN="${QG_MT5_SHADOW_SCREEN:-quantgod-mt5-shadow}"
+MT5_LIVE_SCREEN="${QG_MT5_LIVE_SCREEN:-quantgod-mt5-live}"
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
 MT5_START_MODE="${QG_MT5_START_MODE:-shadow}"
+MT5_LIVE_LAUNCH_ALLOWED="${QG_MT5_LIVE_LAUNCH_ALLOWED:-0}"
 MT5_START_SYMBOL="${QG_MT5_START_SYMBOL:-USDJPYc}"
 RUNTIME_IS_IMPORT_SNAPSHOT=0
 if is_import_snapshot_dir "$QG_RUNTIME_DIR"; then
@@ -78,6 +80,7 @@ echo "Repo: $SCRIPT_DIR"
 echo "Runtime: $QG_RUNTIME_DIR"
 echo "MT5 start mode: $MT5_START_MODE"
 echo "MT5 start symbol: $MT5_START_SYMBOL"
+echo "MT5 live launch allowed: $MT5_LIVE_LAUNCH_ALLOWED"
 echo "Dashboard: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
 
 if [[ -d "$MT5_ROOT" ]]; then
@@ -133,7 +136,28 @@ if [[ -d "$MT5_ROOT" ]]; then
       cp MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini "$MT5_LIVE_CONFIG"
       patch_ini_key "$MT5_LIVE_CONFIG" "Symbol" "$MT5_START_SYMBOL"
       echo "Live MT5 config prepared at $MT5_LIVE_CONFIG."
-      echo "Not launching live MT5 from the Mac launcher. Start it manually after checking live risk controls."
+      if [[ "$MT5_LIVE_LAUNCH_ALLOWED" != "1" ]]; then
+        echo "Live launch is locked. Set QG_MT5_LIVE_LAUNCH_ALLOWED=1 after checking live risk controls."
+      else
+        echo "Starting MT5 with the HFM LivePilot config..."
+        MT5_LIVE_LOG="$SCRIPT_DIR/runtime/mt5_hfm_livepilot_screen.log"
+        mkdir -p "$SCRIPT_DIR/runtime"
+        : > "$MT5_LIVE_LOG"
+        if command -v screen >/dev/null 2>&1; then
+          screen -S "$MT5_SHADOW_SCREEN" -X quit >/dev/null 2>&1 || true
+          screen -S "$MT5_LIVE_SCREEN" -X quit >/dev/null 2>&1 || true
+          screen -dmS "$MT5_LIVE_SCREEN" /bin/zsh -lc \
+            "cd '$MT5_ROOT' && exec env WINEPREFIX='$MT5_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\QuantGod_MT5_HFM_LivePilot_mac.ini' >> '$MT5_LIVE_LOG' 2>&1"
+          echo "MT5 LivePilot started in screen session: $MT5_LIVE_SCREEN"
+        else
+          (
+            cd "$MT5_ROOT"
+            WINEPREFIX="$MT5_PREFIX" "$WINE64" terminal64.exe /portable \
+              '/config:C:\qg\QuantGod_MT5_HFM_LivePilot_mac.ini' >> "$MT5_LIVE_LOG" 2>&1 &
+          )
+          echo "MT5 LivePilot started in background. Log: $MT5_LIVE_LOG"
+        fi
+      fi
     else
       echo "Starting MT5 with the read-only HFM shadow config..."
       MT5_SHADOW_LOG="$SCRIPT_DIR/runtime/mt5_hfm_shadow_screen.log"

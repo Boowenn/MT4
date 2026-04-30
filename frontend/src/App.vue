@@ -724,6 +724,7 @@ function routeHasOpenPosition(row) {
 }
 
 function routeIsRuntimeLive(row) {
+  if (!mt5RuntimeFlags.value.liveEntryEnabled) return false;
   const runtime = routeRuntime(row);
   const risk = asNumber(runtime.riskMultiplier);
   const enabled = runtime.enabled === true || String(first(runtime.runtimeLabel, runtime.state, '')).toUpperCase() === 'ON';
@@ -734,6 +735,7 @@ function routeActionLabel(row) {
   if (!row || Object.keys(row).length === 0) return '等待路线';
   if (mt5DashboardEvidence.value.stale) return '证据过期';
   if (routeHasOpenPosition(row)) return '实盘持仓';
+  if (!mt5RuntimeFlags.value.liveEntryEnabled) return mt5EntryMode.value.value;
   const runtime = routeRuntime(row);
   const action = String(first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '')).toUpperCase();
   const risk = asNumber(runtime.riskMultiplier);
@@ -770,7 +772,9 @@ function routeParamText(row) {
 
 function routeToneClass(row) {
   if (mt5DashboardEvidence.value.stale) return 'red';
-  if (routeHasOpenPosition(row) || routeIsRuntimeLive(row)) return 'green';
+  if (routeHasOpenPosition(row)) return 'green';
+  if (!mt5RuntimeFlags.value.liveEntryEnabled) return mt5EntryMode.value.tone;
+  if (routeIsRuntimeLive(row)) return 'green';
   const runtime = routeRuntime(row);
   const risk = asNumber(runtime.riskMultiplier);
   if (runtime.enabled === false || risk === 0) return 'amber';
@@ -1129,6 +1133,73 @@ const mt5CooldownEvidence = computed(() => {
   };
 });
 
+const mt5RuntimeFlags = computed(() => {
+  const runtime = mt5.value.latest?.runtime || {};
+  const tradeStatus = String(first(runtime.tradeStatus, '')).toUpperCase();
+  const shadowMode = booleanish(runtime.shadowMode)
+    || booleanish(runtime.readOnlyMode)
+    || tradeStatus === 'SHADOW';
+  const executionEnabled = booleanish(runtime.executionEnabled);
+  const livePilotMode = booleanish(runtime.livePilotMode);
+  const tradeAllowed = booleanish(runtime.tradeAllowed);
+  const terminalTradeAllowed = booleanish(runtime.terminalTradeAllowed);
+  const programTradeAllowed = booleanish(runtime.programTradeAllowed);
+  const killSwitch = booleanish(runtime.pilotKillSwitch);
+  const liveEntryEnabled = !shadowMode
+    && executionEnabled
+    && livePilotMode
+    && tradeAllowed
+    && terminalTradeAllowed
+    && programTradeAllowed
+    && !killSwitch;
+  return {
+    tradeStatus,
+    shadowMode,
+    executionEnabled,
+    livePilotMode,
+    tradeAllowed,
+    terminalTradeAllowed,
+    programTradeAllowed,
+    killSwitch,
+    liveEntryEnabled
+  };
+});
+
+const mt5EntryMode = computed(() => {
+  const flags = mt5RuntimeFlags.value;
+  if (mt5DashboardEvidence.value.stale) {
+    return {
+      value: '快照待确认',
+      detail: '需等待 EA 写出新 QuantGod_Dashboard.json',
+      tone: 'amber'
+    };
+  }
+  if (flags.shadowMode) {
+    return {
+      value: 'Shadow 只读',
+      detail: '当前终端不发真实订单，只写快照与候选证据',
+      tone: 'blue'
+    };
+  }
+  if (flags.liveEntryEnabled) {
+    return {
+      value: 'LivePilot 可入场',
+      detail: '仍受 session/news/spread/SLTP/单仓等 EA 风控限制',
+      tone: 'green'
+    };
+  }
+  const blockers = [];
+  if (!flags.executionEnabled) blockers.push('execution disabled');
+  if (!flags.livePilotMode) blockers.push('live pilot off');
+  if (!flags.tradeAllowed) blockers.push('trade not allowed');
+  if (flags.killSwitch) blockers.push('kill switch');
+  return {
+    value: 'LivePilot 锁定',
+    detail: blockers.length ? blockers.join(' / ') : '等待 EA 风控放行',
+    tone: 'amber'
+  };
+});
+
 const mt5TerminalStatus = computed(() => {
   const latest = mt5.value.latest || {};
   const snap = mt5.value.snapshot || {};
@@ -1422,9 +1493,14 @@ const mt5ExecutionRadarItems = computed(() => {
   const news = first(latest.newsStatus, snap.newsStatus, snap.calendar?.status, '等待日历');
   return [
     {
-      label: '运行状态',
+      label: '连接',
       value: connection.status,
       sub: connection.detail
+    },
+    {
+      label: '入场模式',
+      value: mt5EntryMode.value.value,
+      sub: mt5EntryMode.value.detail
     },
     {
       label: '服务器时钟',
@@ -1583,10 +1659,10 @@ const mt5FocusMeta = computed(() => ({
     badge: '只读'
   },
   strategy: {
-    eyebrow: '策略实盘 / 路线工作台',
+    eyebrow: '策略路线 / 入场模式',
     title: 'MA / RSI / BB / MACD / SR 路线工作台',
-    body: '按路线卡结构查看 live、candidate、ParamLab、blocker 和下一步。这里仍只展示证据，不改变 EA 风控或 live switch。',
-    badge: '0.01 门控'
+    body: `当前入场模式：${mt5EntryMode.value.value}。路线卡展示治理与候选证据，不代表当前终端一定会真实下单。`,
+    badge: mt5EntryMode.value.value
   },
   trades: {
     eyebrow: '交易只读 / EA 审计',
@@ -1613,6 +1689,11 @@ const mt5FocusMetrics = computed(() => {
       detail: connection.detail
     },
     {
+      label: '入场',
+      value: mt5EntryMode.value.value,
+      detail: mt5EntryMode.value.detail
+    },
+    {
       label: '净值',
       value: equity.value,
       detail: mt5DashboardEvidence.value.stale || mt5AuthFailure.value || mt5CredentialRejected.value ? equity.detail : `余额 ${money(account.balance)}`
@@ -1632,15 +1713,18 @@ const mt5FocusMetrics = computed(() => {
 
 const mt5RouteLaneCards = computed(() => ['MA', 'RSI', 'BB', 'MACD', 'SR'].map((route) => {
   const rows = allMt5Routes.value.filter((row) => routeName(row).includes(route));
-  const live = rows.filter((row) => routeHasOpenPosition(row) || routeIsRuntimeLive(row)).length;
+  const live = mt5RuntimeFlags.value.liveEntryEnabled
+    ? rows.filter((row) => routeHasOpenPosition(row) || routeIsRuntimeLive(row)).length
+    : 0;
   const blocker = rows.find((row) => routeBlockerText(row) !== '暂无 blocker');
   return {
     route,
     count: rows.length,
     live,
+    statusText: mt5RuntimeFlags.value.liveEntryEnabled ? `可入场 ${live}` : mt5EntryMode.value.value,
     pf: first(rows[0]?.liveForward?.profitFactor, rows[0]?.profitFactor, '--'),
     blocker: blocker ? routeBlockerText(blocker) : '等待样本',
-    tone: live ? 'green' : rows.some((row) => routeRuntime(row).enabled === false) ? 'amber' : rows.length ? 'blue' : 'amber'
+    tone: live ? 'green' : !mt5RuntimeFlags.value.liveEntryEnabled ? mt5EntryMode.value.tone : rows.some((row) => routeRuntime(row).enabled === false) ? 'amber' : rows.length ? 'blue' : 'amber'
   };
 }));
 
@@ -2159,7 +2243,7 @@ const operatorRadarCards = computed(() => {
   const mt5Cards = [
     mt5PrimaryCard,
     {
-      label: '实盘路线',
+      label: mt5RuntimeFlags.value.liveEntryEnabled ? '实盘路线' : '路线观察',
       title: first(route.label, route.route, route.strategy, '等待路线'),
       meta: `PF ${first(route.liveForward?.profitFactor, route.profitFactor, '--')} · 胜率 ${pct(first(route.liveForward?.winRatePct, route.winRate))}`,
       tone: routeToneClass(route) || 'blue',
@@ -2943,7 +3027,7 @@ onBeforeUnmount(() => {
             <div class="lane-stack ai-route-stack">
               <button v-for="lane in mt5RouteLaneCards" :key="`ai-${lane.route}`" class="lane-row" :class="lane.tone" type="button" @click="setActive('mt5', 'strategy')">
                 <strong>{{ lane.route }}</strong>
-                <span>{{ lane.count }} 版本 · live {{ lane.live }}</span>
+                <span>{{ lane.count }} 版本 · {{ lane.statusText }}</span>
                 <small>{{ lane.blocker }}</small>
               </button>
             </div>
@@ -3031,7 +3115,7 @@ onBeforeUnmount(() => {
                 @click="activeRoute = lane.route"
               >
                 <strong>{{ lane.route }}</strong>
-                <span>{{ lane.count }} 版本 · live {{ lane.live }}</span>
+                <span>{{ lane.count }} 版本 · {{ lane.statusText }}</span>
                 <small>PF {{ lane.pf }} · {{ lane.blocker }}</small>
               </button>
             </div>
@@ -3151,7 +3235,7 @@ onBeforeUnmount(() => {
                 @click="activeRoute = lane.route"
               >
                 <strong>{{ lane.route }}</strong>
-                <span>{{ lane.count }} 版本 · live {{ lane.live }}</span>
+                <span>{{ lane.count }} 版本 · {{ lane.statusText }}</span>
                 <small>PF {{ lane.pf }} · {{ lane.blocker }}</small>
               </button>
             </div>
