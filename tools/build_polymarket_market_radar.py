@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import math
+import ssl
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -32,6 +33,29 @@ DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
 DEFAULT_ENDPOINT = "https://gamma-api.polymarket.com/events"
 OUTPUT_NAME = "QuantGod_PolymarketMarketRadar.json"
 LEDGER_NAME = "QuantGod_PolymarketMarketRadar.csv"
+
+try:
+    import certifi  # type: ignore
+except Exception:  # pragma: no cover - optional runtime dependency.
+    certifi = None
+
+_CERTIFI_SSL_CONTEXT: ssl.SSLContext | None = None
+
+
+def certifi_ssl_context() -> ssl.SSLContext | None:
+    global _CERTIFI_SSL_CONTEXT
+    if certifi is None:
+        return None
+    if _CERTIFI_SSL_CONTEXT is None:
+        _CERTIFI_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+    return _CERTIFI_SSL_CONTEXT
+
+
+def public_urlopen(request: urllib.request.Request, timeout: float):
+    context = certifi_ssl_context()
+    if context is not None:
+        return urllib.request.urlopen(request, timeout=timeout, context=context)
+    return urllib.request.urlopen(request, timeout=timeout)
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,7 +157,7 @@ def request_gamma_events(endpoint: str, limit: int, timeout: float) -> list[dict
         },
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with public_urlopen(req, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]

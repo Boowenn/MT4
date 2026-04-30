@@ -859,6 +859,31 @@ function cleanInlineStatusText(value) {
   });
 }
 
+function summarizeWorkerProblem(error, status) {
+  const rawError = error === undefined || error === null ? '' : String(error).trim();
+  const rawStatus = status === undefined || status === null || status === '' ? '--' : String(status).trim();
+  const normalizedError = rawError === '--' ? '' : rawError;
+  if (!rawError && rawStatus.toUpperCase() !== 'ERROR') {
+    return { value: cleanInlineStatusText(rawStatus), detail: '', raw: rawStatus };
+  }
+  if (!normalizedError && rawStatus.toUpperCase() !== 'ERROR') {
+    return { value: cleanInlineStatusText(rawStatus), detail: '', raw: rawStatus };
+  }
+  const raw = normalizedError || rawStatus;
+  const text = raw.replace(/^URLError:\s*/i, '').trim();
+  const lower = text.toLowerCase();
+  if (lower.includes('nodename nor servname') || lower.includes('name or service not known') || lower.includes('urlopen')) {
+    return { value: '网络异常', detail: 'Gamma API 暂不可达', raw };
+  }
+  if (lower.includes('timed out') || lower.includes('timeout')) {
+    return { value: '连接超时', detail: '公共接口响应慢', raw };
+  }
+  if (lower.includes('429') || lower.includes('rate limit')) {
+    return { value: '接口限流', detail: '稍后自动重试', raw };
+  }
+  return { value: 'Worker 异常', detail: shortText(cleanInlineStatusText(text), 36), raw };
+}
+
 function compactMetricScore(...values) {
   const raw = String(first(...values, '--')).trim();
   if (!raw || raw === '--') return '--';
@@ -2523,9 +2548,7 @@ const dailyReviewItems = computed(() => {
   const rsiAction = first(rsi.recommendedAction, rsi.feedback?.actionLabel, '--');
   const cooldown = mt5CooldownEvidence.value;
   const workerStatus = first(poly.value.worker?.status, '--');
-  const workerProblem = review.workerError
-    ? cleanInlineStatusText(review.workerError.replace(/^URLError:\s*/i, ''))
-    : cleanInlineStatusText(workerStatus);
+  const workerProblem = summarizeWorkerProblem(review.workerError, workerStatus);
   const strategy = review.strategyBreakdown[0];
   const candidateWins = review.candidateOutcomes.find(([key]) => key === 'WIN')?.[1] || 0;
   const candidateLosses = review.candidateOutcomes.find(([key]) => key === 'LOSS')?.[1] || 0;
@@ -2554,9 +2577,10 @@ const dailyReviewItems = computed(() => {
     },
     {
       title: 'Polymarket 研究',
-      sub: `AI 黄灯 ${first(aiSummary.yellow, 0)} / 隔离 ${first(autoGovSummary.quarantine, 0)} / 队列 ${first(poly.value.worker?.summary?.candidateQueueSize, 0)}`,
-      value: workerStatus === 'ERROR' ? workerProblem : cleanInlineStatusText(workerStatus),
+      sub: `AI 黄灯 ${first(aiSummary.yellow, 0)} / 隔离 ${first(autoGovSummary.quarantine, 0)} / 队列 ${first(poly.value.worker?.summary?.candidateQueueSize, 0)}${workerProblem.detail ? ` / ${workerProblem.detail}` : ''}`,
+      value: workerProblem.value,
       tone: workerStatus === 'ERROR' ? 'red' : 'blue',
+      note: workerProblem.raw,
       target: 'polymarket'
     },
     {
@@ -2824,7 +2848,7 @@ onBeforeUnmount(() => {
                   type="button"
                   class="daily-review-item"
                   :class="item.tone"
-                  :title="`${item.title} · ${item.sub}`"
+                  :title="`${item.title} · ${item.sub}${item.note ? ` · ${item.note}` : ''}`"
                   @click="setActive(item.target)"
                 >
                   <span>

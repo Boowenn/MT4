@@ -3715,12 +3715,17 @@ tbody tr:hover td {
 }
 
 .daily-review-item b {
+  min-width: 0;
   max-width: 86px;
   color: #dbeafe;
   font-size: 11px;
   line-height: 1.2;
   text-align: right;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .daily-review-item.green {

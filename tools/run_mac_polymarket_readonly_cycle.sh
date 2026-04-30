@@ -20,11 +20,43 @@ if [[ -f .env.local ]]; then
   load_env_file .env.local
 fi
 
+is_import_snapshot_dir() {
+  local candidate="$1"
+  [[ "$candidate" == *"runtime/mac_import/mt5_files_snapshot"* ]]
+}
+
+is_import_dashboard_dir() {
+  local candidate="$1"
+  [[ "$candidate" == *"runtime/mac_import/dashboard_runtime_snapshot"* ]]
+}
+
+mac_mt5_files_dir() {
+  printf '%s\n' "$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Files"
+}
+
 PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
 RUNTIME_DIR="${QG_RUNTIME_DIR:-${QG_MT5_FILES_DIR:-./Dashboard}}"
 DASHBOARD_DIR="${QG_DASHBOARD_FILES_DIR:-./Dashboard}"
 HISTORY_DIR="${QG_POLYMARKET_HISTORY_DIR:-./archive/polymarket/history}"
 HISTORY_DB="${QG_POLYMARKET_HISTORY_DB:-$HISTORY_DIR/QuantGod_PolymarketHistory.sqlite}"
+RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
+MAC_MT5_FILES="$(mac_mt5_files_dir)"
+
+if [[ "$(uname -s)" == "Darwin" && -d "$MAC_MT5_FILES" ]]; then
+  RUNTIME_IS_IMPORT=0
+  if is_import_snapshot_dir "$RUNTIME_DIR"; then
+    RUNTIME_IS_IMPORT=1
+  fi
+  if [[ "$RUNTIME_SOURCE" == "mt5" || ( "$RUNTIME_SOURCE" == "auto" && "$RUNTIME_IS_IMPORT" == "1" ) ]]; then
+    RUNTIME_DIR="$MAC_MT5_FILES"
+  fi
+fi
+
+if is_import_dashboard_dir "$DASHBOARD_DIR"; then
+  DASHBOARD_DIR="./Dashboard"
+fi
+
+mkdir -p "$RUNTIME_DIR" "$DASHBOARD_DIR" "$HISTORY_DIR"
 
 export QG_POLYMARKET_REAL_EXECUTION=false
 export QG_POLYMARKET_CANARY_KILL_SWITCH=true

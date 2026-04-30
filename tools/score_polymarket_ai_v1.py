@@ -18,6 +18,7 @@ import json
 import math
 import os
 import sqlite3
+import ssl
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -38,6 +39,29 @@ SCHEMA_VERSION = "POLYMARKET_AI_SCORE_V1_LLM_SEMANTIC_OPTIONAL"
 DEFAULT_LLM_ENV_FILE = Path(os.environ.get("QG_POLYMARKET_LLM_ENV_FILE", r"D:\polymarket\.env"))
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 LLM_WEIGHT = 0.32
+
+try:
+    import certifi  # type: ignore
+except Exception:  # pragma: no cover - optional runtime dependency.
+    certifi = None
+
+_CERTIFI_SSL_CONTEXT: ssl.SSLContext | None = None
+
+
+def certifi_ssl_context() -> ssl.SSLContext | None:
+    global _CERTIFI_SSL_CONTEXT
+    if certifi is None:
+        return None
+    if _CERTIFI_SSL_CONTEXT is None:
+        _CERTIFI_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+    return _CERTIFI_SSL_CONTEXT
+
+
+def public_urlopen(request: urllib.request.Request, timeout: float):
+    context = certifi_ssl_context()
+    if context is not None:
+        return urllib.request.urlopen(request, timeout=timeout, context=context)
+    return urllib.request.urlopen(request, timeout=timeout)
 
 
 WEIGHTS = {
@@ -537,7 +561,7 @@ def call_openai_semantic_review(rows: list[dict[str, Any]], config: dict[str, An
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=float(config["timeout"])) as response:
+        with public_urlopen(request, timeout=float(config["timeout"])) as response:
             body = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")[:600]

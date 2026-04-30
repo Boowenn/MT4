@@ -9,12 +9,36 @@ Polymarket account.
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.parse
 import urllib.request
 from typing import Any
 
 
 CLOB_HOST = "https://clob.polymarket.com"
+
+try:
+    import certifi  # type: ignore
+except Exception:  # pragma: no cover - optional runtime dependency.
+    certifi = None
+
+_CERTIFI_SSL_CONTEXT: ssl.SSLContext | None = None
+
+
+def certifi_ssl_context() -> ssl.SSLContext | None:
+    global _CERTIFI_SSL_CONTEXT
+    if certifi is None:
+        return None
+    if _CERTIFI_SSL_CONTEXT is None:
+        _CERTIFI_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+    return _CERTIFI_SSL_CONTEXT
+
+
+def public_urlopen(request: urllib.request.Request, timeout: float):
+    context = certifi_ssl_context()
+    if context is not None:
+        return urllib.request.urlopen(request, timeout=timeout, context=context)
+    return urllib.request.urlopen(request, timeout=timeout)
 
 
 def safe_number(value: Any, default: float = 0.0) -> float:
@@ -84,7 +108,7 @@ def request_json(url: str, timeout: float) -> Any:
         },
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with public_urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 
