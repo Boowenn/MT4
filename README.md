@@ -1,5 +1,7 @@
 # QuantGod Multi-Strategy Trading Engine
 
+[![QuantGod CI](https://github.com/Boowenn/QuantGod/actions/workflows/ci.yml/badge.svg)](https://github.com/Boowenn/QuantGod/actions/workflows/ci.yml)
+
 MT4 quantitative trading system with 5 strategies, a Chinese real-time dashboard, and a virtual small-account research mode.
 
 The repository now also includes an MT5 migration track that exports dashboard-compatible runtime JSON/CSV, plus a tightly constrained HFM Cent live pilot at `0.01` lot. The shipped HFM live preset is currently narrowed to `USDJPY RSI_Reversal H1`; `MA_Cross` is disabled in the live preset, and the old MT4 `BB_Triple`, `MACD_Divergence`, and `SR_Breakout` routes remain candidate/backtest routes until their iterated versions show enough evidence for live promotion. BB/MACD/SR also require the non-RSI live authorization lock and exact live tag before any real order can pass, even if an individual route switch is accidentally enabled. If a demoted route still has an old live pilot position, the EA exits it at breakeven or profit and also cuts it at a small demoted-route loss threshold instead of waiting for the original TP/SL.
