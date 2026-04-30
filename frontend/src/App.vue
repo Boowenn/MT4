@@ -1139,6 +1139,15 @@ const mt5AuthFailure = computed(() => {
   return failure;
 });
 
+const mt5CredentialRejected = computed(() => {
+  const terminal = mt5TerminalStatus.value || {};
+  if (terminal.status !== 'AUTH_CONFIG_REJECTED') return null;
+  return {
+    reason: 'accounts.dat 被 MT5 安全机制删除',
+    message: 'Windows 登录库不能直接跨机器复用'
+  };
+});
+
 const autoTesterSummary = computed(() => mt5.value.autoTesterWindow?.summary || {});
 const autoTesterCanRun = computed(() => booleanish(summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false)));
 const autoTesterBlockers = computed(() => {
@@ -1285,7 +1294,15 @@ const mt5ConnectionState = computed(() => {
   const account = mt5Account.value;
   const snap = mt5.value.snapshot || {};
   const evidence = mt5DashboardEvidence.value;
+  const credentialRejected = mt5CredentialRejected.value;
   const authFailure = mt5AuthFailure.value;
+  if (credentialRejected) {
+    return {
+      status: '凭据被拒绝',
+      detail: credentialRejected.message,
+      tone: 'red'
+    };
+  }
   if (authFailure) {
     return {
       status: '账户未授权',
@@ -1317,7 +1334,7 @@ const mt5ConnectionState = computed(() => {
 const mt5EquityDisplay = computed(() => {
   const account = mt5Account.value;
   const rawEquity = money(first(account.equity, mt5.value.latest?.equity));
-  if (mt5DashboardEvidence.value.stale || mt5AuthFailure.value) {
+  if (mt5DashboardEvidence.value.stale || mt5AuthFailure.value || mt5CredentialRejected.value) {
     return {
       value: '旧快照',
       detail: `旧净值 ${rawEquity} · 旧持仓 ${mt5Positions.value.length} · ${mt5DashboardEvidence.value.ageLabel}前`,
@@ -1555,7 +1572,7 @@ const mt5FocusMetrics = computed(() => {
     {
       label: '净值',
       value: equity.value,
-      detail: mt5DashboardEvidence.value.stale || mt5AuthFailure.value ? equity.detail : `余额 ${money(account.balance)}`
+      detail: mt5DashboardEvidence.value.stale || mt5AuthFailure.value || mt5CredentialRejected.value ? equity.detail : `余额 ${money(account.balance)}`
     },
     {
       label: '持仓',
@@ -2723,7 +2740,8 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="mt5DashboardEvidence.stale" class="snapshot-warning">
               <strong>MT5 快照过期</strong>
-              <span v-if="mt5AuthFailure">账户授权失败：{{ mt5ConnectionState.detail }}</span>
+              <span v-if="mt5CredentialRejected">登录库被拒绝：{{ mt5ConnectionState.detail }}</span>
+              <span v-else-if="mt5AuthFailure">账户授权失败：{{ mt5ConnectionState.detail }}</span>
               <span v-else>{{ mt5CooldownEvidence.text }}</span>
               <small>页面正在自动确认文件新鲜度；需要 MT5 账户授权成功并由 EA 写出新的 QuantGod_Dashboard.json，才能确认当前实盘状态。</small>
             </div>

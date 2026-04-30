@@ -499,6 +499,18 @@ function logDatePrefix(dateName) {
 }
 
 function parseMt5AuthorizationLine(line, dateName = '') {
+  const accountRejected = String(line || '').match(/(?:^|\s)(?:(\d{4}\.\d{2}\.\d{2} )?(\d{2}:\d{2}:\d{2}\.\d+)\s+)?Accounts\s+deleted due security reason/i);
+  if (accountRejected) {
+    const prefix = accountRejected[1] ? accountRejected[1].trim() : logDatePrefix(dateName);
+    return {
+      type: 'AUTH_CONFIG_REJECTED',
+      logTime: [prefix, accountRejected[2]].filter(Boolean).join(' '),
+      login: '',
+      server: '',
+      reason: 'accounts.dat deleted due security reason',
+      message: 'copied MT5 account store was rejected by terminal security'
+    };
+  }
   const failure = String(line || '').match(/^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s+Network\s+'([^']+)':\s+authorization on ([^\s]+) failed \(([^)]+)\)/i);
   const shortFailure = failure || String(line || '').match(/(?:^|\s)(\d{2}:\d{2}:\d{2}\.\d+)\s+Network\s+'([^']+)':\s+authorization on ([^\s]+) failed \(([^)]+)\)/i);
   if (shortFailure) {
