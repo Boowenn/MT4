@@ -56,6 +56,7 @@ MT5_PRESETS="$MT5_MQL5/Presets"
 WINE64="$MT5_APP_PATH/Contents/SharedSupport/wine/bin/wine64"
 MT5_SHADOW_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_Shadow_mac.ini"
 MT5_LIVE_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_LivePilot_mac.ini"
+MT5_SHADOW_SCREEN="${QG_MT5_SHADOW_SCREEN:-quantgod-mt5-shadow}"
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
 MT5_START_MODE="${QG_MT5_START_MODE:-shadow}"
 MT5_START_SYMBOL="${QG_MT5_START_SYMBOL:-USDJPYc}"
@@ -123,9 +124,22 @@ if [[ -d "$MT5_ROOT" ]]; then
       echo "Not launching live MT5 from the Mac launcher. Start it manually after checking live risk controls."
     else
       echo "Starting MT5 with the read-only HFM shadow config..."
-      WINEPREFIX="$MT5_PREFIX" "$WINE64" \
-        'C:\Program Files\MetaTrader 5\terminal64.exe' \
-        '/config:C:\qg\QuantGod_MT5_HFM_Shadow_mac.ini' >/dev/null 2>&1 &
+      MT5_SHADOW_LOG="$SCRIPT_DIR/runtime/mt5_hfm_shadow_screen.log"
+      mkdir -p "$SCRIPT_DIR/runtime"
+      : > "$MT5_SHADOW_LOG"
+      if command -v screen >/dev/null 2>&1; then
+        screen -S "$MT5_SHADOW_SCREEN" -X quit >/dev/null 2>&1 || true
+        screen -dmS "$MT5_SHADOW_SCREEN" /bin/zsh -lc \
+          "cd '$MT5_ROOT' && exec env WINEPREFIX='$MT5_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\QuantGod_MT5_HFM_Shadow_mac.ini' >> '$MT5_SHADOW_LOG' 2>&1"
+        echo "MT5 read-only shadow started in screen session: $MT5_SHADOW_SCREEN"
+      else
+        (
+          cd "$MT5_ROOT"
+          WINEPREFIX="$MT5_PREFIX" "$WINE64" terminal64.exe /portable \
+            '/config:C:\qg\QuantGod_MT5_HFM_Shadow_mac.ini' >> "$MT5_SHADOW_LOG" 2>&1 &
+        )
+        echo "MT5 read-only shadow started in background. Log: $MT5_SHADOW_LOG"
+      fi
     fi
   fi
 else

@@ -1,6 +1,6 @@
-DashboardBuild=QuantGod-v3.2-mt5-live-journal
-Watchlist=EURUSD,USDJPY
-PreferredSymbolSuffix=AUTO
+DashboardBuild=QuantGod-v3.17-mt5-startup-entry-guard
+Watchlist=USDJPYc
+PreferredSymbolSuffix=c
 ShadowMode=true
 ReadOnlyMode=true
 RefreshIntervalSec=5

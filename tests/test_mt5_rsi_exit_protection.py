@@ -9,6 +9,8 @@ BACKTEST_USDJPY_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_US
 BACKTEST_EURUSD_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_EURUSDc.set"
 LIVE_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_LivePilot.ini"
 SHADOW_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_Shadow.ini"
+SHADOW_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Shadow.set"
+MAC_LAUNCHER_PATH = ROOT / "Start_QuantGod_mac.sh"
 
 
 class Mt5RsiExitProtectionTests(unittest.TestCase):
@@ -148,6 +150,24 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertIn("Symbol=USDJPYc", text)
             self.assertNotIn("Symbol=EURUSDc", text)
+
+    def test_mac_shadow_launcher_is_readonly_usdjpy_and_detached(self):
+        config_text = SHADOW_CONFIG_PATH.read_text(encoding="utf-8")
+        self.assertIn("AllowLiveTrading=0", config_text)
+        self.assertIn("Symbol=USDJPYc", config_text)
+
+        preset_text = SHADOW_PRESET_PATH.read_text(encoding="utf-8")
+        self.assertIn("DashboardBuild=QuantGod-v3.17-mt5-startup-entry-guard", preset_text)
+        self.assertIn("Watchlist=USDJPYc", preset_text)
+        self.assertIn("PreferredSymbolSuffix=c", preset_text)
+        self.assertIn("ShadowMode=true", preset_text)
+        self.assertIn("ReadOnlyMode=true", preset_text)
+
+        launcher_text = MAC_LAUNCHER_PATH.read_text(encoding="utf-8")
+        self.assertIn("MT5_SHADOW_SCREEN", launcher_text)
+        self.assertIn("terminal64.exe /portable", launcher_text)
+        self.assertIn("QuantGod_MT5_HFM_Shadow_mac.ini", launcher_text)
+        self.assertIn("AllowLiveTrading=0", launcher_text)
 
     def test_live_and_usdjpy_backtest_presets_include_rsi_fast_exit(self):
         for path in (LIVE_PRESET_PATH, BACKTEST_USDJPY_PATH):
