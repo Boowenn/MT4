@@ -41,19 +41,25 @@ function isMacImportSnapshotDir(dir) {
   return String(dir || '').replace(/\\/g, '/').includes('/runtime/mac_import/mt5_files_snapshot');
 }
 
-function resolveRuntimeDir() {
-  const sourceMode = String(process.env.QG_MAC_RUNTIME_SOURCE || 'auto').trim().toLowerCase();
-  const macMt5FilesDir = path.join(
+function getMacMt5RootDir() {
+  return path.join(
     os.homedir(),
     'Library',
     'Application Support',
     'net.metaquotes.wine.metatrader5',
     'drive_c',
     'Program Files',
-    'MetaTrader 5',
-    'MQL5',
-    'Files'
+    'MetaTrader 5'
   );
+}
+
+function getMacMt5FilesDir() {
+  return path.join(getMacMt5RootDir(), 'MQL5', 'Files');
+}
+
+function resolveRuntimeDir() {
+  const sourceMode = String(process.env.QG_MAC_RUNTIME_SOURCE || 'auto').trim().toLowerCase();
+  const macMt5FilesDir = getMacMt5FilesDir();
   if (
     process.platform === 'darwin'
     && fs.existsSync(macMt5FilesDir)
@@ -456,6 +462,115 @@ function withServiceMeta(payload, endpoint, filePath) {
   return { payload, _api: source };
 }
 
+function recentMt5LogDateNames(days = 3) {
+  const names = [];
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = new Date();
+    date.setDate(date.getDate() - offset);
+    const y = String(date.getFullYear());
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    names.push(`${y}${m}${d}`);
+  }
+  return names;
+}
+
+function readTailLines(filePath, maxBytes = 256 * 1024) {
+  const stat = fs.statSync(filePath);
+  const size = Math.min(stat.size, maxBytes);
+  const buffer = Buffer.alloc(size);
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    fs.readSync(fd, buffer, 0, size, Math.max(0, stat.size - size));
+  } finally {
+    fs.closeSync(fd);
+  }
+  const hasUtf16Nuls = buffer.includes(0);
+  const text = buffer
+    .toString(hasUtf16Nuls ? 'utf16le' : 'utf8')
+    .replace(/^\uFEFF/, '')
+    .replace(/\u0000/g, '');
+  return text.split(/\r?\n/).filter(Boolean);
+}
+
+function logDatePrefix(dateName) {
+  const match = String(dateName || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+  return match ? `${match[1]}.${match[2]}.${match[3]}` : '';
+}
+
+function parseMt5AuthorizationLine(line, dateName = '') {
+  const failure = String(line || '').match(/^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s+Network\s+'([^']+)':\s+authorization on ([^\s]+) failed \(([^)]+)\)/i);
+  const shortFailure = failure || String(line || '').match(/(?:^|\s)(\d{2}:\d{2}:\d{2}\.\d+)\s+Network\s+'([^']+)':\s+authorization on ([^\s]+) failed \(([^)]+)\)/i);
+  if (shortFailure) {
+    const hasDate = /^\d{4}\./.test(shortFailure[1]);
+    const logTime = hasDate ? shortFailure[1] : [logDatePrefix(dateName), shortFailure[1]].filter(Boolean).join(' ');
+    return {
+      type: 'AUTH_FAILED',
+      logTime,
+      login: shortFailure[2],
+      server: shortFailure[3],
+      reason: shortFailure[4],
+      message: `authorization failed: ${shortFailure[4]}`
+    };
+  }
+  const success = String(line || '').match(/^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s+Network\s+'([^']+)':\s+(?:authorized|authorization).*\b(?:on|to)\s+([^\s]+)/i);
+  const shortSuccess = success || String(line || '').match(/(?:^|\s)(\d{2}:\d{2}:\d{2}\.\d+)\s+Network\s+'([^']+)':\s+(?:authorized|authorization).*\b(?:on|to)\s+([^\s]+)/i);
+  if (shortSuccess && !/failed/i.test(line)) {
+    const hasDate = /^\d{4}\./.test(shortSuccess[1]);
+    const logTime = hasDate ? shortSuccess[1] : [logDatePrefix(dateName), shortSuccess[1]].filter(Boolean).join(' ');
+    return {
+      type: 'AUTHORIZED',
+      logTime,
+      login: shortSuccess[2],
+      server: shortSuccess[3],
+      reason: '',
+      message: 'authorized'
+    };
+  }
+  return null;
+}
+
+function readMt5TerminalStatus() {
+  if (process.platform !== 'darwin') return null;
+  const root = getMacMt5RootDir();
+  if (!fs.existsSync(root)) return null;
+  const candidates = recentMt5LogDateNames(4).flatMap((dateName) => [
+    path.join(root, 'logs', `${dateName}.log`),
+    path.join(root, 'Logs', `${dateName}.log`),
+    path.join(root, 'MQL5', 'logs', `${dateName}.log`),
+    path.join(root, 'MQL5', 'Logs', `${dateName}.log`)
+  ].map((filePath) => ({ filePath, dateName })));
+  const files = candidates
+    .filter((candidate) => fs.existsSync(candidate.filePath))
+    .map((candidate) => ({ ...candidate, stat: fs.statSync(candidate.filePath) }))
+    .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  const events = [];
+  for (const file of files) {
+    try {
+      for (const line of readTailLines(file.filePath)) {
+        const event = parseMt5AuthorizationLine(line, file.dateName);
+        if (event) events.push({ ...event, filePath: file.filePath });
+      }
+    } catch (_) {
+      // Ignore unreadable Wine log tails; this endpoint must stay read-only and best-effort.
+    }
+  }
+  events.sort((a, b) => String(a.logTime).localeCompare(String(b.logTime)));
+  const lastAuthorization = [...events].reverse().find((event) => event.type === 'AUTHORIZED') || null;
+  const lastAuthFailure = [...events].reverse().find((event) => event.type === 'AUTH_FAILED') || null;
+  const latestEvent = events[events.length - 1] || null;
+  return {
+    status: latestEvent?.type || 'NO_AUTH_EVENT',
+    lastAuthFailure,
+    lastAuthorization,
+    logFile: latestEvent?.filePath || files[0]?.filePath || '',
+    logMtimeIso: files[0]?.stat?.mtime ? files[0].stat.mtime.toISOString() : '',
+    readOnly: true,
+    orderSendAllowed: false,
+    mutatesMt5: false
+  };
+}
+
 async function queryPolymarketHistory(table, query = '', limit = '50', offset = '0') {
   return runJsonPython(polymarketHistoryApiScript, [
     '--repo-root',
@@ -523,12 +638,14 @@ async function handleMt5Readonly(req, res, endpoint) {
     const parsed = new URL(req.url || '/', `http://${host}:${port}`);
     const result = await runJsonPython(mt5ReadonlyBridgeScript, buildMt5ReadonlyArgs(normalizedEndpoint, parsed), 12000);
     if (!result.ok) {
+      const terminal = readMt5TerminalStatus();
       sendJson(res, 200, {
         ok: false,
         status: 'UNAVAILABLE',
         endpoint: normalizedEndpoint,
         error: result.stderr || result.reason || 'mt5_readonly_bridge_failed',
         detail: result,
+        ...(terminal ? { terminal } : {}),
         safety: {
           readOnly: true,
           orderSendAllowed: false,
@@ -542,8 +659,12 @@ async function handleMt5Readonly(req, res, endpoint) {
       return;
     }
     const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+    const terminal = payload?.ok === false || String(payload?.status || '').toUpperCase() === 'UNAVAILABLE'
+      ? readMt5TerminalStatus()
+      : null;
     sendJson(res, 200, {
       ...payload,
+      ...(terminal ? { terminal } : {}),
       _api: {
         service: 'quantgod_dashboard_mt5_readonly_bridge',
         endpoint: `/api/mt5-readonly/${normalizedEndpoint}`,
@@ -3025,8 +3146,10 @@ const server = http.createServer((req, res) => {
         const text = fs.readFileSync(latestDashboard, 'utf8').replace(/^\uFEFF/, '');
         const stat = fs.statSync(latestDashboard);
         const payload = JSON.parse(text);
+        const terminal = readMt5TerminalStatus();
         sendJson(res, 200, withServiceMeta({
           ...payload,
+          ...(terminal ? { _terminal: terminal } : {}),
           _file: {
             path: latestDashboard,
             mtimeIso: stat.mtime.toISOString(),

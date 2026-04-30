@@ -1126,6 +1126,19 @@ const mt5CooldownEvidence = computed(() => {
   };
 });
 
+const mt5TerminalStatus = computed(() => {
+  const latest = mt5.value.latest || {};
+  const snap = mt5.value.snapshot || {};
+  return latest._terminal || snap.terminal || {};
+});
+
+const mt5AuthFailure = computed(() => {
+  const terminal = mt5TerminalStatus.value || {};
+  const failure = terminal.lastAuthFailure || {};
+  if (terminal.status !== 'AUTH_FAILED' || !Object.keys(failure).length) return null;
+  return failure;
+});
+
 const autoTesterSummary = computed(() => mt5.value.autoTesterWindow?.summary || {});
 const autoTesterCanRun = computed(() => booleanish(summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false)));
 const autoTesterBlockers = computed(() => {
@@ -1268,6 +1281,56 @@ const duplicatedPositionEvidence = computed(() => {
   return Math.max(rawCount - mt5Positions.value.length, 0);
 });
 
+const mt5ConnectionState = computed(() => {
+  const account = mt5Account.value;
+  const snap = mt5.value.snapshot || {};
+  const evidence = mt5DashboardEvidence.value;
+  const authFailure = mt5AuthFailure.value;
+  if (authFailure) {
+    return {
+      status: '账户未授权',
+      detail: `${first(authFailure.server, account.server, 'MT5 server')} · ${first(authFailure.reason, authFailure.message, 'Invalid account')}`,
+      tone: 'red'
+    };
+  }
+  if (evidence.stale) {
+    return {
+      status: '快照过期',
+      detail: `最后快照 ${evidence.label} · ${evidence.ageLabel}前`,
+      tone: 'red'
+    };
+  }
+  if (snap.ok === false || String(snap.status || '').toUpperCase() === 'UNAVAILABLE') {
+    return {
+      status: '只读桥不可用',
+      detail: first(snap.error, '等待 MT5/EA 写出快照'),
+      tone: 'amber'
+    };
+  }
+  return {
+    status: first(snap.status, snap.ok === true ? '已连接' : '文件正常'),
+    detail: first(account.server, account.company, '等待 MT5 导出'),
+    tone: mt5Positions.value.length ? 'green' : 'blue'
+  };
+});
+
+const mt5EquityDisplay = computed(() => {
+  const account = mt5Account.value;
+  const rawEquity = money(first(account.equity, mt5.value.latest?.equity));
+  if (mt5DashboardEvidence.value.stale || mt5AuthFailure.value) {
+    return {
+      value: '旧快照',
+      detail: `旧净值 ${rawEquity} · 旧持仓 ${mt5Positions.value.length} · ${mt5DashboardEvidence.value.ageLabel}前`,
+      tone: 'red'
+    };
+  }
+  return {
+    value: rawEquity,
+    detail: `当前快照持仓 ${mt5Positions.value.length}`,
+    tone: mt5Positions.value.length ? 'green' : 'blue'
+  };
+});
+
 const allMt5Routes = computed(() => {
   const gov = mt5.value.governance || {};
   const registry = mt5.value.strategyRegistry || {};
@@ -1293,14 +1356,15 @@ const mt5Routes = computed(() => {
 const mt5ExecutionRadarItems = computed(() => {
   const snap = mt5.value.snapshot || {};
   const latest = mt5.value.latest || {};
-  const account = mt5Account.value;
+  const equity = mt5EquityDisplay.value;
+  const connection = mt5ConnectionState.value;
   const route = primaryRoute.value;
   const news = first(latest.newsStatus, snap.newsStatus, snap.calendar?.status, '等待日历');
   return [
     {
       label: '运行状态',
-      value: first(snap.status, snap.ok === true ? '已连接' : '未连接'),
-      sub: first(snap.mode, snap.permissions?.mode, latest.mode, '只读监控')
+      value: connection.status,
+      sub: connection.detail
     },
     {
       label: '服务器时钟',
@@ -1315,7 +1379,7 @@ const mt5ExecutionRadarItems = computed(() => {
     {
       label: '仓位容量',
       value: `${mt5Positions.value.length}/${first(snap.maxTotalPositions, snap.risk?.maxTotalPositions, latest.maxTotalPositions, 1)}`,
-      sub: `净值 ${money(first(account.equity, latest.equity))}`
+      sub: equity.detail
     },
     {
       label: 'M15 评估窗口',
@@ -1480,16 +1544,18 @@ const mt5FocusMeta = computed(() => ({
 const mt5FocusMetrics = computed(() => {
   const account = mt5Account.value;
   const route = primaryRoute.value;
+  const connection = mt5ConnectionState.value;
+  const equity = mt5EquityDisplay.value;
   return [
     {
       label: '连接',
-      value: mt5DashboardEvidence.value.stale ? '证据过期' : first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '文件正常'),
-      detail: mt5DashboardEvidence.value.stale ? `快照 ${mt5DashboardEvidence.value.ageLabel}前` : first(account.server, '等待 MT5 导出')
+      value: connection.status,
+      detail: connection.detail
     },
     {
       label: '净值',
-      value: money(first(account.equity, mt5.value.latest?.equity)),
-      detail: `余额 ${money(account.balance)}`
+      value: equity.value,
+      detail: mt5DashboardEvidence.value.stale || mt5AuthFailure.value ? equity.detail : `余额 ${money(account.balance)}`
     },
     {
       label: '持仓',
@@ -1923,19 +1989,19 @@ const singleHistoryRows = computed(() => [
 ].slice(0, 10));
 
 const healthCards = computed(() => {
-  const acct = mt5Account.value;
   const polySummary = poly.value.autoGovernance?.summary || {};
-  const evidence = mt5DashboardEvidence.value;
+  const connection = mt5ConnectionState.value;
+  const equity = mt5EquityDisplay.value;
   return [
     {
       label: 'MT5 连接',
-      value: evidence.stale ? '证据过期' : first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '文件正常'),
-      detail: evidence.stale ? `快照 ${evidence.label} · ${evidence.ageLabel}前` : first(acct.server, acct.company, '等待 MT5 导出')
+      value: connection.status,
+      detail: connection.detail
     },
     {
       label: 'MT5 净值',
-      value: money(first(acct.equity, mt5.value.latest?.equity)),
-      detail: `${mt5DashboardEvidence.value.stale ? '截至旧快照' : '当前快照'}持仓 ${mt5Positions.value.length}`
+      value: equity.value,
+      detail: equity.detail
     },
     {
       label: 'Polymarket',
@@ -2009,19 +2075,29 @@ const primaryRoute = computed(() => mt5Routes.value.find((row) => routeHasOpenPo
   || {});
 
 const operatorRadarCards = computed(() => {
-  const acct = mt5Account.value;
   const route = primaryRoute.value;
   const radar = radarRows.value[0] || {};
   const topTask = paramVisibleTasks.value[0] || {};
   const score = aiScores.value[0] || {};
+  const equity = mt5EquityDisplay.value;
+  const connection = mt5ConnectionState.value;
+  const mt5PrimaryCard = mt5AuthFailure.value
+    ? {
+        label: 'MT5 账户',
+        title: connection.status,
+        meta: connection.detail,
+        tone: connection.tone,
+        target: 'mt5'
+      }
+    : {
+        label: 'MT5 净值',
+        title: equity.value,
+        meta: equity.detail,
+        tone: equity.tone,
+        target: 'mt5'
+      };
   const mt5Cards = [
-    {
-      label: 'MT5 净值',
-      title: money(first(acct.equity, mt5.value.latest?.equity)),
-      meta: `${first(acct.server, '等待 MT5 导出')} · 持仓 ${mt5Positions.value.length}`,
-      tone: mt5Positions.value.length ? 'green' : 'blue',
-      target: 'mt5'
-    },
+    mt5PrimaryCard,
     {
       label: '实盘路线',
       title: first(route.label, route.route, route.strategy, '等待路线'),
@@ -2647,8 +2723,9 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="mt5DashboardEvidence.stale" class="snapshot-warning">
               <strong>MT5 快照过期</strong>
-              <span>{{ mt5CooldownEvidence.text }}</span>
-              <small>页面正在自动确认文件新鲜度；需要 MT5/EA 写出新的 QuantGod_Dashboard.json 才能确认当前实盘状态。</small>
+              <span v-if="mt5AuthFailure">账户授权失败：{{ mt5ConnectionState.detail }}</span>
+              <span v-else>{{ mt5CooldownEvidence.text }}</span>
+              <small>页面正在自动确认文件新鲜度；需要 MT5 账户授权成功并由 EA 写出新的 QuantGod_Dashboard.json，才能确认当前实盘状态。</small>
             </div>
             <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
           </article>
