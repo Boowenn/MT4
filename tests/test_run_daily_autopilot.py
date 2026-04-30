@@ -130,6 +130,35 @@ class DailyAutopilotTests(unittest.TestCase):
         governance["routeDecisions"][0]["sidePolicy"]["sellLiveAllowed"] = True
         self.assertFalse(daily_review.daily_pnl_resolved_by_policy(daily_pnl, governance))
 
+    def test_param_action_queue_marks_window_wait_as_scheduled(self):
+        scheduler = {
+            "selectedTasks": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "routeKey": "MA_Cross",
+                "score": 1.074,
+                "resultStatus": "CONFIG_ONLY_WAIT_REPORT",
+            }]
+        }
+        auto_tester = {
+            "summary": {"canRunTerminal": False},
+            "gate": {"blockers": ["outside_strategy_tester_window"]},
+        }
+
+        queue = daily_review.param_action_queue(scheduler, auto_tester, 5)
+
+        self.assertEqual(queue[0]["state"], "WAIT_GUARD")
+        self.assertEqual(queue[0]["guardClass"], "WAIT_TESTER_WINDOW")
+        self.assertEqual(queue[0]["statusLabel"], "SCHEDULED_TESTER_WINDOW")
+        self.assertIn("nextWindowLabel", queue[0])
+        self.assertFalse(queue[0]["livePresetMutationAllowed"])
+
+    def test_frontend_renders_scheduled_tester_window_copy(self):
+        source = (MODULE_PATH.parents[1] / "frontend" / "src" / "App.vue").read_text(encoding="utf-8")
+
+        self.assertIn("今日已排队", source)
+        self.assertIn("SCHEDULED_TESTER_WINDOW", source)
+        self.assertIn("paramTodoStatusLabel(row)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

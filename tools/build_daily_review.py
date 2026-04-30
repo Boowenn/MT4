@@ -15,7 +15,7 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from typing import Any
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 OUTPUT_NAME = "QuantGod_DailyReview.json"
 LEDGER_NAME = "QuantGod_DailyReviewLedger.csv"
+JST = timezone(timedelta(hours=9), "JST")
 
 
 def parse_args() -> argparse.Namespace:
@@ -119,6 +120,35 @@ def clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def tester_window_plan(now: datetime | None = None) -> dict[str, Any]:
+    current = (now or utc_now()).astimezone(JST)
+    windows = {
+        0: (time(20, 10), time(23, 30)),
+        1: (time(20, 10), time(23, 30)),
+        2: (time(20, 10), time(23, 30)),
+        3: (time(20, 10), time(23, 30)),
+        4: (time(20, 10), time(23, 30)),
+        5: (time(7, 10), time(9, 30)),
+        6: (time(8, 0), time(9, 30)),
+    }
+    for offset in range(8):
+        day = (current + timedelta(days=offset)).date()
+        start_time, end_time = windows[day.weekday()]
+        start = datetime.combine(day, start_time, tzinfo=JST)
+        end = datetime.combine(day, end_time, tzinfo=JST)
+        if current <= end:
+            return {
+                "nowJstIso": current.isoformat(),
+                "openNow": start <= current <= end,
+                "dueToday": offset == 0,
+                "nextWindowStartJstIso": start.isoformat(),
+                "nextWindowEndJstIso": end.isoformat(),
+                "nextWindowLabel": f"{start:%Y-%m-%d %H:%M}-{end:%H:%M} JST",
+                "windowRule": "Weekday 20:10-23:30 JST, Sat 07:10-09:30 JST, Sun 08:00-09:30 JST",
+            }
+    return {"nowJstIso": current.isoformat(), "openNow": False, "dueToday": False}
+
+
 def date_key(value: Any) -> str:
     text = clean(value)
     if not text:
@@ -208,19 +238,33 @@ def param_action_queue(scheduler: dict[str, Any], auto_tester: dict[str, Any], m
     actions: list[dict[str, Any]] = []
     can_run = bool(auto_tester.get("summary", {}).get("canRunTerminal"))
     blockers = as_list(auto_tester.get("gate", {}).get("blockers")) or as_list(auto_tester.get("summary", {}).get("blockers"))
+    blocker_keys = {clean(blocker).lower() for blocker in blockers if clean(blocker)}
+    only_waiting_window = bool(blocker_keys) and blocker_keys <= {"outside_strategy_tester_window"}
+    window_plan = tester_window_plan()
     for task in as_list(scheduler.get("selectedTasks"))[:max_actions]:
         if not isinstance(task, dict):
             continue
         result_status = clean(first(task.get("resultStatus"), task.get("status"), task.get("scheduleAction")))
+        guard_class = ""
+        status_label = ""
         if result_status.upper() in {"PARSED", "SCORED", "DONE"}:
             state = "DONE"
         elif can_run:
             state = "READY_TO_RUN_TESTER"
+            status_label = "READY_TO_RUN_TESTER"
         else:
             state = "WAIT_GUARD"
-        actions.append({
+            if only_waiting_window:
+                guard_class = "WAIT_TESTER_WINDOW"
+                status_label = "SCHEDULED_TESTER_WINDOW"
+            else:
+                guard_class = "WAIT_GUARD"
+                status_label = "WAIT_GUARD"
+        action = {
             "type": "PARAMLAB_TESTER_TASK",
             "state": state,
+            "guardClass": guard_class,
+            "statusLabel": status_label,
             "candidateId": task.get("candidateId", ""),
             "routeKey": task.get("routeKey", ""),
             "strategy": task.get("strategy", ""),
@@ -230,7 +274,15 @@ def param_action_queue(scheduler: dict[str, Any], auto_tester: dict[str, Any], m
             "blockers": blockers[:4],
             "testerOnly": True,
             "livePresetMutationAllowed": False,
-        })
+        }
+        if guard_class == "WAIT_TESTER_WINDOW":
+            action.update({
+                "dueToday": window_plan.get("dueToday", False),
+                "nextWindowStartJstIso": window_plan.get("nextWindowStartJstIso", ""),
+                "nextWindowEndJstIso": window_plan.get("nextWindowEndJstIso", ""),
+                "nextWindowLabel": window_plan.get("nextWindowLabel", ""),
+            })
+        actions.append(action)
     return actions
 
 
@@ -527,6 +579,16 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     queue_counter = Counter(action.get("state") for action in action_queue)
+    wait_window_count = sum(1 for action in action_queue if action.get("guardClass") == "WAIT_TESTER_WINDOW")
+    current_window_plan = tester_window_plan(now)
+    if action_queue and wait_window_count == len(action_queue):
+        today_todo_status = "SCHEDULED_FOR_TESTER_WINDOW"
+    elif queue_counter.get("READY_TO_RUN_TESTER", 0) > 0:
+        today_todo_status = "READY_TO_RUN_TESTER"
+    elif action_queue:
+        today_todo_status = "WAIT_GUARD"
+    else:
+        today_todo_status = "DONE_OR_NO_ACTIONS"
     strategy_actions = [
         {
             "routeKey": row.get("key") or row.get("routeKey") or row.get("strategy"),
@@ -558,7 +620,11 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "paramActionCount": len(action_queue),
             "paramReadyToRunCount": queue_counter.get("READY_TO_RUN_TESTER", 0),
             "paramWaitGuardCount": queue_counter.get("WAIT_GUARD", 0),
+            "paramWaitWindowCount": wait_window_count,
             "promotionReviewCount": len(promotions),
+            "todayTodoStatus": today_todo_status,
+            "nextTesterWindowLabel": current_window_plan.get("nextWindowLabel", ""),
+            "nextTesterWindowDueToday": current_window_plan.get("dueToday", False),
             "testerCanRun": bool(tester_summary.get("canRunTerminal")),
             "testerWindowOk": bool(tester_summary.get("windowOk")),
             "testerLockOk": bool(tester_summary.get("lockOk")),

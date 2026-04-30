@@ -854,6 +854,10 @@ function compactStatusLabel(value) {
     EXISTING_PARAMLAB_TASKS: '已有任务',
     OK: '正常',
     READY: '可运行',
+    READY_TO_RUN_TESTER: '可启动回测',
+    WAIT_TESTER_WINDOW: '等回测窗口',
+    SCHEDULED_TESTER_WINDOW: '已排队等回测窗口',
+    WAIT_GUARD: '等待守护',
     PARSED: '已解析',
     SCORED: '已评分',
     PROMOTION: '可晋级',
@@ -1063,7 +1067,7 @@ function stopReasonLabel(reason) {
   const labels = {
     waiting_guard_clearance: '等待守护条件解除',
     wait_auto_tester_window: '等待自动回测窗口',
-    outside_strategy_tester_window: '不在 Strategy Tester 时间窗',
+    outside_strategy_tester_window: '等待 Strategy Tester 时间窗',
     authorization_lock_refresh_required: '需要重新短时授权',
     authorization_lock_missing: '缺少授权锁文件',
     authorization_lock_expired: '需要重新短时授权',
@@ -1402,7 +1406,24 @@ function autoTesterShortGuardText() {
   return blockers.length ? `待守护：${blockers.join(' / ')}` : '待守护';
 }
 
+function isWaitingTesterWindow(row) {
+  const blockers = arrayFrom(row, ['blockers']).map((item) => String(item).toLowerCase());
+  const guardClass = String(first(row?.guardClass, row?.statusLabel, '')).toUpperCase();
+  return guardClass.includes('WAIT_TESTER_WINDOW')
+    || guardClass.includes('SCHEDULED_TESTER_WINDOW')
+    || (blockers.length > 0 && blockers.every((item) => item === 'outside_strategy_tester_window'));
+}
+
+function testerWindowTodoLabel(row) {
+  const label = first(row?.nextWindowLabel, mt5.value.dailyReview?.summary?.nextTesterWindowLabel, '');
+  if (label && label !== '--') {
+    return `${row?.dueToday === false ? '已排队' : '今日已排队'}：${label} 自动尝试`;
+  }
+  return '已排队：等待下一轮 Strategy Tester 时间窗';
+}
+
 function paramTodoStatusLabel(row) {
+  if (!autoTesterCanRun.value && isWaitingTesterWindow(row)) return testerWindowTodoLabel(row);
   const status = compactStatusLabel(first(row.state, row.status, row.resultState, '等待'));
   const normalized = normalizeParamState(row);
   const looksRunnable = normalized.includes('READY')
@@ -2585,9 +2606,9 @@ const watchlistItems = computed(() => [
 const actionQueueItems = computed(() => [
   ...arrayFrom(mt5.value.dailyReview, ['actionQueue']).slice(0, 5).map((row) => ({
     title: first(row.candidateId, row.versionId, row.taskId, row.type),
-    sub: `${first(row.routeKey, row.strategy, 'ParamLab')} · ${cleanInlineStatusText(first(row.state, row.resultStatus, '等待'))}`,
+    sub: `${first(row.routeKey, row.strategy, 'ParamLab')} · ${paramTodoStatusLabel(row)}`,
     value: compactMetricScore(row.score, row.grade, row.profitFactor),
-    tone: String(first(row.state, '')).includes('READY') ? 'green' : String(first(row.state, '')).includes('WAIT') ? 'amber' : 'blue',
+    tone: String(first(row.state, '')).includes('READY') ? 'green' : isWaitingTesterWindow(row) ? 'blue' : String(first(row.state, '')).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
   })),
   ...arrayFrom(mt5.value.dailyReview, ['promotionRecommendations']).slice(0, 3).map((row) => ({
