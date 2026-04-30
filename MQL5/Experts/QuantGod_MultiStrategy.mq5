@@ -5898,6 +5898,8 @@ void ExportDashboard()
    bool accountAuthorized = (accountLogin > 0 && StringLen(accountServer) > 0);
    bool connected = (terminalConnected || accountAuthorized);
    bool tradeAllowed = (!ReadOnlyMode && connected && terminalTradeAllowed && programTradeAllowed && accountTradeAllowed && accountExpertTradeAllowed && focusSymbolTradeAllowed);
+   string startupGuardReason = "";
+   bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupGuardReason);
    string tradeStatus = "NO_DATA";
    if(connected)
    {
@@ -5916,6 +5918,8 @@ void ExportDashboard()
          tradeStatus = "AUTO_PAUSED";
       else if(g_newsState.blocked)
          tradeStatus = "NEWS_BLOCK";
+      else if(startupGuardActive)
+         tradeStatus = "STARTUP_GUARD";
       else if(tradeAllowed)
          tradeStatus = "READY";
       else
@@ -5933,8 +5937,6 @@ void ExportDashboard()
    int focusTickAge = 0;
    if(connected && focusTick.time > 0)
       focusTickAge = (int)MathMax(0, (long)(serverClock - (datetime)focusTick.time));
-   string startupGuardReason = "";
-   bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupGuardReason);
 
    string json = "{\r\n";
    json += "  \"timestamp\": \"" + FormatDateTime(TimeLocal(), true) + "\",\r\n";
