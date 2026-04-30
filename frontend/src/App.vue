@@ -981,6 +981,7 @@ function stopReasonLabel(reason) {
     outside_strategy_tester_window: '不在 Strategy Tester 时间窗',
     authorization_lock_missing: '缺少授权锁文件',
     authorization_lock_expired: '授权锁已过期',
+    authorization_lock_runtime_dir_mismatch: '授权锁运行目录不匹配',
     authorization_lock_not_authorized: '授权锁未允许执行',
     authorization_lock_not_tester_only: '授权锁不是 tester-only',
     open_live_positions_present: '仍有实盘持仓',
