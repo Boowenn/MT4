@@ -2554,6 +2554,7 @@ const dailyReviewItems = computed(() => {
   const review = dailyReview.value;
   const dailyArtifact = mt5.value.dailyReview || {};
   const dailySummary = dailyArtifact.summary || {};
+  const codexReview = dailyArtifact.codexReview || mt5.value.dailyAutopilot?.codexReview || {};
   const autoLoop = mt5.value.dailyAutopilot || {};
   const paramSummary = mt5.value.paramStatus?.summary || {};
   const autoSummary = mt5.value.autoTesterWindow?.summary || {};
@@ -2570,34 +2571,73 @@ const dailyReviewItems = computed(() => {
   const candidateWins = review.candidateOutcomes.find(([key]) => key === 'WIN')?.[1] || 0;
   const candidateLosses = review.candidateOutcomes.find(([key]) => key === 'LOSS')?.[1] || 0;
   const candidateFlat = review.candidateOutcomes.find(([key]) => key === 'FLAT')?.[1] || 0;
-  return [
+  const asCount = (value) => asNumber(value) ?? 0;
+  const codexReasons = arrayFrom(codexReview, ['reasons']);
+  const codexTargets = arrayFrom(codexReview, ['triageTargets']);
+  const codexRequired = codexReview.required === true || String(codexReview.status || '').includes('REQUIRES_CODEX_TRIAGE');
+  const autoStatus = String(first(autoLoop.status, dailyArtifact.aiReview?.status, '')).toUpperCase();
+  const readyCount = asCount(dailySummary.paramReadyToRunCount);
+  const promotionCount = asCount(dailySummary.promotionReviewCount);
+  const recoveryRedCount = asCount(first(dailySummary.recoveryRedCount, mt5.value.runRecovery?.summary?.riskRedCount, 0));
+  const testerBlockers = [
+    ...arrayFrom(dailyArtifact.tester, ['blockers']),
+    ...arrayFrom(mt5.value.autoTesterWindow?.gate, ['blockers'])
+  ].filter(Boolean);
+  const significantTesterBlockers = testerBlockers.filter((blocker) => {
+    const key = String(blocker).toLowerCase();
+    return key && key !== 'outside_strategy_tester_window';
+  });
+  const consecutiveLosses = asCount(rsiForward.consecutiveLosses);
+  const rsiPf = asNumber(rsiForward.profitFactor);
+  const autoNeedsReview = !['', '--', 'OK'].includes(autoStatus) || readyCount > 0 || promotionCount > 0;
+  const pnlNeedsReview = review.dayCloseRows.length > 0 && review.netProfit < 0;
+  const rsiNeedsReview = mt5DashboardEvidence.value.stale
+    || String(rsiAction).toUpperCase().includes('DEMOTE')
+    || consecutiveLosses >= 2
+    || (rsiPf !== null && rsiPf < 0.95);
+  const paramNeedsReview = Boolean(autoSummary.canRunTerminal) || significantTesterBlockers.length > 0 || recoveryRedCount > 0;
+  const workerNeedsReview = String(workerStatus).toUpperCase() === 'ERROR' || Boolean(workerProblem.detail);
+  const shadowNeedsReview = candidateLosses > candidateWins && candidateLosses > 0;
+  const items = [
+    {
+      title: 'Codex 异常判断',
+      sub: `异常 ${codexReasons.length} · ${codexTargets.map(cleanInlineStatusText).join(' / ') || '代码/策略/证据'}`,
+      value: '需判断',
+      tone: 'red',
+      target: 'reports',
+      visible: codexRequired
+    },
     {
       title: '自动闭环',
       sub: `待办 ${first(dailySummary.paramActionCount, 0)} / 可跑 ${first(dailySummary.paramReadyToRunCount, 0)} / 升级复核 ${first(dailySummary.promotionReviewCount, 0)}`,
-      value: cleanInlineStatusText(first(autoLoop.status, dailyArtifact.aiReview?.status, '--')),
-      tone: autoLoop.status === 'PARTIAL' ? 'amber' : 'green',
-      target: 'reports'
+      value: readyCount > 0 ? `可跑 ${readyCount}` : promotionCount > 0 ? `复核 ${promotionCount}` : cleanInlineStatusText(first(autoLoop.status, dailyArtifact.aiReview?.status, '--')),
+      tone: autoLoop.status === 'PARTIAL' || promotionCount > 0 ? 'amber' : readyCount > 0 ? 'blue' : 'red',
+      target: 'reports',
+      visible: autoNeedsReview
     },
     {
       title: 'MT5 昨日平仓',
       sub: `${ledgerDateLabel(review.closeDate) || '等待日期'} · ${review.dayCloseRows.length} 笔 / 净 ${signedAmount(review.netProfit, 2, ' USC')}`,
       value: strategy ? `${strategy.strategy} ${signedAmount(strategy.net, 2)}` : `${review.tradeExitRows.length} exit`,
       tone: review.netProfit < 0 ? 'red' : review.netProfit > 0 ? 'green' : 'blue',
-      target: 'mt5'
+      target: 'mt5',
+      visible: pnlNeedsReview
     },
     {
       title: 'RSI 治理复盘',
       sub: `${cleanInlineStatusText(rsiAction)} · PF ${first(rsiForward.profitFactor, '--')} / 胜率 ${pct(first(rsiForward.winRatePct, rsiForward.winRate))}`,
       value: cooldown.short || `连亏 ${first(rsiForward.consecutiveLosses, '--')}`,
       tone: mt5DashboardEvidence.value.stale || String(rsiAction).includes('DEMOTE') ? 'red' : 'amber',
-      target: 'mt5'
+      target: 'mt5',
+      visible: rsiNeedsReview
     },
     {
       title: 'ParamLab 批次',
       sub: `配置 ${first(paramSummary.configReadyCount, 0)} / 报告 ${first(paramSummary.reportParsedCount, 0)} / 待回灌 ${first(govSummary.paramLabReportWatcherPending, '--')}`,
-      value: autoSummary.canRunTerminal ? 'guard 放行' : `阻断 ${first(autoSummary.blockerCount, '--')}`,
-      tone: autoSummary.canRunTerminal ? 'green' : 'amber',
-      target: 'paramlab'
+      value: autoSummary.canRunTerminal ? '可启动' : recoveryRedCount > 0 ? `红灯 ${recoveryRedCount}` : `阻断 ${significantTesterBlockers.length}`,
+      tone: autoSummary.canRunTerminal ? 'blue' : recoveryRedCount > 0 ? 'red' : 'amber',
+      target: 'paramlab',
+      visible: paramNeedsReview
     },
     {
       title: 'Polymarket 研究',
@@ -2605,16 +2645,19 @@ const dailyReviewItems = computed(() => {
       value: workerProblem.value,
       tone: workerStatus === 'ERROR' ? 'red' : 'blue',
       note: workerProblem.raw,
-      target: 'polymarket'
+      target: 'polymarket',
+      visible: workerNeedsReview
     },
     {
       title: 'Shadow 后验',
       sub: `${ledgerDateLabel(review.shadowDate) || '等待日期'} · blocker ${cleanInlineStatusText(review.topBlocker[0])} ${review.topBlocker[1]}`,
       value: `候选 W/L/F ${candidateWins}/${candidateLosses}/${candidateFlat}`,
       tone: candidateLosses > candidateWins ? 'amber' : 'green',
-      target: 'reports'
+      target: 'reports',
+      visible: shadowNeedsReview
     }
   ];
+  return items.filter((item) => item.visible).map(({ visible, ...item }) => item);
 });
 
 onMounted(() => {
@@ -2864,7 +2907,7 @@ onBeforeUnmount(() => {
                   </small>
                 </button>
               </div>
-              <div class="daily-review-mini">
+              <div v-if="dailyReviewItems.length" class="daily-review-mini">
                 <div class="daily-review-title"><Activity :size="14" /> 每日复盘</div>
                 <button
                   v-for="item in dailyReviewItems.slice(0, 5)"

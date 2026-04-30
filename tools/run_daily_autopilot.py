@@ -241,6 +241,7 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         },
         "steps": steps,
         "dailyReviewSummary": daily_review.get("summary", {}),
+        "codexReview": daily_review.get("codexReview", {}),
         "promotionRecommendations": daily_review.get("promotionRecommendations", []),
         "nextActions": daily_review.get("nextActions", []),
     }
@@ -258,6 +259,7 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "TesterRunAttempted": str(run_attempted).lower(),
             "DailyParamActions": daily_review.get("summary", {}).get("paramActionCount", ""),
             "PromotionReviewCount": daily_review.get("summary", {}).get("promotionReviewCount", ""),
+            "CodexReviewRequired": str(bool(daily_review.get("codexReview", {}).get("required"))).lower(),
         },
         [
             "GeneratedAtIso",
@@ -268,6 +270,7 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "TesterRunAttempted",
             "DailyParamActions",
             "PromotionReviewCount",
+            "CodexReviewRequired",
         ],
     )
     print(

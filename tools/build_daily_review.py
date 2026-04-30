@@ -245,6 +245,124 @@ def polymarket_summary(runtime_dir: Path) -> dict[str, Any]:
     }
 
 
+def codex_review_queue(
+    daily_pnl: dict[str, Any],
+    action_queue: list[dict[str, Any]],
+    promotions: list[dict[str, Any]],
+    governance: dict[str, Any],
+    auto_tester: dict[str, Any],
+    recovery_summary: dict[str, Any],
+    poly_summary: dict[str, Any],
+) -> dict[str, Any]:
+    reasons: list[dict[str, Any]] = []
+    targets: set[str] = set()
+
+    if as_int(daily_pnl.get("closedTrades")) > 0 and as_float(daily_pnl.get("netUSC")) < 0:
+        reasons.append({
+            "code": "DAILY_PNL_NEGATIVE",
+            "target": "strategy",
+            "detail": f"netUSC={daily_pnl.get('netUSC')} trades={daily_pnl.get('closedTrades')}",
+        })
+        targets.add("strategy")
+
+    for row in as_list(governance.get("routeDecisions")):
+        if not isinstance(row, dict):
+            continue
+        action = clean(row.get("recommendedAction")).upper()
+        route = clean(row.get("key") or row.get("routeKey") or row.get("strategy"))
+        if "DEMOTE" in action:
+            reasons.append({
+                "code": "GOVERNANCE_DEMOTE_REVIEW",
+                "target": "strategy",
+                "routeKey": route,
+                "detail": action,
+            })
+            targets.add("strategy")
+
+    ready_tasks = [row for row in action_queue if row.get("state") == "READY_TO_RUN_TESTER"]
+    if ready_tasks:
+        reasons.append({
+            "code": "PARAMLAB_TESTER_READY",
+            "target": "evidence",
+            "detail": f"readyTasks={len(ready_tasks)}",
+        })
+        targets.add("evidence")
+
+    if promotions:
+        reasons.append({
+            "code": "LIVE_PROMOTION_REVIEW_REQUIRED",
+            "target": "strategy",
+            "detail": f"promotionRecommendations={len(promotions)}",
+        })
+        targets.add("strategy")
+
+    tester_blockers = [
+        clean(blocker)
+        for blocker in (
+            as_list(auto_tester.get("gate", {}).get("blockers"))
+            or as_list(auto_tester.get("summary", {}).get("blockers"))
+        )
+        if clean(blocker)
+    ]
+    unexpected_blockers = [
+        blocker for blocker in tester_blockers
+        if blocker.lower() != "outside_strategy_tester_window"
+    ]
+    if unexpected_blockers:
+        reasons.append({
+            "code": "TESTER_UNEXPECTED_BLOCKER",
+            "target": "code_or_environment",
+            "detail": ", ".join(unexpected_blockers[:4]),
+        })
+        targets.add("code_or_environment")
+
+    recovery_red = as_int(first(recovery_summary.get("riskRedCount"), recovery_summary.get("redCount"), 0))
+    if recovery_red > 0:
+        reasons.append({
+            "code": "PARAMLAB_RECOVERY_RED",
+            "target": "code_or_data",
+            "detail": f"redCount={recovery_red}",
+        })
+        targets.add("code_or_data")
+
+    if clean(poly_summary.get("workerStatus")).upper() == "ERROR":
+        reasons.append({
+            "code": "POLYMARKET_WORKER_ERROR",
+            "target": "code_or_network",
+            "detail": "Polymarket worker status ERROR",
+        })
+        targets.add("code_or_network")
+
+    required = bool(reasons)
+    return {
+        "required": required,
+        "status": "REQUIRES_CODEX_TRIAGE" if required else "OK_HIDE_UNTIL_NEXT_DAILY_REFRESH",
+        "reasons": reasons,
+        "triageTargets": sorted(targets),
+        "recommendedAction": (
+            "CODEX_TRIAGE_CODE_STRATEGY_OR_EVIDENCE_FIX"
+            if required else
+            "NO_DISPLAY_UNTIL_NEXT_DAILY_REFRESH"
+        ),
+        "safeActionsAllowed": [
+            "read evidence",
+            "summarize review",
+            "fix code/frontend/evidence pipeline",
+            "run tests",
+            "commit and push safe fixes",
+            "write human-approved live promotion recommendation",
+        ],
+        "forbiddenActions": [
+            "send orders",
+            "close positions",
+            "cancel orders",
+            "mutate live preset",
+            "auto-apply live promotion",
+            "loosen risk gates",
+        ],
+    }
+
+
 def build_review(args: argparse.Namespace) -> dict[str, Any]:
     runtime_dir = Path(args.runtime_dir)
     output = Path(args.output) if args.output else runtime_dir / OUTPUT_NAME
@@ -261,8 +379,18 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     daily_pnl = close_history_summary(close_rows)
     action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)))
     promotions = promotion_recommendations(version_gate, governance)
+    poly = polymarket_summary(runtime_dir)
     tester_summary = auto_tester.get("summary", {}) if isinstance(auto_tester.get("summary"), dict) else {}
     recovery_summary = run_recovery.get("summary", {}) if isinstance(run_recovery.get("summary"), dict) else {}
+    codex_review = codex_review_queue(
+        daily_pnl,
+        action_queue,
+        promotions,
+        governance,
+        auto_tester,
+        recovery_summary,
+        poly,
+    )
 
     queue_counter = Counter(action.get("state") for action in action_queue)
     strategy_actions = [
@@ -302,25 +430,28 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "testerLockOk": bool(tester_summary.get("lockOk")),
             "recoveryRedCount": first(recovery_summary.get("riskRedCount"), 0),
             "recoveryYellowCount": first(recovery_summary.get("riskYellowCount"), 0),
+            "codexReviewRequired": codex_review["required"],
         },
         "dailyPnl": daily_pnl,
         "actionQueue": action_queue,
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
-        "polymarket": polymarket_summary(runtime_dir),
+        "polymarket": poly,
         "tester": {
             "summary": tester_summary,
             "blockers": as_list(auto_tester.get("gate", {}).get("blockers"))[:8],
         },
+        "codexReview": codex_review,
         "aiReview": {
             "status": "READY_FOR_CODEX_DAILY_REVIEW",
             "localDeterministicReviewBuilt": True,
             "externalLlmMode": "off_by_default",
-            "note": "A Codex/app automation may read this artifact and propose code or strategy changes. Live promotion remains human-approved.",
+            "note": "A Codex/app automation should triage codexReview.required=true items and may propose code or strategy changes. Live promotion remains human-approved.",
         },
         "nextActions": [
             "Run due ParamLab tester-only tasks when AUTO_TESTER_WINDOW allows it.",
             "Parse reports and rebuild GovernanceAdvisor before any promotion review.",
+            "If codexReview.required is true, ask Codex automation to judge code, strategy, or evidence fixes.",
             "If promotionRecommendations is non-empty, require human approval before any live preset mutation.",
         ],
     }
@@ -338,6 +469,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "TesterCanRun": str(bool(tester_summary.get("canRunTerminal"))).lower(),
             "PolymarketWorkerStatus": payload["polymarket"]["workerStatus"],
             "PolymarketQueue": payload["polymarket"]["candidateQueueSize"],
+            "CodexReviewRequired": str(codex_review["required"]).lower(),
         },
         [
             "GeneratedAtIso",
@@ -350,12 +482,14 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "TesterCanRun",
             "PolymarketWorkerStatus",
             "PolymarketQueue",
+            "CodexReviewRequired",
         ],
     )
     print(
         "DAILY_REVIEW "
         f"trades={daily_pnl['closedTrades']} net={daily_pnl['netUSC']} "
-        f"actions={len(action_queue)} promotions={len(promotions)} output={output}"
+        f"actions={len(action_queue)} promotions={len(promotions)} "
+        f"codexReview={codex_review['required']} output={output}"
     )
     return payload
 
