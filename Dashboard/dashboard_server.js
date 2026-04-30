@@ -391,11 +391,20 @@ function readQuantGodJsonFile(fileName) {
   if (fs.existsSync(defaultRuntimeDir)) {
     candidates.push(path.join(defaultRuntimeDir, base));
   }
-  for (const candidate of candidates) {
-    if (!fs.existsSync(candidate)) continue;
-    const text = fs.readFileSync(candidate, 'utf8').replace(/^\uFEFF/, '');
-    return { payload: JSON.parse(text), filePath: candidate };
+  const existing = candidates
+    .filter((candidate) => fs.existsSync(candidate))
+    .map((candidate) => ({ candidate, mtimeMs: fs.statSync(candidate).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  let lastError = null;
+  for (const item of existing) {
+    try {
+      const text = fs.readFileSync(item.candidate, 'utf8').replace(/^\uFEFF/, '');
+      return { payload: JSON.parse(text), filePath: item.candidate };
+    } catch (error) {
+      lastError = error;
+    }
   }
+  if (lastError) throw lastError;
   throw new Error(`file not found: ${base}`);
 }
 

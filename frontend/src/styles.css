@@ -699,6 +699,14 @@ h2 {
   border-top: 1px solid var(--line-soft);
 }
 
+.daily-review-mini {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
 .calendar-mini div {
   display: flex;
   align-items: center;
@@ -3586,7 +3594,16 @@ tbody tr:hover td {
   font-weight: 900;
 }
 
+.daily-review-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f3f8ff;
+  font-weight: 900;
+}
+
 .calendar-mini-item,
+.daily-review-item,
 .ai-watch-item.rail-item {
   box-sizing: border-box;
   display: block;
@@ -3607,8 +3624,18 @@ tbody tr:hover td {
   color: var(--text);
 }
 
+.daily-review-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  color: var(--text);
+}
+
 .calendar-mini-item strong,
 .calendar-mini-item small,
+.daily-review-item strong,
+.daily-review-item small,
 .ai-watch-item strong,
 .ai-watch-item small {
   display: block;
@@ -3620,6 +3647,7 @@ tbody tr:hover td {
 }
 
 .calendar-mini-item strong,
+.daily-review-item strong,
 .ai-watch-item strong {
   color: #eff6ff;
   font-size: 12px;
@@ -3628,6 +3656,7 @@ tbody tr:hover td {
 }
 
 .calendar-mini-item small,
+.daily-review-item small,
 .ai-watch-item small {
   margin-top: 4px;
   color: var(--muted);
@@ -3649,6 +3678,27 @@ tbody tr:hover td {
   border: 1px solid rgba(31, 155, 255, 0.28);
   border-radius: 5px;
   font-size: 10px;
+}
+
+.daily-review-item b {
+  max-width: 86px;
+  color: #dbeafe;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.daily-review-item.green {
+  border-color: rgba(45, 212, 191, 0.28);
+}
+
+.daily-review-item.amber {
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.daily-review-item.red {
+  border-color: rgba(248, 113, 113, 0.3);
 }
 
 .ai-watch-item span {
@@ -3759,6 +3809,7 @@ tbody tr:hover td {
 .rail-item,
 .history-list button,
 .calendar-mini-item,
+.daily-review-item,
 .ai-watch-item.rail-item,
 .micro-metric,
 .metric,
@@ -3784,6 +3835,8 @@ tbody tr:hover td {
 .history-list button small,
 .calendar-mini-item strong,
 .calendar-mini-item small,
+.daily-review-item strong,
+.daily-review-item small,
 .ai-watch-item strong,
 .ai-watch-item small,
 .micro-metric span,

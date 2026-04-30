@@ -278,6 +278,13 @@ function money(value) {
   return n === null ? '--' : `$${n.toFixed(2)}`;
 }
 
+function signedAmount(value, digits = 2, suffix = '') {
+  const n = asNumber(value);
+  if (n === null) return '--';
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(digits)}${suffix}`;
+}
+
 function positionTicket(row) {
   const raw = first(
     row?.ticket,
@@ -325,6 +332,42 @@ function compactIsoTime(value) {
   const raw = String(first(value, '')).trim();
   if (!raw || raw === '--') return '--';
   return raw.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '').slice(0, 16);
+}
+
+function ledgerDateKey(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return '';
+  const mt5 = raw.match(/^(\d{4})\.(\d{2})\.(\d{2})/);
+  if (mt5) return `${mt5[1]}.${mt5[2]}.${mt5[3]}`;
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}.${iso[2]}.${iso[3]}`;
+  return '';
+}
+
+function ledgerDateLabel(key) {
+  return String(key || '').replace(/\./g, '-');
+}
+
+function latestDateKey(rows, keys) {
+  const dates = rows
+    .flatMap((row) => keys.map((key) => ledgerDateKey(row?.[key])))
+    .filter(Boolean)
+    .sort();
+  return dates[dates.length - 1] || '';
+}
+
+function rowsOnDate(rows, keys, dateKey) {
+  if (!dateKey) return [];
+  return rows.filter((row) => keys.some((key) => ledgerDateKey(row?.[key]) === dateKey));
+}
+
+function countBy(rows, getter) {
+  const counts = new Map();
+  for (const row of rows) {
+    const key = String(first(getter(row), '--'));
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
 }
 
 function auditProfit(row) {
@@ -905,12 +948,23 @@ function stopReasonLabel(reason) {
     wait_auto_tester_window: '等待自动回测窗口',
     outside_strategy_tester_window: '不在 Strategy Tester 时间窗',
     authorization_lock_missing: '缺少授权锁文件',
+    authorization_lock_expired: '授权锁已过期',
     authorization_lock_not_authorized: '授权锁未允许执行',
     authorization_lock_not_tester_only: '授权锁不是 tester-only',
     open_live_positions_present: '仍有实盘持仓',
     symbol_open_positions_present: '品种仍有持仓',
     strategy_open_positions_present: '策略仍有持仓',
     live_account_margin_in_use: '实盘账户仍占用保证金',
+    live_dashboard_snapshot_stale: 'MT5 快照过期',
+    live_snapshot_stale: 'MT5 快照过期',
+    live_pilot_kill_switch_active: '实盘 kill switch 开启',
+    terminal64_missing: '缺少隔离 MT5 终端',
+    tester_terminal64_missing: '缺少隔离 tester 终端',
+    tester_profile_root_missing: '缺少 tester 配置目录',
+    live_account_mismatch: '实盘账号不匹配',
+    live_server_mismatch: '实盘服务器不匹配',
+    terminal_disconnected: 'MT5 终端未连接',
+    account_not_authorized: '账号未授权',
     report_missing: '报告缺失',
     report_malformed: '报告格式异常'
   };
@@ -983,6 +1037,22 @@ function autoTesterGuardText() {
   const blockers = autoTesterBlockers.value.slice(0, 3).map((item) => stopReasonLabel(item));
   if (autoTesterCanRun.value) return 'guard 已放行';
   return blockers.length ? `锁定：${blockers.join(' / ')}` : '锁定：等待 guard 刷新';
+}
+
+function autoTesterShortGuardText() {
+  if (autoTesterCanRun.value) return '可启动';
+  const blockers = autoTesterBlockers.value.slice(0, 2).map((item) => stopReasonLabel(item));
+  return blockers.length ? `待守护：${blockers.join(' / ')}` : '待守护';
+}
+
+function paramTodoStatusLabel(row) {
+  const status = compactStatusLabel(first(row.state, row.status, row.resultState, '等待'));
+  const normalized = normalizeParamState(row);
+  const looksRunnable = normalized.includes('READY')
+    || normalized.includes('RUN')
+    || status.includes('可运行');
+  if (!autoTesterCanRun.value && looksRunnable) return autoTesterShortGuardText();
+  return status;
 }
 
 function autoTesterActionText(result, action) {
@@ -1858,7 +1928,7 @@ const operatorRadarCards = computed(() => {
     {
       label: '参数实验',
       title: first(topTask.candidateId, topTask.versionId, '等待队列'),
-      meta: `${compactStatusLabel(first(topTask.state, topTask.status, '仅回测'))} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
+      meta: `${paramTodoStatusLabel(topTask)} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     }
@@ -1904,7 +1974,7 @@ const operatorRadarCards = computed(() => {
     {
       label: '候选队列',
       title: first(topTask.candidateId, topTask.versionId, '等待队列'),
-      meta: `${compactStatusLabel(first(topTask.state, topTask.status, 'tester-only'))} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
+      meta: `${paramTodoStatusLabel(topTask)} · 评分 ${compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor)}`,
       tone: normalizeParamState(topTask).includes('RED') ? 'red' : normalizeParamState(topTask).includes('WAIT') ? 'amber' : 'blue',
       target: 'paramlab'
     },
@@ -1973,7 +2043,7 @@ const aiEngineCards = computed(() => {
       value: compactMetricScore(topTask.score, topTask.grade, topTask.profitFactor),
       detail: shortText(
         topTask.state || topTask.status
-          ? compactStatusLabel(first(topTask.state, topTask.status))
+          ? paramTodoStatusLabel(topTask)
           : first(topTask.candidateId, '等待 ParamLab 候选'),
         42
       ),
@@ -2000,7 +2070,7 @@ const aiInsightRows = computed(() => [
   ...paramVisibleTasks.value.slice(0, 4).map((row) => ({
     source: '参数',
     title: first(row.candidateId, row.versionId, row.taskId),
-    detail: `${compactStatusLabel(first(row.state, row.status, 'tester-only'))} · 评分 ${compactMetricScore(row.score, row.grade, row.profitFactor)}`,
+    detail: `${paramTodoStatusLabel(row)} · 评分 ${compactMetricScore(row.score, row.grade, row.profitFactor)}`,
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
   })),
@@ -2060,7 +2130,7 @@ const watchlistItems = computed(() => [
 const actionQueueItems = computed(() => [
   ...paramVisibleTasks.value.slice(0, 5).map((row) => ({
     title: first(row.candidateId, row.versionId, row.taskId),
-    sub: `${paramRouteLabel(row)} · ${compactStatusLabel(first(row.state, row.status, row.resultState, '等待'))}`,
+    sub: `${paramRouteLabel(row)} · ${paramTodoStatusLabel(row)}`,
     value: compactMetricScore(row.score, row.grade, row.profitFactor),
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
@@ -2073,6 +2143,106 @@ const actionQueueItems = computed(() => [
     target: 'polymarket'
   }))
 ].slice(0, 8));
+
+const dailyReview = computed(() => {
+  const closeRows = arrayFrom(mt5.value.ledgers?.closeHistory);
+  const tradeRows = arrayFrom(mt5.value.ledgers?.tradeJournal);
+  const shadowRows = arrayFrom(mt5.value.ledgers?.shadowOutcomes);
+  const candidateRows = arrayFrom(mt5.value.ledgers?.shadowCandidateOutcomes);
+  const closeDate = latestDateKey(closeRows, ['CloseTime', 'EventTime']);
+  const dayCloseRows = rowsOnDate(closeRows, ['CloseTime'], closeDate);
+  const tradeExitRows = rowsOnDate(tradeRows, ['EventTime'], closeDate)
+    .filter((row) => String(first(row.EventType, row.eventType, '')).toUpperCase() === 'EXIT');
+  const netProfit = dayCloseRows.reduce((sum, row) => sum + (asNumber(first(row.NetProfit, row.netProfit, 0)) || 0), 0);
+  const strategyBreakdown = countBy(dayCloseRows, (row) => first(row.Strategy, row.strategy, '未知策略'))
+    .map(([strategy, count]) => {
+      const rows = dayCloseRows.filter((row) => first(row.Strategy, row.strategy, '未知策略') === strategy);
+      const net = rows.reduce((sum, row) => sum + (asNumber(first(row.NetProfit, row.netProfit, 0)) || 0), 0);
+      return { strategy, count, net };
+    })
+    .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+  const shadowDate = latestDateKey(shadowRows, ['OutcomeLabelTimeLocal', 'OutcomeLabelTimeServer']);
+  const shadowDayRows = rowsOnDate(shadowRows, ['OutcomeLabelTimeLocal', 'OutcomeLabelTimeServer'], shadowDate);
+  const topBlocker = countBy(shadowDayRows, (row) => first(row.Blocker, row.blocker, row.SignalStatus, '未知'))[0] || ['--', 0];
+  const candidateDate = latestDateKey(candidateRows, ['OutcomeLabelTimeLocal', 'OutcomeLabelTimeServer']);
+  const candidateDayRows = rowsOnDate(candidateRows, ['OutcomeLabelTimeLocal', 'OutcomeLabelTimeServer'], candidateDate);
+  const candidateOutcomes = countBy(candidateDayRows, (row) => first(row.DirectionalOutcome, row.directionalOutcome, 'UNKNOWN'));
+  const rsiRoute = mt5Routes.value.find((row) => String(first(row.key, row.route, row.strategy, '')).includes('RSI'));
+  const workerCycles = arrayFrom(poly.value.worker, ['cycles']);
+  const workerError = workerCycles.find((cycle) => String(first(cycle.status, '')).toUpperCase() === 'ERROR')?.error || '';
+  return {
+    closeDate,
+    dayCloseRows,
+    tradeExitRows,
+    netProfit,
+    strategyBreakdown,
+    shadowDate,
+    shadowDayRows,
+    topBlocker,
+    candidateDate,
+    candidateDayRows,
+    candidateOutcomes,
+    rsiRoute,
+    workerError
+  };
+});
+
+const dailyReviewItems = computed(() => {
+  const review = dailyReview.value;
+  const paramSummary = mt5.value.paramStatus?.summary || {};
+  const autoSummary = mt5.value.autoTesterWindow?.summary || {};
+  const govSummary = mt5.value.governance?.summary || {};
+  const aiSummary = poly.value.aiScore?.summary || {};
+  const autoGovSummary = poly.value.autoGovernance?.summary || {};
+  const rsi = review.rsiRoute || {};
+  const rsiForward = rsi.liveForward || {};
+  const rsiAction = first(rsi.recommendedAction, rsi.feedback?.actionLabel, '--');
+  const workerStatus = first(poly.value.worker?.status, '--');
+  const workerProblem = review.workerError
+    ? cleanInlineStatusText(review.workerError.replace(/^URLError:\s*/i, ''))
+    : cleanInlineStatusText(workerStatus);
+  const strategy = review.strategyBreakdown[0];
+  const candidateWins = review.candidateOutcomes.find(([key]) => key === 'WIN')?.[1] || 0;
+  const candidateLosses = review.candidateOutcomes.find(([key]) => key === 'LOSS')?.[1] || 0;
+  const candidateFlat = review.candidateOutcomes.find(([key]) => key === 'FLAT')?.[1] || 0;
+  return [
+    {
+      title: 'MT5 昨日平仓',
+      sub: `${ledgerDateLabel(review.closeDate) || '等待日期'} · ${review.dayCloseRows.length} 笔 / 净 ${signedAmount(review.netProfit, 2, ' USC')}`,
+      value: strategy ? `${strategy.strategy} ${signedAmount(strategy.net, 2)}` : `${review.tradeExitRows.length} exit`,
+      tone: review.netProfit < 0 ? 'red' : review.netProfit > 0 ? 'green' : 'blue',
+      target: 'mt5'
+    },
+    {
+      title: 'RSI 治理复盘',
+      sub: `${cleanInlineStatusText(rsiAction)} · PF ${first(rsiForward.profitFactor, '--')} / 胜率 ${pct(first(rsiForward.winRatePct, rsiForward.winRate))}`,
+      value: `连亏 ${first(rsiForward.consecutiveLosses, '--')}`,
+      tone: String(rsiAction).includes('DEMOTE') ? 'red' : 'amber',
+      target: 'mt5'
+    },
+    {
+      title: 'ParamLab 批次',
+      sub: `配置 ${first(paramSummary.configReadyCount, 0)} / 报告 ${first(paramSummary.reportParsedCount, 0)} / 待回灌 ${first(govSummary.paramLabReportWatcherPending, '--')}`,
+      value: autoSummary.canRunTerminal ? 'guard 放行' : `阻断 ${first(autoSummary.blockerCount, '--')}`,
+      tone: autoSummary.canRunTerminal ? 'green' : 'amber',
+      target: 'paramlab'
+    },
+    {
+      title: 'Polymarket 研究',
+      sub: `AI 黄灯 ${first(aiSummary.yellow, 0)} / 隔离 ${first(autoGovSummary.quarantine, 0)} / 队列 ${first(poly.value.worker?.summary?.candidateQueueSize, 0)}`,
+      value: workerStatus === 'ERROR' ? workerProblem : cleanInlineStatusText(workerStatus),
+      tone: workerStatus === 'ERROR' ? 'red' : 'blue',
+      target: 'polymarket'
+    },
+    {
+      title: 'Shadow 后验',
+      sub: `${ledgerDateLabel(review.shadowDate) || '等待日期'} · blocker ${cleanInlineStatusText(review.topBlocker[0])} ${review.topBlocker[1]}`,
+      value: `候选 W/L/F ${candidateWins}/${candidateLosses}/${candidateFlat}`,
+      tone: candidateLosses > candidateWins ? 'amber' : 'green',
+      target: 'reports'
+    }
+  ];
+});
 
 onMounted(() => {
   syncActiveFromHash();
@@ -2319,6 +2489,24 @@ onBeforeUnmount(() => {
                     {{ item.sub }}
                     <b v-if="item.value && item.value !== '--'">{{ item.value }}</b>
                   </small>
+                </button>
+              </div>
+              <div class="daily-review-mini">
+                <div class="daily-review-title"><Activity :size="14" /> 每日复盘</div>
+                <button
+                  v-for="item in dailyReviewItems.slice(0, 5)"
+                  :key="`review-${item.title}`"
+                  type="button"
+                  class="daily-review-item"
+                  :class="item.tone"
+                  :title="`${item.title} · ${item.sub}`"
+                  @click="setActive(item.target)"
+                >
+                  <span>
+                    <strong>{{ item.title }}</strong>
+                    <small>{{ item.sub }}</small>
+                  </span>
+                  <b>{{ item.value }}</b>
                 </button>
               </div>
             </aside>
