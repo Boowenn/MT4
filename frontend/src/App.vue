@@ -2696,8 +2696,12 @@ const dailyReviewItems = computed(() => {
   });
   const consecutiveLosses = asCount(rsiForward.consecutiveLosses);
   const rsiPf = asNumber(rsiForward.profitFactor);
+  const rsiSellLiveBlocked = rsi.sidePolicy?.sellLiveAllowed === false;
   const autoNeedsReview = !['', '--', 'OK'].includes(autoStatus) || readyCount > 0 || promotionCount > 0;
-  const pnlNeedsReview = review.dayCloseRows.length > 0 && review.netProfit < 0;
+  const dailyPnlArtifact = dailyArtifact.dailyPnl || {};
+  const pnlNeedsReview = dailyPnlArtifact.requiresReview === false
+    ? false
+    : review.dayCloseRows.length > 0 && review.netProfit < 0;
   const mt5RiskRecovered = mt5TerminalRisk.currentTradePermissionRecovered === true;
   const mt5RiskNeedsReview = (
     asCount(mt5TerminalRisk.investorModeCount) > 0
@@ -2707,11 +2711,10 @@ const dailyReviewItems = computed(() => {
   ) && !mt5RiskRecovered;
   const rsiNeedsReview = mt5DashboardEvidence.value.stale
     || String(rsiAction).toUpperCase().includes('DEMOTE')
-    || consecutiveLosses >= 2
-    || (rsiPf !== null && rsiPf < 0.95);
+    || (!rsiSellLiveBlocked && (consecutiveLosses >= 2 || (rsiPf !== null && rsiPf < 0.95)));
   const paramNeedsReview = Boolean(autoSummary.canRunTerminal) || significantTesterBlockers.length > 0 || recoveryRedCount > 0;
   const workerNeedsReview = String(workerStatus).toUpperCase() === 'ERROR' || Boolean(workerProblem.detail);
-  const shadowNeedsReview = candidateLosses > candidateWins && candidateLosses > 0;
+  const shadowNeedsReview = codexRequired && candidateLosses > candidateWins && candidateLosses > 0;
   const items = [
     {
       title: 'Codex 异常判断',

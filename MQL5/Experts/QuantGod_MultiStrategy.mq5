@@ -49,6 +49,7 @@ input int    PilotRsiMaxHoldMinutes       = 90;
 input bool   PilotRsiCloseOnServerDayChange = true;
 input bool   PilotRsiBlockSellInUptrend   = true;
 input bool   PilotRsiRangeTightBuyOnly    = true;
+input bool   PilotRsiSellLiveBlocked      = true;
 input bool   EnablePilotBBH1Candidate = true;
 input bool   EnablePilotBBH1Live      = false;
 input bool   EnableNonRsiLegacyLiveAuthorization = false;
@@ -3152,7 +3153,8 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
    RegimeSnapshot regime = EvaluateRegimeAt(symbol, PilotRsiTimeframe, 0);
 
-   if(sellReversal && sellBand)
+   bool sellLiveBlockedAfterReview = (PilotRsiSellLiveBlocked && !MQLInfoInteger(MQL_TESTER));
+   if(sellReversal && sellBand && !sellLiveBlockedAfterReview)
    {
       if(PilotRsiBlockSellInUptrend && IsUptrendRegimeLabel(regime.label))
       {
@@ -3622,6 +3624,16 @@ bool ProcessLegacyPilotRoute(string strategyKey, string symbol, int symbolIndex,
    AppendShadowCandidateLedgerRowForTimeframe(symbol, timeframe, eventBarTime, LegacyPilotRouteName(strategyKey), direction, score, trigger,
       liveEnabled ? "Legacy MT4 route is live-enabled in this run; shared pilot risk controls still apply" :
                     "Legacy MT4 route candidate/backtest evidence only; live entries remain disabled pending validation");
+
+   if(strategyKey == "RSI_Reversal" && direction < 0 && PilotRsiSellLiveBlocked && !MQLInfoInteger(MQL_TESTER))
+   {
+      states[symbolIndex].status = "LIVE_CANDIDATE";
+      states[symbolIndex].reason = reason + " | RSI SELL live blocked; sell side demoted to shadow/candidate after live loss review";
+      Print("QuantGod MT5 pilot order blocked: RSI SELL live side demoted to shadow/candidate strategy=", strategyKey,
+            " symbol=", symbol,
+            " reason=live_loss_review");
+      return true;
+   }
 
    if(!liveEnabled)
    {

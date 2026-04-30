@@ -152,20 +152,56 @@ def close_history_summary(rows: list[dict[str, str]]) -> dict[str, Any]:
     day_rows = rows_on_date(rows, day, "CloseTime", "EventTime", "closeTime")
     net = sum(as_float(first(row.get("NetProfit"), row.get("netProfit"), row.get("Profit"))) for row in day_rows)
     by_strategy: dict[str, dict[str, Any]] = {}
+    by_strategy_side: dict[str, dict[str, Any]] = {}
     for row in day_rows:
         strategy = clean(first(row.get("Strategy"), row.get("strategy"), default="UNKNOWN")) or "UNKNOWN"
+        side = clean(first(row.get("Type"), row.get("Side"), row.get("side"), default="UNKNOWN")).upper() or "UNKNOWN"
+        net_profit = as_float(first(row.get("NetProfit"), row.get("netProfit"), row.get("Profit")))
         bucket = by_strategy.setdefault(strategy, {"strategy": strategy, "trades": 0, "netUSC": 0.0})
         bucket["trades"] += 1
-        bucket["netUSC"] += as_float(first(row.get("NetProfit"), row.get("netProfit"), row.get("Profit")))
+        bucket["netUSC"] += net_profit
+        side_key = f"{strategy}:{side}"
+        side_bucket = by_strategy_side.setdefault(side_key, {"strategy": strategy, "side": side, "trades": 0, "netUSC": 0.0})
+        side_bucket["trades"] += 1
+        side_bucket["netUSC"] += net_profit
     breakdown = sorted(by_strategy.values(), key=lambda item: abs(item["netUSC"]), reverse=True)
     for item in breakdown:
+        item["netUSC"] = round(item["netUSC"], 3)
+    side_breakdown = sorted(by_strategy_side.values(), key=lambda item: abs(item["netUSC"]), reverse=True)
+    for item in side_breakdown:
         item["netUSC"] = round(item["netUSC"], 3)
     return {
         "date": day,
         "closedTrades": len(day_rows),
         "netUSC": round(net, 3),
         "byStrategy": breakdown,
+        "byStrategySide": side_breakdown,
+        "lossByStrategySide": [item for item in side_breakdown if item["netUSC"] < 0],
     }
+
+
+def daily_pnl_resolved_by_policy(daily_pnl: dict[str, Any], governance: dict[str, Any]) -> bool:
+    if as_float(daily_pnl.get("netUSC")) >= 0:
+        return True
+    losses = as_list(daily_pnl.get("lossByStrategySide"))
+    if not losses:
+        return False
+    governance_by_route = {
+        clean(row.get("key") or row.get("routeKey") or row.get("strategy")): row
+        for row in as_list(governance.get("routeDecisions"))
+        if isinstance(row, dict)
+    }
+    for loss in losses:
+        if not isinstance(loss, dict):
+            return False
+        strategy = clean(loss.get("strategy"))
+        side = clean(loss.get("side")).upper()
+        if strategy != "RSI_Reversal" or side != "SELL":
+            return False
+        side_policy = governance_by_route.get("RSI_Reversal", {}).get("sidePolicy")
+        if not isinstance(side_policy, dict) or side_policy.get("sellLiveAllowed") is not False:
+            return False
+    return True
 
 
 def param_action_queue(scheduler: dict[str, Any], auto_tester: dict[str, Any], max_actions: int) -> list[dict[str, Any]]:
@@ -339,7 +375,7 @@ def codex_review_queue(
     reasons: list[dict[str, Any]] = []
     targets: set[str] = set()
 
-    if as_int(daily_pnl.get("closedTrades")) > 0 and as_float(daily_pnl.get("netUSC")) < 0:
+    if daily_pnl.get("requiresReview") is not False and as_int(daily_pnl.get("closedTrades")) > 0 and as_float(daily_pnl.get("netUSC")) < 0:
         reasons.append({
             "code": "DAILY_PNL_NEGATIVE",
             "target": "strategy",
@@ -471,6 +507,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     run_recovery = read_json(runtime_dir / "QuantGod_ParamLabRunRecovery.json")
 
     daily_pnl = close_history_summary(close_rows)
+    daily_pnl["resolvedByCurrentPolicy"] = daily_pnl_resolved_by_policy(daily_pnl, governance)
+    daily_pnl["requiresReview"] = bool(as_float(daily_pnl.get("netUSC")) < 0 and not daily_pnl["resolvedByCurrentPolicy"])
     action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)))
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)

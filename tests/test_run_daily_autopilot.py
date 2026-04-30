@@ -103,6 +103,33 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("'/api/daily-autopilot'", server_source)
         self.assertIn("dailyReviewName", server_source)
 
+    def test_daily_pnl_negative_is_resolved_when_rsi_sell_side_is_blocked(self):
+        daily_pnl = daily_review.close_history_summary([
+            {
+                "CloseTime": "2026.04.29 09:00",
+                "Strategy": "RSI_Reversal",
+                "Type": "SELL",
+                "NetProfit": "-0.70",
+            },
+            {
+                "CloseTime": "2026.04.29 15:00",
+                "Strategy": "RSI_Reversal",
+                "Type": "SELL",
+                "NetProfit": "-0.55",
+            },
+        ])
+        governance = {
+            "routeDecisions": [{
+                "key": "RSI_Reversal",
+                "sidePolicy": {"sellLiveAllowed": False},
+            }]
+        }
+
+        self.assertTrue(daily_review.daily_pnl_resolved_by_policy(daily_pnl, governance))
+
+        governance["routeDecisions"][0]["sidePolicy"]["sellLiveAllowed"] = True
+        self.assertFalse(daily_review.daily_pnl_resolved_by_policy(daily_pnl, governance))
+
 
 if __name__ == "__main__":
     unittest.main()

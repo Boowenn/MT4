@@ -121,6 +121,7 @@ BLOCKER_FEEDBACK = {
     "profit_factor_lt_1": ("PF 低于 1", "high", "已闭合样本的利润因子低于 1，说明当前参数版本没有覆盖亏损。"),
     "win_rate_lt_45": ("胜率偏低", "high", "实盘 forward 胜率低于 45%，需要检查过滤器、止损/止盈或信号质量。"),
     "open_position_drawdown_watch": ("持仓回撤", "high", "当前持仓浮亏触发观察阈值，需要确认 SL/TP 与安全保护仍有效。"),
+    "sell_side_demoted_after_loss_review": ("SELL 已降级观察", "high", "最近亏损集中在 SELL 侧；SELL 应保持 shadow/candidate，不再影响 BUY 侧 0.01 live 观察。"),
     "sample_lt_20": ("候选样本不足", "medium", "候选 60m 后验样本少于 20 条，暂时只能用于学习和排序。"),
     "win_rate_lt_55": ("候选胜率未达标", "medium", "候选后验胜率低于 55%，还不能作为升实盘证据。"),
     "avg_signed_pips_not_positive": ("候选均值不正", "medium", "候选方向后验平均 pips 不为正，优先重调参数而不是升实盘。"),
@@ -306,26 +307,78 @@ def summarize_live_forward(close_rows: list[dict[str, str]]) -> dict[str, Any]:
     summaries: dict[str, dict[str, Any]] = {}
     for strategy, rows in by_strategy.items():
         sorted_rows = sorted(rows, key=parse_time_key)
-        profits = [as_float(row.get("NetProfit")) for row in sorted_rows]
-        wins = [p for p in profits if p > 0]
-        losses = [p for p in profits if p < 0]
-        consecutive_losses = 0
-        for p in reversed(profits):
-            if p < 0:
-                consecutive_losses += 1
-            else:
-                break
-        summaries[strategy] = {
-            "closedTrades": len(sorted_rows),
-            "wins": len(wins),
-            "losses": len(losses),
-            "netProfitUSC": money(sum(profits)),
-            "winRatePct": pct(len(wins), len(sorted_rows)),
-            "profitFactor": profit_factor(sum(wins), sum(losses)),
-            "consecutiveLosses": consecutive_losses,
-            "latestCloseTime": parse_time_key(sorted_rows[-1]) if sorted_rows else "",
-        }
+        side_breakdown: dict[str, dict[str, Any]] = {}
+        for side in ("BUY", "SELL"):
+            side_rows = [row for row in sorted_rows if str(row.get("Type", "")).upper() == side]
+            side_breakdown[side] = summarize_profit_rows(side_rows)
+        summary = summarize_profit_rows(sorted_rows)
+        summary["sideBreakdown"] = side_breakdown
+        summary["dominantLossSide"] = dominant_loss_side(side_breakdown)
+        summaries[strategy] = summary
     return summaries
+
+
+def summarize_profit_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
+    sorted_rows = sorted(rows, key=parse_time_key)
+    profits = [as_float(row.get("NetProfit")) for row in sorted_rows]
+    wins = [p for p in profits if p > 0]
+    losses = [p for p in profits if p < 0]
+    consecutive_losses = 0
+    for p in reversed(profits):
+        if p < 0:
+            consecutive_losses += 1
+        else:
+            break
+    return {
+        "closedTrades": len(sorted_rows),
+        "wins": len(wins),
+        "losses": len(losses),
+        "netProfitUSC": money(sum(profits)),
+        "winRatePct": pct(len(wins), len(sorted_rows)),
+        "profitFactor": profit_factor(sum(wins), sum(losses)),
+        "consecutiveLosses": consecutive_losses,
+        "latestCloseTime": parse_time_key(sorted_rows[-1]) if sorted_rows else "",
+    }
+
+
+def dominant_loss_side(side_breakdown: dict[str, dict[str, Any]]) -> str:
+    losses = {
+        side: abs(as_float(data.get("netProfitUSC")))
+        for side, data in side_breakdown.items()
+        if as_float(data.get("netProfitUSC")) < 0
+    }
+    return max(losses, key=losses.get) if losses else ""
+
+
+def rsi_side_policy(live: dict[str, Any] | None) -> dict[str, Any]:
+    live = live or {}
+    sides = live.get("sideBreakdown") if isinstance(live.get("sideBreakdown"), dict) else {}
+    buy = sides.get("BUY") if isinstance(sides.get("BUY"), dict) else {}
+    sell = sides.get("SELL") if isinstance(sides.get("SELL"), dict) else {}
+    return {
+        "activeLiveSide": "BUY",
+        "liveAllowed": ["BUY"],
+        "liveBlocked": ["SELL"],
+        "sellLiveAllowed": False,
+        "sellPolicyReason": "SELL side demoted to shadow/candidate after live loss review; Strategy Tester may still validate SELL variants.",
+        "buyForward": buy,
+        "sellForward": sell,
+    }
+
+
+def rsi_live_action(live: dict[str, Any] | None, open_info: dict[str, Any] | None) -> tuple[str, str, list[str], dict[str, Any]]:
+    live = live or {}
+    policy = rsi_side_policy(live)
+    buy = policy["buyForward"]
+    sell = policy["sellForward"]
+    sell_bad = int(sell.get("consecutiveLosses") or 0) >= 2 or as_float(sell.get("netProfitUSC")) < 0
+    buy_ok = int(buy.get("closedTrades") or 0) > 0 and as_float(buy.get("netProfitUSC")) >= 0
+    if sell_bad and buy_ok:
+        return "KEEP_LIVE_WATCH", "waiting", ["sell_side_demoted_after_loss_review"], policy
+    action, tone, blockers = live_action(live, open_info)
+    if sell_bad and "sell_side_demoted_after_loss_review" not in blockers:
+        blockers.append("sell_side_demoted_after_loss_review")
+    return action, tone, blockers, policy
 
 
 def summarize_open_positions(dashboard: dict[str, Any]) -> dict[str, Any]:
@@ -1189,8 +1242,18 @@ def build_route_feedback(route_decision: dict[str, Any]) -> dict[str, Any]:
             f"{live_trades} 笔 closed trades，PF {fmt_metric(live_pf, 2)}，"
             f"胜率 {fmt_metric(live_win, 1, '%')}，净值 {fmt_metric(live_net, 2)} USC。"
         )
+        side_policy = route_decision.get("sidePolicy") if isinstance(route_decision.get("sidePolicy"), dict) else {}
+        if side_policy.get("sellLiveAllowed") is False:
+            buy_forward = side_policy.get("buyForward") if isinstance(side_policy.get("buyForward"), dict) else {}
+            sell_forward = side_policy.get("sellForward") if isinstance(side_policy.get("sellForward"), dict) else {}
+            why.append(
+                "方向拆分: "
+                f"BUY {int(buy_forward.get('closedTrades') or 0)} 笔 / 净 {fmt_metric(buy_forward.get('netProfitUSC'), 2)} USC，"
+                f"SELL {int(sell_forward.get('closedTrades') or 0)} 笔 / 净 {fmt_metric(sell_forward.get('netProfitUSC'), 2)} USC；"
+                "SELL 已降级到 shadow/candidate，BUY 才是当前 live 观察侧。"
+            )
         consecutive_losses = int(live.get("consecutiveLosses") or 0)
-        if consecutive_losses:
+        if consecutive_losses and (route_decision.get("sidePolicy") or {}).get("sellLiveAllowed") is not False:
             why.append(f"最近连续亏损 {consecutive_losses} 笔，任何扩仓或放宽都应暂停。")
     else:
         why.append(
@@ -1358,8 +1421,12 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
         live = live_forward.get(route["strategy"], {})
         open_info = open_positions.get("byStrategy", {}).get(route["strategy"], {})
         candidate = candidate_outcomes.get(route["candidateRoute"], {})
+        side_policy: dict[str, Any] = {}
         if route["live"]:
-            action, tone, blockers = live_action(live, open_info)
+            if route["strategy"] == "RSI_Reversal":
+                action, tone, blockers, side_policy = rsi_live_action(live, open_info)
+            else:
+                action, tone, blockers = live_action(live, open_info)
         else:
             action, tone, blockers = candidate_action(candidate)
         route_decision = {
@@ -1368,6 +1435,7 @@ def build_advisor(runtime_dir: Path) -> dict[str, Any]:
             "recommendedAction": action,
             "tone": tone,
             "blockers": blockers,
+            "sidePolicy": side_policy,
             "liveForward": live,
             "openPosition": open_info,
             "candidateSamples": {

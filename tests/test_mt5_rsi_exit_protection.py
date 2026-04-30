@@ -35,6 +35,7 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("input bool   PilotRsiCloseOnServerDayChange = true;", text)
         self.assertIn("input bool   PilotRsiBlockSellInUptrend   = true;", text)
         self.assertIn("input bool   PilotRsiRangeTightBuyOnly    = true;", text)
+        self.assertIn("input bool   PilotRsiSellLiveBlocked      = true;", text)
 
     def test_rsi_fast_exit_is_scoped_by_comment(self):
         text = EA_PATH.read_text(encoding="utf-8")
@@ -62,6 +63,8 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PilotRsiBlockSellInUptrend && IsUptrendRegimeLabel(regime.label)", text)
         self.assertIn("PilotRsiRangeTightBuyOnly && IsRangeTightRegimeLabel(regime.label)", text)
         self.assertIn("RSI H1 SELL blocked in", text)
+        self.assertIn("PilotRsiSellLiveBlocked && !MQLInfoInteger(MQL_TESTER)", text)
+        self.assertIn("RSI SELL live side demoted to shadow/candidate", text)
 
     def test_startup_entry_guard_blocks_new_orders_after_ea_reload(self):
         text = EA_PATH.read_text(encoding="utf-8")
@@ -131,6 +134,7 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("const runtimeReason = first(runtime.adaptiveReason, runtime.reason, '')", text)
         self.assertIn("MA 已从实盘降级到模拟/候选观察", text)
         self.assertIn("保持模拟/候选观察", text)
+        self.assertIn("const shadowNeedsReview = codexRequired &&", text)
 
     def test_non_rsi_legacy_routes_need_second_live_authorization_key(self):
         text = EA_PATH.read_text(encoding="utf-8")
