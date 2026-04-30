@@ -85,6 +85,21 @@ def resolve_repo_path(value: str | None, default: Path) -> Path:
     return path if path.is_absolute() else (REPO_ROOT / path).resolve()
 
 
+def is_mac_import_snapshot_dir(path: Path) -> bool:
+    return "/runtime/mac_import/mt5_files_snapshot" in path.as_posix()
+
+
+def resolve_runtime_dir(path: Path) -> Path:
+    source_mode = os.environ.get("QG_MAC_RUNTIME_SOURCE", "auto").strip().lower()
+    mt5_files = DEFAULT_MT5_ROOT / "MQL5/Files"
+    if mt5_files.exists() and (
+        source_mode == "mt5"
+        or (source_mode == "auto" and is_mac_import_snapshot_dir(path))
+    ):
+        return mt5_files
+    return path
+
+
 def read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
         return json.loads(path.read_text(encoding="utf-8-sig")), None
@@ -349,7 +364,7 @@ def main() -> int:
     now = datetime.now(JST)
     now_ts = time.time()
     run_id = now.isoformat()
-    runtime_dir = resolve_repo_path(args.runtime_dir, REPO_ROOT / "Dashboard")
+    runtime_dir = resolve_runtime_dir(resolve_repo_path(args.runtime_dir, REPO_ROOT / "Dashboard"))
     mt5_root = resolve_repo_path(args.mt5_root, DEFAULT_MT5_ROOT)
     preset = resolve_repo_path(args.preset, DEFAULT_LIVE_PRESET)
     if not preset.exists():

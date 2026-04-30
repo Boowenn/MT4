@@ -33,9 +33,41 @@ const pythonBin = process.env.QG_PYTHON_BIN || (process.platform === 'win32' ? '
 const configuredRuntimeDir = process.env.QG_RUNTIME_DIR
   || process.env.QG_MT5_FILES_DIR
   || 'C:\\Program Files\\HFM Metatrader 5\\MQL5\\Files';
-const defaultRuntimeDir = path.isAbsolute(configuredRuntimeDir)
+const configuredRuntimeDirResolved = path.isAbsolute(configuredRuntimeDir)
   ? configuredRuntimeDir
   : path.resolve(repoRoot, configuredRuntimeDir);
+
+function isMacImportSnapshotDir(dir) {
+  return String(dir || '').replace(/\\/g, '/').includes('/runtime/mac_import/mt5_files_snapshot');
+}
+
+function resolveRuntimeDir() {
+  const sourceMode = String(process.env.QG_MAC_RUNTIME_SOURCE || 'auto').trim().toLowerCase();
+  const macMt5FilesDir = path.join(
+    os.homedir(),
+    'Library',
+    'Application Support',
+    'net.metaquotes.wine.metatrader5',
+    'drive_c',
+    'Program Files',
+    'MetaTrader 5',
+    'MQL5',
+    'Files'
+  );
+  if (
+    process.platform === 'darwin'
+    && fs.existsSync(macMt5FilesDir)
+    && (
+      sourceMode === 'mt5'
+      || (sourceMode === 'auto' && isMacImportSnapshotDir(configuredRuntimeDirResolved))
+    )
+  ) {
+    return macMt5FilesDir;
+  }
+  return configuredRuntimeDirResolved;
+}
+
+const defaultRuntimeDir = resolveRuntimeDir();
 const singleMarketRequestName = 'QuantGod_PolymarketSingleMarketRequest.json';
 const polymarketRadarName = 'QuantGod_PolymarketMarketRadar.json';
 const polymarketRadarWorkerName = 'QuantGod_PolymarketRadarWorkerV2.json';

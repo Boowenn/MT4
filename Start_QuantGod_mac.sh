@@ -15,6 +15,22 @@ load_env_file() {
   done < "$env_file"
 }
 
+is_import_snapshot_dir() {
+  local candidate="$1"
+  [[ "$candidate" == *"runtime/mac_import/mt5_files_snapshot"* ]]
+}
+
+patch_ini_key() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if grep -q "^${key}=" "$file"; then
+    perl -0pi -e "s/^\\Q${key}\\E=.*/${key}=${value}/mg" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
 if [[ -f .env.local ]]; then
   load_env_file .env.local
 fi
@@ -39,9 +55,16 @@ MT5_EXPERTS="$MT5_MQL5/Experts"
 MT5_PRESETS="$MT5_MQL5/Presets"
 WINE64="$MT5_APP_PATH/Contents/SharedSupport/wine/bin/wine64"
 MT5_SHADOW_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_Shadow_mac.ini"
+MT5_LIVE_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_LivePilot_mac.ini"
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
+MT5_START_MODE="${QG_MT5_START_MODE:-shadow}"
+MT5_START_SYMBOL="${QG_MT5_START_SYMBOL:-USDJPYc}"
+RUNTIME_IS_IMPORT_SNAPSHOT=0
+if is_import_snapshot_dir "$QG_RUNTIME_DIR"; then
+  RUNTIME_IS_IMPORT_SNAPSHOT=1
+fi
 
-if [[ -d "$MT5_ROOT" && ( "$RUNTIME_SOURCE" == "mt5" || ( "$RUNTIME_SOURCE" == "auto" && "$RUNTIME_CONFIGURED" == "0" ) ) ]]; then
+if [[ -d "$MT5_ROOT" && ( "$RUNTIME_SOURCE" == "mt5" || ( "$RUNTIME_SOURCE" == "auto" && ( "$RUNTIME_CONFIGURED" == "0" || "$RUNTIME_IS_IMPORT_SNAPSHOT" == "1" ) ) ) ]]; then
   export QG_RUNTIME_DIR="$MT5_FILES"
   export QG_MT5_FILES_DIR="$MT5_FILES"
 fi
@@ -49,6 +72,8 @@ fi
 echo "QuantGod Mac launcher"
 echo "Repo: $SCRIPT_DIR"
 echo "Runtime: $QG_RUNTIME_DIR"
+echo "MT5 start mode: $MT5_START_MODE"
+echo "MT5 start symbol: $MT5_START_SYMBOL"
 echo "Dashboard: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
 
 if [[ -d "$MT5_ROOT" ]]; then
@@ -67,6 +92,7 @@ if [[ -d "$MT5_ROOT" ]]; then
   cp MQL5/Experts/QuantGod_MultiStrategy.mq5 "$MT5_EXPERTS/QuantGod_MultiStrategy.mq5"
   rsync -a MQL5/Presets/ "$MT5_PRESETS/"
   cp MQL5/Config/QuantGod_MT5_HFM_Shadow.ini "$MT5_SHADOW_CONFIG"
+  patch_ini_key "$MT5_SHADOW_CONFIG" "Symbol" "$MT5_START_SYMBOL"
   perl -0pi -e 's/AllowLiveTrading=1/AllowLiveTrading=0/g' "$MT5_SHADOW_CONFIG"
 
   if [[ -x "$WINE64" ]]; then
@@ -88,10 +114,19 @@ if [[ -d "$MT5_ROOT" ]]; then
       echo "Check: $MT5_PREFIX/drive_c/qg/compile.log"
     fi
 
-    echo "Starting MT5 with the read-only HFM shadow config..."
-    WINEPREFIX="$MT5_PREFIX" "$WINE64" \
-      'C:\Program Files\MetaTrader 5\terminal64.exe' \
-      '/config:C:\qg\QuantGod_MT5_HFM_Shadow_mac.ini' >/dev/null 2>&1 &
+    if [[ "$MT5_START_MODE" == "off" ]]; then
+      echo "MT5 launch skipped because QG_MT5_START_MODE=off."
+    elif [[ "$MT5_START_MODE" == "live" ]]; then
+      cp MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini "$MT5_LIVE_CONFIG"
+      patch_ini_key "$MT5_LIVE_CONFIG" "Symbol" "$MT5_START_SYMBOL"
+      echo "Live MT5 config prepared at $MT5_LIVE_CONFIG."
+      echo "Not launching live MT5 from the Mac launcher. Start it manually after checking live risk controls."
+    else
+      echo "Starting MT5 with the read-only HFM shadow config..."
+      WINEPREFIX="$MT5_PREFIX" "$WINE64" \
+        'C:\Program Files\MetaTrader 5\terminal64.exe' \
+        '/config:C:\qg\QuantGod_MT5_HFM_Shadow_mac.ini' >/dev/null 2>&1 &
+    fi
   fi
 else
   echo "MT5 data folder not found yet: $MT5_ROOT"

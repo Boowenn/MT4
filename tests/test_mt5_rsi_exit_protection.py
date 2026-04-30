@@ -7,6 +7,8 @@ EA_PATH = ROOT / "MQL5" / "Experts" / "QuantGod_MultiStrategy.mq5"
 LIVE_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_LivePilot.set"
 BACKTEST_USDJPY_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_USDJPYc.set"
 BACKTEST_EURUSD_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_EURUSDc.set"
+LIVE_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_LivePilot.ini"
+SHADOW_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_Shadow.ini"
 
 
 class Mt5RsiExitProtectionTests(unittest.TestCase):
@@ -140,6 +142,12 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PilotNewsHighImpactPreBlockMinutes=60", text)
         self.assertIn("PilotNewsPostBlockMinutes=30", text)
         self.assertIn("PilotNewsBiasMinutes=60", text)
+
+    def test_hfm_start_configs_open_usdjpy_chart_for_usdjpy_only_pilot(self):
+        for path in (LIVE_CONFIG_PATH, SHADOW_CONFIG_PATH):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("Symbol=USDJPYc", text)
+            self.assertNotIn("Symbol=EURUSDc", text)
 
     def test_live_and_usdjpy_backtest_presets_include_rsi_fast_exit(self):
         for path in (LIVE_PRESET_PATH, BACKTEST_USDJPY_PATH):
