@@ -73,6 +73,10 @@ echo "History DB: $HISTORY_DB"
   --interval-seconds 0 \
   --queue-min-score "${QG_POLYMARKET_RADAR_QUEUE_MIN_SCORE:-45}"
 
+"$PYTHON_BIN" tools/analyze_polymarket_single_market.py \
+  --runtime-dir "$RUNTIME_DIR" \
+  --dashboard-dir "$DASHBOARD_DIR"
+
 "$PYTHON_BIN" tools/build_polymarket_history_db.py \
   --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \

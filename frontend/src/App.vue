@@ -2477,6 +2477,20 @@ const watchlistItems = computed(() => [
 ].slice(0, 9));
 
 const actionQueueItems = computed(() => [
+  ...arrayFrom(mt5.value.dailyReview, ['actionQueue']).slice(0, 5).map((row) => ({
+    title: first(row.candidateId, row.versionId, row.taskId, row.type),
+    sub: `${first(row.routeKey, row.strategy, 'ParamLab')} · ${cleanInlineStatusText(first(row.state, row.resultStatus, '等待'))}`,
+    value: compactMetricScore(row.score, row.grade, row.profitFactor),
+    tone: String(first(row.state, '')).includes('READY') ? 'green' : String(first(row.state, '')).includes('WAIT') ? 'amber' : 'blue',
+    target: 'paramlab'
+  })),
+  ...arrayFrom(mt5.value.dailyReview, ['promotionRecommendations']).slice(0, 3).map((row) => ({
+    title: first(row.candidateId, row.versionId, row.routeKey, '升实盘复核'),
+    sub: `${first(row.routeKey, row.strategy, 'Strategy')} · 人工确认后才能实盘观察`,
+    value: `PF ${first(row.profitFactor, '--')}`,
+    tone: 'green',
+    target: 'mt5'
+  })),
   ...paramVisibleTasks.value.slice(0, 5).map((row) => ({
     title: first(row.candidateId, row.versionId, row.taskId),
     sub: `${paramRouteLabel(row)} · ${paramTodoStatusLabel(row)}`,
@@ -2538,6 +2552,9 @@ const dailyReview = computed(() => {
 
 const dailyReviewItems = computed(() => {
   const review = dailyReview.value;
+  const dailyArtifact = mt5.value.dailyReview || {};
+  const dailySummary = dailyArtifact.summary || {};
+  const autoLoop = mt5.value.dailyAutopilot || {};
   const paramSummary = mt5.value.paramStatus?.summary || {};
   const autoSummary = mt5.value.autoTesterWindow?.summary || {};
   const govSummary = mt5.value.governance?.summary || {};
@@ -2554,6 +2571,13 @@ const dailyReviewItems = computed(() => {
   const candidateLosses = review.candidateOutcomes.find(([key]) => key === 'LOSS')?.[1] || 0;
   const candidateFlat = review.candidateOutcomes.find(([key]) => key === 'FLAT')?.[1] || 0;
   return [
+    {
+      title: '自动闭环',
+      sub: `待办 ${first(dailySummary.paramActionCount, 0)} / 可跑 ${first(dailySummary.paramReadyToRunCount, 0)} / 升级复核 ${first(dailySummary.promotionReviewCount, 0)}`,
+      value: cleanInlineStatusText(first(autoLoop.status, dailyArtifact.aiReview?.status, '--')),
+      tone: autoLoop.status === 'PARTIAL' ? 'amber' : 'green',
+      target: 'reports'
+    },
     {
       title: 'MT5 昨日平仓',
       sub: `${ledgerDateLabel(review.closeDate) || '等待日期'} · ${review.dayCloseRows.length} 笔 / 净 ${signedAmount(review.netProfit, 2, ' USC')}`,

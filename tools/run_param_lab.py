@@ -296,9 +296,10 @@ def in_regular_tester_window(now_jst: datetime | None = None) -> bool:
     now = now_jst or datetime.now(timezone(timedelta(hours=9)))
     weekday = now.weekday()  # Monday=0
     minutes = now.hour * 60 + now.minute
+    weekday_night_window = weekday <= 4 and (20 * 60 + 10) <= minutes <= (23 * 60 + 30)
     saturday_window = weekday == 5 and (7 * 60 + 10) <= minutes <= (9 * 60 + 30)
     sunday_window = weekday == 6 and (8 * 60) <= minutes <= (9 * 60 + 30)
-    return saturday_window or sunday_window
+    return weekday_night_window or saturday_window or sunday_window
 
 
 def select_tasks(

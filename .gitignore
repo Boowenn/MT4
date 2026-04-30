@@ -48,6 +48,10 @@ Dashboard/QuantGod_PolymarketRealTradeLedger.json
 Dashboard/QuantGod_PolymarketRealTradeLedger.csv
 Dashboard/QuantGod_PolymarketAutoGovernance.json
 Dashboard/QuantGod_PolymarketAutoGovernanceLedger.csv
+Dashboard/QuantGod_DailyReview.json
+Dashboard/QuantGod_DailyReviewLedger.csv
+Dashboard/QuantGod_DailyAutopilot.json
+Dashboard/QuantGod_DailyAutopilotLedger.csv
 archive/backtests/runs/
 archive/param-lab/runs/
 archive/polymarket/history/

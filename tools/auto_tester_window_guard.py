@@ -264,14 +264,15 @@ def regular_tester_window(now_utc: datetime | None = None) -> dict[str, Any]:
     now = (now_utc or datetime.now(timezone.utc)).astimezone(JST)
     weekday = now.weekday()  # Monday=0
     minutes = now.hour * 60 + now.minute
+    weekday_night_window = weekday <= 4 and (20 * 60 + 10) <= minutes <= (23 * 60 + 30)
     saturday_window = weekday == 5 and (7 * 60 + 10) <= minutes <= (9 * 60 + 30)
     sunday_window = weekday == 6 and (8 * 60) <= minutes <= (9 * 60 + 30)
-    open_now = saturday_window or sunday_window
+    open_now = weekday_night_window or saturday_window or sunday_window
     return {
         "status": "ready" if open_now else "blocked",
         "ok": open_now,
         "nowJstIso": now.isoformat(),
-        "windowLabel": "Sat 07:10-09:30 JST or Sun 08:00-09:30 JST",
+        "windowLabel": "Weekday 20:10-23:30 JST, Sat 07:10-09:30 JST, or Sun 08:00-09:30 JST",
         "blockers": [] if open_now else ["outside_strategy_tester_window"],
     }
 

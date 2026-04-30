@@ -61,10 +61,12 @@ export QG_PARAMLAB_TESTER_ROOT="${QG_PARAMLAB_TESTER_ROOT:-$SCRIPT_DIR/runtime/H
 export QG_MT5_TESTER_ROOT="${QG_MT5_TESTER_ROOT:-$QG_PARAMLAB_TESTER_ROOT}"
 MT5_SHADOW_SCREEN="${QG_MT5_SHADOW_SCREEN:-quantgod-mt5-shadow}"
 MT5_LIVE_SCREEN="${QG_MT5_LIVE_SCREEN:-quantgod-mt5-live}"
+DAILY_AUTOPILOT_SCREEN="${QG_DAILY_AUTOPILOT_SCREEN:-quantgod-daily-autopilot}"
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
 MT5_START_MODE="${QG_MT5_START_MODE:-shadow}"
 MT5_LIVE_LAUNCH_ALLOWED="${QG_MT5_LIVE_LAUNCH_ALLOWED:-0}"
 MT5_START_SYMBOL="${QG_MT5_START_SYMBOL:-USDJPYc}"
+DAILY_AUTOPILOT_ENABLED="${QG_DAILY_AUTOPILOT_ENABLED:-1}"
 RUNTIME_IS_IMPORT_SNAPSHOT=0
 if is_import_snapshot_dir "$QG_RUNTIME_DIR"; then
   RUNTIME_IS_IMPORT_SNAPSHOT=1
@@ -81,6 +83,7 @@ echo "Runtime: $QG_RUNTIME_DIR"
 echo "MT5 start mode: $MT5_START_MODE"
 echo "MT5 start symbol: $MT5_START_SYMBOL"
 echo "MT5 live launch allowed: $MT5_LIVE_LAUNCH_ALLOWED"
+echo "Daily autopilot enabled: $DAILY_AUTOPILOT_ENABLED"
 echo "Dashboard: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
 
 if [[ -d "$MT5_ROOT" ]]; then
@@ -185,6 +188,21 @@ fi
 
 if [[ -d "$MT5_APP_PATH" && ! -x "$WINE64" ]]; then
   open "$MT5_APP_PATH" || true
+fi
+
+if [[ "$DAILY_AUTOPILOT_ENABLED" == "1" ]]; then
+  DAILY_AUTOPILOT_LOG="$SCRIPT_DIR/runtime/daily_autopilot_screen.log"
+  mkdir -p "$SCRIPT_DIR/runtime"
+  : > "$DAILY_AUTOPILOT_LOG"
+  if command -v screen >/dev/null 2>&1; then
+    screen -S "$DAILY_AUTOPILOT_SCREEN" -X quit >/dev/null 2>&1 || true
+    screen -dmS "$DAILY_AUTOPILOT_SCREEN" /bin/zsh -lc \
+      "cd '$SCRIPT_DIR' && exec bash tools/run_mac_daily_autopilot.sh --loop >> '$DAILY_AUTOPILOT_LOG' 2>&1"
+    echo "Daily autopilot started in screen session: $DAILY_AUTOPILOT_SCREEN"
+  else
+    bash tools/run_mac_daily_autopilot.sh --loop >> "$DAILY_AUTOPILOT_LOG" 2>&1 &
+    echo "Daily autopilot started in background. Log: $DAILY_AUTOPILOT_LOG"
+  fi
 fi
 
 open "http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/" || true
