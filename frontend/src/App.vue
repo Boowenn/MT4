@@ -3283,29 +3283,31 @@ onBeforeUnmount(() => {
               <span>风险与审计</span>
               <b class="pill amber">ledger</b>
             </div>
-            <div class="audit-stack">
-              <div class="audit-row">
-                <small>交易边界</small>
-                <strong>0.01 pilot / 单仓 / 只读页面</strong>
-                <span>页面不触发 order-send，也不改变 live switch。已合并重复来源 {{ duplicatedPositionEvidence }} 条。</span>
+            <div class="trade-audit-content">
+              <div class="audit-stack">
+                <div class="audit-row">
+                  <small>交易边界</small>
+                  <strong>0.01 pilot / 单仓 / 只读页面</strong>
+                  <span>页面不触发 order-send，也不改变 live switch。已合并重复来源 {{ duplicatedPositionEvidence }} 条。</span>
+                </div>
+                <div class="audit-row">
+                  <small>焦点路线</small>
+                  <strong>{{ routeShortName(primaryRoute) }} · {{ routeActionLabel(primaryRoute) }}</strong>
+                  <span>{{ shortText(routeWhyText(primaryRoute), 120) }}</span>
+                </div>
+                <div class="audit-row">
+                  <small>主要 blocker</small>
+                  <strong>{{ routeBlockerText(primaryRoute) }}</strong>
+                  <span>需要回看完整 ledger 时进入证据报表。</span>
+                </div>
               </div>
-              <div class="audit-row">
-                <small>焦点路线</small>
-                <strong>{{ routeShortName(primaryRoute) }} · {{ routeActionLabel(primaryRoute) }}</strong>
-                <span>{{ shortText(routeWhyText(primaryRoute), 120) }}</span>
+              <div class="history-list compact-history">
+                <button v-for="row in tradingAuditRows.slice(0, 4)" :key="first(row.time, row.ticket, row.eventId)" type="button">
+                  <strong>{{ shortText(`${auditActionText(row)} · ${auditScope(row)}`, 48) }}</strong>
+                  <span>{{ shortText(`${auditTime(row)} · ${auditReasonText(row, 2)}`, 56) }}</span>
+                </button>
+                <div v-if="!tradingAuditRows.length" class="rail-empty">暂无交易审计 ledger 行。</div>
               </div>
-              <div class="audit-row">
-                <small>主要 blocker</small>
-                <strong>{{ routeBlockerText(primaryRoute) }}</strong>
-                <span>需要回看完整 ledger 时进入证据报表。</span>
-              </div>
-            </div>
-            <div class="history-list compact-history">
-              <button v-for="row in tradingAuditRows.slice(0, 4)" :key="first(row.time, row.ticket, row.eventId)" type="button">
-                <strong>{{ shortText(`${auditActionText(row)} · ${auditScope(row)}`, 48) }}</strong>
-                <span>{{ shortText(`${auditTime(row)} · ${auditReasonText(row, 2)}`, 56) }}</span>
-              </button>
-              <div v-if="!tradingAuditRows.length" class="rail-empty">暂无交易审计 ledger 行。</div>
             </div>
           </aside>
         </div>

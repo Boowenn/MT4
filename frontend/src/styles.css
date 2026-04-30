@@ -3486,8 +3486,32 @@ body {
 .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   max-height: none;
+  overflow: visible;
+}
+
+.trade-audit-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.trade-audit-content .audit-stack,
+.trade-audit-content .history-list {
+  min-width: 0;
+}
+
+.trade-audit-content .audit-stack {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.trade-audit-content .compact-history {
+  margin-top: 0;
 }
 
 .page-mt5[data-focus="trades"] .trade-focus-card {
@@ -4221,7 +4245,6 @@ tbody tr:hover td {
     overflow: auto;
   }
 
-  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail,
   .trade-metric-grid,
   .strategy-performance-grid,
   .param-lane-board,
@@ -4324,13 +4347,17 @@ tbody tr:hover td {
   .poly-real-metric-grid,
   .poly-real-inline,
   .page-mt5[data-focus="trades"] .card-grid.three,
-  .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail,
   .trade-metric-grid,
   .strategy-performance-grid,
   .param-lane-board,
   .radar-grid,
   .dense-radar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trade-audit-content,
+  .trade-audit-content .audit-stack {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .section-grid,
