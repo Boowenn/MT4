@@ -2698,10 +2698,13 @@ const dailyReviewItems = computed(() => {
   const rsiPf = asNumber(rsiForward.profitFactor);
   const autoNeedsReview = !['', '--', 'OK'].includes(autoStatus) || readyCount > 0 || promotionCount > 0;
   const pnlNeedsReview = review.dayCloseRows.length > 0 && review.netProfit < 0;
-  const mt5RiskNeedsReview = asCount(mt5TerminalRisk.investorModeCount) > 0
+  const mt5RiskRecovered = mt5TerminalRisk.currentTradePermissionRecovered === true;
+  const mt5RiskNeedsReview = (
+    asCount(mt5TerminalRisk.investorModeCount) > 0
     || asCount(mt5TerminalRisk.tradeDisabledCount) > 0
     || asCount(mt5TerminalRisk.orderSendFailureCount) > 0
-    || mt5RuntimeFlags.value.brokerTradeBlocked;
+    || mt5RuntimeFlags.value.brokerTradeBlocked
+  ) && !mt5RiskRecovered;
   const rsiNeedsReview = mt5DashboardEvidence.value.stale
     || String(rsiAction).toUpperCase().includes('DEMOTE')
     || consecutiveLosses >= 2
@@ -2729,7 +2732,7 @@ const dailyReviewItems = computed(() => {
     {
       title: 'MT5 交易权限',
       sub: `${cleanInlineStatusText(first(mt5TerminalRisk.latestEvidence, mt5EntryMode.value.detail))} · retcode ${arrayFrom(mt5TerminalRisk, ['retcodes']).join('/') || '--'}`,
-      value: asCount(mt5TerminalRisk.investorModeCount) > 0 ? '只读登录' : mt5EntryMode.value.value,
+      value: mt5RiskRecovered ? '已恢复' : asCount(mt5TerminalRisk.investorModeCount) > 0 ? '只读登录' : mt5EntryMode.value.value,
       tone: 'red',
       target: 'mt5-trades',
       visible: mt5RiskNeedsReview

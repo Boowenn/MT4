@@ -148,6 +148,8 @@ const mt5AdaptiveControlName = 'QuantGod_MT5AdaptiveControlActions.json';
 const paramLabAutoTesterName = 'QuantGod_AutoTesterWindow.json';
 const paramLabAutoTesterLockName = 'QuantGod_AutoTesterWindow.lock.json';
 const paramLabAutoTesterLaunchName = 'QuantGod_AutoTesterWindowLaunch.json';
+const dailyReviewName = 'QuantGod_DailyReview.json';
+const dailyAutopilotName = 'QuantGod_DailyAutopilot.json';
 const configuredParamLabHfmRoot = process.env.QG_PARAMLAB_HFM_ROOT
   || path.join(repoRoot, 'runtime', 'ParamLab_Tester_Sandbox', 'live_hfm_placeholder');
 const configuredParamLabTesterRoot = process.env.QG_PARAMLAB_TESTER_ROOT
@@ -171,6 +173,14 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketRealTradeLedgerName,
   polymarketMarketCatalogName,
   polymarketAssetOpportunitiesName
+]);
+const dailyReadOnlyJsonFiles = new Set([
+  dailyReviewName,
+  dailyAutopilotName
+]);
+const quantGodReadOnlyJsonFiles = new Set([
+  ...polymarketReadOnlyJsonFiles,
+  ...dailyReadOnlyJsonFiles
 ]);
 
 const contentTypes = {
@@ -422,7 +432,7 @@ async function runJsonPythonPayload(script, args = [], payload = {}, timeoutMs =
 
 function readQuantGodJsonFile(fileName) {
   const base = path.basename(fileName || '');
-  if (!polymarketReadOnlyJsonFiles.has(base)) {
+  if (!quantGodReadOnlyJsonFiles.has(base)) {
     throw new Error(`unsupported read-only json file: ${base}`);
   }
   const candidates = [path.join(rootDir, base)];
@@ -3180,6 +3190,14 @@ const server = http.createServer((req, res) => {
       return;
     }
     send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/daily-review') {
+    handlePolymarketReadOnlyJson(req, res, dailyReviewName, '/api/daily-review');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/daily-autopilot') {
+    handlePolymarketReadOnlyJson(req, res, dailyAutopilotName, '/api/daily-autopilot');
     return;
   }
   if (req.method === 'GET' && (requestUrl.split('?')[0] === '/api/mt5-readonly' || requestUrl.split('?')[0].startsWith('/api/mt5-readonly/'))) {

@@ -252,15 +252,38 @@ def polymarket_summary(runtime_dir: Path) -> dict[str, Any]:
 
 def mt5_terminal_risk(runtime_dir: Path, now: datetime) -> dict[str, Any]:
     mt5_root = runtime_dir.parent.parent if runtime_dir.name == "Files" and runtime_dir.parent.name == "MQL5" else None
+    dashboard = read_json(runtime_dir / "QuantGod_Dashboard.json")
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
     summary = {
         "investorModeCount": 0,
         "tradeDisabledCount": 0,
         "orderSendFailureCount": 0,
         "retcodes": [],
         "latestEvidence": "",
+        "currentTradeStatus": first(runtime.get("tradeStatus"), default=""),
+        "currentTradeAllowed": runtime.get("tradeAllowed"),
+        "currentTerminalTradeAllowed": runtime.get("terminalTradeAllowed"),
+        "currentProgramTradeAllowed": runtime.get("programTradeAllowed"),
+        "currentAccountTradeAllowed": runtime.get("accountTradeAllowed"),
+        "currentAccountExpertTradeAllowed": runtime.get("accountExpertTradeAllowed"),
+        "currentFocusSymbolTradeAllowed": runtime.get("focusSymbolTradeAllowed"),
+        "currentTradePermissionBlocker": first(runtime.get("tradePermissionBlocker"), default=""),
+        "currentTradePermissionRecovered": False,
         "requiresCodexReview": False,
     }
+    permission_flags = [
+        runtime.get("tradeAllowed"),
+        runtime.get("terminalTradeAllowed"),
+        runtime.get("programTradeAllowed"),
+        runtime.get("accountTradeAllowed"),
+        runtime.get("accountExpertTradeAllowed"),
+        runtime.get("focusSymbolTradeAllowed"),
+    ]
+    current_permission_ok = bool(runtime) and all(flag is True for flag in permission_flags)
+    current_status_ready = clean(runtime.get("tradeStatus")).upper() in {"READY", "LIVE_READY", "TRADE_READY"}
+    current_blocker_empty = not clean(runtime.get("tradePermissionBlocker"))
     if not mt5_root or not mt5_root.exists():
+        summary["currentTradePermissionRecovered"] = current_permission_ok and current_status_ready and current_blocker_empty
         return summary
 
     today_key = now.strftime("%Y%m%d")
@@ -290,7 +313,16 @@ def mt5_terminal_risk(runtime_dir: Path, now: datetime) -> dict[str, Any]:
 
     summary["retcodes"] = sorted(set(retcodes))
     summary["latestEvidence"] = evidence[-1] if evidence else ""
-    summary["requiresCodexReview"] = bool(summary["investorModeCount"] or summary["tradeDisabledCount"] or summary["orderSendFailureCount"])
+    summary["currentTradePermissionRecovered"] = (
+        current_permission_ok
+        and current_status_ready
+        and current_blocker_empty
+        and bool(summary["investorModeCount"] or summary["tradeDisabledCount"] or summary["orderSendFailureCount"])
+    )
+    summary["requiresCodexReview"] = bool(
+        (summary["investorModeCount"] or summary["tradeDisabledCount"] or summary["orderSendFailureCount"])
+        and not summary["currentTradePermissionRecovered"]
+    )
     return summary
 
 

@@ -16,6 +16,16 @@ async function fetchJson(url, fallback = null, options = {}) {
   }
 }
 
+async function fetchJsonFirst(urls, fallback = null, options = {}) {
+  for (const url of urls) {
+    const payload = await fetchJson(url, null, options);
+    if (payload !== null) {
+      return payload;
+    }
+  }
+  return fallback;
+}
+
 async function fetchText(url, fallback = '', options = {}) {
   try {
     const response = await fetch(url, {
@@ -177,8 +187,8 @@ export async function loadDashboardState(query = '') {
     fetchJson('/QuantGod_ParamLabReportWatcher.json'),
     fetchJson('/QuantGod_ParamLabRunRecovery.json'),
     fetchJson('/QuantGod_AutoTesterWindow.json'),
-    fetchJson('/QuantGod_DailyReview.json'),
-    fetchJson('/QuantGod_DailyAutopilot.json'),
+    fetchJsonFirst(['/api/daily-review', '/QuantGod_DailyReview.json']),
+    fetchJsonFirst(['/api/daily-autopilot', '/QuantGod_DailyAutopilot.json']),
     fetchJson('/QuantGod_MT5ResearchStats.json'),
     fetchJson('/QuantGod_StrategyVersionRegistry.json'),
     fetchJson(`/api/polymarket/search?${search.toString()}`),
