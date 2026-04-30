@@ -1317,6 +1317,46 @@ bool IsPilotLiveMode()
    return (EnablePilotAutoTrading && !ReadOnlyMode);
 }
 
+string SymbolTradeModeLabel(long mode)
+{
+   if(mode == SYMBOL_TRADE_MODE_DISABLED)
+      return "DISABLED";
+   if(mode == SYMBOL_TRADE_MODE_LONGONLY)
+      return "LONG_ONLY";
+   if(mode == SYMBOL_TRADE_MODE_SHORTONLY)
+      return "SHORT_ONLY";
+   if(mode == SYMBOL_TRADE_MODE_CLOSEONLY)
+      return "CLOSE_ONLY";
+   if(mode == SYMBOL_TRADE_MODE_FULL)
+      return "FULL";
+   return "UNKNOWN";
+}
+
+bool SymbolEntryTradeAllowed(string symbol)
+{
+   long tradeMode = SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
+   return (tradeMode == SYMBOL_TRADE_MODE_FULL);
+}
+
+string LiveTradePermissionBlocker(string symbol)
+{
+   if(ReadOnlyMode)
+      return "READ_ONLY_MODE";
+   if(!(bool)TerminalInfoInteger(TERMINAL_CONNECTED))
+      return "TERMINAL_DISCONNECTED";
+   if(!(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
+      return "TERMINAL_AUTOTRADING_DISABLED";
+   if(!(bool)MQLInfoInteger(MQL_TRADE_ALLOWED))
+      return "EA_LIVE_TRADING_DISABLED";
+   if(!(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
+      return "ACCOUNT_TRADE_DISABLED_OR_INVESTOR_MODE";
+   if(!(bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
+      return "ACCOUNT_EXPERT_TRADE_DISABLED";
+   if(!SymbolEntryTradeAllowed(symbol))
+      return "SYMBOL_TRADE_MODE_" + SymbolTradeModeLabel(SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE));
+   return "";
+}
+
 bool IsUsdJpySymbol(string symbol)
 {
    return (StringFind(ToUpperString(symbol), "USDJPY") >= 0);
@@ -3658,6 +3698,18 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
    if(direction == 0)
       return false;
 
+   string permissionBlocker = LiveTradePermissionBlocker(symbol);
+   if(StringLen(permissionBlocker) > 0)
+   {
+      Print("QuantGod MT5 pilot order blocked: trade permission disabled strategy=", strategyKey,
+            " symbol=", symbol,
+            " blocker=", permissionBlocker,
+            " accountTradeAllowed=", ((bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) ? "true" : "false"),
+            " accountExpertTradeAllowed=", ((bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT) ? "true" : "false"),
+            " symbolTradeMode=", SymbolTradeModeLabel(SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE)));
+      return false;
+   }
+
    double volume = NormalizeVolumeForSymbol(symbol, PilotLotSize);
    g_trade.SetExpertMagicNumber(PilotMagic);
    g_trade.SetDeviationInPoints(PilotDeviationPoints);
@@ -5742,6 +5794,8 @@ string BuildSymbolsJson(SymbolSnapshot &snapshots[])
       json += "\"bid\": " + FormatNumber(snapshot.bid, (int)SymbolInfoInteger(snapshot.symbol, SYMBOL_DIGITS)) + ", ";
       json += "\"ask\": " + FormatNumber(snapshot.ask, (int)SymbolInfoInteger(snapshot.symbol, SYMBOL_DIGITS)) + ", ";
       json += "\"spread\": " + FormatNumber(snapshot.spread, 1) + ", ";
+      json += "\"tradeMode\": \"" + JsonEscape(SymbolTradeModeLabel(SymbolInfoInteger(snapshot.symbol, SYMBOL_TRADE_MODE))) + "\", ";
+      json += "\"entryTradeAllowed\": " + JsonBool(SymbolEntryTradeAllowed(snapshot.symbol)) + ", ";
       json += "\"openPositions\": " + IntegerToString(snapshot.openPositions) + ", ";
       json += "\"floatingProfit\": " + FormatNumber(snapshot.floatingProfit, 2) + ", ";
       json += "\"actualFloatingProfit\": " + FormatNumber(snapshot.actualFloatingProfit, 2) + ", ";
@@ -5834,16 +5888,30 @@ void ExportDashboard()
    bool terminalTradeAllowed = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED);
    bool programTradeAllowed = (bool)MQLInfoInteger(MQL_TRADE_ALLOWED);
    bool dllAllowed = (bool)MQLInfoInteger(MQL_DLLS_ALLOWED);
+   bool accountTradeAllowed = (bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED);
+   bool accountExpertTradeAllowed = (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+   long focusSymbolTradeMode = SymbolInfoInteger(g_focusSymbol, SYMBOL_TRADE_MODE);
+   bool focusSymbolTradeAllowed = SymbolEntryTradeAllowed(g_focusSymbol);
+   string tradePermissionBlocker = LiveTradePermissionBlocker(g_focusSymbol);
    long accountLogin = AccountInfoInteger(ACCOUNT_LOGIN);
    string accountServer = AccountInfoString(ACCOUNT_SERVER);
    bool accountAuthorized = (accountLogin > 0 && StringLen(accountServer) > 0);
    bool connected = (terminalConnected || accountAuthorized);
-   bool tradeAllowed = (!ReadOnlyMode && connected && terminalTradeAllowed && programTradeAllowed);
+   bool tradeAllowed = (!ReadOnlyMode && connected && terminalTradeAllowed && programTradeAllowed && accountTradeAllowed && accountExpertTradeAllowed && focusSymbolTradeAllowed);
    string tradeStatus = "NO_DATA";
    if(connected)
    {
       if(ReadOnlyMode)
          tradeStatus = "SHADOW";
+      else if(StringLen(tradePermissionBlocker) > 0)
+      {
+         if(StringFind(tradePermissionBlocker, "ACCOUNT_") == 0)
+            tradeStatus = "ACCOUNT_TRADE_DISABLED";
+         else if(StringFind(tradePermissionBlocker, "SYMBOL_") == 0)
+            tradeStatus = "SYMBOL_TRADE_DISABLED";
+         else
+            tradeStatus = "AUTOTRADING_OFF";
+      }
       else if(g_pilotKillSwitch)
          tradeStatus = "AUTO_PAUSED";
       else if(g_newsState.blocked)
@@ -5903,6 +5971,11 @@ void ExportDashboard()
    json += "    \"accountAuthorized\": " + JsonBool(accountAuthorized) + ",\r\n";
    json += "    \"terminalTradeAllowed\": " + JsonBool(terminalTradeAllowed) + ",\r\n";
    json += "    \"programTradeAllowed\": " + JsonBool(programTradeAllowed) + ",\r\n";
+   json += "    \"accountTradeAllowed\": " + JsonBool(accountTradeAllowed) + ",\r\n";
+   json += "    \"accountExpertTradeAllowed\": " + JsonBool(accountExpertTradeAllowed) + ",\r\n";
+   json += "    \"focusSymbolTradeAllowed\": " + JsonBool(focusSymbolTradeAllowed) + ",\r\n";
+   json += "    \"focusSymbolTradeMode\": \"" + JsonEscape(SymbolTradeModeLabel(focusSymbolTradeMode)) + "\",\r\n";
+   json += "    \"tradePermissionBlocker\": \"" + JsonEscape(tradePermissionBlocker) + "\",\r\n";
    json += "    \"dllAllowed\": " + JsonBool(dllAllowed) + ",\r\n";
    json += "    \"tradeAllowed\": " + JsonBool(tradeAllowed) + ",\r\n";
    json += "    \"tickAgeSeconds\": " + IntegerToString(focusTickAge) + ",\r\n";
@@ -6070,4 +6143,3 @@ void OnTimer()
 {
    ExportDashboard();
 }
-

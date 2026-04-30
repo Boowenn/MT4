@@ -1169,13 +1169,24 @@ const mt5RuntimeFlags = computed(() => {
   const tradeAllowed = booleanish(runtime.tradeAllowed);
   const terminalTradeAllowed = booleanish(runtime.terminalTradeAllowed);
   const programTradeAllowed = booleanish(runtime.programTradeAllowed);
+  const accountTradeAllowed = runtime.accountTradeAllowed === undefined ? true : booleanish(runtime.accountTradeAllowed);
+  const accountExpertTradeAllowed = runtime.accountExpertTradeAllowed === undefined ? true : booleanish(runtime.accountExpertTradeAllowed);
+  const focusSymbolTradeAllowed = runtime.focusSymbolTradeAllowed === undefined ? true : booleanish(runtime.focusSymbolTradeAllowed);
+  const tradePermissionBlocker = String(first(runtime.tradePermissionBlocker, '')).trim();
   const killSwitch = booleanish(runtime.pilotKillSwitch);
+  const brokerTradeBlocked = Boolean(tradePermissionBlocker)
+    || tradeStatus === 'ACCOUNT_TRADE_DISABLED'
+    || tradeStatus === 'SYMBOL_TRADE_DISABLED';
   const liveEntryEnabled = !shadowMode
     && executionEnabled
     && livePilotMode
     && tradeAllowed
     && terminalTradeAllowed
     && programTradeAllowed
+    && accountTradeAllowed
+    && accountExpertTradeAllowed
+    && focusSymbolTradeAllowed
+    && !brokerTradeBlocked
     && !killSwitch;
   return {
     tradeStatus,
@@ -1185,6 +1196,12 @@ const mt5RuntimeFlags = computed(() => {
     tradeAllowed,
     terminalTradeAllowed,
     programTradeAllowed,
+    accountTradeAllowed,
+    accountExpertTradeAllowed,
+    focusSymbolTradeAllowed,
+    focusSymbolTradeMode: first(runtime.focusSymbolTradeMode, ''),
+    tradePermissionBlocker,
+    brokerTradeBlocked,
     killSwitch,
     liveEntryEnabled
   };
@@ -1213,9 +1230,27 @@ const mt5EntryMode = computed(() => {
       tone: 'green'
     };
   }
+  if (flags.brokerTradeBlocked) {
+    const blockerText = cleanInlineStatusText(first(flags.tradePermissionBlocker, flags.tradeStatus));
+    const isAccount = flags.tradeStatus === 'ACCOUNT_TRADE_DISABLED'
+      || blockerText.includes('ACCOUNT')
+      || blockerText.includes('INVESTOR');
+    return {
+      value: isAccount ? '账号只读/交易禁用' : '品种交易禁用',
+      detail: isAccount
+        ? 'MT5 当前像 investor/read-only 登录；EA 不会真实成交'
+        : `当前品种 trade mode=${first(flags.focusSymbolTradeMode, '--')}，EA 不会真实成交`,
+      tone: 'red'
+    };
+  }
   const blockers = [];
   if (!flags.executionEnabled) blockers.push('execution disabled');
   if (!flags.livePilotMode) blockers.push('live pilot off');
+  if (!flags.terminalTradeAllowed) blockers.push('terminal autotrading off');
+  if (!flags.programTradeAllowed) blockers.push('EA live trading off');
+  if (!flags.accountTradeAllowed) blockers.push('account trade disabled');
+  if (!flags.accountExpertTradeAllowed) blockers.push('expert trade disabled');
+  if (!flags.focusSymbolTradeAllowed) blockers.push('symbol trade disabled');
   if (!flags.tradeAllowed) blockers.push('trade not allowed');
   if (flags.killSwitch) blockers.push('kill switch');
   return {
@@ -2559,6 +2594,7 @@ const dailyReviewItems = computed(() => {
   const paramSummary = mt5.value.paramStatus?.summary || {};
   const autoSummary = mt5.value.autoTesterWindow?.summary || {};
   const govSummary = mt5.value.governance?.summary || {};
+  const mt5TerminalRisk = dailyArtifact.mt5TerminalRisk || {};
   const aiSummary = poly.value.aiScore?.summary || {};
   const autoGovSummary = poly.value.autoGovernance?.summary || {};
   const rsi = review.rsiRoute || {};
@@ -2591,6 +2627,10 @@ const dailyReviewItems = computed(() => {
   const rsiPf = asNumber(rsiForward.profitFactor);
   const autoNeedsReview = !['', '--', 'OK'].includes(autoStatus) || readyCount > 0 || promotionCount > 0;
   const pnlNeedsReview = review.dayCloseRows.length > 0 && review.netProfit < 0;
+  const mt5RiskNeedsReview = asCount(mt5TerminalRisk.investorModeCount) > 0
+    || asCount(mt5TerminalRisk.tradeDisabledCount) > 0
+    || asCount(mt5TerminalRisk.orderSendFailureCount) > 0
+    || mt5RuntimeFlags.value.brokerTradeBlocked;
   const rsiNeedsReview = mt5DashboardEvidence.value.stale
     || String(rsiAction).toUpperCase().includes('DEMOTE')
     || consecutiveLosses >= 2
@@ -2614,6 +2654,14 @@ const dailyReviewItems = computed(() => {
       tone: autoLoop.status === 'PARTIAL' || promotionCount > 0 ? 'amber' : readyCount > 0 ? 'blue' : 'red',
       target: 'reports',
       visible: autoNeedsReview
+    },
+    {
+      title: 'MT5 交易权限',
+      sub: `${cleanInlineStatusText(first(mt5TerminalRisk.latestEvidence, mt5EntryMode.value.detail))} · retcode ${arrayFrom(mt5TerminalRisk, ['retcodes']).join('/') || '--'}`,
+      value: asCount(mt5TerminalRisk.investorModeCount) > 0 ? '只读登录' : mt5EntryMode.value.value,
+      tone: 'red',
+      target: 'mt5-trades',
+      visible: mt5RiskNeedsReview
     },
     {
       title: 'MT5 昨日平仓',

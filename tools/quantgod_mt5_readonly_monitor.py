@@ -109,9 +109,18 @@ def read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 def read_text(path: Path, max_bytes: int = 2_000_000) -> str:
     try:
-        return path.read_bytes()[:max_bytes].decode("utf-8-sig", errors="replace")
+        raw = path.read_bytes()[:max_bytes]
     except OSError:
         return ""
+    for encoding in ("utf-8-sig", "utf-8", "cp932", "shift_jis", "utf-16"):
+        try:
+            text = raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        if text.count("\x00") > max(8, len(text) // 10):
+            continue
+        return text
+    return raw.decode("utf-8", errors="replace")
 
 
 def suspicious_evidence(path: Path) -> bool:
@@ -274,9 +283,25 @@ def scan_logs(log_dir: Path, today: datetime) -> tuple[Counter[str], list[str]]:
         text = read_text(path, max_bytes=5_000_000)
         for key in PROTECTED_KEYWORDS:
             counts[key] += text.count(key)
-        for match in re.finditer(r"pilot order failed retcode[=: ]+([0-9]+)", text, flags=re.I):
+        for match in re.finditer(r"pilot order failed.*?retcode[=: ]+([0-9]+)", text, flags=re.I):
             failures.append(match.group(1))
     return counts, failures
+
+
+def scan_trade_permission_logs(log_dir: Path, today: datetime) -> list[str]:
+    alerts: list[str] = []
+    if not log_dir.exists():
+        return alerts
+    today_key = today.strftime("%Y%m%d")
+    for path in sorted(log_dir.glob("*.log")):
+        if today_key not in path.name and datetime.fromtimestamp(path.stat().st_mtime, JST).date() != today.date():
+            continue
+        text = read_text(path, max_bytes=5_000_000)
+        if re.search(r"trading has been disabled\s*-\s*investor mode", text, flags=re.I):
+            alerts.append("ACCOUNT_INVESTOR_MODE")
+        if re.search(r"\[Trade disabled\]", text, flags=re.I):
+            alerts.append("BROKER_TRADE_DISABLED")
+    return sorted(set(alerts))
 
 
 def news_isolation(now: datetime, dashboard: dict[str, Any] | None, shadow_text: str) -> list[str]:
@@ -470,6 +495,7 @@ def main() -> int:
 
     log_counts, order_failures = scan_logs(mt5_root / "MQL5/Logs", now)
     log_alerts = [f"ORDER_SEND_FAILURE:{code}" for code in order_failures]
+    log_alerts.extend(scan_trade_permission_logs(mt5_root / "logs", now))
     for key, count in log_counts.items():
         if count > 5 and key in {"RSI_TIME_STOP", "RSI_FAILFAST"}:
             log_alerts.append(f"LOG_ANOMALY:{key}:{count}")

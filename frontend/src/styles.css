@@ -4013,6 +4013,71 @@ tbody tr:hover td {
   grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
 }
 
+.page-polymarket .governance-lane-rich {
+  grid-template-columns: minmax(220px, 1fr) minmax(0, max-content);
+  align-items: start;
+}
+
+.page-polymarket .compact-governance .governance-lane-rich,
+.page-polymarket .governance-lane-rich.wallet-boundary-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.page-polymarket .lane-copy strong,
+.page-polymarket .lane-copy small,
+.page-polymarket .risk-title,
+.page-polymarket .risk-link-row small {
+  display: block;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.page-polymarket .lane-copy strong,
+.page-polymarket .risk-title {
+  line-height: 1.25;
+}
+
+.page-polymarket .lane-copy small,
+.page-polymarket .risk-link-row small {
+  line-height: 1.35;
+}
+
+.page-polymarket .lane-chipset {
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.page-polymarket .compact-governance .lane-chipset,
+.page-polymarket .wallet-boundary-row .lane-chipset,
+.page-polymarket .risk-link-row .lane-chipset {
+  justify-content: flex-start;
+}
+
+.page-polymarket .lane-chipset .status-chip,
+.page-polymarket .risk-link-row .status-chip {
+  flex: 0 1 auto;
+  height: auto;
+  min-height: 28px;
+  max-width: min(100%, 170px);
+  padding: 3px 8px;
+  line-height: 1.2;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.page-polymarket .risk-link-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
 .data-table .pill {
   max-width: 100%;
 }
@@ -4370,6 +4435,7 @@ tbody tr:hover td {
   .workspace-layout,
   .mt5-command-grid,
   .poly-cockpit-grid,
+  .poly-overview-grid,
   .poly-radar-workbench,
   .single-analysis-workspace,
   .card-grid,
@@ -4553,6 +4619,7 @@ tbody tr:hover td {
   .hero-metrics,
   .mt5-command-grid,
   .poly-cockpit-grid,
+  .poly-overview-grid,
   .poly-account-strip,
   .poly-radar-workbench,
   .single-analysis-workspace,
@@ -4617,5 +4684,24 @@ tbody tr:hover td {
   .hero-panel,
   .data-table-card {
     padding: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-polymarket .poly-overview-grid,
+  .page-polymarket .governance-lane-rich,
+  .page-polymarket .compact-governance .governance-lane-rich,
+  .page-polymarket .governance-lane-rich.wallet-boundary-row,
+  .page-polymarket .risk-link-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page-polymarket .governance-lane,
+  .page-polymarket .radar-ticker-item {
+    align-items: start;
+  }
+
+  .page-polymarket .lane-chipset {
+    justify-content: flex-start;
   }
 }

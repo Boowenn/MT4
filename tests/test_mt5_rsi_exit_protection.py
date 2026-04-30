@@ -90,6 +90,27 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("else if(!IsLegacyPilotRouteLiveEnabled(strategyKey))", text)
         self.assertIn("legacy route live switch disabled", text)
 
+    def test_live_trade_permissions_include_account_and_symbol_state(self):
+        text = EA_PATH.read_text(encoding="utf-8")
+        self.assertIn("string LiveTradePermissionBlocker(string symbol)", text)
+        self.assertIn("ACCOUNT_TRADE_DISABLED_OR_INVESTOR_MODE", text)
+        self.assertIn("ACCOUNT_EXPERT_TRADE_DISABLED", text)
+        self.assertIn("SYMBOL_TRADE_MODE_", text)
+        self.assertIn("accountTradeAllowed", text)
+        self.assertIn("accountExpertTradeAllowed", text)
+        self.assertIn("focusSymbolTradeAllowed", text)
+        self.assertIn("tradePermissionBlocker", text)
+        self.assertIn('tradeStatus = "ACCOUNT_TRADE_DISABLED";', text)
+        self.assertIn('tradeStatus = "SYMBOL_TRADE_DISABLED";', text)
+
+    def test_order_send_blocks_investor_mode_before_broker_rejection(self):
+        text = EA_PATH.read_text(encoding="utf-8")
+        self.assertIn("string permissionBlocker = LiveTradePermissionBlocker(symbol);", text)
+        self.assertIn("pilot order blocked: trade permission disabled", text)
+        self.assertIn("accountTradeAllowed=", text)
+        self.assertIn("accountExpertTradeAllowed=", text)
+        self.assertIn("symbolTradeMode=", text)
+
     def test_non_rsi_legacy_routes_need_second_live_authorization_key(self):
         text = EA_PATH.read_text(encoding="utf-8")
         self.assertIn("input bool   EnableNonRsiLegacyLiveAuthorization = false;", text)

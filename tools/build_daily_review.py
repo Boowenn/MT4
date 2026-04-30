@@ -13,6 +13,7 @@ import argparse
 import csv
 import json
 import math
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,12 +39,16 @@ def utc_now() -> datetime:
 
 
 def read_text(path: Path) -> str:
+    raw = path.read_bytes()
     for encoding in ("utf-8-sig", "utf-8", "cp932", "shift_jis", "utf-16"):
         try:
-            return path.read_text(encoding=encoding)
+            text = raw.decode(encoding)
+            if text.count("\x00") > max(8, len(text) // 10):
+                continue
+            return text
         except UnicodeDecodeError:
             continue
-    return path.read_text(errors="replace")
+    return raw.decode("utf-8", errors="replace")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -245,6 +250,50 @@ def polymarket_summary(runtime_dir: Path) -> dict[str, Any]:
     }
 
 
+def mt5_terminal_risk(runtime_dir: Path, now: datetime) -> dict[str, Any]:
+    mt5_root = runtime_dir.parent.parent if runtime_dir.name == "Files" and runtime_dir.parent.name == "MQL5" else None
+    summary = {
+        "investorModeCount": 0,
+        "tradeDisabledCount": 0,
+        "orderSendFailureCount": 0,
+        "retcodes": [],
+        "latestEvidence": "",
+        "requiresCodexReview": False,
+    }
+    if not mt5_root or not mt5_root.exists():
+        return summary
+
+    today_key = now.strftime("%Y%m%d")
+    evidence: list[str] = []
+    retcodes: list[str] = []
+    for log_dir in (mt5_root / "logs", mt5_root / "MQL5" / "Logs"):
+        if not log_dir.exists():
+            continue
+        for path in sorted(log_dir.glob("*.log")):
+            if today_key not in path.name and date_key(datetime.fromtimestamp(path.stat().st_mtime).isoformat()) != now.date().isoformat():
+                continue
+            text = read_text(path)
+            investor_matches = re.findall(r"trading has been disabled\s*-\s*investor mode", text, flags=re.I)
+            trade_disabled_matches = re.findall(r"\[Trade disabled\]|comment=Trade disabled", text, flags=re.I)
+            order_fail_matches = re.findall(r"pilot order failed:.*?retcode[=: ]+([0-9]+).*?(?:comment=([^\r\n]+))?", text, flags=re.I)
+            summary["investorModeCount"] += len(investor_matches)
+            summary["tradeDisabledCount"] += len(trade_disabled_matches)
+            summary["orderSendFailureCount"] += len(order_fail_matches)
+            for retcode, comment in order_fail_matches:
+                if retcode:
+                    retcodes.append(retcode)
+                    evidence.append(f"{path.name}: retcode={retcode} {comment}".strip())
+            if investor_matches:
+                evidence.append(f"{path.name}: investor mode")
+            if trade_disabled_matches and not order_fail_matches:
+                evidence.append(f"{path.name}: Trade disabled")
+
+    summary["retcodes"] = sorted(set(retcodes))
+    summary["latestEvidence"] = evidence[-1] if evidence else ""
+    summary["requiresCodexReview"] = bool(summary["investorModeCount"] or summary["tradeDisabledCount"] or summary["orderSendFailureCount"])
+    return summary
+
+
 def codex_review_queue(
     daily_pnl: dict[str, Any],
     action_queue: list[dict[str, Any]],
@@ -253,6 +302,7 @@ def codex_review_queue(
     auto_tester: dict[str, Any],
     recovery_summary: dict[str, Any],
     poly_summary: dict[str, Any],
+    mt5_risk: dict[str, Any],
 ) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     targets: set[str] = set()
@@ -333,6 +383,18 @@ def codex_review_queue(
         })
         targets.add("code_or_network")
 
+    if mt5_risk.get("requiresCodexReview"):
+        reasons.append({
+            "code": "MT5_TRADE_PERMISSION_OR_ORDER_SEND_FAILURE",
+            "target": "code_or_environment",
+            "detail": (
+                f"investorMode={mt5_risk.get('investorModeCount')} "
+                f"tradeDisabled={mt5_risk.get('tradeDisabledCount')} "
+                f"retcodes={','.join(mt5_risk.get('retcodes') or []) or '--'}"
+            ),
+        })
+        targets.add("code_or_environment")
+
     required = bool(reasons)
     return {
         "required": required,
@@ -380,6 +442,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)))
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)
+    mt5_risk = mt5_terminal_risk(runtime_dir, now)
     tester_summary = auto_tester.get("summary", {}) if isinstance(auto_tester.get("summary"), dict) else {}
     recovery_summary = run_recovery.get("summary", {}) if isinstance(run_recovery.get("summary"), dict) else {}
     codex_review = codex_review_queue(
@@ -390,6 +453,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         auto_tester,
         recovery_summary,
         poly,
+        mt5_risk,
     )
 
     queue_counter = Counter(action.get("state") for action in action_queue)
@@ -430,6 +494,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "testerLockOk": bool(tester_summary.get("lockOk")),
             "recoveryRedCount": first(recovery_summary.get("riskRedCount"), 0),
             "recoveryYellowCount": first(recovery_summary.get("riskYellowCount"), 0),
+            "mt5TradeDisabledCount": mt5_risk["tradeDisabledCount"],
+            "mt5InvestorModeCount": mt5_risk["investorModeCount"],
             "codexReviewRequired": codex_review["required"],
         },
         "dailyPnl": daily_pnl,
@@ -437,6 +503,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
         "polymarket": poly,
+        "mt5TerminalRisk": mt5_risk,
         "tester": {
             "summary": tester_summary,
             "blockers": as_list(auto_tester.get("gate", {}).get("blockers"))[:8],
@@ -467,6 +534,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "ParamWaitGuardCount": queue_counter.get("WAIT_GUARD", 0),
             "PromotionReviewCount": len(promotions),
             "TesterCanRun": str(bool(tester_summary.get("canRunTerminal"))).lower(),
+            "Mt5InvestorModeCount": mt5_risk["investorModeCount"],
+            "Mt5TradeDisabledCount": mt5_risk["tradeDisabledCount"],
             "PolymarketWorkerStatus": payload["polymarket"]["workerStatus"],
             "PolymarketQueue": payload["polymarket"]["candidateQueueSize"],
             "CodexReviewRequired": str(codex_review["required"]).lower(),
@@ -480,6 +549,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "ParamWaitGuardCount",
             "PromotionReviewCount",
             "TesterCanRun",
+            "Mt5InvestorModeCount",
+            "Mt5TradeDisabledCount",
             "PolymarketWorkerStatus",
             "PolymarketQueue",
             "CodexReviewRequired",
