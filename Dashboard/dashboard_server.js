@@ -152,7 +152,7 @@ const configuredParamLabHfmRoot = process.env.QG_PARAMLAB_HFM_ROOT
   || path.join(repoRoot, 'runtime', 'ParamLab_Tester_Sandbox', 'live_hfm_placeholder');
 const configuredParamLabTesterRoot = process.env.QG_PARAMLAB_TESTER_ROOT
   || process.env.QG_MT5_TESTER_ROOT
-  || path.join(repoRoot, 'runtime', 'ParamLab_Tester_Sandbox', 'isolated_tester');
+  || path.join(repoRoot, 'runtime', 'HFM_MT5_Tester_Isolated');
 const defaultParamLabHfmRoot = path.isAbsolute(configuredParamLabHfmRoot)
   ? configuredParamLabHfmRoot
   : path.resolve(repoRoot, configuredParamLabHfmRoot);

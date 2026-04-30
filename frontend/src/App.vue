@@ -979,11 +979,13 @@ function stopReasonLabel(reason) {
     waiting_guard_clearance: '等待守护条件解除',
     wait_auto_tester_window: '等待自动回测窗口',
     outside_strategy_tester_window: '不在 Strategy Tester 时间窗',
+    authorization_lock_refresh_required: '需要重新短时授权',
     authorization_lock_missing: '缺少授权锁文件',
-    authorization_lock_expired: '授权锁已过期',
-    authorization_lock_runtime_dir_mismatch: '授权锁运行目录不匹配',
+    authorization_lock_expired: '需要重新短时授权',
+    authorization_lock_runtime_dir_mismatch: '旧授权路径已失效',
     authorization_lock_not_authorized: '授权锁未允许执行',
     authorization_lock_not_tester_only: '授权锁不是 tester-only',
+    isolated_tester_root_not_prepared: '隔离 Tester 未准备',
     open_live_positions_present: '仍有实盘持仓',
     symbol_open_positions_present: '品种仍有持仓',
     strategy_open_positions_present: '策略仍有持仓',
@@ -1159,15 +1161,43 @@ const autoTesterBlockers = computed(() => {
   return [];
 });
 
+const autoTesterVisibleBlockers = computed(() => {
+  const blockers = autoTesterBlockers.value.map((item) => String(item || ''));
+  const compacted = [];
+  const add = (value) => {
+    if (value && !compacted.includes(value)) compacted.push(value);
+  };
+  const hasAuthLockIssue = blockers.some((item) => item.startsWith('authorization_lock_'));
+  const hasTesterRootIssue = blockers.some((item) => [
+    'terminal64_missing',
+    'tester_terminal64_missing',
+    'tester_profile_root_missing',
+    'isolated_tester_required_but_shared_with_live_hfm_root'
+  ].includes(item));
+  if (hasAuthLockIssue) add('authorization_lock_refresh_required');
+  if (hasTesterRootIssue) add('isolated_tester_root_not_prepared');
+  blockers.forEach((item) => {
+    if (item.startsWith('authorization_lock_')) return;
+    if ([
+      'terminal64_missing',
+      'tester_terminal64_missing',
+      'tester_profile_root_missing',
+      'isolated_tester_required_but_shared_with_live_hfm_root'
+    ].includes(item)) return;
+    add(item);
+  });
+  return compacted;
+});
+
 function autoTesterGuardText() {
-  const blockers = autoTesterBlockers.value.slice(0, 3).map((item) => stopReasonLabel(item));
+  const blockers = autoTesterVisibleBlockers.value.slice(0, 3).map((item) => stopReasonLabel(item));
   if (autoTesterCanRun.value) return 'guard 已放行';
   return blockers.length ? `锁定：${blockers.join(' / ')}` : '锁定：等待 guard 刷新';
 }
 
 function autoTesterShortGuardText() {
   if (autoTesterCanRun.value) return '可启动';
-  const blockers = autoTesterBlockers.value.slice(0, 2).map((item) => stopReasonLabel(item));
+  const blockers = autoTesterVisibleBlockers.value.slice(0, 2).map((item) => stopReasonLabel(item));
   return blockers.length ? `待守护：${blockers.join(' / ')}` : '待守护';
 }
 

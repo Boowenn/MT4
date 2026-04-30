@@ -56,6 +56,9 @@ MT5_PRESETS="$MT5_MQL5/Presets"
 WINE64="$MT5_APP_PATH/Contents/SharedSupport/wine/bin/wine64"
 MT5_SHADOW_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_Shadow_mac.ini"
 MT5_LIVE_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_LivePilot_mac.ini"
+export QG_PARAMLAB_HFM_ROOT="${QG_PARAMLAB_HFM_ROOT:-$SCRIPT_DIR/runtime/ParamLab_Tester_Sandbox/live_hfm_placeholder}"
+export QG_PARAMLAB_TESTER_ROOT="${QG_PARAMLAB_TESTER_ROOT:-$SCRIPT_DIR/runtime/HFM_MT5_Tester_Isolated}"
+export QG_MT5_TESTER_ROOT="${QG_MT5_TESTER_ROOT:-$QG_PARAMLAB_TESTER_ROOT}"
 MT5_SHADOW_SCREEN="${QG_MT5_SHADOW_SCREEN:-quantgod-mt5-shadow}"
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
 MT5_START_MODE="${QG_MT5_START_MODE:-shadow}"
@@ -113,6 +116,15 @@ if [[ -d "$MT5_ROOT" ]]; then
     else
       echo "MetaEditor did not produce QuantGod_MultiStrategy.ex5. Exit code: $COMPILE_CODE"
       echo "Check: $MT5_PREFIX/drive_c/qg/compile.log"
+    fi
+
+    if [[ "${QG_PREPARE_ISOLATED_TESTER:-1}" != "0" ]]; then
+      echo "Preparing isolated Strategy Tester root..."
+      "$QG_PYTHON_BIN" tools/prepare_isolated_mt5_tester.py \
+        --source-root "$MT5_ROOT" \
+        --tester-root "$QG_PARAMLAB_TESTER_ROOT" \
+        --status "$SCRIPT_DIR/runtime/QuantGod_IsolatedTesterStatus.json" \
+        --refresh || echo "Isolated tester preparation failed; AUTO_TESTER_WINDOW will stay locked."
     fi
 
     if [[ "$MT5_START_MODE" == "off" ]]; then

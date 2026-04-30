@@ -99,6 +99,11 @@ def copy_tree_light(src: Path, dst: Path) -> int:
     return copied
 
 
+def join_rel(root: Path, rel: str) -> Path:
+    parts = [part for part in str(rel).replace("\\", "/").split("/") if part]
+    return root.joinpath(*parts)
+
+
 def main() -> int:
     args = parse_args()
     repo_root = Path(args.repo_root)
@@ -110,7 +115,7 @@ def main() -> int:
         raise FileNotFoundError(f"HFM source terminal missing: {source_root / 'terminal64.exe'}")
 
     for rel in STRUCTURE_DIRS:
-        (tester_root / rel).mkdir(parents=True, exist_ok=True)
+        join_rel(tester_root, rel).mkdir(parents=True, exist_ok=True)
 
     copied_files: list[str] = []
     skipped_sensitive: list[str] = []
@@ -134,12 +139,12 @@ def main() -> int:
             copied_files.append(f"Config/certificates ({copied})")
 
     for rel in ("MQL5\\Include", "MQL5\\Images", "MQL5\\Indicators", "MQL5\\Libraries", "MQL5\\Scripts", "MQL5\\Services", "MQL5\\Shared Projects"):
-        copied = copy_tree_light(source_root / rel, tester_root / rel)
+        copied = copy_tree_light(join_rel(source_root, rel), join_rel(tester_root, rel))
         if copied:
             copied_files.append(f"{rel.replace(chr(92), '/')} ({copied})")
 
     for rel in ("Profiles\\SymbolSets", "Profiles\\Templates", "Sounds"):
-        copied = copy_tree_light(source_root / rel, tester_root / rel)
+        copied = copy_tree_light(join_rel(source_root, rel), join_rel(tester_root, rel))
         if copied:
             copied_files.append(f"{rel.replace(chr(92), '/')} ({copied})")
 
@@ -158,7 +163,7 @@ def main() -> int:
         for preset in preset_dir.glob("QuantGod*.set"):
             if "LivePilot" in preset.name:
                 continue
-            target_dir = tester_root / "MQL5" / ("Profiles\\Tester" if "Profiles" in str(preset_dir) else "Presets")
+            target_dir = join_rel(tester_root / "MQL5", "Profiles\\Tester" if "Profiles" in str(preset_dir) else "Presets")
             if copy_file(preset, target_dir / preset.name):
                 copied_files.append(str((target_dir / preset.name).relative_to(tester_root)).replace("\\", "/"))
 
@@ -183,12 +188,12 @@ def main() -> int:
         "sourceRoot": str(source_root),
         "testerRoot": str(tester_root),
         "terminalPath": str(tester_root / "terminal64.exe"),
-        "profileRoot": str(tester_root / "MQL5" / "Profiles" / "Tester"),
-        "expertPath": str(tester_root / "MQL5" / "Experts" / "QuantGod_MultiStrategy.ex5"),
+        "profileRoot": str(join_rel(tester_root, "MQL5\\Profiles\\Tester")),
+        "expertPath": str(join_rel(tester_root, "MQL5\\Experts") / "QuantGod_MultiStrategy.ex5"),
         "sensitiveConfigSkipped": skipped_sensitive,
         "copiedCount": len(copied_files),
         "copiedSample": copied_files[:40],
-        "ready": (tester_root / "terminal64.exe").exists() and (tester_root / "MQL5" / "Profiles" / "Tester").exists(),
+        "ready": (tester_root / "terminal64.exe").exists() and join_rel(tester_root, "MQL5\\Profiles\\Tester").exists(),
         "hardGuards": [
             "Local copy only; no network transfer.",
             "Does not copy Config/accounts.dat or terminal.lic.",

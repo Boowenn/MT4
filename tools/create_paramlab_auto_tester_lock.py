@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,8 +19,12 @@ from auto_tester_window_guard import LOCK_NAME, LOCK_PURPOSE
 
 
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RUNTIME_DIR = DEFAULT_REPO_ROOT / "runtime" / "mac_import" / "mt5_files_snapshot"
-DEFAULT_TESTER_ROOT = DEFAULT_REPO_ROOT / "runtime" / "ParamLab_Tester_Sandbox" / "isolated_tester"
+DEFAULT_RUNTIME_DIR = Path(
+    os.environ.get("QG_MT5_FILES_DIR")
+    or os.environ.get("QG_RUNTIME_DIR")
+    or DEFAULT_REPO_ROOT / "Dashboard"
+)
+DEFAULT_TESTER_ROOT = DEFAULT_REPO_ROOT / "runtime" / "HFM_MT5_Tester_Isolated"
 
 
 def parse_args() -> argparse.Namespace:
