@@ -122,8 +122,15 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("value: '启动保护'", text)
         self.assertIn("statusText: routeActionLabel(laneRow)", text)
         self.assertIn("routeShortName(row) === route", text)
+        self.assertIn("return { ...direct, ...symbolState }", text)
         self.assertIn("function routeRuntimeIsCandidate(row)", text)
+        self.assertIn("function routeDowngradeLabel(row)", text)
+        self.assertIn("function routeNextStepText(row)", text)
+        self.assertIn("'降级模拟'", text)
+        self.assertNotIn("'实盘暂停'", text)
         self.assertIn("const runtimeReason = first(runtime.adaptiveReason, runtime.reason, '')", text)
+        self.assertIn("MA 已从实盘降级到模拟/候选观察", text)
+        self.assertIn("保持模拟/候选观察", text)
 
     def test_non_rsi_legacy_routes_need_second_live_authorization_key(self):
         text = EA_PATH.read_text(encoding="utf-8")

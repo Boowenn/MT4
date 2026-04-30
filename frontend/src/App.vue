@@ -708,9 +708,10 @@ function routeRuntime(row) {
   const key = routeRuntimeKey(row);
   const latest = mt5.value.latest || {};
   const direct = latest.strategies?.[key] || latest.diagnostics?.[key];
-  if (direct) return direct;
   const symbolRows = Array.isArray(latest.symbols) ? latest.symbols : [];
-  return symbolRows.find((symbol) => symbol?.strategies?.[key])?.strategies?.[key] || {};
+  const symbolState = symbolRows.find((symbol) => symbol?.strategies?.[key])?.strategies?.[key];
+  if (direct && symbolState) return { ...direct, ...symbolState };
+  return direct || symbolState || {};
 }
 
 function routeHasOpenPosition(row) {
@@ -747,6 +748,13 @@ function routeRuntimeIsCandidate(row) {
   return risk === 0 || label === 'CAND' || label.includes('CANDIDATE');
 }
 
+function routeDowngradeLabel(row) {
+  const runtime = routeRuntime(row);
+  const label = String(first(runtime.runtimeLabel, runtime.status, runtime.adaptiveState, '')).toUpperCase();
+  if (runtime.enabled === false || label === 'OFF' || label === 'ROUTE_DISABLED') return '降级模拟';
+  return '模拟候选';
+}
+
 function routeActionLabel(row) {
   if (!row || Object.keys(row).length === 0) return '等待路线';
   if (mt5DashboardEvidence.value.stale) return '证据过期';
@@ -755,13 +763,13 @@ function routeActionLabel(row) {
   const action = String(first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '')).toUpperCase();
   if (mt5RuntimeFlags.value.startupEntryGuardActive) {
     if (routeRuntimeWouldBeLive(row)) return '启动保护';
-    if (routeRuntimeIsPaused(row)) return '实盘暂停';
-    if (routeRuntimeIsCandidate(row)) return action.includes('LIVE') ? '实盘暂停' : '模拟候选';
+    if (routeRuntimeIsPaused(row)) return routeDowngradeLabel(row);
+    if (routeRuntimeIsCandidate(row)) return action.includes('LIVE') ? '降级模拟' : '模拟候选';
   }
   if (!mt5RuntimeFlags.value.liveEntryEnabled) return mt5EntryMode.value.value;
   if (routeIsRuntimeLive(row)) return '实盘观察';
-  if (routeRuntimeIsPaused(row)) return '实盘暂停';
-  if (routeRuntimeIsCandidate(row)) return action.includes('LIVE') ? '实盘暂停' : '模拟候选';
+  if (routeRuntimeIsPaused(row)) return routeDowngradeLabel(row);
+  if (routeRuntimeIsCandidate(row)) return action.includes('LIVE') ? '降级模拟' : '模拟候选';
   return cleanInlineStatusText(first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '观察'));
 }
 
@@ -780,6 +788,12 @@ function routeWhyText(row) {
   const why = row?.feedback?.why;
   if (Array.isArray(why) && why.length) return cleanInlineStatusText(why.slice(0, 2).join(' '));
   return cleanInlineStatusText(first(runtime.adaptiveReason, runtime.reason, row?.feedback?.nextStep, row?.nextAction, row?.reason, routeBlockerText(row)));
+}
+
+function routeNextStepText(row) {
+  if (routeRuntimeIsPaused(row)) return '保持模拟/候选观察，不恢复实盘；等待复盘样本或人工确认。';
+  if (routeRuntimeIsCandidate(row)) return '继续模拟收集后验；满足晋级规则前不推实盘。';
+  return cleanInlineStatusText(first(row?.feedback?.nextStep, row?.paramLabResult?.promotionReadiness, row?.recommendedAction, '等待下一步建议'));
 }
 
 function routeParamText(row) {
@@ -880,6 +894,9 @@ function compactStatusLabel(value) {
 function cleanInlineStatusText(value) {
   const raw = String(first(value, '')).trim();
   if (!raw || raw === '--') return '--';
+  if (/MA_Cross live route (is )?disabled/i.test(raw)) {
+    return 'MA 已从实盘降级到模拟/候选观察，当前不发真实订单';
+  }
   const fullKey = raw.toUpperCase().replace(/[\s/.-]+/g, '_');
   if (evidenceLabelMap[fullKey]) return evidenceLabelMap[fullKey];
   return raw.replace(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/g, (token) => {
@@ -3459,7 +3476,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="strategy-version-strip">
               <span>参数候选：{{ routeParamText(primaryRoute) }}</span>
-              <span class="strategy-advice">下一步：{{ cleanInlineStatusText(first(primaryRoute.feedback?.nextStep, primaryRoute.paramLabResult?.promotionReadiness, primaryRoute.recommendedAction, '等待下一步建议')) }}</span>
+              <span class="strategy-advice">下一步：{{ routeNextStepText(primaryRoute) }}</span>
             </div>
           </section>
 
@@ -3619,7 +3636,7 @@ onBeforeUnmount(() => {
               当前持仓 {{ row.openPosition.openTrades }}，浮动 {{ money(row.openPosition.floatingProfitUSC) }}，先按原风控与保护处理。
             </p>
             <p v-else class="route-param">当前无该路线持仓。</p>
-            <p class="route-param">下一步：{{ cleanInlineStatusText(first(row.feedback?.nextStep, row.paramLabResult?.promotionReadiness, row.recommendedAction, '等待下一步建议')) }}</p>
+            <p class="route-param">下一步：{{ routeNextStepText(row) }}</p>
           </article>
           <article v-if="!mt5Routes.length" class="panel empty">当前没有可展示的 MT5 路线证据，等待运行文件或只读桥刷新。</article>
         </div>
