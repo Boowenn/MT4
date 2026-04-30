@@ -334,6 +334,36 @@ function compactIsoTime(value) {
   return raw.replace('T', ' ').replace(/\.\d+Z?$/, '').replace(/Z$/, '').slice(0, 16);
 }
 
+function parseEvidenceTime(value) {
+  const raw = String(first(value, '')).trim();
+  if (!raw || raw === '--') return null;
+  const mt = raw.match(/^(\d{4})[./-](\d{2})[./-](\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (mt) {
+    const parsed = new Date(
+      Number(mt[1]),
+      Number(mt[2]) - 1,
+      Number(mt[3]),
+      Number(mt[4]),
+      Number(mt[5]),
+      Number(mt[6] || 0)
+    ).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function ageText(ms) {
+  const n = asNumber(ms);
+  if (n === null || n < 0) return '--';
+  const minutes = Math.round(n / 60000);
+  if (minutes < 1) return '<1 分钟';
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = minutes / 60;
+  if (hours < 24) return `${hours.toFixed(hours < 10 ? 1 : 0)} 小时`;
+  return `${(hours / 24).toFixed(1)} 天`;
+}
+
 function ledgerDateKey(value) {
   const raw = String(first(value, '')).trim();
   if (!raw || raw === '--') return '';
@@ -702,6 +732,7 @@ function routeIsRuntimeLive(row) {
 
 function routeActionLabel(row) {
   if (!row || Object.keys(row).length === 0) return '等待路线';
+  if (mt5DashboardEvidence.value.stale) return '证据过期';
   if (routeHasOpenPosition(row)) return '实盘持仓';
   const runtime = routeRuntime(row);
   const action = String(first(row?.feedback?.actionLabel, row?.recommendedAction, row?.currentState, row?.state, row?.mode, '')).toUpperCase();
@@ -738,6 +769,7 @@ function routeParamText(row) {
 }
 
 function routeToneClass(row) {
+  if (mt5DashboardEvidence.value.stale) return 'red';
   if (routeHasOpenPosition(row) || routeIsRuntimeLive(row)) return 'green';
   const runtime = routeRuntime(row);
   const risk = asNumber(runtime.riskMultiplier);
@@ -1022,6 +1054,77 @@ async function submitSingleMarket() {
 
 const mt5 = computed(() => state.data.mt5 || {});
 const poly = computed(() => state.data.polymarket || {});
+
+const mt5DashboardEvidence = computed(() => {
+  const latest = mt5.value.latest || {};
+  const runtime = latest.runtime || {};
+  const timestamp = first(runtime.localTime, latest.timestamp, runtime.serverTime, latest.serverTime, '');
+  const contentMs = parseEvidenceTime(timestamp);
+  const fileMtimeMs = asNumber(latest._file?.mtimeMs);
+  const basisMs = contentMs || fileMtimeMs || null;
+  const contentAgeMs = contentMs ? Date.now() - contentMs : null;
+  const fileAgeMs = fileMtimeMs ? Date.now() - fileMtimeMs : null;
+  const ageMs = fileAgeMs ?? contentAgeMs;
+  const stale = (fileAgeMs === null && contentAgeMs === null)
+    || (fileAgeMs !== null && fileAgeMs > 60000)
+    || (contentAgeMs !== null && contentAgeMs > 60000);
+  return {
+    timestamp,
+    timestampMs: basisMs,
+    contentMs,
+    fileMtimeMs,
+    ageMs,
+    contentAgeMs,
+    fileAgeMs,
+    stale,
+    label: timestamp && timestamp !== '--' ? compactIsoTime(timestamp) : '无 MT5 快照',
+    ageLabel: ageMs === null ? '未知' : ageText(ageMs),
+    filePath: first(latest._file?.path, latest._api?.filePath, '')
+  };
+});
+
+const mt5CooldownEvidence = computed(() => {
+  const runtime = mt5.value.latest?.runtime || {};
+  const snapshotMs = mt5DashboardEvidence.value.timestampMs;
+  const remainingMinutes = asNumber(runtime.pilotConsecutiveLossPauseRemainingMinutes);
+  const pauseMinutes = asNumber(runtime.pilotConsecutiveLossPauseMinutes);
+  const lastLossMs = parseEvidenceTime(runtime.pilotLatestConsecutiveLossTime);
+  let expiryMs = null;
+  if (snapshotMs && remainingMinutes !== null) {
+    expiryMs = snapshotMs + Math.max(0, remainingMinutes) * 60000;
+  } else if (lastLossMs && pauseMinutes !== null) {
+    expiryMs = lastLossMs + pauseMinutes * 60000;
+  }
+  const now = Date.now();
+  const untilExpiryMs = expiryMs === null ? null : expiryMs - now;
+  const runtimeReason = cleanInlineStatusText(first(runtime.pilotKillReason, runtime.tradeStatus, '等待 MT5 快照'));
+  if (!booleanish(runtime.pilotKillSwitch) && String(first(runtime.tradeStatus, '')).toUpperCase() !== 'AUTO_PAUSED') {
+    return { text: '未见冷却', short: '未见冷却', expiredByNow: false, expiryMs };
+  }
+  if (mt5DashboardEvidence.value.stale && expiryMs !== null && untilExpiryMs <= 0) {
+    return {
+      text: `冷却按旧快照应已到期，需新 MT5 快照确认；旧原因：${runtimeReason}`,
+      short: '冷却应已到期',
+      expiredByNow: true,
+      expiryMs
+    };
+  }
+  if (remainingMinutes !== null && remainingMinutes > 0) {
+    const prefix = mt5DashboardEvidence.value.stale ? '截至旧快照' : '当前快照';
+    return {
+      text: `${prefix}冷却剩 ${Math.round(remainingMinutes)} 分钟；原因：${runtimeReason}`,
+      short: `${prefix}剩 ${Math.round(remainingMinutes)} 分钟`,
+      expiredByNow: false,
+      expiryMs
+    };
+  }
+  return {
+    text: runtimeReason,
+    short: runtimeReason,
+    expiredByNow: false,
+    expiryMs
+  };
+});
 
 const autoTesterSummary = computed(() => mt5.value.autoTesterWindow?.summary || {});
 const autoTesterCanRun = computed(() => booleanish(summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false)));
@@ -1380,8 +1483,8 @@ const mt5FocusMetrics = computed(() => {
   return [
     {
       label: '连接',
-      value: first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '未连接'),
-      detail: first(account.server, '等待 MT5 导出')
+      value: mt5DashboardEvidence.value.stale ? '证据过期' : first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '文件正常'),
+      detail: mt5DashboardEvidence.value.stale ? `快照 ${mt5DashboardEvidence.value.ageLabel}前` : first(account.server, '等待 MT5 导出')
     },
     {
       label: '净值',
@@ -1822,16 +1925,17 @@ const singleHistoryRows = computed(() => [
 const healthCards = computed(() => {
   const acct = mt5Account.value;
   const polySummary = poly.value.autoGovernance?.summary || {};
+  const evidence = mt5DashboardEvidence.value;
   return [
     {
       label: 'MT5 连接',
-      value: first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '未连接'),
-      detail: first(acct.server, acct.company, '等待 MT5 导出')
+      value: evidence.stale ? '证据过期' : first(mt5.value.snapshot?.status, mt5.value.snapshot?.ok === true ? '已连接' : '文件正常'),
+      detail: evidence.stale ? `快照 ${evidence.label} · ${evidence.ageLabel}前` : first(acct.server, acct.company, '等待 MT5 导出')
     },
     {
       label: 'MT5 净值',
       value: money(first(acct.equity, mt5.value.latest?.equity)),
-      detail: `持仓 ${mt5Positions.value.length}`
+      detail: `${mt5DashboardEvidence.value.stale ? '截至旧快照' : '当前快照'}持仓 ${mt5Positions.value.length}`
     },
     {
       label: 'Polymarket',
@@ -2197,6 +2301,7 @@ const dailyReviewItems = computed(() => {
   const rsi = review.rsiRoute || {};
   const rsiForward = rsi.liveForward || {};
   const rsiAction = first(rsi.recommendedAction, rsi.feedback?.actionLabel, '--');
+  const cooldown = mt5CooldownEvidence.value;
   const workerStatus = first(poly.value.worker?.status, '--');
   const workerProblem = review.workerError
     ? cleanInlineStatusText(review.workerError.replace(/^URLError:\s*/i, ''))
@@ -2216,8 +2321,8 @@ const dailyReviewItems = computed(() => {
     {
       title: 'RSI 治理复盘',
       sub: `${cleanInlineStatusText(rsiAction)} · PF ${first(rsiForward.profitFactor, '--')} / 胜率 ${pct(first(rsiForward.winRatePct, rsiForward.winRate))}`,
-      value: `连亏 ${first(rsiForward.consecutiveLosses, '--')}`,
-      tone: String(rsiAction).includes('DEMOTE') ? 'red' : 'amber',
+      value: cooldown.short || `连亏 ${first(rsiForward.consecutiveLosses, '--')}`,
+      tone: mt5DashboardEvidence.value.stale || String(rsiAction).includes('DEMOTE') ? 'red' : 'amber',
       target: 'mt5'
     },
     {
@@ -2539,6 +2644,11 @@ onBeforeUnmount(() => {
                 <strong>{{ card.value }}</strong>
                 <small>{{ card.detail }}</small>
               </div>
+            </div>
+            <div v-if="mt5DashboardEvidence.stale" class="snapshot-warning">
+              <strong>MT5 快照过期</strong>
+              <span>{{ mt5CooldownEvidence.text }}</span>
+              <small>页面正在自动确认文件新鲜度；需要 MT5/EA 写出新的 QuantGod_Dashboard.json 才能确认当前实盘状态。</small>
             </div>
             <p class="muted">最后刷新：{{ first(state.loadedAt, '尚未刷新') }}</p>
           </article>

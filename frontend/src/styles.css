@@ -2867,6 +2867,40 @@ tbody tr:hover td {
   border: 1px solid rgba(255, 107, 134, 0.35);
 }
 
+.snapshot-warning {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  color: #ffd8df;
+  background: rgba(255, 107, 134, 0.1);
+  border: 1px solid rgba(255, 107, 134, 0.32);
+  border-radius: 8px;
+}
+
+.snapshot-warning strong,
+.snapshot-warning span,
+.snapshot-warning small {
+  overflow-wrap: anywhere;
+}
+
+.snapshot-warning strong {
+  color: #fff1f3;
+  font-size: 13px;
+}
+
+.snapshot-warning span {
+  color: #ffd8df;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.snapshot-warning small {
+  color: #c6b4ba;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* QuantDinger-style dark workbench polish pass. */
 :root {
   --bg: #111111;

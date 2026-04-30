@@ -2989,7 +2989,27 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/latest') {
     const latestDashboard = path.join(defaultRuntimeDir, 'QuantGod_Dashboard.json');
     if (fs.existsSync(latestDashboard)) {
-      sendStaticFile(latestDashboard, res);
+      try {
+        const text = fs.readFileSync(latestDashboard, 'utf8').replace(/^\uFEFF/, '');
+        const stat = fs.statSync(latestDashboard);
+        const payload = JSON.parse(text);
+        sendJson(res, 200, withServiceMeta({
+          ...payload,
+          _file: {
+            path: latestDashboard,
+            mtimeIso: stat.mtime.toISOString(),
+            mtimeMs: stat.mtimeMs
+          }
+        }, '/api/latest', latestDashboard));
+      } catch (error) {
+        sendJson(res, 500, {
+          ok: false,
+          status: 'PARSE_FAILED',
+          endpoint: '/api/latest',
+          error: error.message,
+          filePath: latestDashboard
+        });
+      }
       return;
     }
     send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
