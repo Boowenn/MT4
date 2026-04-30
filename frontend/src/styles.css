@@ -3397,6 +3397,7 @@ body {
 }
 
 .audit-row {
+  min-width: 0;
   padding: 10px;
   background: #20262f;
   border: 1px solid #303946;
@@ -3421,12 +3422,17 @@ body {
   margin: 4px 0;
   color: #f2f7ff;
   font-size: 13px;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .audit-row span {
   color: #98a5b6;
   font-size: 12px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .compact-history {
@@ -3494,7 +3500,7 @@ body {
 
 .trade-audit-content {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(340px, 0.72fr) minmax(460px, 1.28fr);
   gap: 12px;
   align-items: start;
   min-width: 0;
@@ -3506,7 +3512,7 @@ body {
 }
 
 .trade-audit-content .audit-stack {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
 }
 
