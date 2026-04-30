@@ -1319,9 +1319,21 @@ const mt5ConnectionState = computed(() => {
     };
   }
   if (snap.ok === false || String(snap.status || '').toUpperCase() === 'UNAVAILABLE') {
+    const runtime = mt5.value.latest?.runtime || {};
+    const hasEaSnapshot = booleanish(runtime.connected)
+      || booleanish(runtime.terminalConnected)
+      || booleanish(runtime.accountAuthorized)
+      || first(account.number, account.login, account.server, '') !== '--';
+    if (hasEaSnapshot) {
+      return {
+        status: 'EA 快照正常',
+        detail: 'Mac 上 Python 只读桥不可用，当前使用 EA 文件快照',
+        tone: mt5Positions.value.length ? 'green' : 'blue'
+      };
+    }
     return {
       status: '只读桥不可用',
-      detail: first(snap.error, '等待 MT5/EA 写出快照'),
+      detail: '等待 MT5/EA 写出快照',
       tone: 'amber'
     };
   }

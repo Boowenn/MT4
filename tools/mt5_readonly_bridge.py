@@ -75,7 +75,7 @@ def load_mt5():
         import MetaTrader5 as mt5  # type: ignore
     except ImportError as exc:
         return None, public_error(
-            "MetaTrader5 Python package is not installed. Install it on Windows with: pip install MetaTrader5",
+            "MetaTrader5 Python package is unavailable in this Python environment. On macOS, use the EA dashboard snapshot; the Python bridge is Windows-only/optional.",
             detail=str(exc),
         )
     return mt5, None
