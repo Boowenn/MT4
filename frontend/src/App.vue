@@ -2609,6 +2609,13 @@ const watchlistItems = computed(() => [
 ].slice(0, 9));
 
 const actionQueueItems = computed(() => [
+  ...arrayFrom(mt5.value.dailyReview?.polymarket?.dailyReview, ['actionQueue']).slice(0, 3).map((row) => ({
+    title: first(row.title, row.type, row.market, 'Polymarket 复盘'),
+    sub: `Polymarket · ${cleanInlineStatusText(first(row.detail, row.nextStep, row.state, '亏损复盘'))}`,
+    value: cleanInlineStatusText(first(row.state, '待办')),
+    tone: 'red',
+    target: 'polymarket'
+  })),
   ...arrayFrom(mt5.value.dailyReview, ['actionQueue']).slice(0, 5).map((row) => ({
     title: first(row.candidateId, row.versionId, row.taskId, row.type),
     sub: `${first(row.routeKey, row.strategy, 'ParamLab')} · ${paramTodoStatusLabel(row)}`,
@@ -2692,6 +2699,8 @@ const dailyReviewItems = computed(() => {
   const autoSummary = mt5.value.autoTesterWindow?.summary || {};
   const govSummary = mt5.value.governance?.summary || {};
   const mt5TerminalRisk = dailyArtifact.mt5TerminalRisk || {};
+  const polyDaily = dailyArtifact.polymarket?.dailyReview || {};
+  const polyDailySummary = polyDaily.summary || {};
   const aiSummary = poly.value.aiScore?.summary || {};
   const autoGovSummary = poly.value.autoGovernance?.summary || {};
   const rsi = review.rsiRoute || {};
@@ -2740,6 +2749,7 @@ const dailyReviewItems = computed(() => {
     || (!rsiSellLiveBlocked && (consecutiveLosses >= 2 || (rsiPf !== null && rsiPf < 0.95)));
   const paramNeedsReview = Boolean(autoSummary.canRunTerminal) || significantTesterBlockers.length > 0 || recoveryRedCount > 0;
   const workerNeedsReview = String(workerStatus).toUpperCase() === 'ERROR' || Boolean(workerProblem.detail);
+  const polyLossNeedsReview = polyDailySummary.lossQuarantine === true || asCount(polyDailySummary.todoCount) > 0;
   const shadowNeedsReview = codexRequired && candidateLosses > candidateWins && candidateLosses > 0;
   const items = [
     {
@@ -2789,6 +2799,14 @@ const dailyReviewItems = computed(() => {
       tone: autoSummary.canRunTerminal ? 'blue' : recoveryRedCount > 0 ? 'red' : 'amber',
       target: 'paramlab',
       visible: paramNeedsReview
+    },
+    {
+      title: 'Polymarket 亏损复盘',
+      sub: `executed PF ${first(polyDailySummary.executedProfitFactor, '--')} / shadow PF ${first(polyDailySummary.shadowProfitFactor, '--')} / 待办 ${first(polyDailySummary.todoCount, 0)}`,
+      value: polyDailySummary.lossQuarantine ? '隔离中' : '观察',
+      tone: polyDailySummary.lossQuarantine ? 'red' : 'amber',
+      target: 'polymarket',
+      visible: polyLossNeedsReview
     },
     {
       title: 'Polymarket 研究',

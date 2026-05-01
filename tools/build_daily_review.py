@@ -340,6 +340,7 @@ def polymarket_summary(runtime_dir: Path) -> dict[str, Any]:
     worker = read_json(runtime_dir / "QuantGod_PolymarketRadarWorkerV2.json")
     ai_score = read_json(runtime_dir / "QuantGod_PolymarketAiScoreV1.json")
     auto_gov = read_json(runtime_dir / "QuantGod_PolymarketAutoGovernance.json")
+    daily_review = polymarket_daily_review(runtime_dir)
     return {
         "workerStatus": first(worker.get("status"), default="MISSING"),
         "candidateQueueSize": first(worker.get("summary", {}).get("candidateQueueSize"), 0),
@@ -347,8 +348,168 @@ def polymarket_summary(runtime_dir: Path) -> dict[str, Any]:
         "aiYellow": first(ai_score.get("summary", {}).get("yellow"), 0),
         "aiGreen": first(ai_score.get("summary", {}).get("green"), 0),
         "quarantine": first(auto_gov.get("summary", {}).get("quarantine"), 0),
+        "dailyTodoCount": len(daily_review["actionQueue"]),
+        "lossQuarantine": daily_review["summary"]["lossQuarantine"],
+        "executedProfitFactor": daily_review["summary"]["executedProfitFactor"],
+        "executedNetUSDC": daily_review["summary"]["executedNetUSDC"],
+        "shadowProfitFactor": daily_review["summary"]["shadowProfitFactor"],
+        "shadowNetUSDC": daily_review["summary"]["shadowNetUSDC"],
+        "dailyReview": daily_review,
         "walletWriteAllowed": False,
         "orderSendAllowed": False,
+    }
+
+
+def metric_group_key(row: dict[str, Any]) -> str:
+    return clean(first(
+        row.get("experimentKey"),
+        row.get("marketScope"),
+        row.get("entryStatus"),
+        row.get("signalSource"),
+        default="UNKNOWN",
+    )) or "UNKNOWN"
+
+
+def compact_metric_group(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": metric_group_key(row),
+        "experimentKey": row.get("experimentKey", ""),
+        "marketScope": row.get("marketScope", ""),
+        "entryStatus": row.get("entryStatus", ""),
+        "signalSource": row.get("signalSource", ""),
+        "closed": as_int(row.get("closed"), 0),
+        "wins": as_int(row.get("wins"), 0),
+        "losses": as_int(row.get("losses"), 0),
+        "winRatePct": round(as_float(row.get("winRatePct")), 2),
+        "profitFactor": round(as_float(row.get("profitFactor")), 4),
+        "realizedPnl": round(as_float(row.get("realizedPnl")), 4),
+        "avgPnl": round(as_float(row.get("avgPnl")), 4),
+    }
+
+
+def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
+    research = read_json(runtime_dir / "QuantGod_PolymarketResearch.json")
+    auto_gov = read_json(runtime_dir / "QuantGod_PolymarketAutoGovernance.json")
+    outcome = read_json(runtime_dir / "QuantGod_PolymarketDryRunOutcomeWatcher.json")
+    gate = read_json(runtime_dir / "QuantGod_PolymarketExecutionGate.json")
+    summary = research.get("summary") if isinstance(research.get("summary"), dict) else {}
+    executed = summary.get("executed") if isinstance(summary.get("executed"), dict) else {}
+    shadow = summary.get("shadow") if isinstance(summary.get("shadow"), dict) else {}
+    outcome_summary = outcome.get("summary") if isinstance(outcome.get("summary"), dict) else {}
+    auto_summary = auto_gov.get("summary") if isinstance(auto_gov.get("summary"), dict) else {}
+    gate_summary = gate.get("summary") if isinstance(gate.get("summary"), dict) else {}
+    global_blockers = [clean(item) for item in as_list(auto_gov.get("globalBlockers")) if clean(item)]
+    executed_pf = as_float(executed.get("profitFactor"), 0.0)
+    executed_net = as_float(executed.get("realizedPnl"), 0.0)
+    shadow_pf = as_float(shadow.get("profitFactor"), 0.0)
+    shadow_net = as_float(shadow.get("realizedPnl"), 0.0)
+    loss_quarantine = (
+        "GLOBAL_LOSS_QUARANTINE" in global_blockers
+        or "EXECUTED_PF_BELOW_1" in global_blockers
+        or executed_net < 0
+        or executed_pf < 1.0
+    )
+    group_rows = [
+        row for row in as_list(research.get("recentJournalGroups") or research.get("journalGroups"))
+        if isinstance(row, dict) and as_float(row.get("realizedPnl")) < 0
+    ]
+    top_loss_sources = [
+        compact_metric_group(row)
+        for row in sorted(group_rows, key=lambda item: as_float(item.get("realizedPnl")))[:5]
+    ]
+    experiment_rows = [
+        row for row in as_list(research.get("recentExperimentGroups") or research.get("experimentGroups"))
+        if isinstance(row, dict) and as_float(row.get("realizedPnl")) < 0
+    ]
+    retune_sources = [
+        compact_metric_group(row)
+        for row in sorted(experiment_rows, key=lambda item: as_float(item.get("realizedPnl")))[:3]
+    ]
+    action_queue: list[dict[str, Any]] = []
+    if loss_quarantine:
+        action_queue.append({
+            "type": "POLY_LOSS_SOURCE_REVIEW",
+            "state": "DUE_TODAY",
+            "title": "Polymarket 亏损来源复盘",
+            "market": "GLOBAL",
+            "detail": (
+                f"executed PF {executed_pf:.4g} / 胜率 {as_float(executed.get('winRatePct')):.2f}% "
+                f"/ 净 {executed_net:.4g} USDC"
+            ),
+            "nextStep": "按 experimentKey、marketScope、entryStatus 拆亏损来源；继续只读/dry-run。",
+            "blockers": global_blockers[:4],
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
+    if shadow_pf < 1.0 or shadow_net < 0:
+        action_queue.append({
+            "type": "POLY_SHADOW_RETUNE_REVIEW",
+            "state": "DUE_TODAY",
+            "title": "Polymarket Shadow 参数复盘",
+            "market": "SHADOW",
+            "detail": f"shadow PF {shadow_pf:.4g} / 净 {shadow_net:.4g} USDC",
+            "nextStep": "优先保留接近 PF>=1 的实验，淘汰低胜率 autonomous/esports 变体。",
+            "blockers": ["SHADOW_PF_BELOW_1"],
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
+    if as_int(outcome_summary.get("wouldExit"), 0) > 0:
+        action_queue.append({
+            "type": "POLY_EXIT_POSTERIOR_REVIEW",
+            "state": "DUE_TODAY",
+            "title": "Polymarket 退出后验复盘",
+            "market": "DRY_RUN",
+            "detail": (
+                f"wouldExit {as_int(outcome_summary.get('wouldExit'))} / "
+                f"SL {as_int(outcome_summary.get('stopLoss'))} / trailing {as_int(outcome_summary.get('trailingExit'))}"
+            ),
+            "nextStep": "检查 stop-loss/trailing/time-exit 是否过早或价格源延迟；只更新研究参数建议。",
+            "blockers": ["EXIT_POSTERIOR_REVIEW"],
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
+    for source in retune_sources[:2]:
+        action_queue.append({
+            "type": "POLY_RETUNE_EXPERIMENT",
+            "state": "DUE_TODAY",
+            "title": f"重调 {source['key']}",
+            "market": source.get("marketScope") or "experiment",
+            "detail": f"PF {source['profitFactor']} / 胜率 {source['winRatePct']}% / 净 {source['realizedPnl']}",
+            "nextStep": "降低该实验优先级或收紧入场阈值，生成下一轮 shadow-only retune。",
+            "source": source,
+            "blockers": ["NEGATIVE_EXPERIMENT_SOURCE"],
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
+    return {
+        "status": "REVIEW_REQUIRED" if action_queue else "OK_HIDE_UNTIL_NEXT_REFRESH",
+        "summary": {
+            "lossQuarantine": bool(loss_quarantine),
+            "globalBlockers": global_blockers,
+            "executedClosed": as_int(executed.get("closed"), 0),
+            "executedWinRatePct": round(as_float(executed.get("winRatePct")), 2),
+            "executedProfitFactor": round(executed_pf, 4),
+            "executedNetUSDC": round(executed_net, 4),
+            "shadowClosed": as_int(shadow.get("closed"), 0),
+            "shadowWinRatePct": round(as_float(shadow.get("winRatePct")), 2),
+            "shadowProfitFactor": round(shadow_pf, 4),
+            "shadowNetUSDC": round(shadow_net, 4),
+            "quarantineCount": first(auto_summary.get("quarantine"), 0),
+            "autoCanaryEligible": first(auto_summary.get("autoCanaryEligible"), 0),
+            "gateCanBet": first(gate_summary.get("canBet"), 0),
+            "gateBlocked": first(gate_summary.get("blocked"), 0),
+            "wouldExit": as_int(outcome_summary.get("wouldExit"), 0),
+            "todoCount": len(action_queue),
+        },
+        "topLossSources": top_loss_sources,
+        "retuneSources": retune_sources,
+        "actionQueue": action_queue[:6],
+        "safety": {
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+            "startsExecutor": False,
+            "mutatesMt5": False,
+        },
     }
 
 
@@ -649,6 +810,10 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "recoveryYellowCount": first(recovery_summary.get("riskYellowCount"), 0),
             "mt5TradeDisabledCount": mt5_risk["tradeDisabledCount"],
             "mt5InvestorModeCount": mt5_risk["investorModeCount"],
+            "polymarketTodoCount": poly["dailyReview"]["summary"]["todoCount"],
+            "polymarketLossQuarantine": poly["dailyReview"]["summary"]["lossQuarantine"],
+            "polymarketExecutedPF": poly["dailyReview"]["summary"]["executedProfitFactor"],
+            "polymarketShadowPF": poly["dailyReview"]["summary"]["shadowProfitFactor"],
             "codexReviewRequired": codex_review["required"],
         },
         "dailyPnl": daily_pnl,

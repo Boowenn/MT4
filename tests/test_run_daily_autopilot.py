@@ -182,6 +182,8 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("今日已排队", source)
         self.assertIn("SCHEDULED_TESTER_WINDOW", source)
         self.assertIn("paramTodoStatusLabel(row)", source)
+        self.assertIn("Polymarket 亏损复盘", source)
+        self.assertIn("mt5.value.dailyReview?.polymarket?.dailyReview", source)
 
     def test_polymarket_global_loss_copy_explains_risk_isolation(self):
         state, action, risk, next_test = poly_governance.classify_decision(
@@ -198,6 +200,57 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("风险隔离", next_test)
         self.assertIn("复盘亏损来源", next_test)
         self.assertNotIn("修复亏损来源", next_test)
+
+    def test_polymarket_daily_review_builds_loss_todos(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            (runtime / "QuantGod_PolymarketResearch.json").write_text(json.dumps({
+                "summary": {
+                    "executed": {"closed": 24, "winRatePct": 4.17, "profitFactor": 0.0145, "realizedPnl": -9.9841},
+                    "shadow": {"closed": 383, "winRatePct": 36.29, "profitFactor": 0.7055, "realizedPnl": -159.3266},
+                },
+                "recentJournalGroups": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "marketScope": "sports",
+                    "entryStatus": "live_blocked_shadow",
+                    "signalSource": "autonomous",
+                    "closed": 62,
+                    "wins": 12,
+                    "losses": 50,
+                    "winRatePct": 19.35,
+                    "profitFactor": 0.3956,
+                    "realizedPnl": -58.0649,
+                    "avgPnl": -0.9365,
+                }],
+                "recentExperimentGroups": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "closed": 62,
+                    "wins": 12,
+                    "losses": 50,
+                    "winRatePct": 19.35,
+                    "profitFactor": 0.3956,
+                    "realizedPnl": -58.0649,
+                    "avgPnl": -0.9365,
+                }],
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketAutoGovernance.json").write_text(json.dumps({
+                "globalBlockers": ["GLOBAL_LOSS_QUARANTINE", "EXECUTED_PF_BELOW_1"],
+                "summary": {"quarantine": 46, "autoCanaryEligible": 0},
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketDryRunOutcomeWatcher.json").write_text(json.dumps({
+                "summary": {"wouldExit": 4, "stopLoss": 2, "trailingExit": 2},
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketExecutionGate.json").write_text(json.dumps({
+                "summary": {"canBet": 0, "blocked": 24},
+            }), encoding="utf-8")
+
+            review = daily_review.polymarket_daily_review(runtime)
+
+            self.assertTrue(review["summary"]["lossQuarantine"])
+            self.assertEqual(review["summary"]["todoCount"], 4)
+            self.assertEqual(review["actionQueue"][0]["type"], "POLY_LOSS_SOURCE_REVIEW")
+            self.assertFalse(review["safety"]["walletWriteAllowed"])
+            self.assertEqual(review["topLossSources"][0]["experimentKey"], "sports_edge_filter_shadow_v1")
 
     def test_daily_review_ledger_schema_upgrade_preserves_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
