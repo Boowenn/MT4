@@ -9,6 +9,7 @@ const CHROME = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Conten
 const OUT_DIR = process.env.QUANTGOD_RESPONSIVE_OUT || "runtime/responsive-check";
 const ROUTES = [
   "",
+  "#ai",
   "#mt5",
   "#mt5-strategy",
   "#mt5-trades",

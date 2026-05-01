@@ -36,6 +36,7 @@ import PolymarketDeepPanels from './components/PolymarketDeepPanels.vue';
 import TrendVisuals from './components/TrendVisuals.vue';
 import DataTable from './components/DataTable.vue';
 import EvidenceDrawer from './components/EvidenceDrawer.vue';
+import Phase1Workspace from './components/phase1/Phase1Workspace.vue';
 
 const workspaces = [
   { id: 'home', label: '总控台', sub: '机会雷达', icon: Gauge, desc: 'MT5、ParamLab 与 Polymarket 的统一只读操作台' },
@@ -3334,6 +3335,8 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </article>
+
+        <Phase1Workspace />
 
         <div class="workbench-hero ai-hero">
           <article class="hero-copy">
