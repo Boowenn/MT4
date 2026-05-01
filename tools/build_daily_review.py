@@ -79,6 +79,20 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 def append_csv(path: Path, row: dict[str, Any], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists() and path.stat().st_size > 0
+    if exists:
+        with path.open("r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+        existing_header = rows[0] if rows else []
+        if existing_header != fieldnames:
+            migrated_rows: list[dict[str, Any]] = []
+            for values in rows[1:]:
+                source_header = fieldnames if len(values) == len(fieldnames) else existing_header
+                migrated_rows.append(dict(zip(source_header, values)))
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for existing_row in migrated_rows:
+                    writer.writerow({key: existing_row.get(key, "") for key in fieldnames})
     with path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if not exists:
@@ -177,8 +191,8 @@ def rows_on_date(rows: list[dict[str, Any]], target: str, *fields: str) -> list[
     return selected
 
 
-def close_history_summary(rows: list[dict[str, str]]) -> dict[str, Any]:
-    day = latest_date(rows, "CloseTime", "EventTime", "closeTime")
+def close_history_summary(rows: list[dict[str, str]], target_day: str | None = None) -> dict[str, Any]:
+    day = clean(target_day) or latest_date(rows, "CloseTime", "EventTime", "closeTime")
     day_rows = rows_on_date(rows, day, "CloseTime", "EventTime", "closeTime")
     net = sum(as_float(first(row.get("NetProfit"), row.get("netProfit"), row.get("Profit"))) for row in day_rows)
     by_strategy: dict[str, dict[str, Any]] = {}
@@ -558,7 +572,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     governance = read_json(runtime_dir / "QuantGod_GovernanceAdvisor.json")
     run_recovery = read_json(runtime_dir / "QuantGod_ParamLabRunRecovery.json")
 
-    daily_pnl = close_history_summary(close_rows)
+    review_day = (now.astimezone(JST).date() - timedelta(days=1)).isoformat()
+    daily_pnl = close_history_summary(close_rows, review_day)
     daily_pnl["resolvedByCurrentPolicy"] = daily_pnl_resolved_by_policy(daily_pnl, governance)
     daily_pnl["requiresReview"] = bool(as_float(daily_pnl.get("netUSC")) < 0 and not daily_pnl["resolvedByCurrentPolicy"])
     action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)))
@@ -604,6 +619,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": 1,
         "mode": "QUANTGOD_DAILY_REVIEW_SAFE_AUTOMATION",
         "generatedAtIso": now.isoformat(),
+        "reviewDateJst": review_day,
         "runtimeDir": str(runtime_dir),
         "safety": {
             "mutatesMt5": False,
@@ -616,6 +632,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         },
         "summary": {
             "dailyClosedTrades": daily_pnl["closedTrades"],
+            "dailyReviewDateJst": review_day,
             "dailyNetUSC": daily_pnl["netUSC"],
             "paramActionCount": len(action_queue),
             "paramReadyToRunCount": queue_counter.get("READY_TO_RUN_TESTER", 0),
@@ -664,11 +681,15 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         {
             "GeneratedAtIso": payload["generatedAtIso"],
             "DailyClosedTrades": daily_pnl["closedTrades"],
+            "DailyReviewDateJst": review_day,
             "DailyNetUSC": daily_pnl["netUSC"],
             "ParamActionCount": len(action_queue),
             "ParamReadyToRunCount": queue_counter.get("READY_TO_RUN_TESTER", 0),
             "ParamWaitGuardCount": queue_counter.get("WAIT_GUARD", 0),
+            "ParamWaitWindowCount": wait_window_count,
             "PromotionReviewCount": len(promotions),
+            "TodayTodoStatus": today_todo_status,
+            "NextTesterWindowLabel": current_window_plan.get("nextWindowLabel", ""),
             "TesterCanRun": str(bool(tester_summary.get("canRunTerminal"))).lower(),
             "Mt5InvestorModeCount": mt5_risk["investorModeCount"],
             "Mt5TradeDisabledCount": mt5_risk["tradeDisabledCount"],
@@ -679,11 +700,15 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         [
             "GeneratedAtIso",
             "DailyClosedTrades",
+            "DailyReviewDateJst",
             "DailyNetUSC",
             "ParamActionCount",
             "ParamReadyToRunCount",
             "ParamWaitGuardCount",
+            "ParamWaitWindowCount",
             "PromotionReviewCount",
+            "TodayTodoStatus",
+            "NextTesterWindowLabel",
             "TesterCanRun",
             "Mt5InvestorModeCount",
             "Mt5TradeDisabledCount",

@@ -72,6 +72,20 @@ def resolve_dashboard_dir(repo_root: Path, configured: str) -> Path:
 def append_csv(path: Path, row: dict[str, Any], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists() and path.stat().st_size > 0
+    if exists:
+        with path.open("r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+        existing_header = rows[0] if rows else []
+        if existing_header != fieldnames:
+            migrated_rows: list[dict[str, Any]] = []
+            for values in rows[1:]:
+                source_header = fieldnames if len(values) == len(fieldnames) else existing_header
+                migrated_rows.append(dict(zip(source_header, values)))
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for existing_row in migrated_rows:
+                    writer.writerow({key: existing_row.get(key, "") for key in fieldnames})
     with path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if not exists:
@@ -279,7 +293,11 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "ErrorCount": sum(1 for step in steps if step["status"] != "OK"),
             "AllowTesterRun": str(bool(args.allow_tester_run)).lower(),
             "TesterRunAttempted": str(run_attempted).lower(),
+            "DailyReviewDateJst": daily_review.get("summary", {}).get("dailyReviewDateJst", ""),
             "DailyParamActions": daily_review.get("summary", {}).get("paramActionCount", ""),
+            "DailyParamWaitWindow": daily_review.get("summary", {}).get("paramWaitWindowCount", ""),
+            "TodayTodoStatus": daily_review.get("summary", {}).get("todayTodoStatus", ""),
+            "NextTesterWindowLabel": daily_review.get("summary", {}).get("nextTesterWindowLabel", ""),
             "PromotionReviewCount": daily_review.get("summary", {}).get("promotionReviewCount", ""),
             "CodexReviewRequired": str(bool(daily_review.get("codexReview", {}).get("required"))).lower(),
         },
@@ -290,7 +308,11 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "ErrorCount",
             "AllowTesterRun",
             "TesterRunAttempted",
+            "DailyReviewDateJst",
             "DailyParamActions",
+            "DailyParamWaitWindow",
+            "TodayTodoStatus",
+            "NextTesterWindowLabel",
             "PromotionReviewCount",
             "CodexReviewRequired",
         ],

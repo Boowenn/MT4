@@ -130,6 +130,21 @@ class DailyAutopilotTests(unittest.TestCase):
         governance["routeDecisions"][0]["sidePolicy"]["sellLiveAllowed"] = True
         self.assertFalse(daily_review.daily_pnl_resolved_by_policy(daily_pnl, governance))
 
+    def test_daily_pnl_uses_requested_review_day_even_without_trades(self):
+        daily_pnl = daily_review.close_history_summary([
+            {
+                "CloseTime": "2026.04.29 09:00",
+                "Strategy": "RSI_Reversal",
+                "Type": "SELL",
+                "NetProfit": "-0.70",
+            }
+        ], "2026-04-30")
+
+        self.assertEqual(daily_pnl["date"], "2026-04-30")
+        self.assertEqual(daily_pnl["closedTrades"], 0)
+        self.assertEqual(daily_pnl["netUSC"], 0)
+        self.assertEqual(daily_pnl["byStrategy"], [])
+
     def test_param_action_queue_marks_window_wait_as_scheduled(self):
         scheduler = {
             "selectedTasks": [{
@@ -158,6 +173,30 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("今日已排队", source)
         self.assertIn("SCHEDULED_TESTER_WINDOW", source)
         self.assertIn("paramTodoStatusLabel(row)", source)
+
+    def test_daily_review_ledger_schema_upgrade_preserves_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "review.csv"
+            ledger.write_text("A,B\nold_a,old_b\nnew_a,new_b,new_c\n", encoding="utf-8")
+
+            daily_review.append_csv(ledger, {"A": "tail_a", "B": "tail_b", "C": "tail_c"}, ["A", "B", "C"])
+            rows = list(__import__("csv").DictReader(ledger.read_text(encoding="utf-8").splitlines()))
+
+            self.assertEqual(rows[0], {"A": "old_a", "B": "old_b", "C": ""})
+            self.assertEqual(rows[1], {"A": "new_a", "B": "new_b", "C": "new_c"})
+            self.assertEqual(rows[2], {"A": "tail_a", "B": "tail_b", "C": "tail_c"})
+
+    def test_autopilot_ledger_schema_upgrade_preserves_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "autopilot.csv"
+            ledger.write_text("A,B\nold_a,old_b\nnew_a,new_b,new_c\n", encoding="utf-8")
+
+            autopilot.append_csv(ledger, {"A": "tail_a", "B": "tail_b", "C": "tail_c"}, ["A", "B", "C"])
+            rows = list(__import__("csv").DictReader(ledger.read_text(encoding="utf-8").splitlines()))
+
+            self.assertEqual(rows[0], {"A": "old_a", "B": "old_b", "C": ""})
+            self.assertEqual(rows[1], {"A": "new_a", "B": "new_b", "C": "new_c"})
+            self.assertEqual(rows[2], {"A": "tail_a", "B": "tail_b", "C": "tail_c"})
 
 
 if __name__ == "__main__":
