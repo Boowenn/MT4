@@ -36,6 +36,9 @@ CLOSE_HISTORY_NAME = "QuantGod_CloseHistory.csv"
 OUTCOME_LABELS_NAME = "QuantGod_TradeOutcomeLabels.csv"
 EVENT_LINKS_NAME = "QuantGod_TradeEventLinks.csv"
 
+LIVE_UNIVERSE = ["USDJPYc"]
+SHADOW_RESEARCH_UNIVERSE = ["USDJPYc", "EURUSDc", "XAUUSDc"]
+
 SAFETY = {
     "readOnly": True,
     "orderSendAllowed": False,
@@ -152,6 +155,18 @@ def as_float(value: Any, default: float = 0.0) -> float:
 
 def sorted_join(values: set[str]) -> str:
     return "/".join(sorted(value for value in values if value))
+
+
+def ordered_unique(*groups: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for group in groups:
+        for value in group:
+            normalized = clean(value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                ordered.append(normalized)
+    return ordered
 
 
 def latest_text(current: str, *values: Any) -> str:
@@ -404,6 +419,7 @@ def build_stats(runtime_dir: Path, *, generated_at: str | None = None) -> dict[s
     canonical_summary = summarize_by_symbol(rows)
     source_symbols = sorted({symbol for row in rows for symbol in row.get("sourceSymbols", [])})
     broker_symbols = sorted({symbol for row in rows for symbol in row.get("brokerSymbols", [])})
+    shadow_research_universe = ordered_unique(SHADOW_RESEARCH_UNIVERSE, source_symbols, broker_symbols)
 
     return {
         "ok": True,
@@ -424,6 +440,12 @@ def build_stats(runtime_dir: Path, *, generated_at: str | None = None) -> dict[s
             "canonicalSymbolCount": len(canonical_summary),
             "sourceSymbolCount": len(source_symbols),
             "brokerSymbolCount": len(broker_symbols),
+            "liveUniverse": LIVE_UNIVERSE,
+            "liveUniverseLabel": ",".join(LIVE_UNIVERSE),
+            "liveUniverseMode": "live_pilot_only",
+            "shadowResearchUniverse": shadow_research_universe,
+            "shadowResearchUniverseLabel": ",".join(shadow_research_universe),
+            "shadowResearchUniverseMode": "shadow_candidate_paramlab_only",
             "journalEvents": len(journal_rows),
             "closedTrades": len(close_rows),
             "outcomeLabels": len(outcome_rows),
@@ -432,6 +454,20 @@ def build_stats(runtime_dir: Path, *, generated_at: str | None = None) -> dict[s
             "candidateSlices": sum(1 for row in rows if row.get("sampleState") == "CANDIDATE"),
             "sourceSymbols": source_symbols,
             "brokerSymbols": broker_symbols,
+        },
+        "universes": {
+            "live": {
+                "symbols": LIVE_UNIVERSE,
+                "label": ",".join(LIVE_UNIVERSE),
+                "mode": "live_pilot_only",
+                "description": "Real-money pilot universe. Do not infer shadow symbols are live-enabled.",
+            },
+            "shadowResearch": {
+                "symbols": shadow_research_universe,
+                "label": ",".join(shadow_research_universe),
+                "mode": "shadow_candidate_paramlab_only",
+                "description": "Read-only shadow/candidate/ParamLab research universe.",
+            },
         },
         "canonicalSymbolSummary": canonical_summary,
         "rows": rows,

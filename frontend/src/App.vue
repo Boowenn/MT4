@@ -951,6 +951,30 @@ function cleanInlineStatusText(value) {
   });
 }
 
+function symbolList(value) {
+  if (Array.isArray(value)) return value.flatMap(symbolList);
+  if (value && typeof value === 'object') return symbolList(value.symbols || value.value || value.label);
+  return String(value || '')
+    .split(/[,\s/]+/)
+    .map((item) => item.trim())
+    .filter((item) => item && item !== '--');
+}
+
+function uniqueSymbols(...values) {
+  const seen = new Set();
+  return values
+    .flatMap(symbolList)
+    .filter((symbol) => {
+      if (seen.has(symbol)) return false;
+      seen.add(symbol);
+      return true;
+    });
+}
+
+function universeLabel(symbols) {
+  return symbols.length ? symbols.join(', ') : '--';
+}
+
 function startupGuardText(value) {
   const raw = String(first(value, '')).trim();
   const minutes = raw.match(/minimum wait\s+(\d+)m\s+remaining/i)?.[1];
@@ -1803,6 +1827,34 @@ const autoTesterRows = computed(() => [
   ...arrayFrom(mt5.value.autoTesterWindow, ['excludedTasks'])
 ].slice(0, 16));
 const mt5ResearchRows = computed(() => arrayFrom(mt5.value.mt5ResearchStats, ['rows']).slice(0, 16));
+const mt5ResearchSummary = computed(() => mt5.value.mt5ResearchStats?.summary || {});
+const mt5ResearchUniverses = computed(() => mt5.value.mt5ResearchStats?.universes || {});
+const mt5LiveUniverseSymbols = computed(() => uniqueSymbols(
+  mt5ResearchSummary.value.liveUniverse,
+  mt5ResearchUniverses.value.live,
+  'USDJPYc'
+));
+const mt5ShadowResearchUniverseSymbols = computed(() => uniqueSymbols(
+  mt5ResearchSummary.value.shadowResearchUniverse,
+  mt5ResearchUniverses.value.shadowResearch,
+  mt5ResearchSummary.value.sourceSymbols,
+  mt5ResearchSummary.value.brokerSymbols,
+  'USDJPYc,EURUSDc,XAUUSDc'
+));
+const mt5UniverseCards = computed(() => [
+  {
+    label: '实盘 universe',
+    value: universeLabel(mt5LiveUniverseSymbols.value),
+    detail: 'LivePilot 真实入场池，0.01 / 单仓 / 风控 gate',
+    tone: 'green'
+  },
+  {
+    label: '模拟 universe',
+    value: universeLabel(mt5ShadowResearchUniverseSymbols.value),
+    detail: 'Shadow / candidate / ParamLab 研究池，不代表实盘扩品种',
+    tone: 'blue'
+  }
+]);
 const tradingAuditRows = computed(() => arrayFrom(mt5.value.ledgers?.tradingAudit).slice(0, 80));
 const manualAlphaRows = computed(() => arrayFrom(mt5.value.ledgers?.manualAlpha).slice(0, 12));
 const strategyEvaluationRows = computed(() => arrayFrom(mt5.value.ledgers?.strategyEvaluation).slice(0, 12));
@@ -3396,6 +3448,14 @@ onBeforeUnmount(() => {
               {{ route }}
             </button>
           </div>
+        </div>
+
+        <div v-if="state.mt5Focus === 'overview'" class="universe-strip">
+          <article v-for="card in mt5UniverseCards" :key="card.label" class="universe-card" :class="card.tone">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.detail }}</small>
+          </article>
         </div>
 
         <div v-if="state.mt5Focus === 'overview'" class="mt5-command-grid">

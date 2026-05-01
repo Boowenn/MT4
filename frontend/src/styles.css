@@ -1042,6 +1042,60 @@ h2 {
   align-items: stretch;
 }
 
+.universe-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.universe-card {
+  min-width: 0;
+  padding: 12px 14px;
+  background: rgba(16, 24, 34, 0.88);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.universe-card.green {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: linear-gradient(180deg, rgba(16, 61, 47, 0.42), rgba(16, 24, 34, 0.88));
+}
+
+.universe-card.blue {
+  border-color: rgba(59, 130, 246, 0.58);
+  background: linear-gradient(180deg, rgba(15, 49, 81, 0.38), rgba(16, 24, 34, 0.88));
+}
+
+.universe-card span,
+.universe-card strong,
+.universe-card small {
+  display: block;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.universe-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.universe-card strong {
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.universe-card small {
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .dense-radar {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
@@ -4276,6 +4330,7 @@ tbody tr:hover td {
   .param-lane-board,
   .poly-metrics,
   .poly-radar-grid,
+  .universe-strip,
   .strategy-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4623,6 +4678,10 @@ tbody tr:hover td {
   .poly-filter-head,
   .poly-filter-row {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .universe-strip {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -190,6 +190,10 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("routeLaneMetricText(route, row)", source)
         self.assertIn("后验 ${first(outcome.horizonRows", source)
         self.assertIn("{{ lane.metricText }}", source)
+        self.assertIn("shadowResearchUniverse", source)
+        self.assertIn("实盘 universe", source)
+        self.assertIn("模拟 universe", source)
+        self.assertIn("mt5UniverseCards", source)
         self.assertIn("...mt5ActionQueueItems.value.slice(0, 3)", source)
         self.assertIn("...polymarketActionQueueItems.value.slice(0, 2)", source)
 
@@ -200,6 +204,8 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", source)
         self.assertIn(".page-mt5 .micro-metric span", source)
         self.assertIn(".page-mt5 .trade-metric-grid b", source)
+        self.assertIn(".universe-strip", source)
+        self.assertIn(".universe-card strong", source)
         self.assertIn("overflow-wrap: anywhere;", source)
         self.assertIn("text-overflow: clip;", source)
 
