@@ -33,6 +33,28 @@ DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
 DEFAULT_ENDPOINT = "https://gamma-api.polymarket.com/events"
 OUTPUT_NAME = "QuantGod_PolymarketMarketRadar.json"
 LEDGER_NAME = "QuantGod_PolymarketMarketRadar.csv"
+STRICT_EDGE_FILTER_POLICIES = {
+    "sports": {
+        "minVolume": 100000.0,
+        "minVolume24h": 5000.0,
+        "minLiquidity": 10000.0,
+        "minAbsDivergence": 16.0,
+        "minProbability": 20.0,
+        "maxProbability": 80.0,
+        "maxClobSpread": 0.06,
+        "minClobDepthScore": 30.0,
+    },
+    "esports": {
+        "minVolume": 50000.0,
+        "minVolume24h": 3000.0,
+        "minLiquidity": 5000.0,
+        "minAbsDivergence": 18.0,
+        "minProbability": 20.0,
+        "maxProbability": 80.0,
+        "maxClobSpread": 0.06,
+        "minClobDepthScore": 30.0,
+    },
+}
 
 try:
     import certifi  # type: ignore
@@ -212,6 +234,8 @@ def infer_category(event: dict[str, Any], market: dict[str, Any]) -> str:
         else:
             pieces.append(str(tag))
     text = " ".join(pieces).lower()
+    if any(token in text for token in ("esports", "e-sports", "league of legends", "valorant", "dota", "counter-strike", "cs2")):
+        return "esports"
     if any(token in text for token in ("nba", "nfl", "mlb", "nhl", "soccer", "ufc", "tennis", "sports")):
         return "sports"
     if any(token in text for token in ("bitcoin", "crypto", "ethereum", "solana", "btc", "eth")):
@@ -320,6 +344,55 @@ def suggested_shadow_track(category: str, risk: str, divergence: float, volume: 
     return "poly_market_radar_watch_shadow_v1"
 
 
+def strict_edge_filter_review(
+    category: str,
+    risk: str,
+    probability: float | None,
+    divergence: float,
+    volume: float,
+    volume24h: float,
+    liquidity: float,
+    flags: list[str],
+) -> dict[str, Any]:
+    policy = STRICT_EDGE_FILTER_POLICIES.get(category)
+    if not policy:
+        return {"applies": False}
+
+    blockers: list[str] = []
+    if risk == "high":
+        blockers.append("strict_edge_filter_high_risk")
+    if probability is None or probability < policy["minProbability"] or probability > policy["maxProbability"]:
+        blockers.append("strict_edge_filter_price_band_fail")
+    if volume < policy["minVolume"]:
+        blockers.append("strict_edge_filter_volume_low")
+    if volume24h < policy["minVolume24h"]:
+        blockers.append("strict_edge_filter_volume24h_low")
+    if liquidity < policy["minLiquidity"]:
+        blockers.append("strict_edge_filter_liquidity_low")
+    if divergence < policy["minAbsDivergence"]:
+        blockers.append("strict_edge_filter_divergence_low")
+
+    for blocker in blockers:
+        if blocker not in flags:
+            flags.append(blocker)
+
+    passed = not blockers
+    prefix = "sports" if category == "sports" else "esports"
+    return {
+        "applies": True,
+        "passed": passed,
+        "policy": policy,
+        "blockers": blockers,
+        "track": (
+            f"poly_{prefix}_edge_filter_strict_score_liquidity_v2"
+            if passed
+            else f"poly_{prefix}_edge_filter_quarantine_shadow_v2"
+        ),
+        "recommendedAction": "SHADOW_REVIEW" if passed else "OBSERVE_ONLY",
+        "scoreAdjustment": 0.0 if passed else -14.0,
+    }
+
+
 def flatten_event(event: dict[str, Any], min_volume: float, min_liquidity: float) -> list[dict[str, Any]]:
     markets = event.get("markets")
     if not isinstance(markets, list) or not markets:
@@ -360,7 +433,14 @@ def flatten_event(event: dict[str, Any], min_volume: float, min_liquidity: float
         risk, flags = risk_and_flags(probability, volume, volume24h, liquidity, end_date, market, min_volume, min_liquidity)
         rule_score, ai_rule_score, divergence_abs = score_market(probability, volume, volume24h, liquidity, risk, flags)
         signed_divergence = None if probability is None else round(probability - 50.0, 2)
-        track = suggested_shadow_track(category, risk, divergence_abs, volume, liquidity)
+        strict_review = strict_edge_filter_review(category, risk, probability, divergence_abs, volume, volume24h, liquidity, flags)
+        if strict_review.get("applies"):
+            track = str(strict_review.get("track") or "")
+            recommended_action = str(strict_review.get("recommendedAction") or "OBSERVE_ONLY")
+            ai_rule_score = int(round(clamp(ai_rule_score + safe_number(strict_review.get("scoreAdjustment"), 0.0))))
+        else:
+            track = suggested_shadow_track(category, risk, divergence_abs, volume, liquidity)
+            recommended_action = "SHADOW_REVIEW" if risk != "high" else "OBSERVE_ONLY"
         rows.append(
             {
                 "marketId": str(market.get("id") or event.get("id") or ""),
@@ -382,8 +462,9 @@ def flatten_event(event: dict[str, Any], min_volume: float, min_liquidity: float
                 "aiScoringMode": "RULE_PROXY_NO_LLM",
                 "risk": risk,
                 "riskFlags": flags,
+                "strictEdgeFilter": strict_review,
                 "suggestedShadowTrack": track,
-                "recommendedAction": "SHADOW_REVIEW" if risk != "high" else "OBSERVE_ONLY",
+                "recommendedAction": recommended_action,
                 "endDate": format_iso(end_date),
                 "acceptingOrders": market.get("acceptingOrders"),
                 "spread": first_number(market.get("spread"), default=0.0),
@@ -429,6 +510,26 @@ def enrich_clob_depth(rows: list[dict[str, Any]], limit: int, timeout: float, sk
             ok += 1
             clob_spread = safe_number(depth.get("clobSpread"), 0.0)
             depth_score = safe_number(depth.get("clobDepthScore"), 0.0)
+            strict_review = item.get("strictEdgeFilter") if isinstance(item.get("strictEdgeFilter"), dict) else {}
+            strict_policy = strict_review.get("policy") if isinstance(strict_review.get("policy"), dict) else {}
+            if strict_review.get("applies"):
+                strict_blockers = strict_review.get("blockers") if isinstance(strict_review.get("blockers"), list) else []
+                if clob_spread > safe_number(strict_policy.get("maxClobSpread"), 0.06):
+                    strict_blockers.append("strict_edge_filter_clob_spread_wide")
+                if depth_score < safe_number(strict_policy.get("minClobDepthScore"), 30.0):
+                    strict_blockers.append("strict_edge_filter_clob_depth_low")
+                strict_blockers = list(dict.fromkeys(str(item) for item in strict_blockers if item))
+                if strict_blockers:
+                    for blocker in strict_blockers:
+                        if blocker not in flags:
+                            flags.append(blocker)
+                    strict_review["passed"] = False
+                    strict_review["blockers"] = strict_blockers
+                    prefix = "sports" if item.get("category") == "sports" else "esports"
+                    item["suggestedShadowTrack"] = f"poly_{prefix}_edge_filter_quarantine_shadow_v2"
+                    item["recommendedAction"] = "OBSERVE_ONLY"
+                    item["aiRuleScore"] = int(round(clamp(safe_number(item.get("aiRuleScore"), 0.0) - 10.0)))
+                item["strictEdgeFilter"] = strict_review
             if depth_score <= 12.0 and "clob_depth_thin" not in flags:
                 flags.append("clob_depth_thin")
             if clob_spread >= 0.08 and "clob_spread_wide" not in flags:
@@ -587,7 +688,10 @@ def radar_csv(snapshot: dict[str, Any]) -> str:
             "rule_score",
             "ai_rule_score",
             "risk",
+            "recommended_action",
             "suggested_shadow_track",
+            "strict_edge_filter_passed",
+            "strict_edge_filter_blockers",
             "polymarket_url",
             "risk_flags",
         ],
@@ -620,7 +724,18 @@ def radar_csv(snapshot: dict[str, Any]) -> str:
                 "rule_score": item.get("ruleScore", ""),
                 "ai_rule_score": item.get("aiRuleScore", ""),
                 "risk": item.get("risk", ""),
+                "recommended_action": item.get("recommendedAction", ""),
                 "suggested_shadow_track": item.get("suggestedShadowTrack", ""),
+                "strict_edge_filter_passed": (
+                    item.get("strictEdgeFilter", {}).get("passed", "")
+                    if isinstance(item.get("strictEdgeFilter"), dict)
+                    else ""
+                ),
+                "strict_edge_filter_blockers": (
+                    " / ".join(item.get("strictEdgeFilter", {}).get("blockers") or [])
+                    if isinstance(item.get("strictEdgeFilter"), dict)
+                    else ""
+                ),
                 "polymarket_url": item.get("polymarketUrl", ""),
                 "risk_flags": " / ".join(item.get("riskFlags") or []),
             }

@@ -355,7 +355,7 @@ def build_candidate_queue(rows: list[dict[str, Any]], args: argparse.Namespace, 
             continue
         if score < args.queue_min_score:
             continue
-        if action == "OBSERVE_ONLY":
+        if action not in {"SHADOW_REVIEW", "SHADOW_REVIEW_HIGH_PRIORITY", "SHADOW_REVIEW_PRIORITY"}:
             continue
         candidate_id = "PMRADAR-" + stable_hash(market_key(item), item.get("suggestedShadowTrack"), item.get("aiRuleScore"))
         queue.append(
@@ -385,6 +385,7 @@ def build_candidate_queue(rows: list[dict[str, Any]], args: argparse.Namespace, 
                 "riskFlags": item.get("riskFlags") if isinstance(item.get("riskFlags"), list) else [],
                 "aiRuleScore": item.get("aiRuleScore"),
                 "ruleScore": item.get("ruleScore"),
+                "recommendedAction": item.get("recommendedAction"),
                 "priorityScore": priority_score(item),
                 "suggestedShadowTrack": item.get("suggestedShadowTrack"),
                 "trendDirection": item.get("trendDirection"),
@@ -449,6 +450,7 @@ def queue_csv(queue: list[dict[str, Any]]) -> str:
             "clob_depth_score",
             "clob_spread",
             "ai_rule_score",
+            "recommended_action",
             "probability",
             "probability_delta",
             "ai_rule_score_delta",
@@ -472,6 +474,7 @@ def queue_csv(queue: list[dict[str, Any]]) -> str:
                 "clob_depth_score": item.get("clobDepthScore", ""),
                 "clob_spread": item.get("clobSpread", ""),
                 "ai_rule_score": item.get("aiRuleScore", ""),
+                "recommended_action": item.get("recommendedAction", ""),
                 "probability": item.get("probability", ""),
                 "probability_delta": item.get("probabilityDelta", ""),
                 "ai_rule_score_delta": item.get("aiRuleScoreDelta", ""),
