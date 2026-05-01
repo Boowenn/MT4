@@ -833,6 +833,43 @@ function routeToneClass(row) {
   return '';
 }
 
+function routeCandidateOutcomeKey(route) {
+  const map = {
+    BB: 'BB_TRIPLE_SHADOW',
+    MACD: 'MACD_MOMENTUM_TURN',
+    SR: 'SR_BREAKOUT_SHADOW',
+    RSI: 'RSI_REVERSAL_SHADOW'
+  };
+  return map[route] || '';
+}
+
+function routeLaneMetricText(route, row) {
+  const mode = String(first(row?.mode, row?.feedback?.mode, '')).toUpperCase();
+  const outcomeKey = routeCandidateOutcomeKey(route);
+  const outcome = outcomeKey ? mt5.value.governance?.candidateOutcomes?.[outcomeKey] : null;
+  if (mode.includes('SIMULATION') || mode.includes('CANDIDATE')) {
+    if (outcome) {
+      return `后验 ${first(outcome.horizonRows, outcome.rows, 0)} 样本 / 胜率 ${first(outcome.winRatePct, '--')}% / 均值 ${first(outcome.avgSignedPips, '--')}p`;
+    }
+    const parseStatus = first(row?.paramLab?.metrics?.parseStatus, row?.paramLabResult?.metrics?.parseStatus, '');
+    if (String(parseStatus).toUpperCase().includes('MISSING')) return 'Tester 待报告';
+    return '模拟收集中';
+  }
+  return `PF ${first(row?.liveForward?.profitFactor, row?.profitFactor, row?.pf, '--')}`;
+}
+
+function routeMetricSummary(row) {
+  const route = routeShortName(row);
+  const mode = String(first(row?.mode, row?.feedback?.mode, '')).toUpperCase();
+  const outcomeKey = routeCandidateOutcomeKey(route);
+  const outcome = outcomeKey ? mt5.value.governance?.candidateOutcomes?.[outcomeKey] : null;
+  if (mode.includes('SIMULATION') || mode.includes('CANDIDATE')) {
+    if (outcome) return `后验 ${first(outcome.horizonRows, outcome.rows, 0)} 样本`;
+    return '模拟待报告';
+  }
+  return `PF ${first(row?.liveForward?.profitFactor, row?.profitFactor, row?.pf, '--')}`;
+}
+
 function normalizeParamState(row) {
   return String(first(row?.state, row?.status, row?.resultState, row?.grade, row?.queueState, row?.riskColor, '')).toUpperCase();
 }
@@ -1884,7 +1921,7 @@ const mt5RouteLaneCards = computed(() => ['MA', 'RSI', 'BB', 'MACD', 'SR'].map((
     count: rows.length,
     live,
     statusText: routeActionLabel(laneRow),
-    pf: first(rows[0]?.liveForward?.profitFactor, rows[0]?.profitFactor, '--'),
+    metricText: routeLaneMetricText(route, rows[0]),
     blocker: blocker ? routeBlockerText(blocker) : '等待样本',
     tone: routeToneClass(laneRow) || (live ? 'green' : rows.length ? 'blue' : 'amber')
   };
@@ -2331,7 +2368,7 @@ const homeFocusCards = computed(() => {
       title: 'MT5 路线焦点',
       badge: cleanInlineStatusText(first(latestRoute?.feedback?.actionLabel, latestRoute?.recommendedAction, '--')),
       body: latestRoute
-        ? `${first(latestRoute.label, latestRoute.strategy, latestRoute.key)} · PF ${first(latestRoute.liveForward?.profitFactor, '--')} · 胜率 ${pct(first(latestRoute.liveForward?.winRatePct, latestRoute.liveForward?.winRate))}`
+        ? `${first(latestRoute.label, latestRoute.strategy, latestRoute.key)} · ${routeLaneMetricText(routeShortName(latestRoute), latestRoute)}`
         : '等待 Governance Advisor 路线证据。',
       foot: `路线 ${first(govSummary.routeCount, mt5Routes.value.length)} / open ${first(govSummary.openPositions, mt5Positions.value.length)}`
     },
@@ -2407,7 +2444,7 @@ const operatorRadarCards = computed(() => {
     {
       label: mt5RuntimeFlags.value.liveEntryEnabled ? '实盘路线' : '路线观察',
       title: first(route.label, route.route, route.strategy, '等待路线'),
-      meta: `PF ${first(route.liveForward?.profitFactor, route.profitFactor, '--')} · 胜率 ${pct(first(route.liveForward?.winRatePct, route.winRate))}`,
+      meta: routeLaneMetricText(routeShortName(route), route),
       tone: routeToneClass(route) || 'blue',
       target: 'mt5'
     },
@@ -2600,7 +2637,7 @@ const watchlistItems = computed(() => [
   ...mt5Routes.value.slice(0, 5).map((row) => ({
     title: first(row.label, row.route, row.strategy, row.versionId),
     sub: `${routeShortName(row)} · ${routeActionLabel(row)}`,
-    value: `PF ${first(row.liveForward?.profitFactor, row.profitFactor, '--')}`,
+    value: routeMetricSummary(row),
     tone: routeToneClass(row) || 'blue',
     target: 'mt5'
   })),
@@ -3392,7 +3429,7 @@ onBeforeUnmount(() => {
               >
                 <strong>{{ lane.route }}</strong>
                 <span>{{ lane.count }} 版本 · {{ lane.statusText }}</span>
-                <small>PF {{ lane.pf }} · {{ lane.blocker }}</small>
+                <small>{{ lane.metricText }} · {{ lane.blocker }}</small>
               </button>
             </div>
           </article>
@@ -3514,7 +3551,7 @@ onBeforeUnmount(() => {
               >
                 <strong>{{ lane.route }}</strong>
                 <span>{{ lane.count }} 版本 · {{ lane.statusText }}</span>
-                <small>PF {{ lane.pf }} · {{ lane.blocker }}</small>
+                <small>{{ lane.metricText }} · {{ lane.blocker }}</small>
               </button>
             </div>
           </aside>
@@ -3533,7 +3570,7 @@ onBeforeUnmount(() => {
               <button class="ghost-button small" type="button" @click="setActive('paramlab')">ParamLab</button>
             </div>
             <div class="strategy-performance-grid">
-              <span><small>Forward PF</small><b>{{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, primaryRoute.pf, '--') }}</b></span>
+              <span><small>路线指标</small><b>{{ routeLaneMetricText(routeShortName(primaryRoute), primaryRoute) }}</b></span>
               <span><small>胜率</small><b>{{ pct(first(primaryRoute.liveForward?.winRatePct, primaryRoute.winRate, primaryRoute.win_rate)) }}</b></span>
               <span><small>已平仓样本</small><b>{{ first(primaryRoute.liveForward?.closedTrades, primaryRoute.liveForward?.trades, '--') }}</b></span>
               <span><small>净收益</small><b>{{ money(primaryRoute.liveForward?.netProfitUSC) }}</b></span>
@@ -3664,7 +3701,7 @@ onBeforeUnmount(() => {
             <p class="summary-line">{{ shortText(routeWhyText(primaryRoute), 92) }}</p>
             <div class="mini-row secondary">
               <span>{{ routeShortName(primaryRoute) }}</span>
-              <span>PF {{ first(primaryRoute.liveForward?.profitFactor, primaryRoute.profitFactor, '--') }}</span>
+              <span>{{ routeMetricSummary(primaryRoute) }}</span>
               <span>{{ shortText(routeBlockerText(primaryRoute), 42) }}</span>
             </div>
           </article>
@@ -3687,7 +3724,7 @@ onBeforeUnmount(() => {
             <p>{{ shortText(routeWhyText(row), 170) }}</p>
             <div class="mini-row">
               <span>{{ routeShortName(row) }}</span>
-              <span>PF {{ first(row.liveForward?.profitFactor, row.profitFactor, row.pf, '--') }}</span>
+              <span>{{ routeMetricSummary(row) }}</span>
               <span>胜率 {{ pct(first(row.liveForward?.winRatePct, row.winRate, row.win_rate)) }}</span>
               <span>{{ cleanInlineStatusText(first(row.mode, row.live ? 'LIVE_0_01' : 'SIM/CANDIDATE')) }}</span>
             </div>

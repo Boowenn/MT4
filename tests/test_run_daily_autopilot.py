@@ -187,6 +187,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("const mt5ActionQueueItems", source)
         self.assertIn("const polymarketActionQueueItems", source)
         self.assertIn("const todayTodoItems", source)
+        self.assertIn("routeLaneMetricText(route, row)", source)
+        self.assertIn("后验 ${first(outcome.horizonRows", source)
+        self.assertIn("{{ lane.metricText }}", source)
         self.assertIn("...mt5ActionQueueItems.value.slice(0, 3)", source)
         self.assertIn("...polymarketActionQueueItems.value.slice(0, 2)", source)
 
