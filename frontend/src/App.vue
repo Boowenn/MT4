@@ -2608,14 +2608,15 @@ const watchlistItems = computed(() => [
   }))
 ].slice(0, 9));
 
-const actionQueueItems = computed(() => [
-  ...arrayFrom(mt5.value.dailyReview?.polymarket?.dailyReview, ['actionQueue']).slice(0, 3).map((row) => ({
+const polymarketActionQueueItems = computed(() => arrayFrom(mt5.value.dailyReview?.polymarket?.dailyReview, ['actionQueue']).slice(0, 5).map((row) => ({
     title: first(row.title, row.type, row.market, 'Polymarket 复盘'),
     sub: `Polymarket · ${cleanInlineStatusText(first(row.detail, row.nextStep, row.state, '亏损复盘'))}`,
     value: cleanInlineStatusText(first(row.state, '待办')),
     tone: 'red',
     target: 'polymarket'
-  })),
+  })));
+
+const mt5ActionQueueItems = computed(() => [
   ...arrayFrom(mt5.value.dailyReview, ['actionQueue']).slice(0, 5).map((row) => ({
     title: first(row.candidateId, row.versionId, row.taskId, row.type),
     sub: `${first(row.routeKey, row.strategy, 'ParamLab')} · ${paramTodoStatusLabel(row)}`,
@@ -2636,7 +2637,12 @@ const actionQueueItems = computed(() => [
     value: compactMetricScore(row.score, row.grade, row.profitFactor),
     tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
     target: 'paramlab'
-  })),
+  }))
+]);
+
+const actionQueueItems = computed(() => [
+  ...mt5ActionQueueItems.value,
+  ...polymarketActionQueueItems.value,
   ...governanceRows.value.slice(0, 3).map((row) => ({
     title: governanceTitle(row),
     sub: `${governanceDecisionLabel(row)} · ${blockerChips(row, 1).join(' / ') || '等待证据'}`,
@@ -2645,6 +2651,11 @@ const actionQueueItems = computed(() => [
     target: 'polymarket'
   }))
 ].slice(0, 8));
+
+const todayTodoItems = computed(() => [
+  ...mt5ActionQueueItems.value.slice(0, 3),
+  ...polymarketActionQueueItems.value.slice(0, 2)
+]);
 
 const dailyReview = computed(() => {
   const closeRows = arrayFrom(mt5.value.ledgers?.closeHistory);
@@ -3061,7 +3072,7 @@ onBeforeUnmount(() => {
               <div class="calendar-mini">
                 <div class="calendar-mini-title"><CalendarDays :size="14" /> 今日待办</div>
                 <button
-                  v-for="item in actionQueueItems.slice(0, 3)"
+                  v-for="item in todayTodoItems"
                   :key="`cal-${item.title}`"
                   type="button"
                   class="calendar-mini-item"

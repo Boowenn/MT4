@@ -184,6 +184,11 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("paramTodoStatusLabel(row)", source)
         self.assertIn("Polymarket 亏损复盘", source)
         self.assertIn("mt5.value.dailyReview?.polymarket?.dailyReview", source)
+        self.assertIn("const mt5ActionQueueItems", source)
+        self.assertIn("const polymarketActionQueueItems", source)
+        self.assertIn("const todayTodoItems", source)
+        self.assertIn("...mt5ActionQueueItems.value.slice(0, 3)", source)
+        self.assertIn("...polymarketActionQueueItems.value.slice(0, 2)", source)
 
     def test_polymarket_global_loss_copy_explains_risk_isolation(self):
         state, action, risk, next_test = poly_governance.classify_decision(
