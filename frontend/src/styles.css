@@ -1047,9 +1047,19 @@ h2 {
   gap: 8px;
 }
 
+.mt5-radar-board .dense-radar {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .dense-radar .radar-item {
   min-height: 78px;
   padding: 9px 10px;
+}
+
+.mt5-radar-board .radar-item {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 96px;
 }
 
 .dense-radar .radar-label {
@@ -1063,6 +1073,27 @@ h2 {
 
 .dense-radar .radar-sub {
   font-size: 11px;
+}
+
+.mt5-radar-board .radar-value,
+.mt5-radar-board .radar-sub {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+}
+
+.mt5-radar-board .radar-value {
+  align-self: center;
+  line-height: 1.2;
+  -webkit-line-clamp: 2;
+}
+
+.mt5-radar-board .radar-sub {
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
 }
 
 .mt5-lane-board {
@@ -4250,6 +4281,10 @@ tbody tr:hover td {
   .page-ai > .card-grid.three {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .mt5-radar-board .dense-radar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1100px) {
@@ -4443,6 +4478,10 @@ tbody tr:hover td {
   .strategy-card-grid,
   .page-ai > .card-grid.three {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mt5-radar-board .dense-radar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .poly-account-strip {
@@ -4639,6 +4678,10 @@ tbody tr:hover td {
   .tester-guard-grid,
   .page-mt5[data-focus="trades"] .card-grid.three,
   .page-mt5[data-focus="trades"] .mt5-trade-workbench .qd-right-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mt5-radar-board .dense-radar {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -1654,6 +1654,11 @@ const mt5ExecutionRadarItems = computed(() => {
       sub: connection.detail
     },
     {
+      label: '账户净值',
+      value: equity.value,
+      sub: equity.detail
+    },
+    {
       label: '入场模式',
       value: mt5EntryMode.value.value,
       sub: mt5EntryMode.value.detail
