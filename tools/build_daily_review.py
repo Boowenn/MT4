@@ -136,30 +136,30 @@ def clean(value: Any) -> str:
 
 def tester_window_plan(now: datetime | None = None) -> dict[str, Any]:
     current = (now or utc_now()).astimezone(JST)
-    windows = {
-        0: (time(20, 10), time(23, 30)),
-        1: (time(20, 10), time(23, 30)),
-        2: (time(20, 10), time(23, 30)),
-        3: (time(20, 10), time(23, 30)),
-        4: (time(20, 10), time(23, 30)),
-        5: (time(7, 10), time(9, 30)),
-        6: (time(8, 0), time(9, 30)),
+    windows_by_weekday = {
+        0: [(time(0, 0), time(2, 30)), (time(20, 10), time(23, 30))],
+        1: [(time(0, 0), time(2, 30)), (time(20, 10), time(23, 30))],
+        2: [(time(0, 0), time(2, 30)), (time(20, 10), time(23, 30))],
+        3: [(time(0, 0), time(2, 30)), (time(20, 10), time(23, 30))],
+        4: [(time(0, 0), time(2, 30)), (time(20, 10), time(23, 30))],
+        5: [(time(0, 0), time(2, 30)), (time(7, 10), time(9, 30)), (time(20, 10), time(23, 30))],
+        6: [(time(0, 0), time(2, 30)), (time(8, 0), time(9, 30)), (time(20, 10), time(23, 30))],
     }
     for offset in range(8):
         day = (current + timedelta(days=offset)).date()
-        start_time, end_time = windows[day.weekday()]
-        start = datetime.combine(day, start_time, tzinfo=JST)
-        end = datetime.combine(day, end_time, tzinfo=JST)
-        if current <= end:
-            return {
-                "nowJstIso": current.isoformat(),
-                "openNow": start <= current <= end,
-                "dueToday": offset == 0,
-                "nextWindowStartJstIso": start.isoformat(),
-                "nextWindowEndJstIso": end.isoformat(),
-                "nextWindowLabel": f"{start:%Y-%m-%d %H:%M}-{end:%H:%M} JST",
-                "windowRule": "Weekday 20:10-23:30 JST, Sat 07:10-09:30 JST, Sun 08:00-09:30 JST",
-            }
+        for start_time, end_time in windows_by_weekday[day.weekday()]:
+            start = datetime.combine(day, start_time, tzinfo=JST)
+            end = datetime.combine(day, end_time, tzinfo=JST)
+            if current <= end:
+                return {
+                    "nowJstIso": current.isoformat(),
+                    "openNow": start <= current <= end,
+                    "dueToday": offset == 0,
+                    "nextWindowStartJstIso": start.isoformat(),
+                    "nextWindowEndJstIso": end.isoformat(),
+                    "nextWindowLabel": f"{start:%Y-%m-%d %H:%M}-{end:%H:%M} JST",
+                    "windowRule": "Daily closeout 00:00-02:30 JST, daily 20:10-23:30 JST, Sat 07:10-09:30 JST, Sun 08:00-09:30 JST",
+                }
     return {"nowJstIso": current.isoformat(), "openNow": False, "dueToday": False}
 
 
@@ -248,21 +248,71 @@ def daily_pnl_resolved_by_policy(daily_pnl: dict[str, Any], governance: dict[str
     return True
 
 
-def param_action_queue(scheduler: dict[str, Any], auto_tester: dict[str, Any], max_actions: int) -> list[dict[str, Any]]:
+def recovery_by_candidate(run_recovery: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for row in as_list(run_recovery.get("candidateDrilldown")):
+        if not isinstance(row, dict):
+            continue
+        candidate_id = clean(row.get("candidateId"))
+        if candidate_id:
+            rows[candidate_id] = row
+    return rows
+
+
+def recovery_blockers(row: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    latest_stop = clean(row.get("latestStopReason"))
+    risk_reason = clean(row.get("riskReason"))
+    if latest_stop:
+        blockers.append(latest_stop)
+    if risk_reason and risk_reason not in blockers:
+        blockers.append(risk_reason)
+    for code in as_list(row.get("terminalExitCodes")):
+        text = clean(code)
+        if text:
+            blockers.append(f"terminal_exit_{text}")
+    failures = row.get("failureReasons", {})
+    if isinstance(failures, dict):
+        for key, value in failures.items():
+            if as_int(value) > 0:
+                blockers.append(clean(key))
+    return list(dict.fromkeys(blockers))
+
+
+def param_action_queue(
+    scheduler: dict[str, Any],
+    auto_tester: dict[str, Any],
+    max_actions: int,
+    run_recovery: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     can_run = bool(auto_tester.get("summary", {}).get("canRunTerminal"))
     blockers = as_list(auto_tester.get("gate", {}).get("blockers")) or as_list(auto_tester.get("summary", {}).get("blockers"))
     blocker_keys = {clean(blocker).lower() for blocker in blockers if clean(blocker)}
     only_waiting_window = bool(blocker_keys) and blocker_keys <= {"outside_strategy_tester_window"}
     window_plan = tester_window_plan()
+    recovery_rows = recovery_by_candidate(run_recovery or {})
     for task in as_list(scheduler.get("selectedTasks"))[:max_actions]:
         if not isinstance(task, dict):
             continue
+        candidate_id = clean(task.get("candidateId"))
+        recovery = recovery_rows.get(candidate_id, {})
+        recovery_risk = clean(recovery.get("riskLevel")).lower()
+        recovery_stop = clean(recovery.get("latestStopReason")).lower()
+        recovery_terminal_nonzero = (
+            recovery_risk == "red"
+            or recovery_stop in {"terminal_nonzero", "terminal_exit_nonzero"}
+            or as_int(recovery.get("terminalNonzeroCount")) > 0
+        )
         result_status = clean(first(task.get("resultStatus"), task.get("status"), task.get("scheduleAction")))
         guard_class = ""
         status_label = ""
         if result_status.upper() in {"PARSED", "SCORED", "DONE"}:
             state = "DONE"
+        elif recovery_terminal_nonzero:
+            state = "NEEDS_CODEX_TRIAGE"
+            guard_class = "RUN_RECOVERY_RED"
+            status_label = "TERMINAL_EXIT_NONZERO"
         elif can_run:
             state = "READY_TO_RUN_TESTER"
             status_label = "READY_TO_RUN_TESTER"
@@ -279,16 +329,26 @@ def param_action_queue(scheduler: dict[str, Any], auto_tester: dict[str, Any], m
             "state": state,
             "guardClass": guard_class,
             "statusLabel": status_label,
-            "candidateId": task.get("candidateId", ""),
+            "candidateId": candidate_id,
             "routeKey": task.get("routeKey", ""),
             "strategy": task.get("strategy", ""),
             "symbol": task.get("symbol", ""),
             "score": task.get("score", ""),
             "resultStatus": result_status,
-            "blockers": blockers[:4],
+            "blockers": (recovery_blockers(recovery) or blockers)[:6],
             "testerOnly": True,
             "livePresetMutationAllowed": False,
         }
+        if recovery:
+            action["recovery"] = {
+                "riskLevel": recovery.get("riskLevel", ""),
+                "riskReason": recovery.get("riskReason", ""),
+                "latestRunId": recovery.get("latestRunId", ""),
+                "latestStopReason": recovery.get("latestStopReason", ""),
+                "latestRecoveryAction": recovery.get("latestRecoveryAction", ""),
+                "terminalExitCodes": as_list(recovery.get("terminalExitCodes")),
+                "retryRemaining": recovery.get("retryRemaining", ""),
+            }
         if guard_class == "WAIT_TESTER_WINDOW":
             action.update({
                 "dueToday": window_plan.get("dueToday", False),
@@ -737,7 +797,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     daily_pnl = close_history_summary(close_rows, review_day)
     daily_pnl["resolvedByCurrentPolicy"] = daily_pnl_resolved_by_policy(daily_pnl, governance)
     daily_pnl["requiresReview"] = bool(as_float(daily_pnl.get("netUSC")) < 0 and not daily_pnl["resolvedByCurrentPolicy"])
-    action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)))
+    action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)), run_recovery)
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)
     mt5_risk = mt5_terminal_risk(runtime_dir, now)
@@ -757,7 +817,9 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     queue_counter = Counter(action.get("state") for action in action_queue)
     wait_window_count = sum(1 for action in action_queue if action.get("guardClass") == "WAIT_TESTER_WINDOW")
     current_window_plan = tester_window_plan(now)
-    if action_queue and wait_window_count == len(action_queue):
+    if queue_counter.get("NEEDS_CODEX_TRIAGE", 0) > 0:
+        today_todo_status = "NEEDS_CODEX_TRIAGE"
+    elif action_queue and wait_window_count == len(action_queue):
         today_todo_status = "SCHEDULED_FOR_TESTER_WINDOW"
     elif queue_counter.get("READY_TO_RUN_TESTER", 0) > 0:
         today_todo_status = "READY_TO_RUN_TESTER"

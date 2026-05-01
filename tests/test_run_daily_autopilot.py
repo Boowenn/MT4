@@ -10,6 +10,9 @@ from pathlib import Path
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "run_daily_autopilot.py"
+TOOLS_DIR = str(MODULE_PATH.parent)
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
 SPEC = importlib.util.spec_from_file_location("run_daily_autopilot", MODULE_PATH)
 autopilot = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -21,10 +24,19 @@ daily_review = importlib.util.module_from_spec(REVIEW_SPEC)
 assert REVIEW_SPEC.loader is not None
 REVIEW_SPEC.loader.exec_module(daily_review)
 
+GUARD_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "auto_tester_window_guard.py"
+GUARD_SPEC = importlib.util.spec_from_file_location("auto_tester_window_guard", GUARD_MODULE_PATH)
+auto_tester_guard = importlib.util.module_from_spec(GUARD_SPEC)
+assert GUARD_SPEC.loader is not None
+GUARD_SPEC.loader.exec_module(auto_tester_guard)
+
+AUTO_TESTER_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "run_param_lab_auto_tester_window.py"
+AUTO_TESTER_SPEC = importlib.util.spec_from_file_location("run_param_lab_auto_tester_window", AUTO_TESTER_MODULE_PATH)
+auto_tester_window = importlib.util.module_from_spec(AUTO_TESTER_SPEC)
+assert AUTO_TESTER_SPEC.loader is not None
+AUTO_TESTER_SPEC.loader.exec_module(auto_tester_window)
+
 POLY_GOV_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "build_polymarket_auto_governance.py"
-TOOLS_DIR = str(POLY_GOV_MODULE_PATH.parent)
-if TOOLS_DIR not in sys.path:
-    sys.path.insert(0, TOOLS_DIR)
 POLY_GOV_SPEC = importlib.util.spec_from_file_location("build_polymarket_auto_governance", POLY_GOV_MODULE_PATH)
 poly_governance = importlib.util.module_from_spec(POLY_GOV_SPEC)
 assert POLY_GOV_SPEC.loader is not None
@@ -175,6 +187,115 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(queue[0]["statusLabel"], "SCHEDULED_TESTER_WINDOW")
         self.assertIn("nextWindowLabel", queue[0])
         self.assertFalse(queue[0]["livePresetMutationAllowed"])
+
+    def test_param_action_queue_marks_terminal_nonzero_as_codex_triage(self):
+        scheduler = {
+            "selectedTasks": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "routeKey": "MA_Cross",
+                "score": 1.074,
+                "resultStatus": "REPORT_MISSING_AFTER_RUN",
+            }]
+        }
+        auto_tester = {
+            "summary": {"canRunTerminal": True},
+            "gate": {"blockers": []},
+        }
+        run_recovery = {
+            "candidateDrilldown": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "riskLevel": "red",
+                "riskReason": "terminal_nonzero",
+                "latestStopReason": "terminal_nonzero",
+                "terminalNonzeroCount": 1,
+                "terminalExitCodes": [191],
+                "failureReasons": {
+                    "terminal_exit_nonzero": 1,
+                    "report_missing_after_run": 1,
+                },
+            }]
+        }
+
+        queue = daily_review.param_action_queue(scheduler, auto_tester, 5, run_recovery)
+
+        self.assertEqual(queue[0]["state"], "NEEDS_CODEX_TRIAGE")
+        self.assertEqual(queue[0]["guardClass"], "RUN_RECOVERY_RED")
+        self.assertEqual(queue[0]["statusLabel"], "TERMINAL_EXIT_NONZERO")
+        self.assertIn("terminal_exit_191", queue[0]["blockers"])
+        self.assertEqual(queue[0]["recovery"]["riskLevel"], "red")
+        self.assertFalse(queue[0]["livePresetMutationAllowed"])
+
+    def test_daily_closeout_window_keeps_todos_on_same_local_day(self):
+        now = datetime.fromisoformat("2026-05-02T00:25:00+09:00")
+        plan = daily_review.tester_window_plan(now)
+
+        self.assertTrue(plan["openNow"])
+        self.assertTrue(plan["dueToday"])
+        self.assertEqual(plan["nextWindowLabel"], "2026-05-02 00:00-02:30 JST")
+
+    def test_auto_tester_guard_allows_daily_closeout_window(self):
+        now = datetime.fromisoformat("2026-05-01T15:25:00+00:00")
+        window = auto_tester_guard.regular_tester_window(now)
+
+        self.assertTrue(window["ok"])
+        self.assertEqual(window["blockers"], [])
+        self.assertIn("Daily closeout 00:00-02:30 JST", window["windowLabel"])
+
+    def test_tester_guard_accepts_wine_archive_report_paths(self):
+        path = auto_tester_guard.path_from_tester_text(
+            r"Z:\Users\bowen\Desktop\Quard\QuantGod\archive\param-lab\runs\run\reports\EURUSDc\x.html"
+        )
+
+        self.assertEqual(
+            str(path),
+            "/Users/bowen/Desktop/Quard/QuantGod/archive/param-lab/runs/run/reports/EURUSDc/x.html",
+        )
+
+    def test_auto_tester_retry_allows_fixed_missing_tester_login(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "run" / "configs" / "x.ini"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(
+                "[Common]\nLogin=186054398\nServer=HFMarketsGlobal-Live12\n\n[Tester]\nExpert=QuantGod_MultiStrategy.ex5\n",
+                encoding="ascii",
+            )
+            status_path = root / "run" / "QuantGod_ParamLabStatus.json"
+            status_path.write_text(json.dumps({
+                "taskStatus": [{
+                    "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                    "configPath": str(config_path),
+                }]
+            }), encoding="utf-8")
+            scheduler = {
+                "selectedTasks": [{
+                    "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                    "routeKey": "MA_Cross",
+                    "strategy": "MA_Cross",
+                    "variant": "ma_control_tight_exit",
+                }]
+            }
+            recovery = {
+                "candidateDrilldown": [{
+                    "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                    "riskLevel": "red",
+                    "riskReason": "terminal_nonzero",
+                    "latestStatusPath": str(status_path),
+                }]
+            }
+
+            effective, controls = auto_tester_window.apply_executor_controls(
+                scheduler=scheduler,
+                recovery=recovery,
+                budget_policy={"defaultRouteBudget": 1},
+                max_tasks=1,
+                enforce_retry_drilldown=True,
+                enforce_budget=True,
+            )
+
+        self.assertEqual(controls["redSkippedCount"], 0)
+        self.assertEqual(len(effective["selectedTasks"]), 1)
+        self.assertEqual(effective["selectedTasks"][0]["retryOverride"], "PREVIOUS_TESTER_CONFIG_MISSING_TESTER_LOGIN_FIXED")
 
     def test_frontend_renders_scheduled_tester_window_copy(self):
         source = (MODULE_PATH.parents[1] / "frontend" / "src" / "App.vue").read_text(encoding="utf-8")

@@ -13,9 +13,11 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -165,6 +167,29 @@ def timeframe_to_period(timeframe: str) -> str:
     return "M15"
 
 
+def wine_windows_path(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    return "Z:" + str(resolved).replace("/", "\\")
+
+
+def mt5_terminal_command(terminal: Path, config_path: Path, login: str) -> tuple[list[str], Path | None, dict[str, str] | None]:
+    login_arg = f"/login:{login}" if str(login or "").strip() else ""
+    if sys.platform != "darwin":
+        command = [str(terminal)]
+        if login_arg:
+            command.append(login_arg)
+        command.append(f"/config:{config_path}")
+        return command, None, None
+    wine64 = Path(os.environ.get("QG_WINE64") or (Path.home() / "Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wine64"))
+    wineprefix = Path(os.environ.get("QG_WINEPREFIX") or (Path.home() / "Library/Application Support/net.metaquotes.wine.metatrader5"))
+    command = [str(wine64), "terminal64.exe", "/portable"]
+    if login_arg:
+        command.append(login_arg)
+    command.append(f"/config:{wine_windows_path(config_path)}")
+    env = {**os.environ, "WINEPREFIX": str(wineprefix)}
+    return command, terminal.parent, env
+
+
 def tester_config_text(
     *,
     login: str,
@@ -174,7 +199,7 @@ def tester_config_text(
     preset_name: str,
     from_date: str,
     to_date: str,
-    report_path: Path,
+    report_path: Path | str,
 ) -> str:
     return f"""[Common]
 Login={login}
@@ -189,6 +214,7 @@ Account=0
 Profile=0
 
 [Tester]
+Login={login}
 Expert=QuantGod_MultiStrategy.ex5
 ExpertParameters={preset_name}
 Symbol={symbol}
@@ -465,6 +491,9 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
         merged_lines = merge_preset_lines(load_preset_lines(base_preset), overrides)
         write_ascii_lines(local_preset, merged_lines)
         shutil.copy2(local_preset, hfm_preset)
+        report_path_for_config: Path | str = report_path
+        if sys.platform == "darwin":
+            report_path_for_config = wine_windows_path(report_path)
         config_path.write_text(
             tester_config_text(
                 login=args.login,
@@ -474,7 +503,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
                 preset_name=preset_name,
                 from_date=args.from_date,
                 to_date=args.to_date,
-                report_path=report_path,
+                report_path=report_path_for_config,
             ),
             encoding="ascii",
         )
@@ -510,7 +539,8 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
                 raise RuntimeError(f"Tester profile failed AUTO_TESTER_WINDOW guard for {candidate_id}: {blockers}")
             if profile_synced:
                 shutil.copy2(tester_profile, hfm_tester_profiles / preset_name)
-            process = subprocess.run([str(terminal), f"/config:{config_path}"], check=False)
+            command, cwd, env = mt5_terminal_command(terminal, config_path, args.login)
+            process = subprocess.run(command, cwd=cwd, env=env, check=False)
             terminal_exit_code = process.returncode
             runner_status = "RUN_ATTEMPTED"
 

@@ -14,6 +14,7 @@ import argparse
 import csv
 import json
 import subprocess
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -179,7 +180,7 @@ def command_for_runner(
     repo_root = Path(args.repo_root)
     runtime_dir = Path(args.runtime_dir)
     command = [
-        "python",
+        sys.executable or "python3",
         str(repo_root / "tools" / "run_param_lab.py"),
         "--repo-root",
         str(repo_root),
@@ -222,7 +223,7 @@ def command_for_watcher(args: argparse.Namespace) -> list[str]:
     runtime_dir = Path(args.runtime_dir)
     scheduler_path = Path(args.executor_plan) if args.executor_plan else runtime_dir / EXECUTOR_PLAN_NAME
     return [
-        "python",
+        sys.executable or "python3",
         str(repo_root / "tools" / "watch_param_lab_reports.py"),
         "--repo-root",
         str(repo_root),
@@ -284,6 +285,56 @@ def drilldown_index(recovery: dict[str, Any]) -> dict[str, dict[str, Any]]:
         for row in rows
         if isinstance(row, dict) and str(row.get("candidateId") or "")
     }
+
+
+def tester_section_has_login(config_path: Path) -> bool:
+    if not config_path.exists():
+        return False
+    section = ""
+    try:
+        lines = config_path.read_text(encoding="ascii", errors="ignore").splitlines()
+    except Exception:
+        return False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", ";")):
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1].strip().lower()
+            continue
+        if section == "tester" and stripped.lower().startswith("login=") and stripped.split("=", 1)[1].strip():
+            return True
+    return False
+
+
+def previous_tester_config_missing_login(candidate_id: str, drilldown: dict[str, Any]) -> bool:
+    status_path_text = str(drilldown.get("latestStatusPath") or "")
+    if not status_path_text:
+        return False
+    status = read_json(Path(status_path_text))
+    for row in safe_list(status.get("taskStatus")) + safe_list(status.get("tasks")):
+        task = safe_dict(row)
+        if str(task.get("candidateId") or "") != candidate_id:
+            continue
+        config_path_text = str(task.get("configPath") or "")
+        if not config_path_text:
+            return False
+        return not tester_section_has_login(Path(config_path_text))
+    return False
+
+
+def runner_changed_since_failure(drilldown: dict[str, Any]) -> bool:
+    generated_text = str(drilldown.get("latestGeneratedAtIso") or "")
+    if not generated_text:
+        return False
+    try:
+        generated = datetime.fromisoformat(generated_text.replace("Z", "+00:00"))
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    runner_mtime = datetime.fromtimestamp((Path(__file__).parent / "run_param_lab.py").stat().st_mtime, timezone.utc)
+    return runner_mtime > generated
 
 
 def parameter_family(task: dict[str, Any]) -> str:
@@ -367,6 +418,19 @@ def apply_executor_controls(
             "budgetFamily": family,
             "failureFamily": fail_family,
         })
+
+        retry_override = ""
+        if enforce_retry_drilldown and risk_level == "red" and risk_reason == "terminal_nonzero":
+            if previous_tester_config_missing_login(candidate_id, drilldown):
+                retry_override = "PREVIOUS_TESTER_CONFIG_MISSING_TESTER_LOGIN_FIXED"
+            elif runner_changed_since_failure(drilldown):
+                retry_override = "RUNNER_CHANGED_AFTER_TERMINAL_NONZERO"
+        if retry_override:
+            risk_level = "yellow"
+            risk_reason = "tester_login_config_fixed"
+            enriched["retryRiskLevel"] = risk_level
+            enriched["retryRiskReason"] = risk_reason
+            enriched["retryOverride"] = retry_override
 
         if enforce_retry_drilldown and risk_level == "red":
             enriched["executorDecision"] = "SKIP_RED_DRILLDOWN_NO_RETRY"

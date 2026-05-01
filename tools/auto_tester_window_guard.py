@@ -105,6 +105,13 @@ def path_under(path: Path, root: Path) -> bool:
         return False
 
 
+def path_from_tester_text(value: str) -> Path:
+    text = str(value or "").strip()
+    if len(text) >= 3 and text[1:3] == ":\\" and text[0].upper() == "Z":
+        return Path("/" + text[3:].replace("\\", "/").lstrip("/"))
+    return Path(text)
+
+
 def normalize_account_number(value: Any) -> str:
     text = str(value or "").strip()
     if text.endswith(".0"):
@@ -264,15 +271,18 @@ def regular_tester_window(now_utc: datetime | None = None) -> dict[str, Any]:
     now = (now_utc or datetime.now(timezone.utc)).astimezone(JST)
     weekday = now.weekday()  # Monday=0
     minutes = now.hour * 60 + now.minute
-    weekday_night_window = weekday <= 4 and (20 * 60 + 10) <= minutes <= (23 * 60 + 30)
-    saturday_window = weekday == 5 and (7 * 60 + 10) <= minutes <= (9 * 60 + 30)
-    sunday_window = weekday == 6 and (8 * 60) <= minutes <= (9 * 60 + 30)
-    open_now = weekday_night_window or saturday_window or sunday_window
+    daily_closeout_window = 0 <= minutes <= (2 * 60 + 30)
+    daily_night_window = (20 * 60 + 10) <= minutes <= (23 * 60 + 30)
+    weekend_morning_window = (
+        (weekday == 5 and (7 * 60 + 10) <= minutes <= (9 * 60 + 30))
+        or (weekday == 6 and (8 * 60) <= minutes <= (9 * 60 + 30))
+    )
+    open_now = daily_closeout_window or daily_night_window or weekend_morning_window
     return {
         "status": "ready" if open_now else "blocked",
         "ok": open_now,
         "nowJstIso": now.isoformat(),
-        "windowLabel": "Weekday 20:10-23:30 JST, Sat 07:10-09:30 JST, or Sun 08:00-09:30 JST",
+        "windowLabel": "Daily closeout 00:00-02:30 JST, daily 20:10-23:30 JST, Sat 07:10-09:30 JST, or Sun 08:00-09:30 JST",
         "blockers": [] if open_now else ["outside_strategy_tester_window"],
     }
 
@@ -428,9 +438,11 @@ def validate_tester_config(config_path: Path, *, repo_root: Path) -> dict[str, A
         blockers.append("tester_config_symbol_missing")
     if not common.get("Login") or not common.get("Server"):
         blockers.append("tester_config_account_or_server_missing")
+    if not tester.get("Login"):
+        blockers.append("tester_config_tester_login_missing")
 
     report_text = tester.get("Report", "")
-    report_path = Path(report_text) if report_text else Path()
+    report_path = path_from_tester_text(report_text) if report_text else Path()
     if not report_text:
         blockers.append("tester_config_report_missing")
     elif not path_under(report_path, repo_root / "archive" / "param-lab" / "runs"):

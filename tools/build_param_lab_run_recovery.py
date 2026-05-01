@@ -333,6 +333,7 @@ def recovery_advice_for_candidate(row: dict[str, Any], risk_reason: str) -> str:
     mapping = {
         "malformed": "Open report, fix parser mapping, then rerun watcher before another tester run.",
         "terminal_nonzero": "Inspect terminal/tester logs and profile sync before consuming another retry.",
+        "tester_account_context_missing": "Sync or recreate isolated tester account context; MT5 tester reports account is not specified.",
         "missing_after_run": "Verify reportPath and Strategy Tester output folder, then rerun watcher once.",
         "retry_budget_exhausted": "Pause automatic reruns; inspect config/report paths and candidate parameters first.",
         "repeated_waiting_report": "Keep queued, but prioritize only after authorized tester window and lock are green.",
@@ -343,10 +344,28 @@ def recovery_advice_for_candidate(row: dict[str, Any], risk_reason: str) -> str:
     return mapping.get(risk_reason, "Review candidate recovery state before rerun.")
 
 
+def tester_log_contains(repo_root: Path, phrase: str) -> bool:
+    log_root = repo_root / "runtime" / "HFM_MT5_Tester_Isolated" / "Tester" / "logs"
+    if not log_root.exists():
+        return False
+    lowered = phrase.lower()
+    for path in sorted(log_root.glob("*.log"), key=lambda item: item.stat().st_mtime, reverse=True)[:3]:
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        for encoding in ("utf-16", "utf-16-le", "utf-8"):
+            text = raw.decode(encoding, errors="ignore")
+            if lowered in text.lower():
+                return True
+    return False
+
+
 def build_candidate_drilldown(
     statuses: list[dict[str, Any]],
     result_index: dict[tuple[str, str], dict[str, Any]],
     retry_budget: int,
+    repo_root: Path,
 ) -> list[dict[str, Any]]:
     candidates: dict[str, dict[str, Any]] = {}
     sorted_statuses = sorted(statuses, key=lambda item: str(item.get("runId") or item.get("generatedAtIso") or ""))
@@ -416,6 +435,9 @@ def build_candidate_drilldown(
         row["retryUsed"] = max(0, int(row.get("attemptCount") or 0) - 1)
         row["retryRemaining"] = max(0, retry_budget - int(row["retryUsed"]))
         risk_level, risk_tone, risk_score, risk_reason = risk_for_candidate(row, retry_budget)
+        if risk_reason == "terminal_nonzero" and tester_log_contains(repo_root, "account is not specified"):
+            risk_reason = "tester_account_context_missing"
+            risk_score += 20
         row["riskLevel"] = risk_level
         row["riskTone"] = risk_tone
         row["riskScore"] = risk_score
@@ -443,7 +465,7 @@ def build_recovery(args: argparse.Namespace) -> dict[str, Any]:
     statuses = load_status_documents(runtime_dir / STATUS_NAME, archive_root)
     result_index = build_result_index(read_json(runtime_dir / RESULTS_NAME), read_json(runtime_dir / WATCHER_NAME))
     runs = build_run_rows(statuses, result_index, [str(item) for item in current_blockers])
-    candidate_drilldown = build_candidate_drilldown(statuses, result_index, retry_budget)
+    candidate_drilldown = build_candidate_drilldown(statuses, result_index, retry_budget, repo_root)
     recovery_queue = [
         row for row in runs
         if row.get("recoveryAction") not in {"SCORE_AND_VERSION_GATE"} or row.get("reportMalformedCount") or row.get("reportMissingCount")
