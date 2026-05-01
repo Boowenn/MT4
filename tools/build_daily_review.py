@@ -977,6 +977,190 @@ def daily_iteration_review(
     }
 
 
+def param_result_quality(row: dict[str, Any]) -> tuple[int, int, int, float]:
+    metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    parse_status = clean(first(metrics.get("parseStatus"), row.get("parseStatus"), row.get("status"))).upper()
+    return (
+        1 if bool(metrics.get("reportExists")) else 0,
+        1 if parse_status in {"PARSED", "PARSED_AGENT_ARTIFACTS", "DONE", "SCORED"} else 0,
+        1 if metrics.get("closedTrades") not in (None, "") else 0,
+        as_float(first(row.get("resultScore"), row.get("score")), -999.0),
+    )
+
+
+def param_results_by_candidate(param_results: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in as_list(param_results.get("results")):
+        if not isinstance(row, dict):
+            continue
+        candidate_id = clean(row.get("candidateId"))
+        if not candidate_id:
+            continue
+        current = indexed.get(candidate_id)
+        if current is None or param_result_quality(row) >= param_result_quality(current):
+            indexed[candidate_id] = row
+    return indexed
+
+
+def completed_tester_report_tasks(param_status: dict[str, Any], param_results: dict[str, Any]) -> list[dict[str, Any]]:
+    results = param_results_by_candidate(param_results)
+    rows: list[dict[str, Any]] = []
+    for task in as_list(param_status.get("tasks")):
+        if not isinstance(task, dict):
+            continue
+        status = clean(task.get("status")).upper()
+        if status not in {"PARSED", "PARSED_AGENT_ARTIFACTS", "DONE", "SCORED"}:
+            continue
+        candidate_id = clean(task.get("candidateId"))
+        result = results.get(candidate_id, {})
+        metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+        closed = as_int(metrics.get("closedTrades"), -1)
+        sample_status = clean(metrics.get("sampleStatus"))
+        if closed == 0 or sample_status == "NO_TRADES_IN_TEST_WINDOW":
+            effect = "测试器与账户上下文已打通，但该窗口无成交，不能作为升实盘证据。"
+        elif closed > 0:
+            effect = (
+                f"产生 {closed} 笔 tester 样本，PF {first(metrics.get('profitFactor'), '--')}，"
+                f"净值 {first(metrics.get('netProfit'), '--')}；进入版本评分/治理复核。"
+            )
+        else:
+            effect = "已回灌 tester 证据，等待结果评分补齐样本指标。"
+        rows.append({
+            "candidateId": candidate_id,
+            "routeKey": first(task.get("routeKey"), result.get("routeKey"), ""),
+            "symbol": first(task.get("symbol"), result.get("symbol"), ""),
+            "status": status,
+            "score": first(task.get("score"), result.get("resultScore"), ""),
+            "grade": first(result.get("grade"), ""),
+            "promotionReadiness": first(result.get("promotionReadiness"), ""),
+            "closedTrades": None if closed < 0 else closed,
+            "profitFactor": first(metrics.get("profitFactor"), ""),
+            "netProfit": first(metrics.get("netProfit"), ""),
+            "sampleStatus": sample_status,
+            "effect": effect,
+            "livePromotionAllowed": False,
+        })
+    return rows
+
+
+def build_completion_report(
+    review_day: str,
+    daily_pnl: dict[str, Any],
+    param_status: dict[str, Any],
+    param_results: dict[str, Any],
+    deferred_action_queue: list[dict[str, Any]],
+    promotions: list[dict[str, Any]],
+    poly: dict[str, Any],
+    daily_iteration: dict[str, Any],
+) -> dict[str, Any]:
+    tester_tasks = completed_tester_report_tasks(param_status, param_results)
+    poly_daily = poly.get("dailyReview") if isinstance(poly.get("dailyReview"), dict) else {}
+    poly_summary = poly_daily.get("summary") if isinstance(poly_daily.get("summary"), dict) else {}
+    poly_losses = as_list(poly_daily.get("topLossSources"))
+    worst_poly = poly_losses[0] if poly_losses and isinstance(poly_losses[0], dict) else {}
+    processed_items: list[dict[str, Any]] = []
+    recommendations: list[dict[str, Any]] = []
+
+    if as_int(daily_pnl.get("closedTrades")) > 0:
+        net = as_float(daily_pnl.get("netUSC"))
+        processed_items.append({
+            "code": "MT5_CLOSE_HISTORY_REVIEWED",
+            "status": "RESOLVED" if not daily_pnl.get("requiresReview") else "NEEDS_STRATEGY_REVIEW",
+            "title": "MT5 昨日平仓已复盘",
+            "result": f"{review_day} 平仓 {daily_pnl.get('closedTrades')} 笔，净 {net:.2f} USC。",
+            "impact": "RSI BUY 贡献正收益；SELL 已按治理规则保持模拟/候选复核。",
+        })
+        recommendations.append({
+            "priority": "info" if net >= 0 else "high",
+            "scope": "MT5",
+            "title": "MT5 今日不需要代码修复",
+            "recommendation": "继续保留 RSI BUY 实盘观察，SELL 侧保持降级/模拟验证；不扩大手数、不新增实盘品种。",
+            "reason": f"昨日净值 {net:.2f} USC，当前亏损来源不在 5 月 1 日 RSI BUY。",
+            "safeMode": "live-readonly-governance",
+            "autoApply": False,
+        })
+
+    if tester_tasks:
+        no_trade_count = sum(1 for item in tester_tasks if as_int(item.get("closedTrades"), -1) == 0)
+        processed_items.append({
+            "code": "PARAMLAB_TESTER_REPORTS_PARSED",
+            "status": "RESOLVED_NO_PROMOTION" if not promotions else "PROMOTION_REVIEW_REQUIRED",
+            "title": "今日 ParamLab 报告已回灌",
+            "result": f"已解析 {len(tester_tasks)} 个 isolated tester 任务；其中 {no_trade_count} 个窗口无成交。",
+            "impact": "报告证明 isolated tester 账户上下文可用；本轮没有自动升实盘。",
+        })
+        recommendations.append({
+            "priority": "watch" if no_trade_count else "info",
+            "scope": "ParamLab",
+            "title": "本轮报告只用于学习，不升实盘",
+            "recommendation": "把无成交样本当作配置/窗口证据；下一轮优先跑未完成 yellow backlog，必要时只在 isolated tester 加长 lookback。",
+            "reason": f"promotionReview={len(promotions)}，noTradeWindow={no_trade_count}，livePresetMutationAllowed=false。",
+            "safeMode": "tester-only",
+            "autoApply": False,
+        })
+
+    if deferred_action_queue:
+        processed_items.append({
+            "code": "PARAMLAB_BACKLOG_CARRIED_FORWARD",
+            "status": "DEFERRED_NEXT_DAILY_REFRESH",
+            "title": "剩余 ParamLab backlog 已标记延后",
+            "result": f"还有 {len(deferred_action_queue)} 个候选未跑完："
+                      f"{', '.join(clean(item.get('candidateId')) for item in deferred_action_queue[:3])}",
+            "impact": "不是前端漏做，而是今日 tester 预算已用满；下一轮自动继续。",
+        })
+
+    if poly_summary.get("lossQuarantine"):
+        processed_items.append({
+            "code": "POLYMARKET_LOSS_SOURCE_REVIEWED",
+            "status": "ITERATION_REQUIRED",
+            "title": "Polymarket 亏损来源已归因",
+            "result": (
+                f"executed PF {poly_summary.get('executedProfitFactor')}，shadow PF {poly_summary.get('shadowProfitFactor')}；"
+                f"最大亏损源 {worst_poly.get('experimentKey', '--')}。"
+            ),
+            "impact": "保持真实钱包隔离；进入 shadow-only retune，不允许自动下注。",
+        })
+        recommendations.append({
+            "priority": "high",
+            "scope": "Polymarket",
+            "title": "重建 sports/esports edge_filter",
+            "recommendation": "淘汰当前亏损 filter，按 retune planner 的 red/yellow 队列重建严格分数、流动性、价格带和题材分桶。",
+            "reason": (
+                f"{worst_poly.get('experimentKey', '--')} PF={worst_poly.get('profitFactor', '--')}，"
+                f"win={worst_poly.get('winRatePct', '--')}%，net={worst_poly.get('realizedPnl', '--')} USDC。"
+            ),
+            "safeMode": "shadow-only",
+            "autoApply": False,
+        })
+
+    status = "ITERATION_REQUIRED" if daily_iteration.get("iterationRequired") else "COMPLETE_NO_ACTION"
+    if deferred_action_queue and status == "COMPLETE_NO_ACTION":
+        status = "COMPLETE_WITH_DEFERRED_BACKLOG"
+    return {
+        "status": status,
+        "title": f"{review_day} 每日待办处理报告",
+        "summary": {
+            "processedCount": len(processed_items),
+            "recommendationCount": len(recommendations),
+            "testerParsedCount": len(tester_tasks),
+            "testerNoTradeCount": sum(1 for item in tester_tasks if as_int(item.get("closedTrades"), -1) == 0),
+            "deferredCount": len(deferred_action_queue),
+            "promotionReviewCount": len(promotions),
+            "polymarketLossQuarantine": bool(poly_summary.get("lossQuarantine")),
+        },
+        "processedItems": processed_items,
+        "testerReports": tester_tasks[:8],
+        "recommendations": recommendations,
+        "safety": {
+            "mutatesMt5": False,
+            "orderSendAllowed": False,
+            "walletWriteAllowed": False,
+            "livePresetMutationAllowed": False,
+            "autoApply": False,
+        },
+    }
+
+
 def build_review(args: argparse.Namespace) -> dict[str, Any]:
     runtime_dir = Path(args.runtime_dir)
     output = Path(args.output) if args.output else runtime_dir / OUTPUT_NAME
@@ -985,6 +1169,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
 
     close_rows = read_csv(runtime_dir / "QuantGod_CloseHistory.csv")
     param_status = read_json(runtime_dir / "QuantGod_ParamLabStatus.json")
+    param_results = read_json(runtime_dir / "QuantGod_ParamLabResults.json")
     scheduler = read_json(runtime_dir / "QuantGod_ParamLabAutoScheduler.json")
     auto_tester = read_json(runtime_dir / "QuantGod_AutoTesterWindow.json")
     version_gate = read_json(runtime_dir / "QuantGod_VersionPromotionGate.json")
@@ -1020,6 +1205,16 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     tester_summary = auto_tester.get("summary", {}) if isinstance(auto_tester.get("summary"), dict) else {}
     recovery_summary = run_recovery.get("summary", {}) if isinstance(run_recovery.get("summary"), dict) else {}
     daily_iteration = daily_iteration_review(daily_pnl, deferred_action_queue, poly, mt5_risk, max_actions)
+    completion_report = build_completion_report(
+        review_day,
+        daily_pnl,
+        param_status,
+        param_results,
+        deferred_action_queue,
+        promotions,
+        poly,
+        daily_iteration,
+    )
     codex_review = codex_review_queue(
         daily_pnl,
         action_queue,
@@ -1101,6 +1296,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "polymarketShadowPF": poly["dailyReview"]["summary"]["shadowProfitFactor"],
             "dailyIterationStatus": daily_iteration["status"],
             "dailyIterationRequired": daily_iteration["iterationRequired"],
+            "completionReportStatus": completion_report["status"],
+            "completionRecommendationCount": completion_report["summary"]["recommendationCount"],
             "codexReviewRequired": codex_review["required"],
         },
         "dailyPnl": daily_pnl,
@@ -1111,6 +1308,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "promotionRecommendations": promotions,
         "polymarket": poly,
         "dailyIteration": daily_iteration,
+        "completionReport": completion_report,
         "mt5TerminalRisk": mt5_risk,
         "tester": {
             "summary": tester_summary,

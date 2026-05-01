@@ -2467,6 +2467,7 @@ const homeFocusCards = computed(() => {
 });
 
 const reportCards = computed(() => [
+  { name: '每日待办处理报告', payload: mt5.value.dailyReview?.completionReport, count: first(mt5.value.dailyReview?.completionReport?.summary?.recommendationCount, 0), file: 'QuantGod_DailyReview.json' },
   { name: 'ParamLab 队列', payload: mt5.value.paramStatus, count: paramTasks.value.length, file: 'QuantGod_ParamLabStatus.json' },
   { name: 'Report Watcher', payload: mt5.value.paramReportWatcher, count: reportWatcherRows.value.length, file: 'QuantGod_ParamLabReportWatcher.json' },
   { name: 'Run Recovery', payload: mt5.value.runRecovery, count: runRecoveryRows.value.length, file: 'QuantGod_ParamLabRunRecovery.json' },
@@ -2811,6 +2812,7 @@ const dailyReviewItems = computed(() => {
   const dailySummary = dailyArtifact.summary || {};
   const codexReview = dailyArtifact.codexReview || mt5.value.dailyAutopilot?.codexReview || {};
   const dailyIteration = dailyArtifact.dailyIteration || {};
+  const completionReport = dailyArtifact.completionReport || {};
   const autoLoop = mt5.value.dailyAutopilot || {};
   const paramSummary = mt5.value.paramStatus?.summary || {};
   const autoSummary = mt5.value.autoTesterWindow?.summary || {};
@@ -2838,6 +2840,9 @@ const dailyReviewItems = computed(() => {
   const iterationCodeQueue = arrayFrom(dailyIteration, ['codeIterationQueue']);
   const iterationStrategyQueue = arrayFrom(dailyIteration, ['strategyIterationQueue']);
   const iterationRequired = dailyIteration.iterationRequired === true || dailyIteration.codexFollowupRequired === true;
+  const completionSummary = completionReport.summary || {};
+  const completionRecommendations = arrayFrom(completionReport, ['recommendations']);
+  const completionProcessed = arrayFrom(completionReport, ['processedItems']);
   const autoStatus = String(first(autoLoop.status, dailyArtifact.aiReview?.status, '')).toUpperCase();
   const readyCount = asCount(dailySummary.paramReadyToRunCount);
   const promotionCount = asCount(dailySummary.promotionReviewCount);
@@ -2888,6 +2893,14 @@ const dailyReviewItems = computed(() => {
       tone: iterationRequired ? 'red' : 'green',
       target: 'reports',
       visible: iterationFindings.length > 0 || iterationRequired
+    },
+    {
+      title: '待办处理报告',
+      sub: `已处理 ${first(completionSummary.processedCount, completionProcessed.length)} / 建议 ${first(completionSummary.recommendationCount, completionRecommendations.length)} / 延后 ${first(completionSummary.deferredCount, 0)}`,
+      value: cleanInlineStatusText(first(completionReport.status, '已生成')),
+      tone: String(first(completionReport.status, '')).includes('ITERATION') ? 'red' : first(completionSummary.deferredCount, 0) > 0 ? 'amber' : 'green',
+      target: 'reports',
+      visible: completionProcessed.length > 0 || completionRecommendations.length > 0
     },
     {
       title: '自动闭环',

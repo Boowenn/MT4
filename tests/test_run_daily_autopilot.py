@@ -469,6 +469,66 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertTrue(codex["required"])
         self.assertEqual(codex["reasons"][-1]["code"], "DAILY_ITERATION_ACTIONABLE_FINDINGS")
 
+    def test_completion_report_explains_finished_todos_and_recommendations(self):
+        poly = {
+            "dailyReview": {
+                "summary": {
+                    "lossQuarantine": True,
+                    "executedProfitFactor": 0.0145,
+                    "shadowProfitFactor": 0.7055,
+                    "quarantineCount": 45,
+                },
+                "topLossSources": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "profitFactor": 0.3956,
+                    "winRatePct": 19.35,
+                    "realizedPnl": -58.0649,
+                }],
+            }
+        }
+        param_status = {
+            "tasks": [{
+                "candidateId": "BB_Triple_EURUSDc_bb_outer_band_strict_v2",
+                "routeKey": "BB_Triple",
+                "symbol": "EURUSDc",
+                "status": "PARSED_AGENT_ARTIFACTS",
+                "score": -7.745,
+            }]
+        }
+        param_results = {
+            "results": [{
+                "candidateId": "BB_Triple_EURUSDc_bb_outer_band_strict_v2",
+                "grade": "C",
+                "promotionReadiness": "NEEDS_MORE_EVIDENCE",
+                "metrics": {
+                    "reportExists": True,
+                    "parseStatus": "PARSED_AGENT_ARTIFACTS",
+                    "closedTrades": 0,
+                    "sampleStatus": "NO_TRADES_IN_TEST_WINDOW",
+                },
+            }]
+        }
+        iteration = {"iterationRequired": True}
+
+        report = daily_review.build_completion_report(
+            "2026-05-01",
+            {"closedTrades": 2, "netUSC": 3.54, "requiresReview": False},
+            param_status,
+            param_results,
+            [{"candidateId": "MA_Cross_EURUSDc_ma_slower_confirmation"}],
+            [],
+            poly,
+            iteration,
+        )
+
+        self.assertEqual(report["status"], "ITERATION_REQUIRED")
+        self.assertEqual(report["summary"]["testerParsedCount"], 1)
+        self.assertEqual(report["summary"]["testerNoTradeCount"], 1)
+        self.assertGreaterEqual(report["summary"]["recommendationCount"], 3)
+        self.assertIn("不能作为升实盘证据", report["testerReports"][0]["effect"])
+        self.assertTrue(any(item["scope"] == "Polymarket" for item in report["recommendations"]))
+        self.assertFalse(report["safety"]["orderSendAllowed"])
+
     def test_daily_closeout_window_keeps_todos_on_same_local_day(self):
         now = datetime.fromisoformat("2026-05-02T00:25:00+09:00")
         plan = daily_review.tester_window_plan(now)
@@ -555,6 +615,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("今日已完成，等待明日刷新", source)
         self.assertIn("每日迭代结论", source)
         self.assertIn("dailyArtifact.dailyIteration", source)
+        self.assertIn("待办处理报告", source)
+        self.assertIn("completionReport", source)
+        self.assertIn("每日待办处理报告", source)
         self.assertIn("const actionQueueItems = computed(() => [\n  ...mt5ActionQueueItems.value,\n  ...polymarketActionQueueItems.value", source)
         self.assertNotIn("...paramVisibleTasks.value.slice(0, 5).map((row) => ({", source)
         self.assertIn("routeLaneMetricText(route, row)", source)
