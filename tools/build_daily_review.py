@@ -908,39 +908,57 @@ def daily_iteration_review(
     retunes = as_list(poly_daily.get("retuneSources"))
     if poly_summary.get("lossQuarantine"):
         worst = top_losses[0] if top_losses and isinstance(top_losses[0], dict) else {}
+        retune_total = as_int(poly_summary.get("retuneTotal"), 0)
+        retune_red = as_int(poly_summary.get("retuneRed"), 0)
+        retune_yellow = as_int(poly_summary.get("retuneYellow"), 0)
+        retune_applied_today = bool(poly_summary.get("reviewFreshForDay") and retune_total > 0)
         findings.append({
             "code": "POLYMARKET_LOSS_QUARANTINE_ACTIVE",
-            "severity": "high",
+            "severity": "watch" if retune_applied_today else "high",
             "target": "strategy",
             "title": "Polymarket 亏损隔离",
             "detail": (
                 f"executedPF={poly_summary.get('executedProfitFactor')} "
                 f"shadowPF={poly_summary.get('shadowProfitFactor')} "
-                f"quarantine={poly_summary.get('quarantineCount')}"
+                f"quarantine={poly_summary.get('quarantineCount')} "
+                f"retune={retune_red}R/{retune_yellow}Y"
             ),
             "rootCause": (
                 f"最大亏损来源 {worst.get('experimentKey', '--')} "
                 f"PF={worst.get('profitFactor', '--')} win={worst.get('winRatePct', '--')}% "
                 f"net={worst.get('realizedPnl', '--')} USDC；edge_filter/autonomous 族群胜率明显不足。"
             ),
-            "nextStep": "保持钱包锁定；淘汰/重建 sports/esports edge_filter，下一轮只进 shadow-only retune。",
-            "requiresCodeChange": True,
-            "requiresStrategyIteration": True,
+            "nextStep": (
+                "今日已生成 shadow-only retune；保持钱包锁定，明日复查新批次效果。"
+                if retune_applied_today else
+                "保持钱包锁定；淘汰/重建 sports/esports edge_filter，下一轮只进 shadow-only retune。"
+            ),
+            "requiresCodeChange": not retune_applied_today,
+            "requiresStrategyIteration": not retune_applied_today,
+            "iterationApplied": retune_applied_today,
         })
         strategy_queue.append({
             "type": "POLYMARKET_FILTER_RETUNE",
-            "status": "REQUIRED",
+            "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "REQUIRED",
             "targetFamilies": [clean(item.get("experimentKey")) for item in retunes[:3] if isinstance(item, dict)],
             "safeMode": "shadow-only",
-            "recommendation": "raise score/liquidity thresholds, split sports/esports, keep global loss quarantine",
+            "recommendation": (
+                f"retune planner produced {retune_red} red / {retune_yellow} yellow shadow-only families"
+                if retune_applied_today else
+                "raise score/liquidity thresholds, split sports/esports, keep global loss quarantine"
+            ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
         code_queue.append({
             "type": "POLYMARKET_RETUNE_RULES",
-            "status": "PROPOSE_CODE_OR_CONFIG_PATCH",
+            "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "PROPOSE_CODE_OR_CONFIG_PATCH",
             "safeMode": "research-only",
-            "recommendation": "encode stricter shadow-only filter families for the worst loss sources; do not enable real executor",
+            "recommendation": (
+                "fresh read-only research and retune artifacts already encode stricter red/yellow filter families"
+                if retune_applied_today else
+                "encode stricter shadow-only filter families for the worst loss sources; do not enable real executor"
+            ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
