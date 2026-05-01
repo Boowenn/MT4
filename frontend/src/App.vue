@@ -2810,6 +2810,7 @@ const dailyReviewItems = computed(() => {
   const dailyArtifact = mt5.value.dailyReview || {};
   const dailySummary = dailyArtifact.summary || {};
   const codexReview = dailyArtifact.codexReview || mt5.value.dailyAutopilot?.codexReview || {};
+  const dailyIteration = dailyArtifact.dailyIteration || {};
   const autoLoop = mt5.value.dailyAutopilot || {};
   const paramSummary = mt5.value.paramStatus?.summary || {};
   const autoSummary = mt5.value.autoTesterWindow?.summary || {};
@@ -2833,6 +2834,10 @@ const dailyReviewItems = computed(() => {
   const codexReasons = arrayFrom(codexReview, ['reasons']);
   const codexTargets = arrayFrom(codexReview, ['triageTargets']);
   const codexRequired = codexReview.required === true || String(codexReview.status || '').includes('REQUIRES_CODEX_TRIAGE');
+  const iterationFindings = arrayFrom(dailyIteration, ['findings']);
+  const iterationCodeQueue = arrayFrom(dailyIteration, ['codeIterationQueue']);
+  const iterationStrategyQueue = arrayFrom(dailyIteration, ['strategyIterationQueue']);
+  const iterationRequired = dailyIteration.iterationRequired === true || dailyIteration.codexFollowupRequired === true;
   const autoStatus = String(first(autoLoop.status, dailyArtifact.aiReview?.status, '')).toUpperCase();
   const readyCount = asCount(dailySummary.paramReadyToRunCount);
   const promotionCount = asCount(dailySummary.promotionReviewCount);
@@ -2875,6 +2880,14 @@ const dailyReviewItems = computed(() => {
       tone: 'red',
       target: 'reports',
       visible: codexRequired
+    },
+    {
+      title: '每日迭代结论',
+      sub: `发现 ${iterationFindings.length} / 代码 ${iterationCodeQueue.length} / 策略 ${iterationStrategyQueue.length}`,
+      value: iterationRequired ? '需迭代' : cleanInlineStatusText(first(dailyIteration.status, '已复盘')),
+      tone: iterationRequired ? 'red' : 'green',
+      target: 'reports',
+      visible: iterationFindings.length > 0 || iterationRequired
     },
     {
       title: '自动闭环',

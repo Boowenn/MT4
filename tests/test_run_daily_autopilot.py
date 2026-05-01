@@ -423,6 +423,52 @@ class DailyAutopilotTests(unittest.TestCase):
 
         self.assertEqual(completed, 5)
 
+    def test_daily_iteration_flags_polymarket_loss_quarantine_for_codex(self):
+        poly = {
+            "dailyReview": {
+                "summary": {
+                    "lossQuarantine": True,
+                    "executedProfitFactor": 0.0145,
+                    "shadowProfitFactor": 0.7055,
+                    "quarantineCount": 45,
+                },
+                "topLossSources": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "profitFactor": 0.3956,
+                    "winRatePct": 19.35,
+                    "realizedPnl": -58.0649,
+                }],
+                "retuneSources": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                }],
+            }
+        }
+        iteration = daily_review.daily_iteration_review(
+            {"date": "2026-05-01", "closedTrades": 2, "netUSC": 3.54},
+            [],
+            poly,
+            {"requiresCodexReview": False},
+            5,
+        )
+        codex = daily_review.codex_review_queue(
+            {"date": "2026-05-01", "closedTrades": 2, "netUSC": 3.54, "requiresReview": False},
+            [],
+            [],
+            {},
+            {},
+            {},
+            {"workerStatus": "OK"},
+            {"requiresCodexReview": False},
+            iteration,
+        )
+
+        self.assertEqual(iteration["status"], "ITERATION_REQUIRED")
+        self.assertTrue(iteration["codexFollowupRequired"])
+        self.assertTrue(iteration["codeIterationQueue"])
+        self.assertTrue(iteration["strategyIterationQueue"])
+        self.assertTrue(codex["required"])
+        self.assertEqual(codex["reasons"][-1]["code"], "DAILY_ITERATION_ACTIONABLE_FINDINGS")
+
     def test_daily_closeout_window_keeps_todos_on_same_local_day(self):
         now = datetime.fromisoformat("2026-05-02T00:25:00+09:00")
         plan = daily_review.tester_window_plan(now)
@@ -507,6 +553,8 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("const polymarketActionQueueItems", source)
         self.assertIn("const todayTodoItems", source)
         self.assertIn("今日已完成，等待明日刷新", source)
+        self.assertIn("每日迭代结论", source)
+        self.assertIn("dailyArtifact.dailyIteration", source)
         self.assertIn("const actionQueueItems = computed(() => [\n  ...mt5ActionQueueItems.value,\n  ...polymarketActionQueueItems.value", source)
         self.assertNotIn("...paramVisibleTasks.value.slice(0, 5).map((row) => ({", source)
         self.assertIn("routeLaneMetricText(route, row)", source)

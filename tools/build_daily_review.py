@@ -718,6 +718,7 @@ def codex_review_queue(
     recovery_summary: dict[str, Any],
     poly_summary: dict[str, Any],
     mt5_risk: dict[str, Any],
+    daily_iteration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     targets: set[str] = set()
@@ -810,6 +811,20 @@ def codex_review_queue(
         })
         targets.add("code_or_environment")
 
+    iteration = daily_iteration or {}
+    if iteration.get("codexFollowupRequired"):
+        reasons.append({
+            "code": "DAILY_ITERATION_ACTIONABLE_FINDINGS",
+            "target": "code_or_strategy",
+            "detail": (
+                f"findings={len(as_list(iteration.get('findings')))} "
+                f"codeActions={len(as_list(iteration.get('codeIterationQueue')))} "
+                f"strategyActions={len(as_list(iteration.get('strategyIterationQueue')))}"
+            ),
+        })
+        targets.update(clean(item.get("target")) for item in as_list(iteration.get("findings")) if isinstance(item, dict) and clean(item.get("target")))
+        targets.add("code_or_strategy")
+
     required = bool(reasons)
     return {
         "required": required,
@@ -837,6 +852,128 @@ def codex_review_queue(
             "auto-apply live promotion",
             "loosen risk gates",
         ],
+    }
+
+
+def daily_iteration_review(
+    daily_pnl: dict[str, Any],
+    deferred_action_queue: list[dict[str, Any]],
+    poly: dict[str, Any],
+    mt5_risk: dict[str, Any],
+    max_actions: int,
+) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    code_queue: list[dict[str, Any]] = []
+    strategy_queue: list[dict[str, Any]] = []
+    evidence_queue: list[dict[str, Any]] = []
+
+    if as_int(daily_pnl.get("closedTrades")) > 0:
+        net = as_float(daily_pnl.get("netUSC"))
+        findings.append({
+            "code": "MT5_DAILY_PNL_POSITIVE" if net >= 0 else "MT5_DAILY_PNL_NEGATIVE",
+            "severity": "info" if net >= 0 else "high",
+            "target": "strategy",
+            "title": "MT5 昨日平仓复盘",
+            "detail": f"{daily_pnl.get('date')} closed={daily_pnl.get('closedTrades')} net={net:.2f} USC",
+            "rootCause": "RSI BUY closed positive; no immediate code change required." if net >= 0 else "Daily realized P&L is negative and needs route attribution.",
+            "nextStep": "继续观察 RSI buy/sell 分侧表现。" if net >= 0 else "按 strategy/side/regime 拆亏损来源，必要时降级或收紧 gate。",
+            "requiresCodeChange": False,
+            "requiresStrategyIteration": net < 0,
+        })
+
+    if deferred_action_queue:
+        detail = ", ".join(clean(item.get("candidateId")) for item in deferred_action_queue[:3])
+        findings.append({
+            "code": "PARAMLAB_BACKLOG_DEFERRED_AFTER_DAILY_BUDGET",
+            "severity": "watch",
+            "target": "evidence",
+            "title": "ParamLab 今日额度已满",
+            "detail": f"completed={max_actions}/{max_actions}; deferred={len(deferred_action_queue)}; {detail}",
+            "rootCause": "今日 tester-only 短窗口已跑满，剩余 backlog 延后，避免无限续跑和干扰实盘终端。",
+            "nextStep": "明日自动继续；若人工想加速，可单独授权 isolated tester 追加批次。",
+            "requiresCodeChange": False,
+            "requiresStrategyIteration": False,
+        })
+        evidence_queue.append({
+            "type": "PARAMLAB_DEFERRED_BACKLOG",
+            "status": "DEFERRED_NEXT_DAILY_REFRESH",
+            "count": len(deferred_action_queue),
+            "reason": f"daily tester budget {max_actions}/{max_actions} consumed",
+            "safeAction": "wait_next_daily_refresh_or_human_approve_extra_isolated_tester_batch",
+        })
+
+    poly_daily = poly.get("dailyReview") if isinstance(poly.get("dailyReview"), dict) else {}
+    poly_summary = poly_daily.get("summary") if isinstance(poly_daily.get("summary"), dict) else {}
+    top_losses = as_list(poly_daily.get("topLossSources"))
+    retunes = as_list(poly_daily.get("retuneSources"))
+    if poly_summary.get("lossQuarantine"):
+        worst = top_losses[0] if top_losses and isinstance(top_losses[0], dict) else {}
+        findings.append({
+            "code": "POLYMARKET_LOSS_QUARANTINE_ACTIVE",
+            "severity": "high",
+            "target": "strategy",
+            "title": "Polymarket 亏损隔离",
+            "detail": (
+                f"executedPF={poly_summary.get('executedProfitFactor')} "
+                f"shadowPF={poly_summary.get('shadowProfitFactor')} "
+                f"quarantine={poly_summary.get('quarantineCount')}"
+            ),
+            "rootCause": (
+                f"最大亏损来源 {worst.get('experimentKey', '--')} "
+                f"PF={worst.get('profitFactor', '--')} win={worst.get('winRatePct', '--')}% "
+                f"net={worst.get('realizedPnl', '--')} USDC；edge_filter/autonomous 族群胜率明显不足。"
+            ),
+            "nextStep": "保持钱包锁定；淘汰/重建 sports/esports edge_filter，下一轮只进 shadow-only retune。",
+            "requiresCodeChange": True,
+            "requiresStrategyIteration": True,
+        })
+        strategy_queue.append({
+            "type": "POLYMARKET_FILTER_RETUNE",
+            "status": "REQUIRED",
+            "targetFamilies": [clean(item.get("experimentKey")) for item in retunes[:3] if isinstance(item, dict)],
+            "safeMode": "shadow-only",
+            "recommendation": "raise score/liquidity thresholds, split sports/esports, keep global loss quarantine",
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
+        code_queue.append({
+            "type": "POLYMARKET_RETUNE_RULES",
+            "status": "PROPOSE_CODE_OR_CONFIG_PATCH",
+            "safeMode": "research-only",
+            "recommendation": "encode stricter shadow-only filter families for the worst loss sources; do not enable real executor",
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
+
+    if mt5_risk.get("requiresCodexReview"):
+        findings.append({
+            "code": "MT5_PERMISSION_REVIEW_REQUIRED",
+            "severity": "high",
+            "target": "code_or_environment",
+            "title": "MT5 权限/下单失败复盘",
+            "detail": mt5_risk.get("latestEvidence", ""),
+            "rootCause": "当前交易权限或 order-send 证据仍异常。",
+            "nextStep": "只读检查登录权限、EA runtime flags 和 broker tradeAllowed，不强制恢复交易。",
+            "requiresCodeChange": True,
+            "requiresStrategyIteration": False,
+        })
+
+    codex_followup = any(bool(item.get("requiresCodeChange") or item.get("requiresStrategyIteration")) for item in findings)
+    return {
+        "status": "ITERATION_REQUIRED" if codex_followup else "REVIEW_COMPLETE_NO_CODE_CHANGE",
+        "reviewCompleted": True,
+        "iterationRequired": codex_followup,
+        "codexFollowupRequired": codex_followup,
+        "findings": findings,
+        "codeIterationQueue": code_queue,
+        "strategyIterationQueue": strategy_queue,
+        "evidenceIterationQueue": evidence_queue,
+        "safeBoundary": {
+            "mutatesMt5": False,
+            "orderSendAllowed": False,
+            "walletWriteAllowed": False,
+            "livePresetMutationAllowed": False,
+        },
     }
 
 
@@ -882,6 +1019,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     mt5_risk = mt5_terminal_risk(runtime_dir, now)
     tester_summary = auto_tester.get("summary", {}) if isinstance(auto_tester.get("summary"), dict) else {}
     recovery_summary = run_recovery.get("summary", {}) if isinstance(run_recovery.get("summary"), dict) else {}
+    daily_iteration = daily_iteration_review(daily_pnl, deferred_action_queue, poly, mt5_risk, max_actions)
     codex_review = codex_review_queue(
         daily_pnl,
         action_queue,
@@ -891,6 +1029,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         recovery_summary,
         poly,
         mt5_risk,
+        daily_iteration,
     )
 
     queue_counter = Counter(action.get("state") for action in action_queue)
@@ -960,6 +1099,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "polymarketLossQuarantine": poly["dailyReview"]["summary"]["lossQuarantine"],
             "polymarketExecutedPF": poly["dailyReview"]["summary"]["executedProfitFactor"],
             "polymarketShadowPF": poly["dailyReview"]["summary"]["shadowProfitFactor"],
+            "dailyIterationStatus": daily_iteration["status"],
+            "dailyIterationRequired": daily_iteration["iterationRequired"],
             "codexReviewRequired": codex_review["required"],
         },
         "dailyPnl": daily_pnl,
@@ -969,6 +1110,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
         "polymarket": poly,
+        "dailyIteration": daily_iteration,
         "mt5TerminalRisk": mt5_risk,
         "tester": {
             "summary": tester_summary,
