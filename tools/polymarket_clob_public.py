@@ -128,7 +128,7 @@ def fetch_order_book(token_id: str, timeout: float = 4.0, host: str = CLOB_HOST)
     return {"status": "OK", "bids": bids, "asks": asks, "raw": payload}
 
 
-def _book_side_depth(rows: list[Any], limit: int = 8) -> tuple[float | None, float]:
+def _book_side_depth(rows: list[Any], side: str, limit: int = 8) -> tuple[float | None, float]:
     parsed: list[tuple[float, float]] = []
     for item in rows:
         if not isinstance(item, dict):
@@ -140,6 +140,7 @@ def _book_side_depth(rows: list[Any], limit: int = 8) -> tuple[float | None, flo
         parsed.append((price, size))
     if not parsed:
         return None, 0.0
+    parsed.sort(key=lambda row: row[0], reverse=(side == "bid"))
     best_price = parsed[0][0]
     notional = sum(price * size for price, size in parsed[: max(1, limit)])
     return best_price, round(notional, 4)
@@ -158,8 +159,8 @@ def summarize_order_book(book: dict[str, Any], depth_levels: int = 8) -> dict[st
             "clobLiquidityUsd": 0.0,
             "clobDepthScore": 0.0,
         }
-    best_bid, bid_depth = _book_side_depth(book.get("bids") or [], depth_levels)
-    best_ask, ask_depth = _book_side_depth(book.get("asks") or [], depth_levels)
+    best_bid, bid_depth = _book_side_depth(book.get("bids") or [], "bid", depth_levels)
+    best_ask, ask_depth = _book_side_depth(book.get("asks") or [], "ask", depth_levels)
     midpoint = None
     spread = None
     if best_bid is not None and best_ask is not None:

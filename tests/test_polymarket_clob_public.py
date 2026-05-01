@@ -26,8 +26,8 @@ def test_normalize_outcome_tokens_extracts_yes_no_prices():
 def test_summarize_order_book_scores_public_depth_without_wallet_state():
     book = {
         "status": "OK",
-        "bids": [{"price": "0.61", "size": "100"}, {"price": "0.60", "size": "50"}],
-        "asks": [{"price": "0.64", "size": "80"}, {"price": "0.65", "size": "40"}],
+        "bids": [{"price": "0.60", "size": "50"}, {"price": "0.61", "size": "100"}],
+        "asks": [{"price": "0.65", "size": "40"}, {"price": "0.64", "size": "80"}],
     }
 
     summary = summarize_order_book(book)

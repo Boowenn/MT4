@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import math
+import re
 import ssl
 import urllib.parse
 import urllib.request
@@ -234,17 +235,33 @@ def infer_category(event: dict[str, Any], market: dict[str, Any]) -> str:
         else:
             pieces.append(str(tag))
     text = " ".join(pieces).lower()
-    if any(token in text for token in ("esports", "e-sports", "league of legends", "valorant", "dota", "counter-strike", "cs2")):
+    if text_has_any(text, ("esports", "e-sports", "league of legends", "valorant", "dota", "counter-strike", "cs2")):
         return "esports"
-    if any(token in text for token in ("nba", "nfl", "mlb", "nhl", "soccer", "ufc", "tennis", "sports")):
-        return "sports"
-    if any(token in text for token in ("bitcoin", "crypto", "ethereum", "solana", "btc", "eth")):
-        return "crypto"
-    if any(token in text for token in ("election", "trump", "biden", "congress", "senate", "politic")):
+    if text_has_any(
+        text,
+        (
+            "election",
+            "trump",
+            "biden",
+            "congress",
+            "senate",
+            "politic*",
+            "russia",
+            "ukraine",
+            "ceasefire",
+            "war",
+            "putin",
+            "zelensky*",
+        ),
+    ):
         return "politics"
-    if any(token in text for token in ("fed", "cpi", "inflation", "rate", "economy", "finance", "stock", "ipo")):
+    if text_has_any(text, ("nba", "nfl", "mlb", "nhl", "soccer", "ufc", "tennis", "sports", "champions league")):
+        return "sports"
+    if text_has_any(text, ("bitcoin", "crypto", "ethereum", "solana", "btc", "eth")):
+        return "crypto"
+    if text_has_any(text, ("fed", "cpi", "inflation", "rate", "economy", "finance", "stock", "ipo")):
         return "macro_finance"
-    if any(token in text for token in ("ai", "tech", "company", "earnings")):
+    if text_has_any(text, ("ai", "tech", "company", "earnings")):
         return "tech_business"
     return "general"
 
@@ -257,6 +274,25 @@ def market_url(event: dict[str, Any], market: dict[str, Any]) -> str:
         return f"https://polymarket.com/event/{urllib.parse.quote(slug)}"
     market_id = str(market.get("id") or event.get("id") or "").strip()
     return f"https://polymarket.com/market/{urllib.parse.quote(market_id)}" if market_id else "https://polymarket.com"
+
+
+def text_has_any(text: str, tokens: tuple[str, ...]) -> bool:
+    for token in tokens:
+        token = token.strip().lower()
+        if not token:
+            continue
+        if token.endswith("*"):
+            pattern = r"\b" + re.escape(token[:-1]) + r"\w*\b"
+            if re.search(pattern, text):
+                return True
+            continue
+        if any(sep in token for sep in (" ", "-", "_")):
+            if token in text:
+                return True
+            continue
+        if re.search(r"\b" + re.escape(token) + r"\b", text):
+            return True
+    return False
 
 
 def risk_and_flags(
@@ -534,6 +570,11 @@ def enrich_clob_depth(rows: list[dict[str, Any]], limit: int, timeout: float, sk
                 flags.append("clob_depth_thin")
             if clob_spread >= 0.08 and "clob_spread_wide" not in flags:
                 flags.append("clob_spread_wide")
+            if depth_score <= 12.0 or clob_spread >= 0.08:
+                item["recommendedAction"] = "OBSERVE_ONLY"
+                if item.get("risk") == "low":
+                    item["risk"] = "medium"
+                item["aiRuleScore"] = int(round(clamp(safe_number(item.get("aiRuleScore"), 0.0) - 18.0)))
             if depth_score >= 55.0 and clob_spread <= 0.04:
                 item["aiRuleScore"] = int(round(clamp(safe_number(item.get("aiRuleScore"), 0.0) + 4.0)))
             elif depth_score <= 12.0 or clob_spread >= 0.08:

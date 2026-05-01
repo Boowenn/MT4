@@ -56,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stale-retention-cycles", type=int, default=12)
     parser.add_argument("--input-radar", default="", help="Optional existing radar JSON for offline validation.")
     parser.add_argument("--skip-clob-depth", action="store_true", help="Skip public CLOB order-book depth enrichment.")
-    parser.add_argument("--clob-depth-limit", type=int, default=12)
+    parser.add_argument("--clob-depth-limit", type=int, default=40)
     parser.add_argument("--clob-timeout", type=float, default=4.0)
     return parser.parse_args()
 
@@ -356,6 +356,8 @@ def build_candidate_queue(rows: list[dict[str, Any]], args: argparse.Namespace, 
         if score < args.queue_min_score:
             continue
         if action not in {"SHADOW_REVIEW", "SHADOW_REVIEW_HIGH_PRIORITY", "SHADOW_REVIEW_PRIORITY"}:
+            continue
+        if str(item.get("clobStatus") or "").upper() != "OK":
             continue
         candidate_id = "PMRADAR-" + stable_hash(market_key(item), item.get("suggestedShadowTrack"), item.get("aiRuleScore"))
         queue.append(
