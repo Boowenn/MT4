@@ -1048,7 +1048,7 @@ h2 {
 }
 
 .mt5-radar-board .dense-radar {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .dense-radar .radar-item {
@@ -1059,7 +1059,8 @@ h2 {
 .mt5-radar-board .radar-item {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  min-height: 96px;
+  min-height: 118px;
+  align-content: start;
 }
 
 .dense-radar .radar-label {
@@ -1077,23 +1078,51 @@ h2 {
 
 .mt5-radar-board .radar-value,
 .mt5-radar-board .radar-sub {
-  display: -webkit-box;
-  overflow: hidden;
+  display: block;
+  overflow: visible;
   text-overflow: clip;
   white-space: normal;
+  overflow-wrap: anywhere;
   word-break: break-word;
-  -webkit-box-orient: vertical;
 }
 
 .mt5-radar-board .radar-value {
   align-self: center;
   line-height: 1.2;
-  -webkit-line-clamp: 2;
 }
 
 .mt5-radar-board .radar-sub {
   line-height: 1.35;
-  -webkit-line-clamp: 2;
+}
+
+.page-mt5 .micro-metric,
+.page-mt5 .lane-row,
+.page-mt5 .panel.dense {
+  height: auto;
+}
+
+.page-mt5 .micro-metric span,
+.page-mt5 .micro-metric strong,
+.page-mt5 .micro-metric small,
+.page-mt5 .lane-row strong,
+.page-mt5 .lane-row span,
+.page-mt5 .lane-row small,
+.page-mt5 .trade-metric-grid small,
+.page-mt5 .trade-metric-grid b,
+.page-mt5 .strategy-performance-grid small,
+.page-mt5 .strategy-performance-grid b,
+.page-mt5 .panel.dense p,
+.page-mt5 .panel.dense small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.page-mt5 .lane-row {
+  align-items: start;
+  grid-template-columns: minmax(58px, 0.35fr) minmax(0, 1fr);
 }
 
 .mt5-lane-board {
@@ -4283,7 +4312,7 @@ tbody tr:hover td {
   }
 
   .mt5-radar-board .dense-radar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

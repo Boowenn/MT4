@@ -190,6 +190,16 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("...mt5ActionQueueItems.value.slice(0, 3)", source)
         self.assertIn("...polymarketActionQueueItems.value.slice(0, 2)", source)
 
+    def test_mt5_status_cards_do_not_truncate_evidence_text(self):
+        source = (MODULE_PATH.parents[1] / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn(".mt5-radar-board .dense-radar", source)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", source)
+        self.assertIn(".page-mt5 .micro-metric span", source)
+        self.assertIn(".page-mt5 .trade-metric-grid b", source)
+        self.assertIn("overflow-wrap: anywhere;", source)
+        self.assertIn("text-overflow: clip;", source)
+
     def test_polymarket_global_loss_copy_explains_risk_isolation(self):
         state, action, risk, next_test = poly_governance.classify_decision(
             92.0,
