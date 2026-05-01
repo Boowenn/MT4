@@ -38,6 +38,18 @@ DEFAULT_HFM_ROOT = Path(r"C:\Program Files\HFM Metatrader 5")
 DEFAULT_RUNTIME_DIR = DEFAULT_HFM_ROOT / "MQL5" / "Files"
 PLAN_NAME = "QuantGod_ParamOptimizationPlan.json"
 STATUS_NAME = "QuantGod_ParamLabStatus.json"
+AGENT_ARTIFACT_NAMES = {
+    "QuantGod_Dashboard.json",
+    "QuantGod_MT5_ShadowStatus.txt",
+    "QuantGod_TradeJournal.csv",
+    "QuantGod_CloseHistory.csv",
+    "QuantGod_TradeOutcomeLabels.csv",
+    "QuantGod_TradeEventLinks.csv",
+    "QuantGod_ShadowOutcomeLedger.csv",
+    "QuantGod_ShadowCandidateOutcomeLedger.csv",
+    "QuantGod_StrategyEvaluationReport.csv",
+    "QuantGod_RegimeEvaluationReport.csv",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,6 +119,16 @@ def read_json(path: Path) -> dict[str, Any]:
         return json.loads(read_text(path))
     except Exception:
         return {}
+
+
+def csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", newline="", encoding="utf-8-sig") as handle:
+            return [dict(row) for row in csv.DictReader(handle)]
+    except Exception:
+        return []
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
@@ -321,6 +343,77 @@ def parse_report(report_path: Path) -> dict[str, Any]:
     }
 
 
+def latest_agent_files_dir(hfm_root: Path) -> Path | None:
+    tester_root = hfm_root / "Tester"
+    if not tester_root.exists():
+        return None
+    candidates = [path / "MQL5" / "Files" for path in tester_root.glob("Agent-*") if (path / "MQL5" / "Files").exists()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def copy_agent_artifacts(hfm_root: Path, destination_dir: Path) -> bool:
+    source_dir = latest_agent_files_dir(hfm_root)
+    if source_dir is None:
+        return False
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    copied = False
+    for source in source_dir.iterdir():
+        if source.is_file() and source.name in AGENT_ARTIFACT_NAMES:
+            shutil.copy2(source, destination_dir / source.name)
+            copied = True
+    return copied
+
+
+def parse_agent_artifacts(artifact_dir: Path, report_metrics: dict[str, Any]) -> dict[str, Any]:
+    if not artifact_dir.exists():
+        return report_metrics
+
+    trade_rows = csv_rows(artifact_dir / "QuantGod_TradeJournal.csv")
+    close_rows = csv_rows(artifact_dir / "QuantGod_CloseHistory.csv")
+    exit_rows = [row for row in trade_rows if str(row.get("EventType") or "").upper() == "EXIT"]
+    closed_rows = close_rows or exit_rows
+    closed_trades = len(closed_rows)
+    net_profit = 0.0
+    for row in closed_rows:
+        try:
+            net_profit += float(str(row.get("NetProfit") or "0").strip())
+        except Exception:
+            pass
+
+    dashboard = read_json(artifact_dir / "QuantGod_Dashboard.json")
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    account = dashboard.get("account") if isinstance(dashboard.get("account"), dict) else {}
+    strategy_rows = csv_rows(artifact_dir / "QuantGod_StrategyEvaluationReport.csv")
+    regime_rows = csv_rows(artifact_dir / "QuantGod_RegimeEvaluationReport.csv")
+
+    metrics = dict(report_metrics)
+    metrics.update(
+        {
+            "reportExists": True,
+            "htmlReportExists": bool(report_metrics.get("reportExists")),
+            "testerEvidenceExists": True,
+            "parseStatus": "PARSED_AGENT_ARTIFACTS",
+            "evidenceSource": "agent_artifacts",
+            "artifactDir": str(artifact_dir),
+            "closedTrades": report_metrics.get("closedTrades") if report_metrics.get("closedTrades") is not None else closed_trades,
+            "netProfit": report_metrics.get("netProfit") if report_metrics.get("netProfit") is not None else round(net_profit, 6),
+            "profitFactor": report_metrics.get("profitFactor"),
+            "winRate": report_metrics.get("winRate"),
+            "finalBalance": account.get("balance"),
+            "tradeStatus": runtime.get("tradeStatus"),
+            "executionEnabled": runtime.get("executionEnabled"),
+            "readOnlyMode": runtime.get("readOnlyMode"),
+            "strategyEvaluationRows": len(strategy_rows),
+            "regimeEvaluationRows": len(regime_rows),
+        }
+    )
+    if closed_trades == 0 and not strategy_rows and not regime_rows:
+        metrics["sampleStatus"] = "NO_TRADES_IN_TEST_WINDOW"
+    return metrics
+
+
 def sync_tester_profile(preset_path: Path, profile_path: Path) -> bool:
     if not preset_path.exists():
         return False
@@ -490,7 +583,8 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
     preset_dir = run_dir / "presets"
     config_dir = run_dir / "configs"
     report_dir = run_dir / "reports"
-    for directory in (preset_dir, config_dir, report_dir, hfm_presets, hfm_tester_profiles):
+    agent_artifact_root = run_dir / "agent-files"
+    for directory in (preset_dir, config_dir, report_dir, agent_artifact_root, hfm_presets, hfm_tester_profiles):
         directory.mkdir(parents=True, exist_ok=True)
 
     source_synced = False
@@ -570,6 +664,8 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
         profile_synced = False
         terminal_exit_code: int | None = None
         terminal_timed_out = False
+        agent_files_copied = False
+        artifact_dir = agent_artifact_root / candidate_id
         runner_status = "CONFIG_READY"
         if args.run_terminal:
             if not terminal.exists():
@@ -584,9 +680,12 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
                 shutil.copy2(tester_profile, hfm_tester_profiles / preset_name)
             command, cwd, env = mt5_terminal_command(terminal, config_path, args.login)
             terminal_exit_code, terminal_timed_out = run_terminal_process(command, cwd, env, args.terminal_timeout_seconds)
+            agent_files_copied = copy_agent_artifacts(hfm_root, artifact_dir)
             runner_status = "RUN_ATTEMPTED"
 
         metrics = parse_report(report_path)
+        if agent_files_copied:
+            metrics = parse_agent_artifacts(artifact_dir, metrics)
         if metrics["reportExists"] and metrics["parseStatus"].startswith("PARSED"):
             runner_status = metrics["parseStatus"]
         elif terminal_timed_out:
@@ -605,6 +704,8 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "status": runner_status,
             "configPath": str(config_path),
             "reportPath": str(report_path),
+            "artifactDir": str(artifact_dir),
+            "agentFilesCopied": agent_files_copied,
             "presetPath": str(local_preset),
             "hfmPresetPath": str(hfm_preset),
             "testerProfileSynced": profile_synced,
@@ -632,6 +733,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "TerminalTimedOut": str(terminal_timed_out).lower(),
             "ConfigPath": str(config_path),
             "ReportPath": str(report_path),
+            "ArtifactDir": str(artifact_dir),
         })
 
     by_route: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -647,6 +749,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
         "runAttemptedCount": sum(1 for item in task_results if item["terminalExitCode"] is not None),
         "terminalTimeoutCount": sum(1 for item in task_results if item.get("terminalTimedOut")),
         "reportParsedCount": sum(1 for item in task_results if item["metrics"].get("reportExists")),
+        "agentEvidenceParsedCount": sum(1 for item in task_results if item["metrics"].get("testerEvidenceExists")),
         "selectedTaskCount": len(task_results),
         "sourceSynced": source_synced,
         "binarySynced": binary_synced,

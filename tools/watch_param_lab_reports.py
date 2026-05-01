@@ -26,6 +26,7 @@ from collect_param_lab_results import (
     annotate_plan,
     parse_report,
     read_json,
+    reusable_task_metrics,
     score_result,
     top_results_by_route,
     write_csv,
@@ -281,6 +282,9 @@ def add_task_record(records: list[dict[str, Any]], source: str, task: dict[str, 
         "presetPath": task.get("presetPath", ""),
         "reportPath": normalize_report_path(report_path, repo_root),
         "existingStatus": task.get("status", task.get("existingTaskStatus", "")),
+        "artifactDir": task.get("artifactDir", ""),
+        "agentFilesCopied": task.get("agentFilesCopied", False),
+        "metrics": task.get("metrics") if isinstance(task.get("metrics"), dict) else {},
     })
 
 
@@ -339,7 +343,7 @@ def result_from_record(
     if report_exists(report_path):
         metrics = parse_report(report_path)
     else:
-        metrics = {
+        metrics = reusable_task_metrics(enriched) or {
             "reportExists": False,
             "parseStatus": "PENDING_REPORT",
             "closedTrades": None,

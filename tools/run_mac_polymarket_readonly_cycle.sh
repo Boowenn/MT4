@@ -92,6 +92,10 @@ echo "History DB: $HISTORY_DB"
   --db-path "$HISTORY_DB" \
   --skip-account-snapshot
 
+"$PYTHON_BIN" tools/build_polymarket_retune_planner.py \
+  --runtime-dir "$RUNTIME_DIR" \
+  --dashboard-dir "$DASHBOARD_DIR"
+
 "$PYTHON_BIN" tools/score_polymarket_ai_v1.py \
   --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \

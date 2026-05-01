@@ -148,6 +148,14 @@ def parse_report(report_path: Path) -> dict[str, Any]:
     }
 
 
+def reusable_task_metrics(task: dict[str, Any]) -> dict[str, Any]:
+    metrics = task.get("metrics") if isinstance(task.get("metrics"), dict) else {}
+    parse_status = str(metrics.get("parseStatus") or "")
+    if metrics.get("testerEvidenceExists") or parse_status.startswith("PARSED"):
+        return metrics
+    return {}
+
+
 def score_result(metrics: dict[str, Any], min_trades: int) -> tuple[float, str, str, list[str]]:
     if not metrics.get("reportExists"):
         return 0.0, "PENDING_REPORT", "WAIT_TESTER_REPORT", ["report_missing"]
@@ -217,7 +225,7 @@ def load_param_lab_runs(archive_root: Path) -> list[dict[str, Any]]:
 
 def result_from_task(run: dict[str, Any], task: dict[str, Any], min_trades: int) -> dict[str, Any]:
     report_path = Path(str(task.get("reportPath") or ""))
-    metrics = parse_report(report_path)
+    metrics = reusable_task_metrics(task) or parse_report(report_path)
     score, grade, readiness, blockers = score_result(metrics, min_trades)
     return {
         "runId": run.get("runId", ""),

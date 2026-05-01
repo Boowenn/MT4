@@ -134,6 +134,23 @@ def clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def parse_iso_datetime(value: Any) -> datetime | None:
+    text = clean(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def generated_at(payload: dict[str, Any]) -> datetime | None:
+    return parse_iso_datetime(first(payload.get("generatedAtIso"), payload.get("generatedAt"), payload.get("timestamp")))
+
+
 def tester_window_plan(now: datetime | None = None) -> dict[str, Any]:
     current = (now or utc_now()).astimezone(JST)
     windows_by_weekday = {
@@ -300,6 +317,7 @@ def param_action_queue(
         recovery_risk = clean(recovery.get("riskLevel")).lower()
         recovery_reason = clean(recovery.get("riskReason")).lower()
         recovery_stop = clean(recovery.get("latestStopReason")).lower()
+        recovery_latest_state = clean(recovery.get("latestState")).lower()
         recovery_retry_ready = recovery_risk in {"yellow", "green"} and recovery_reason == "account_context_synced_retry_ready"
         recovery_terminal_nonzero = (
             not recovery_retry_ready
@@ -312,7 +330,9 @@ def param_action_queue(
         result_status = clean(first(task.get("resultStatus"), task.get("status"), task.get("scheduleAction")))
         guard_class = ""
         status_label = ""
-        if result_status.upper() in {"PARSED", "SCORED", "DONE"}:
+        if result_status.upper() in {"PARSED", "PARSED_AGENT_ARTIFACTS", "SCORED", "DONE"} or (
+            recovery_risk == "green" and recovery_latest_state == "parsed"
+        ):
             state = "DONE"
         elif recovery_terminal_nonzero:
             state = "NEEDS_CODEX_TRIAGE"
@@ -454,6 +474,7 @@ def compact_metric_group(row: dict[str, Any]) -> dict[str, Any]:
 
 def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     research = read_json(runtime_dir / "QuantGod_PolymarketResearch.json")
+    retune = read_json(runtime_dir / "QuantGod_PolymarketRetunePlanner.json")
     auto_gov = read_json(runtime_dir / "QuantGod_PolymarketAutoGovernance.json")
     outcome = read_json(runtime_dir / "QuantGod_PolymarketDryRunOutcomeWatcher.json")
     gate = read_json(runtime_dir / "QuantGod_PolymarketExecutionGate.json")
@@ -463,6 +484,11 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     outcome_summary = outcome.get("summary") if isinstance(outcome.get("summary"), dict) else {}
     auto_summary = auto_gov.get("summary") if isinstance(auto_gov.get("summary"), dict) else {}
     gate_summary = gate.get("summary") if isinstance(gate.get("summary"), dict) else {}
+    retune_counts = retune.get("recommendationCounts") if isinstance(retune.get("recommendationCounts"), dict) else {}
+    evidence_times = [generated_at(item) for item in (research, retune, auto_gov, outcome, gate)]
+    evidence_times = [item for item in evidence_times if item]
+    latest_evidence_at = max(evidence_times) if evidence_times else None
+    review_fresh_for_day = bool(latest_evidence_at and latest_evidence_at.astimezone(JST).date() >= utc_now().astimezone(JST).date())
     global_blockers = [clean(item) for item in as_list(auto_gov.get("globalBlockers")) if clean(item)]
     executed_pf = as_float(executed.get("profitFactor"), 0.0)
     executed_net = as_float(executed.get("realizedPnl"), 0.0)
@@ -494,7 +520,7 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     if loss_quarantine:
         action_queue.append({
             "type": "POLY_LOSS_SOURCE_REVIEW",
-            "state": "DUE_TODAY",
+            "state": "DONE" if review_fresh_for_day else "DUE_TODAY",
             "title": "Polymarket 亏损来源复盘",
             "market": "GLOBAL",
             "detail": (
@@ -503,25 +529,27 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             ),
             "nextStep": "按 experimentKey、marketScope、entryStatus 拆亏损来源；继续只读/dry-run。",
             "blockers": global_blockers[:4],
+            "completionEvidence": "fresh_readonly_research_and_auto_governance" if review_fresh_for_day else "",
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
     if shadow_pf < 1.0 or shadow_net < 0:
         action_queue.append({
             "type": "POLY_SHADOW_RETUNE_REVIEW",
-            "state": "DUE_TODAY",
+            "state": "DONE" if review_fresh_for_day and retune.get("status") == "OK" else "DUE_TODAY",
             "title": "Polymarket Shadow 参数复盘",
             "market": "SHADOW",
             "detail": f"shadow PF {shadow_pf:.4g} / 净 {shadow_net:.4g} USDC",
             "nextStep": "优先保留接近 PF>=1 的实验，淘汰低胜率 autonomous/esports 变体。",
             "blockers": ["SHADOW_PF_BELOW_1"],
+            "completionEvidence": "fresh_retune_planner" if review_fresh_for_day and retune.get("status") == "OK" else "",
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
     if as_int(outcome_summary.get("wouldExit"), 0) > 0:
         action_queue.append({
             "type": "POLY_EXIT_POSTERIOR_REVIEW",
-            "state": "DUE_TODAY",
+            "state": "DONE" if review_fresh_for_day else "DUE_TODAY",
             "title": "Polymarket 退出后验复盘",
             "market": "DRY_RUN",
             "detail": (
@@ -530,26 +558,32 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             ),
             "nextStep": "检查 stop-loss/trailing/time-exit 是否过早或价格源延迟；只更新研究参数建议。",
             "blockers": ["EXIT_POSTERIOR_REVIEW"],
+            "completionEvidence": "fresh_dry_run_outcome_watcher" if review_fresh_for_day else "",
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
     for source in retune_sources[:2]:
         action_queue.append({
             "type": "POLY_RETUNE_EXPERIMENT",
-            "state": "DUE_TODAY",
+            "state": "DONE" if review_fresh_for_day and retune.get("status") == "OK" else "DUE_TODAY",
             "title": f"重调 {source['key']}",
             "market": source.get("marketScope") or "experiment",
             "detail": f"PF {source['profitFactor']} / 胜率 {source['winRatePct']}% / 净 {source['realizedPnl']}",
             "nextStep": "降低该实验优先级或收紧入场阈值，生成下一轮 shadow-only retune。",
             "source": source,
             "blockers": ["NEGATIVE_EXPERIMENT_SOURCE"],
+            "completionEvidence": "fresh_shadow_only_retune_recommendation" if review_fresh_for_day and retune.get("status") == "OK" else "",
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
+    active_queue = [item for item in action_queue if item.get("state") != "DONE"]
+    completed_queue = [item for item in action_queue if item.get("state") == "DONE"]
     return {
-        "status": "REVIEW_REQUIRED" if action_queue else "OK_HIDE_UNTIL_NEXT_REFRESH",
+        "status": "REVIEW_REQUIRED" if active_queue else "DONE_HIDE_UNTIL_NEXT_REFRESH",
         "summary": {
             "lossQuarantine": bool(loss_quarantine),
+            "reviewFreshForDay": review_fresh_for_day,
+            "latestEvidenceAtIso": latest_evidence_at.isoformat() if latest_evidence_at else "",
             "globalBlockers": global_blockers,
             "executedClosed": as_int(executed.get("closed"), 0),
             "executedWinRatePct": round(as_float(executed.get("winRatePct")), 2),
@@ -563,12 +597,17 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "autoCanaryEligible": first(auto_summary.get("autoCanaryEligible"), 0),
             "gateCanBet": first(gate_summary.get("canBet"), 0),
             "gateBlocked": first(gate_summary.get("blocked"), 0),
+            "retuneTotal": first(retune_counts.get("total"), 0),
+            "retuneRed": first(retune_counts.get("red"), 0),
+            "retuneYellow": first(retune_counts.get("yellow"), 0),
             "wouldExit": as_int(outcome_summary.get("wouldExit"), 0),
-            "todoCount": len(action_queue),
+            "todoCount": len(active_queue),
+            "completedCount": len(completed_queue),
         },
         "topLossSources": top_loss_sources,
         "retuneSources": retune_sources,
-        "actionQueue": action_queue[:6],
+        "actionQueue": active_queue[:6],
+        "completedActionQueue": completed_queue[:6],
         "safety": {
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
@@ -802,7 +841,9 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     daily_pnl = close_history_summary(close_rows, review_day)
     daily_pnl["resolvedByCurrentPolicy"] = daily_pnl_resolved_by_policy(daily_pnl, governance)
     daily_pnl["requiresReview"] = bool(as_float(daily_pnl.get("netUSC")) < 0 and not daily_pnl["resolvedByCurrentPolicy"])
-    action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)), run_recovery)
+    all_action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)), run_recovery)
+    completed_action_queue = [action for action in all_action_queue if action.get("state") == "DONE"]
+    action_queue = [action for action in all_action_queue if action.get("state") != "DONE"]
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)
     mt5_risk = mt5_terminal_risk(runtime_dir, now)
@@ -822,7 +863,9 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     queue_counter = Counter(action.get("state") for action in action_queue)
     wait_window_count = sum(1 for action in action_queue if action.get("guardClass") == "WAIT_TESTER_WINDOW")
     current_window_plan = tester_window_plan(now)
-    if queue_counter.get("NEEDS_CODEX_TRIAGE", 0) > 0:
+    if not action_queue and completed_action_queue:
+        today_todo_status = "DONE_OR_NO_ACTIONS"
+    elif queue_counter.get("NEEDS_CODEX_TRIAGE", 0) > 0:
         today_todo_status = "NEEDS_CODEX_TRIAGE"
     elif action_queue and wait_window_count == len(action_queue):
         today_todo_status = "SCHEDULED_FOR_TESTER_WINDOW"
@@ -885,6 +928,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         },
         "dailyPnl": daily_pnl,
         "actionQueue": action_queue,
+        "completedActionQueue": completed_action_queue[:6],
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
         "polymarket": poly,

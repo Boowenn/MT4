@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ttl-minutes", type=int, default=90)
     parser.add_argument("--max-tasks", type=int, default=8)
     parser.add_argument("--source", default="cli")
+    parser.add_argument(
+        "--allow-outside-window",
+        action="store_true",
+        help="Explicit human-approved catch-up override for isolated tester runs outside the regular window.",
+    )
     return parser.parse_args()
 
 
@@ -53,7 +58,7 @@ def main() -> int:
         "testerOnly": True,
         "allowRunTerminal": True,
         "livePresetMutation": False,
-        "allowOutsideWindow": False,
+        "allowOutsideWindow": bool(args.allow_outside_window),
         "createdAtIso": now.isoformat(),
         "expiresAtIso": (now + timedelta(minutes=ttl_minutes)).isoformat(),
         "runtimeDir": str(runtime_dir),

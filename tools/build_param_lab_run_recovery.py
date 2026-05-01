@@ -319,6 +319,8 @@ def risk_for_candidate(row: dict[str, Any], retry_budget: int) -> tuple[str, str
     malformed = int(row.get("reportMalformedCount") or 0)
     nonzero = int(row.get("terminalNonzeroCount") or 0)
     parsed = int(row.get("reportParsedCount") or 0)
+    if str(row.get("latestState") or "") == "parsed":
+        return "green", "status-live", 10 + parsed, "parsed_latest"
     budget_exhausted = retry_used >= retry_budget and parsed == 0
     if malformed or nonzero or missing or budget_exhausted:
         reason = "malformed" if malformed else "terminal_nonzero" if nonzero else "missing_after_run" if missing else "retry_budget_exhausted"
@@ -336,6 +338,7 @@ def recovery_advice_for_candidate(row: dict[str, Any], risk_reason: str) -> str:
         "terminal_nonzero": "Inspect terminal/tester logs and profile sync before consuming another retry.",
         "tester_account_context_missing": "Sync or recreate isolated tester account context; MT5 tester reports account is not specified.",
         "account_context_synced_retry_ready": "Account context was synced after the failure; allow one guarded isolated tester retry.",
+        "parsed_latest": "Latest guarded tester run has parsed evidence; old failures are retained as history only.",
         "missing_after_run": "Verify reportPath and Strategy Tester output folder, then rerun watcher once.",
         "retry_budget_exhausted": "Pause automatic reruns; inspect config/report paths and candidate parameters first.",
         "repeated_waiting_report": "Keep queued, but prioritize only after authorized tester window and lock are green.",

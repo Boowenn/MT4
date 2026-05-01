@@ -49,6 +49,18 @@ assert POLY_RESEARCH_SPEC.loader is not None
 sys.modules[POLY_RESEARCH_SPEC.name] = poly_research
 POLY_RESEARCH_SPEC.loader.exec_module(poly_research)
 
+PARAM_RUN_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "run_param_lab.py"
+PARAM_RUN_SPEC = importlib.util.spec_from_file_location("run_param_lab", PARAM_RUN_MODULE_PATH)
+param_runner = importlib.util.module_from_spec(PARAM_RUN_SPEC)
+assert PARAM_RUN_SPEC.loader is not None
+PARAM_RUN_SPEC.loader.exec_module(param_runner)
+
+PARAM_COLLECT_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "collect_param_lab_results.py"
+PARAM_COLLECT_SPEC = importlib.util.spec_from_file_location("collect_param_lab_results", PARAM_COLLECT_MODULE_PATH)
+param_collect = importlib.util.module_from_spec(PARAM_COLLECT_SPEC)
+assert PARAM_COLLECT_SPEC.loader is not None
+PARAM_COLLECT_SPEC.loader.exec_module(param_collect)
+
 
 class DailyAutopilotTests(unittest.TestCase):
     def test_daily_autopilot_uses_bounded_daily_tester_range(self):
@@ -90,6 +102,59 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("2026.05.02", command)
         self.assertIn("--terminal-timeout-seconds", command)
         self.assertIn("900", command)
+
+    def test_agent_artifacts_turn_missing_html_into_parsed_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact_dir = Path(tmp)
+            (artifact_dir / "QuantGod_TradeJournal.csv").write_text(
+                "DealTicket,PositionId,EventType,Side,Symbol,Lots,Price,GrossProfit,Commission,Swap,NetProfit,EventTime,Strategy,Source,Regime,RegimeTimeframe,Comment\n",
+                encoding="utf-8",
+            )
+            (artifact_dir / "QuantGod_CloseHistory.csv").write_text(
+                "ExitTicket,PositionId,Type,Symbol,Lots,OpenTime,CloseTime,DurationMinutes,OpenPrice,ClosePrice,GrossProfit,Commission,Swap,NetProfit,Strategy,Source,EntryRegime,ExitRegime,RegimeTimeframe,Comment\n",
+                encoding="utf-8",
+            )
+            (artifact_dir / "QuantGod_Dashboard.json").write_text(
+                json.dumps({"runtime": {"tradeStatus": "READY", "executionEnabled": True, "readOnlyMode": False}, "account": {"balance": 10000.0}}),
+                encoding="utf-8",
+            )
+
+            metrics = param_runner.parse_agent_artifacts(
+                artifact_dir,
+                {
+                    "reportExists": False,
+                    "parseStatus": "REPORT_MISSING",
+                    "closedTrades": None,
+                    "netProfit": None,
+                    "profitFactor": None,
+                    "winRate": None,
+                },
+            )
+
+        self.assertTrue(metrics["reportExists"])
+        self.assertTrue(metrics["testerEvidenceExists"])
+        self.assertEqual(metrics["parseStatus"], "PARSED_AGENT_ARTIFACTS")
+        self.assertEqual(metrics["closedTrades"], 0)
+        self.assertEqual(metrics["sampleStatus"], "NO_TRADES_IN_TEST_WINDOW")
+
+    def test_collector_reuses_agent_metrics_from_status(self):
+        task = {
+            "metrics": {
+                "reportExists": True,
+                "testerEvidenceExists": True,
+                "parseStatus": "PARSED_AGENT_ARTIFACTS",
+                "closedTrades": 0,
+                "netProfit": 0.0,
+            }
+        }
+
+        metrics = param_collect.reusable_task_metrics(task)
+        score, grade, readiness, blockers = param_collect.score_result(metrics, min_trades=10)
+
+        self.assertEqual(metrics["parseStatus"], "PARSED_AGENT_ARTIFACTS")
+        self.assertEqual(grade, "C")
+        self.assertEqual(readiness, "NEEDS_MORE_EVIDENCE")
+        self.assertIn("trades_lt_min", blockers)
 
     def test_run_step_passes_env_overrides_without_order_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,6 +240,10 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("'--from-date'", server_source)
         self.assertIn(
             "build_polymarket_research_bridge.py",
+            (MODULE_PATH.parents[1] / "tools" / "run_mac_polymarket_readonly_cycle.sh").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "build_polymarket_retune_planner.py",
             (MODULE_PATH.parents[1] / "tools" / "run_mac_polymarket_readonly_cycle.sh").read_text(encoding="utf-8"),
         )
 
@@ -310,6 +379,34 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(queue[0]["statusLabel"], "ACCOUNT_CONTEXT_SYNCED_RETRY_READY")
         self.assertFalse(queue[0]["livePresetMutationAllowed"])
 
+    def test_param_action_queue_marks_latest_parsed_agent_evidence_done(self):
+        scheduler = {
+            "selectedTasks": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "routeKey": "MA_Cross",
+                "score": 1.074,
+                "resultStatus": "REPORT_MISSING_AFTER_RUN",
+            }]
+        }
+        auto_tester = {
+            "summary": {"canRunTerminal": True},
+            "gate": {"blockers": []},
+        }
+        run_recovery = {
+            "candidateDrilldown": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "riskLevel": "green",
+                "riskReason": "parsed_latest",
+                "latestState": "parsed",
+                "latestStopReason": "parsed_latest",
+            }]
+        }
+
+        queue = daily_review.param_action_queue(scheduler, auto_tester, 5, run_recovery)
+
+        self.assertEqual(queue[0]["state"], "DONE")
+        self.assertFalse(queue[0]["livePresetMutationAllowed"])
+
     def test_daily_closeout_window_keeps_todos_on_same_local_day(self):
         now = datetime.fromisoformat("2026-05-02T00:25:00+09:00")
         plan = daily_review.tester_window_plan(now)
@@ -435,10 +532,11 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("复盘亏损来源", next_test)
         self.assertNotIn("修复亏损来源", next_test)
 
-    def test_polymarket_daily_review_builds_loss_todos(self):
+    def test_polymarket_daily_review_builds_loss_todos_when_evidence_is_stale(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp)
             (runtime / "QuantGod_PolymarketResearch.json").write_text(json.dumps({
+                "generatedAtIso": "2026-04-28T00:00:00+00:00",
                 "summary": {
                     "executed": {"closed": 24, "winRatePct": 4.17, "profitFactor": 0.0145, "realizedPnl": -9.9841},
                     "shadow": {"closed": 383, "winRatePct": 36.29, "profitFactor": 0.7055, "realizedPnl": -159.3266},
@@ -485,6 +583,69 @@ class DailyAutopilotTests(unittest.TestCase):
             self.assertEqual(review["actionQueue"][0]["type"], "POLY_LOSS_SOURCE_REVIEW")
             self.assertFalse(review["safety"]["walletWriteAllowed"])
             self.assertEqual(review["topLossSources"][0]["experimentKey"], "sports_edge_filter_shadow_v1")
+
+    def test_polymarket_daily_review_hides_completed_fresh_retune_cycle(self):
+        now = daily_review.utc_now().isoformat()
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            (runtime / "QuantGod_PolymarketResearch.json").write_text(json.dumps({
+                "generatedAtIso": now,
+                "summary": {
+                    "executed": {"closed": 24, "winRatePct": 4.17, "profitFactor": 0.0145, "realizedPnl": -9.9841},
+                    "shadow": {"closed": 383, "winRatePct": 36.29, "profitFactor": 0.7055, "realizedPnl": -159.3266},
+                },
+                "recentJournalGroups": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "marketScope": "sports",
+                    "entryStatus": "live_blocked_shadow",
+                    "signalSource": "autonomous",
+                    "closed": 62,
+                    "wins": 12,
+                    "losses": 50,
+                    "winRatePct": 19.35,
+                    "profitFactor": 0.3956,
+                    "realizedPnl": -58.0649,
+                    "avgPnl": -0.9365,
+                }],
+                "recentExperimentGroups": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "closed": 62,
+                    "wins": 12,
+                    "losses": 50,
+                    "winRatePct": 19.35,
+                    "profitFactor": 0.3956,
+                    "realizedPnl": -58.0649,
+                    "avgPnl": -0.9365,
+                }],
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketRetunePlanner.json").write_text(json.dumps({
+                "generatedAtIso": now,
+                "status": "OK",
+                "decision": "SHADOW_ONLY_RETUNE_NO_BETTING",
+                "recommendationCounts": {"total": 3, "red": 1, "yellow": 2},
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketAutoGovernance.json").write_text(json.dumps({
+                "generatedAt": now,
+                "globalBlockers": ["GLOBAL_LOSS_QUARANTINE", "EXECUTED_PF_BELOW_1"],
+                "summary": {"quarantine": 46, "autoCanaryEligible": 0},
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketDryRunOutcomeWatcher.json").write_text(json.dumps({
+                "generatedAtIso": now,
+                "summary": {"wouldExit": 4, "stopLoss": 2, "trailingExit": 2},
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketExecutionGate.json").write_text(json.dumps({
+                "generatedAt": now,
+                "summary": {"canBet": 0, "blocked": 24},
+            }), encoding="utf-8")
+
+            review = daily_review.polymarket_daily_review(runtime)
+
+            self.assertEqual(review["status"], "DONE_HIDE_UNTIL_NEXT_REFRESH")
+            self.assertTrue(review["summary"]["lossQuarantine"])
+            self.assertEqual(review["summary"]["todoCount"], 0)
+            self.assertGreaterEqual(review["summary"]["completedCount"], 4)
+            self.assertEqual(review["actionQueue"], [])
+            self.assertEqual(review["completedActionQueue"][0]["state"], "DONE")
 
     def test_polymarket_research_replays_archived_snapshot_from_history_db(self):
         with tempfile.TemporaryDirectory() as tmp:
