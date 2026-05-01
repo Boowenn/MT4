@@ -2749,26 +2749,12 @@ const mt5ActionQueueItems = computed(() => [
     value: `PF ${first(row.profitFactor, '--')}`,
     tone: 'green',
     target: 'mt5'
-  })),
-  ...paramVisibleTasks.value.slice(0, 5).map((row) => ({
-    title: first(row.candidateId, row.versionId, row.taskId),
-    sub: `${paramRouteLabel(row)} · ${paramTodoStatusLabel(row)}`,
-    value: compactMetricScore(row.score, row.grade, row.profitFactor),
-    tone: normalizeParamState(row).includes('RED') ? 'red' : normalizeParamState(row).includes('WAIT') ? 'amber' : 'blue',
-    target: 'paramlab'
   }))
 ]);
 
 const actionQueueItems = computed(() => [
   ...mt5ActionQueueItems.value,
-  ...polymarketActionQueueItems.value,
-  ...governanceRows.value.slice(0, 3).map((row) => ({
-    title: governanceTitle(row),
-    sub: `${governanceDecisionLabel(row)} · ${blockerChips(row, 1).join(' / ') || '等待证据'}`,
-    value: first(row.score, row.aiScore, row.confidence, '--'),
-    tone: 'green',
-    target: 'polymarket'
-  }))
+  ...polymarketActionQueueItems.value
 ].slice(0, 8));
 
 const todayTodoItems = computed(() => [
@@ -2877,7 +2863,7 @@ const dailyReviewItems = computed(() => {
   const rsiNeedsReview = mt5DashboardEvidence.value.stale
     || String(rsiAction).toUpperCase().includes('DEMOTE')
     || (!rsiSellLiveBlocked && (consecutiveLosses >= 2 || (rsiPf !== null && rsiPf < 0.95)));
-  const paramNeedsReview = Boolean(autoSummary.canRunTerminal) || significantTesterBlockers.length > 0 || recoveryRedCount > 0;
+  const paramNeedsReview = asCount(dailySummary.paramActionCount) > 0 || significantTesterBlockers.length > 0 || recoveryRedCount > 0;
   const workerNeedsReview = String(workerStatus).toUpperCase() === 'ERROR' || Boolean(workerProblem.detail);
   const polyLossNeedsReview = polyDailySummary.lossQuarantine === true || asCount(polyDailySummary.todoCount) > 0;
   const shadowNeedsReview = codexRequired && candidateLosses > candidateWins && candidateLosses > 0;
@@ -3190,21 +3176,26 @@ onBeforeUnmount(() => {
               </button>
               <div class="calendar-mini">
                 <div class="calendar-mini-title"><CalendarDays :size="14" /> 今日待办</div>
-                <button
-                  v-for="item in todayTodoItems"
-                  :key="`cal-${item.title}`"
-                  type="button"
-                  class="calendar-mini-item"
-                  :class="item.tone"
-                  :title="`${item.title} · ${item.sub}`"
-                  @click="setActive(item.target)"
-                >
-                  <strong>{{ item.title }}</strong>
-                  <small>
-                    {{ item.sub }}
-                    <b v-if="item.value && item.value !== '--'">{{ item.value }}</b>
-                  </small>
-                </button>
+                <template v-if="todayTodoItems.length">
+                  <button
+                    v-for="item in todayTodoItems"
+                    :key="`cal-${item.title}`"
+                    type="button"
+                    class="calendar-mini-item"
+                    :class="item.tone"
+                    :title="`${item.title} · ${item.sub}`"
+                    @click="setActive(item.target)"
+                  >
+                    <strong>{{ item.title }}</strong>
+                    <small>
+                      {{ item.sub }}
+                      <b v-if="item.value && item.value !== '--'">{{ item.value }}</b>
+                    </small>
+                  </button>
+                </template>
+                <div v-else class="calendar-mini-empty">
+                  今日已完成，等待明日刷新
+                </div>
               </div>
               <div v-if="dailyReviewItems.length" class="daily-review-mini">
                 <div class="daily-review-title"><Activity :size="14" /> 每日复盘</div>

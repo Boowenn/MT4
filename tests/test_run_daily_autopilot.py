@@ -407,6 +407,22 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(queue[0]["state"], "DONE")
         self.assertFalse(queue[0]["livePresetMutationAllowed"])
 
+    def test_daily_tester_budget_suppresses_new_backlog_after_today_run(self):
+        now = datetime.fromisoformat("2026-05-02T04:05:00+09:00")
+        param_status = {
+            "generatedAtIso": "2026-05-01T18:32:59+00:00",
+            "summary": {
+                "runAttemptedCount": 5,
+                "reportParsedCount": 5,
+                "agentEvidenceParsedCount": 5,
+                "selectedTaskCount": 5,
+            },
+        }
+
+        completed = daily_review.daily_tester_completed_count(param_status, now, 5)
+
+        self.assertEqual(completed, 5)
+
     def test_daily_closeout_window_keeps_todos_on_same_local_day(self):
         now = datetime.fromisoformat("2026-05-02T00:25:00+09:00")
         plan = daily_review.tester_window_plan(now)
@@ -490,6 +506,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("const mt5ActionQueueItems", source)
         self.assertIn("const polymarketActionQueueItems", source)
         self.assertIn("const todayTodoItems", source)
+        self.assertIn("今日已完成，等待明日刷新", source)
+        self.assertIn("const actionQueueItems = computed(() => [\n  ...mt5ActionQueueItems.value,\n  ...polymarketActionQueueItems.value", source)
+        self.assertNotIn("...paramVisibleTasks.value.slice(0, 5).map((row) => ({", source)
         self.assertIn("routeLaneMetricText(route, row)", source)
         self.assertIn("后验 ${first(outcome.horizonRows", source)
         self.assertIn("{{ lane.metricText }}", source)

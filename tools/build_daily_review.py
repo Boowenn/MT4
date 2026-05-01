@@ -445,6 +445,22 @@ def polymarket_summary(runtime_dir: Path) -> dict[str, Any]:
     }
 
 
+def daily_tester_completed_count(param_status: dict[str, Any], now: datetime, max_actions: int) -> int:
+    generated = generated_at(param_status)
+    if not generated or generated.astimezone(JST).date() != now.astimezone(JST).date():
+        return 0
+    summary = param_status.get("summary") if isinstance(param_status.get("summary"), dict) else {}
+    parsed = max(
+        as_int(first(summary.get("agentEvidenceParsedCount"), 0)),
+        as_int(first(summary.get("reportParsedCount"), 0)),
+    )
+    attempted = as_int(first(summary.get("runAttemptedCount"), 0))
+    selected = as_int(first(summary.get("selectedTaskCount"), param_status.get("selectedTaskCount"), 0))
+    if attempted <= 0:
+        return 0
+    return min(max(parsed, attempted if parsed >= selected and selected > 0 else parsed), max(1, max_actions))
+
+
 def metric_group_key(row: dict[str, Any]) -> str:
     return clean(first(
         row.get("experimentKey"),
@@ -831,6 +847,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     now = utc_now()
 
     close_rows = read_csv(runtime_dir / "QuantGod_CloseHistory.csv")
+    param_status = read_json(runtime_dir / "QuantGod_ParamLabStatus.json")
     scheduler = read_json(runtime_dir / "QuantGod_ParamLabAutoScheduler.json")
     auto_tester = read_json(runtime_dir / "QuantGod_AutoTesterWindow.json")
     version_gate = read_json(runtime_dir / "QuantGod_VersionPromotionGate.json")
@@ -841,9 +858,25 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     daily_pnl = close_history_summary(close_rows, review_day)
     daily_pnl["resolvedByCurrentPolicy"] = daily_pnl_resolved_by_policy(daily_pnl, governance)
     daily_pnl["requiresReview"] = bool(as_float(daily_pnl.get("netUSC")) < 0 and not daily_pnl["resolvedByCurrentPolicy"])
-    all_action_queue = param_action_queue(scheduler, auto_tester, max(1, int(args.max_actions)), run_recovery)
+    max_actions = max(1, int(args.max_actions))
+    all_action_queue = param_action_queue(scheduler, auto_tester, max_actions, run_recovery)
     completed_action_queue = [action for action in all_action_queue if action.get("state") == "DONE"]
     action_queue = [action for action in all_action_queue if action.get("state") != "DONE"]
+    deferred_action_queue: list[dict[str, Any]] = []
+    daily_tester_completed = daily_tester_completed_count(param_status, now, max_actions)
+    daily_tester_budget_done = daily_tester_completed >= max_actions
+    if daily_tester_budget_done and action_queue:
+        deferred_action_queue = [
+            {
+                **action,
+                "state": "DEFERRED_NEXT_DAILY_REFRESH",
+                "guardClass": "DAILY_TESTER_BUDGET_DONE",
+                "statusLabel": "DAILY_TESTER_BUDGET_DONE",
+                "deferReason": f"today_tester_completed_{daily_tester_completed}_of_{max_actions}",
+            }
+            for action in action_queue
+        ]
+        action_queue = []
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)
     mt5_risk = mt5_terminal_risk(runtime_dir, now)
@@ -906,6 +939,9 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "dailyReviewDateJst": review_day,
             "dailyNetUSC": daily_pnl["netUSC"],
             "paramActionCount": len(action_queue),
+            "paramDeferredCount": len(deferred_action_queue),
+            "dailyTesterCompletedCount": daily_tester_completed,
+            "dailyTesterBudgetDone": daily_tester_budget_done,
             "paramReadyToRunCount": queue_counter.get("READY_TO_RUN_TESTER", 0),
             "paramWaitGuardCount": queue_counter.get("WAIT_GUARD", 0),
             "paramWaitWindowCount": wait_window_count,
@@ -929,6 +965,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "dailyPnl": daily_pnl,
         "actionQueue": action_queue,
         "completedActionQueue": completed_action_queue[:6],
+        "deferredActionQueue": deferred_action_queue[:6],
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
         "polymarket": poly,
