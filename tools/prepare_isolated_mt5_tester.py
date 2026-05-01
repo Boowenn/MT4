@@ -6,6 +6,9 @@ AUTO_TESTER_WINDOW when --tester-root is set. This script copies only the
 terminal binaries, public server/config hints, QuantGod expert files, presets,
 and tester profile inputs. It deliberately does not copy account/password
 stores such as Config/accounts.dat or terminal license files.
+
+Run sync_isolated_mt5_account_context.py afterwards, with explicit approval, if
+the isolated Strategy Tester must inherit the local account context.
 """
 
 from __future__ import annotations

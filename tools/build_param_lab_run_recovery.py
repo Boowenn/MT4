@@ -24,6 +24,7 @@ STATUS_NAME = "QuantGod_ParamLabStatus.json"
 RESULTS_NAME = "QuantGod_ParamLabResults.json"
 WATCHER_NAME = "QuantGod_ParamLabReportWatcher.json"
 AUTO_TESTER_WINDOW_NAME = "QuantGod_AutoTesterWindow.json"
+ACCOUNT_CONTEXT_STATUS_NAME = "QuantGod_IsolatedTesterAccountContextStatus.json"
 OUTPUT_NAME = "QuantGod_ParamLabRunRecovery.json"
 LEDGER_NAME = "QuantGod_ParamLabRunRecoveryLedger.csv"
 DRILLDOWN_LEDGER_NAME = "QuantGod_ParamLabRunRecoveryDrilldown.csv"
@@ -334,6 +335,7 @@ def recovery_advice_for_candidate(row: dict[str, Any], risk_reason: str) -> str:
         "malformed": "Open report, fix parser mapping, then rerun watcher before another tester run.",
         "terminal_nonzero": "Inspect terminal/tester logs and profile sync before consuming another retry.",
         "tester_account_context_missing": "Sync or recreate isolated tester account context; MT5 tester reports account is not specified.",
+        "account_context_synced_retry_ready": "Account context was synced after the failure; allow one guarded isolated tester retry.",
         "missing_after_run": "Verify reportPath and Strategy Tester output folder, then rerun watcher once.",
         "retry_budget_exhausted": "Pause automatic reruns; inspect config/report paths and candidate parameters first.",
         "repeated_waiting_report": "Keep queued, but prioritize only after authorized tester window and lock are green.",
@@ -359,6 +361,27 @@ def tester_log_contains(repo_root: Path, phrase: str) -> bool:
             if lowered in text.lower():
                 return True
     return False
+
+
+def parse_iso(text: str) -> datetime | None:
+    if not text:
+        return None
+    try:
+        value = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def account_context_synced_after_failure(repo_root: Path, latest_generated_at: str) -> bool:
+    status = read_json(repo_root / "runtime" / ACCOUNT_CONTEXT_STATUS_NAME)
+    if not status.get("ready"):
+        return False
+    synced_at = parse_iso(str(status.get("generatedAtIso") or ""))
+    failed_at = parse_iso(latest_generated_at)
+    return bool(synced_at and failed_at and synced_at > failed_at)
 
 
 def build_candidate_drilldown(
@@ -438,6 +461,14 @@ def build_candidate_drilldown(
         if risk_reason == "terminal_nonzero" and tester_log_contains(repo_root, "account is not specified"):
             risk_reason = "tester_account_context_missing"
             risk_score += 20
+        if (
+            risk_reason == "tester_account_context_missing"
+            and account_context_synced_after_failure(repo_root, str(row.get("latestGeneratedAtIso") or ""))
+        ):
+            risk_level = "yellow"
+            risk_tone = "status-warn"
+            risk_reason = "account_context_synced_retry_ready"
+            risk_score = max(75, risk_score - 35)
         row["riskLevel"] = risk_level
         row["riskTone"] = risk_tone
         row["riskScore"] = risk_score

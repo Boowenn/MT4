@@ -100,6 +100,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rank-mode", choices=("route-balanced", "score"), default="route-balanced")
     parser.add_argument("--from-date", default="")
     parser.add_argument("--to-date", default="")
+    parser.add_argument(
+        "--terminal-timeout-seconds",
+        type=int,
+        default=0,
+        help="Forwarded to run_param_lab.py; 0 keeps the runner's manual/full-run default.",
+    )
     parser.add_argument("--login", default="186054398")
     parser.add_argument("--server", default="HFMarketsGlobal-Live12")
     parser.add_argument("--now-iso", default="", help="Testing hook for guard evaluation.")
@@ -207,6 +213,8 @@ def command_for_runner(
         command.extend(["--from-date", args.from_date])
     if args.to_date:
         command.extend(["--to-date", args.to_date])
+    if int(args.terminal_timeout_seconds or 0) > 0:
+        command.extend(["--terminal-timeout-seconds", str(args.terminal_timeout_seconds)])
     for route in args.route:
         command.extend(["--route", route])
     for candidate_id in args.candidate_id:
@@ -716,6 +724,7 @@ def build_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "isolationMode": isolation.get("mode", ""),
         "blockerCount": len(gate.get("blockers") or []),
         "childExitCode": child_status["exitCode"],
+        "terminalTimeoutSeconds": int(args.terminal_timeout_seconds or 0),
         "continuousWatcherEnabled": bool(args.continuous_watch),
         "continuousWatcherAttempted": bool(watcher_status.get("attempted")),
         "continuousWatcherIterations": int(watcher_status.get("iterations") or 0),

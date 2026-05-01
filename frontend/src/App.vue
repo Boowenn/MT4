@@ -901,6 +901,7 @@ function compactStatusLabel(value) {
     RUN_RECOVERY_RED: '回测红灯',
     TERMINAL_EXIT_NONZERO: '终端失败',
     TESTER_ACCOUNT_CONTEXT_MISSING: '缺账户上下文',
+    ACCOUNT_CONTEXT_SYNCED_RETRY_READY: '账户已同步',
     REPORT_MISSING_AFTER_RUN: '回测无报告',
     TERMINAL_NONZERO: '终端失败',
     TERMINAL_EXIT_191: '退出191',
@@ -1431,6 +1432,7 @@ const mt5CredentialRejected = computed(() => {
 
 const autoTesterSummary = computed(() => mt5.value.autoTesterWindow?.summary || {});
 const autoTesterCanRun = computed(() => booleanish(summaryValue(mt5.value.autoTesterWindow, 'canRunTerminal', false)));
+const dailyTesterTodoMode = computed(() => mt5.value.dailyAutopilot?.testerTodoMode || {});
 const autoTesterBlockers = computed(() => {
   const gateBlockers = mt5.value.autoTesterWindow?.gate?.blockers;
   const summaryBlockers = mt5.value.autoTesterWindow?.blockers;
@@ -1471,6 +1473,15 @@ function autoTesterGuardText() {
   const blockers = autoTesterVisibleBlockers.value.slice(0, 3).map((item) => stopReasonLabel(item));
   if (autoTesterCanRun.value) return 'guard 已放行';
   return blockers.length ? `锁定：${blockers.join(' / ')}` : '锁定：等待 guard 刷新';
+}
+
+function dailyTesterTodoText() {
+  const mode = dailyTesterTodoMode.value;
+  const fromDate = first(mode.fromDate, '');
+  const toDate = first(mode.toDate, '');
+  const timeout = first(mode.terminalTimeoutSeconds, '');
+  if (!fromDate || !toDate) return '每日待办：等待自动闭环刷新';
+  return `每日待办短窗口 ${fromDate} → ${toDate}${timeout ? ` / ${timeout}s 超时` : ''}`;
 }
 
 function autoTesterShortGuardText() {
@@ -1525,7 +1536,14 @@ async function handleAutoTesterAction(action) {
     run: '正在提交受控 Strategy Tester 启动...'
   };
   state.testerActionStatus = labels[action] || '正在处理...';
-  const payload = { maxTasks: 8, minutes: 90, source: 'vue_paramlab_workbench' };
+  const dailyParamTaskCount = Math.max(1, Math.min(5, mt5ActionQueueItems.value.length || 5));
+  const payload = {
+    maxTasks: dailyParamTaskCount,
+    minutes: 90,
+    testerLookbackDays: 2,
+    terminalTimeoutSeconds: 900,
+    source: 'vue_paramlab_daily_todo'
+  };
   try {
     const result = action === 'lock'
       ? await createAutoTesterLock(payload)
@@ -4309,6 +4327,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <small class="tester-status-line">{{ state.testerActionStatus || autoTesterGuardText() }}</small>
+              <small class="tester-status-line muted">{{ dailyTesterTodoText() }}</small>
             </div>
           </article>
           <article class="param-lane-board">

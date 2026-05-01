@@ -16,6 +16,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from collections import defaultdict
@@ -57,6 +58,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--from-date", default=(datetime.now() - timedelta(days=90)).strftime("%Y.%m.%d"))
     parser.add_argument("--to-date", default=datetime.now().strftime("%Y.%m.%d"))
+    parser.add_argument(
+        "--terminal-timeout-seconds",
+        type=int,
+        default=0,
+        help="Kill the Strategy Tester terminal child after this many seconds. 0 means no runner-level timeout.",
+    )
     parser.add_argument("--login", default="186054398")
     parser.add_argument("--server", default="HFMarketsGlobal-Live12")
     parser.add_argument("--run-terminal", action="store_true", help="Launch MT5 Strategy Tester for selected tasks.")
@@ -188,6 +195,41 @@ def mt5_terminal_command(terminal: Path, config_path: Path, login: str) -> tuple
     command.append(f"/config:{wine_windows_path(config_path)}")
     env = {**os.environ, "WINEPREFIX": str(wineprefix)}
     return command, terminal.parent, env
+
+
+def run_terminal_process(
+    command: list[str],
+    cwd: Path | None,
+    env: dict[str, str] | None,
+    timeout_seconds: int,
+) -> tuple[int, bool]:
+    timeout = int(timeout_seconds or 0)
+    popen_kwargs: dict[str, Any] = {"cwd": str(cwd) if cwd else None, "env": env}
+    if sys.platform != "win32":
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(command, **popen_kwargs)
+    try:
+        return process.wait(timeout=timeout if timeout > 0 else None), False
+    except subprocess.TimeoutExpired:
+        if sys.platform != "win32":
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        else:
+            process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            if sys.platform != "win32":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            process.wait(timeout=10)
+        return -9, True
 
 
 def tester_config_text(
@@ -527,6 +569,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
 
         profile_synced = False
         terminal_exit_code: int | None = None
+        terminal_timed_out = False
         runner_status = "CONFIG_READY"
         if args.run_terminal:
             if not terminal.exists():
@@ -540,13 +583,14 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             if profile_synced:
                 shutil.copy2(tester_profile, hfm_tester_profiles / preset_name)
             command, cwd, env = mt5_terminal_command(terminal, config_path, args.login)
-            process = subprocess.run(command, cwd=cwd, env=env, check=False)
-            terminal_exit_code = process.returncode
+            terminal_exit_code, terminal_timed_out = run_terminal_process(command, cwd, env, args.terminal_timeout_seconds)
             runner_status = "RUN_ATTEMPTED"
 
         metrics = parse_report(report_path)
         if metrics["reportExists"] and metrics["parseStatus"].startswith("PARSED"):
             runner_status = metrics["parseStatus"]
+        elif terminal_timed_out:
+            runner_status = "TERMINAL_TIMEOUT"
         elif args.run_terminal and not metrics["reportExists"]:
             runner_status = "REPORT_MISSING_AFTER_RUN"
 
@@ -565,6 +609,8 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "hfmPresetPath": str(hfm_preset),
             "testerProfileSynced": profile_synced,
             "terminalExitCode": terminal_exit_code,
+            "terminalTimedOut": terminal_timed_out,
+            "terminalTimeoutSeconds": int(args.terminal_timeout_seconds or 0),
             "metrics": metrics,
             "materializedGuard": materialized_guard,
             "livePresetMutation": False,
@@ -583,6 +629,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "NetProfit": metrics.get("netProfit"),
             "ProfitFactor": metrics.get("profitFactor"),
             "WinRate": metrics.get("winRate"),
+            "TerminalTimedOut": str(terminal_timed_out).lower(),
             "ConfigPath": str(config_path),
             "ReportPath": str(report_path),
         })
@@ -598,6 +645,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
     summary = {
         "configReadyCount": sum(1 for item in task_results if item["status"] == "CONFIG_READY"),
         "runAttemptedCount": sum(1 for item in task_results if item["terminalExitCode"] is not None),
+        "terminalTimeoutCount": sum(1 for item in task_results if item.get("terminalTimedOut")),
         "reportParsedCount": sum(1 for item in task_results if item["metrics"].get("reportExists")),
         "selectedTaskCount": len(task_results),
         "sourceSynced": source_synced,
@@ -615,6 +663,11 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
         "archiveDir": str(run_dir),
         "selectedTaskCount": len(task_results),
         "rankMode": args.rank_mode,
+        "testerDateRange": {
+            "fromDate": args.from_date,
+            "toDate": args.to_date,
+            "terminalTimeoutSeconds": int(args.terminal_timeout_seconds or 0),
+        },
         "summary": summary,
         "autoTesterWindowGate": run_terminal_gate,
         "topByRoute": top_by_route,
@@ -651,6 +704,7 @@ def build_runner_status(args: argparse.Namespace) -> dict[str, Any]:
             "NetProfit",
             "ProfitFactor",
             "WinRate",
+            "TerminalTimedOut",
             "ConfigPath",
             "ReportPath",
         ],

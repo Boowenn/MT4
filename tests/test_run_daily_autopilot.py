@@ -44,6 +44,46 @@ POLY_GOV_SPEC.loader.exec_module(poly_governance)
 
 
 class DailyAutopilotTests(unittest.TestCase):
+    def test_daily_autopilot_uses_bounded_daily_tester_range(self):
+        now = datetime.fromisoformat("2026-05-02T00:25:00+09:00")
+
+        self.assertEqual(autopilot.daily_tester_date_range(now, 2), ("2026.04.30", "2026.05.02"))
+        self.assertEqual(autopilot.daily_tester_date_range(now, 99), ("2026.04.18", "2026.05.02"))
+        self.assertEqual(autopilot.daily_tester_timeout_seconds(120), 300)
+        self.assertEqual(autopilot.daily_tester_timeout_seconds(99999), 3600)
+
+    def test_auto_tester_runner_command_forwards_daily_bounds_and_timeout(self):
+        args = type("Args", (), {
+            "repo_root": str(MODULE_PATH.parents[1]),
+            "runtime_dir": "/tmp/runtime",
+            "max_tasks": 1,
+            "rank_mode": "route-balanced",
+            "login": "186054398",
+            "server": "HFMarketsGlobal-Live12",
+            "max_live_snapshot_age_minutes": 30,
+            "from_date": "2026.04.30",
+            "to_date": "2026.05.02",
+            "terminal_timeout_seconds": 900,
+            "route": [],
+            "candidate_id": [],
+            "allow_outside_window": False,
+        })()
+
+        command = auto_tester_window.command_for_runner(
+            args,
+            run_terminal=True,
+            lock_path=Path("/tmp/runtime/QuantGod_AutoTesterWindow.lock.json"),
+            plan_path=Path("/tmp/runtime/QuantGod_AutoTesterWindowExecutorPlan.json"),
+            hfm_root=Path("/tmp/isolated_tester"),
+        )
+
+        self.assertIn("--from-date", command)
+        self.assertIn("2026.04.30", command)
+        self.assertIn("--to-date", command)
+        self.assertIn("2026.05.02", command)
+        self.assertIn("--terminal-timeout-seconds", command)
+        self.assertIn("900", command)
+
     def test_run_step_passes_env_overrides_without_order_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -123,6 +163,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("'/api/daily-review'", server_source)
         self.assertIn("'/api/daily-autopilot'", server_source)
         self.assertIn("dailyReviewName", server_source)
+        self.assertIn("buildDailyTesterBounds", server_source)
+        self.assertIn("'--terminal-timeout-seconds'", server_source)
+        self.assertIn("'--from-date'", server_source)
 
     def test_daily_pnl_negative_is_resolved_when_rsi_sell_side_is_blocked(self):
         daily_pnl = daily_review.close_history_summary([
@@ -317,6 +360,10 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("mt5UniverseCards", source)
         self.assertIn("...mt5ActionQueueItems.value.slice(0, 3)", source)
         self.assertIn("...polymarketActionQueueItems.value.slice(0, 2)", source)
+        self.assertIn("dailyTesterTodoMode", source)
+        self.assertIn("每日待办短窗口", source)
+        self.assertIn("vue_paramlab_daily_todo", source)
+        self.assertIn("testerLookbackDays: 2", source)
 
     def test_mt5_status_cards_do_not_truncate_evidence_text(self):
         source = (MODULE_PATH.parents[1] / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")

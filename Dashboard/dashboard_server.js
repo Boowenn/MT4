@@ -835,6 +835,41 @@ function clampParamLabAutoTesterMinutes(value, fallback = 90) {
   return Math.max(15, Math.min(parsed, 180));
 }
 
+function clampParamLabTesterLookbackDays(value, fallback = 2) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(parsed, 14));
+}
+
+function clampParamLabTesterTimeout(value, fallback = 900) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(300, Math.min(parsed, 3600));
+}
+
+function formatTesterDateJst(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}.${month}.${day}`;
+}
+
+function buildDailyTesterBounds(options = {}) {
+  const lookbackDays = clampParamLabTesterLookbackDays(
+    options.testerLookbackDays || options.tester_lookback_days || process.env.QG_DAILY_AUTOPILOT_TESTER_LOOKBACK_DAYS,
+    2
+  );
+  const terminalTimeoutSeconds = clampParamLabTesterTimeout(
+    options.terminalTimeoutSeconds || options.terminal_timeout_seconds || process.env.QG_DAILY_AUTOPILOT_TESTER_TIMEOUT_SECONDS,
+    900
+  );
+  const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const startJst = new Date(nowJst.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  const fromDate = cleanMt5ReadonlyParam(options.fromDate || options.from || '', 32) || formatTesterDateJst(startJst);
+  const toDate = cleanMt5ReadonlyParam(options.toDate || options.to || '', 32) || formatTesterDateJst(nowJst);
+  return { fromDate, toDate, lookbackDays, terminalTimeoutSeconds };
+}
+
 function readJsonIfExists(filePath) {
   if (!fs.existsSync(filePath)) return null;
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -850,6 +885,7 @@ function paramLabAutoTesterPaths() {
 
 function buildParamLabAutoTesterArgs(options = {}) {
   const maxTasks = clampParamLabAutoTesterTasks(options.maxTasks || options.max_tasks, 8);
+  const dailyBounds = buildDailyTesterBounds(options);
   const args = [
     '--repo-root',
     repoRoot,
@@ -864,7 +900,13 @@ function buildParamLabAutoTesterArgs(options = {}) {
     '--login',
     String(process.env.QG_MT5_LOGIN || process.env.QG_HFM_LOGIN || '186054398'),
     '--server',
-    String(process.env.QG_MT5_SERVER || process.env.QG_HFM_SERVER || 'HFMarketsGlobal-Live12')
+    String(process.env.QG_MT5_SERVER || process.env.QG_HFM_SERVER || 'HFMarketsGlobal-Live12'),
+    '--from-date',
+    dailyBounds.fromDate,
+    '--to-date',
+    dailyBounds.toDate,
+    '--terminal-timeout-seconds',
+    String(dailyBounds.terminalTimeoutSeconds)
   ];
   if (options.continuousWatch) {
     args.push('--continuous-watch');

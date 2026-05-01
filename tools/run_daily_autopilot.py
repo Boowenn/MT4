@@ -16,7 +16,7 @@ import json
 import os
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from typing import Any
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_AUTOPILOT_NAME = "QuantGod_DailyAutopilot.json"
 DEFAULT_AUTOPILOT_LEDGER = "QuantGod_DailyAutopilotLedger.csv"
+JST = timezone(timedelta(hours=9))
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +37,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-bin", default=os.environ.get("QG_PYTHON_BIN", "python3"))
     parser.add_argument("--interval-minutes", type=float, default=float(os.environ.get("QG_DAILY_AUTOPILOT_INTERVAL_MINUTES", "60")))
     parser.add_argument("--max-tasks", type=int, default=int(os.environ.get("QG_DAILY_AUTOPILOT_MAX_TASKS", "5")))
+    parser.add_argument(
+        "--tester-lookback-days",
+        type=int,
+        default=int(os.environ.get("QG_DAILY_AUTOPILOT_TESTER_LOOKBACK_DAYS", "2")),
+        help="Short bounded date range for daily todo Strategy Tester runs. Full historical runs should use run_param_lab.py directly.",
+    )
+    parser.add_argument(
+        "--tester-terminal-timeout-seconds",
+        type=int,
+        default=int(os.environ.get("QG_DAILY_AUTOPILOT_TESTER_TIMEOUT_SECONDS", "900")),
+        help="Maximum seconds allowed for each guarded daily tester child process.",
+    )
     parser.add_argument("--allow-tester-run", action="store_true", default=os.environ.get("QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN", "0") == "1")
     parser.add_argument("--skip-polymarket", action="store_true")
     parser.add_argument("--once", action="store_true")
@@ -154,6 +167,18 @@ def tool(python_bin: str, script: str, *args: str) -> list[str]:
     return [python_bin, str(DEFAULT_REPO_ROOT / "tools" / script), *args]
 
 
+def daily_tester_date_range(now: datetime | None = None, lookback_days: int = 2) -> tuple[str, str]:
+    local_now = (now or datetime.now(timezone.utc)).astimezone(JST)
+    safe_lookback = max(1, min(int(lookback_days or 1), 14))
+    from_date = local_now.date() - timedelta(days=safe_lookback)
+    to_date = local_now.date()
+    return from_date.strftime("%Y.%m.%d"), to_date.strftime("%Y.%m.%d")
+
+
+def daily_tester_timeout_seconds(value: int) -> int:
+    return max(300, min(int(value or 900), 3600))
+
+
 def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
     repo_root = Path(args.repo_root).expanduser().resolve()
     runtime_dir = resolve_runtime_dir(repo_root, args.runtime_dir)
@@ -168,6 +193,8 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
     dashboard_dir.mkdir(parents=True, exist_ok=True)
 
     started = datetime.now(timezone.utc)
+    tester_from_date, tester_to_date = daily_tester_date_range(started, args.tester_lookback_days)
+    tester_timeout = daily_tester_timeout_seconds(args.tester_terminal_timeout_seconds)
     steps: list[dict[str, Any]] = []
     common = ["--runtime-dir", str(runtime_dir)]
     repo_common = ["--repo-root", str(repo_root), "--runtime-dir", str(runtime_dir)]
@@ -236,6 +263,12 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         str(tester_root),
         "--max-tasks",
         str(args.max_tasks),
+        "--from-date",
+        tester_from_date,
+        "--to-date",
+        tester_to_date,
+        "--terminal-timeout-seconds",
+        str(tester_timeout),
     )
     steps.append(run_step("auto_tester_evaluate", eval_command, repo_root))
     auto_tester = read_json(runtime_dir / "QuantGod_AutoTesterWindow.json")
@@ -249,7 +282,7 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "--authorized-strategy-tester",
             "--continuous-watch",
         ]
-        steps.append(run_step("auto_tester_guarded_run", run_command, repo_root, timeout=2400))
+        steps.append(run_step("auto_tester_guarded_run", run_command, repo_root, timeout=tester_timeout + 180))
         steps.append(run_step("watch_paramlab_reports_after_run", tool(args.python_bin, "watch_param_lab_reports.py", *repo_common), repo_root))
         steps.append(run_step("version_promotion_gate_after_run", tool(args.python_bin, "build_version_promotion_gate.py", *common), repo_root))
         steps.append(run_step("governance_advisor_after_run", tool(args.python_bin, "build_governance_advisor.py", *common), repo_root))
@@ -267,6 +300,14 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         "dashboardDir": str(dashboard_dir),
         "allowTesterRun": bool(args.allow_tester_run),
         "testerRunAttempted": run_attempted,
+        "testerTodoMode": {
+            "mode": "DAILY_TODO_SHORT_WINDOW",
+            "fromDate": tester_from_date,
+            "toDate": tester_to_date,
+            "lookbackDays": max(1, min(int(args.tester_lookback_days or 1), 14)),
+            "terminalTimeoutSeconds": tester_timeout,
+            "fullHistoricalRuns": "Use tools/run_param_lab.py or an explicit weekend/full-run automation, not the daily autopilot.",
+        },
         "status": status,
         "safety": {
             "mutatesMt5": False,
@@ -297,6 +338,9 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "DailyParamActions": daily_review.get("summary", {}).get("paramActionCount", ""),
             "DailyParamWaitWindow": daily_review.get("summary", {}).get("paramWaitWindowCount", ""),
             "TodayTodoStatus": daily_review.get("summary", {}).get("todayTodoStatus", ""),
+            "TesterFromDate": tester_from_date,
+            "TesterToDate": tester_to_date,
+            "TesterTimeoutSeconds": tester_timeout,
             "NextTesterWindowLabel": daily_review.get("summary", {}).get("nextTesterWindowLabel", ""),
             "PromotionReviewCount": daily_review.get("summary", {}).get("promotionReviewCount", ""),
             "CodexReviewRequired": str(bool(daily_review.get("codexReview", {}).get("required"))).lower(),
@@ -312,6 +356,9 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "DailyParamActions",
             "DailyParamWaitWindow",
             "TodayTodoStatus",
+            "TesterFromDate",
+            "TesterToDate",
+            "TesterTimeoutSeconds",
             "NextTesterWindowLabel",
             "PromotionReviewCount",
             "CodexReviewRequired",
