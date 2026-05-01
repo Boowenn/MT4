@@ -21,6 +21,15 @@ daily_review = importlib.util.module_from_spec(REVIEW_SPEC)
 assert REVIEW_SPEC.loader is not None
 REVIEW_SPEC.loader.exec_module(daily_review)
 
+POLY_GOV_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "build_polymarket_auto_governance.py"
+TOOLS_DIR = str(POLY_GOV_MODULE_PATH.parent)
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
+POLY_GOV_SPEC = importlib.util.spec_from_file_location("build_polymarket_auto_governance", POLY_GOV_MODULE_PATH)
+poly_governance = importlib.util.module_from_spec(POLY_GOV_SPEC)
+assert POLY_GOV_SPEC.loader is not None
+POLY_GOV_SPEC.loader.exec_module(poly_governance)
+
 
 class DailyAutopilotTests(unittest.TestCase):
     def test_run_step_passes_env_overrides_without_order_side_effects(self):
@@ -173,6 +182,22 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("今日已排队", source)
         self.assertIn("SCHEDULED_TESTER_WINDOW", source)
         self.assertIn("paramTodoStatusLabel(row)", source)
+
+    def test_polymarket_global_loss_copy_explains_risk_isolation(self):
+        state, action, risk, next_test = poly_governance.classify_decision(
+            92.0,
+            False,
+            ["SIM_SAMPLE_LT_MIN"],
+            ["GLOBAL_LOSS_QUARANTINE", "EXECUTED_PF_BELOW_1"],
+            type("Args", (), {"demote_score": 35.0, "keep_shadow_score": 58.0, "promotion_review_score": 78.0})(),
+        )
+
+        self.assertEqual(state, "QUARANTINE_NO_PROMOTION")
+        self.assertEqual(risk, "high")
+        self.assertIn("进入隔离", action)
+        self.assertIn("风险隔离", next_test)
+        self.assertIn("复盘亏损来源", next_test)
+        self.assertNotIn("修复亏损来源", next_test)
 
     def test_daily_review_ledger_schema_upgrade_preserves_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

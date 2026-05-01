@@ -665,7 +665,12 @@ function governanceDecisionLabel(row) {
 }
 
 function governanceDetail(row) {
-  return shortText(first(row?.nextTest, row?.reason, row?.blocker, row?.marketId, '保持只读/模拟，等待证据改善。'), 96);
+  const raw = String(first(row?.nextTest, row?.reason, row?.blocker, '')).trim();
+  const blockers = Array.isArray(row?.blockers) ? row.blockers : [];
+  if (raw.includes('先修复亏损来源') || blockers.includes('GLOBAL_LOSS_QUARANTINE') || blockers.includes('EXECUTED_PF_BELOW_1')) {
+    return shortText('风险隔离：历史哨兵/模拟表现为负，先复盘亏损来源并补齐退出后验；继续只读/dry-run，禁止自动下注。', 112);
+  }
+  return shortText(first(raw, row?.marketId, '保持只读/模拟，等待证据改善。'), 96);
 }
 
 function crossRiskLabel(row) {

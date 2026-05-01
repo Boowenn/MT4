@@ -228,7 +228,7 @@ def classify_decision(
             "QUARANTINE_NO_PROMOTION",
             "进入隔离：不允许真钱 canary，继续只读研究和 dry-run。",
             "high",
-            "先修复亏损来源与退出后验；禁止自动下注。",
+            "风险隔离：历史哨兵/模拟表现为负，先复盘亏损来源并补齐退出后验；继续只读/dry-run，禁止自动下注。",
         )
     if real_money_ready:
         return (
