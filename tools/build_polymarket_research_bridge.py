@@ -577,6 +577,60 @@ def unavailable_snapshot(polymarket_root: Path, db_path: Path, reason: str) -> d
     }
 
 
+def research_snapshot_has_samples(snapshot: dict[str, Any]) -> bool:
+    summary = snapshot.get("summary") if isinstance(snapshot.get("summary"), dict) else {}
+    for key in ("executed", "shadow", "all", "recentExecuted", "recentShadow", "recentAll"):
+        row = summary.get(key) if isinstance(summary.get(key), dict) else {}
+        if safe_int(row.get("closed")) > 0 or safe_int(row.get("entries")) > 0:
+            return True
+    return bool(snapshot.get("journalGroups") or snapshot.get("recentJournalGroups"))
+
+
+def latest_history_research_snapshot(con: sqlite3.Connection, db_path: Path) -> dict[str, Any] | None:
+    if not table_exists(con, "qd_polymarket_research_snapshots"):
+        return None
+    rows = con.execute(
+        """
+        SELECT generated_at, raw_json
+        FROM qd_polymarket_research_snapshots
+        WHERE raw_json IS NOT NULL AND raw_json != ''
+        ORDER BY generated_at DESC
+        LIMIT 50
+        """
+    ).fetchall()
+    row = None
+    snapshot: dict[str, Any] | None = None
+    for candidate in rows:
+        try:
+            parsed = json.loads(candidate["raw_json"])
+        except Exception:
+            continue
+        if isinstance(parsed, dict) and research_snapshot_has_samples(parsed):
+            row = candidate
+            snapshot = parsed
+            break
+    if row is None or snapshot is None:
+        return None
+    source = snapshot.get("source") if isinstance(snapshot.get("source"), dict) else {}
+    source["historyDbPath"] = str(db_path)
+    source["archivedSnapshotGeneratedAtIso"] = str(row["generated_at"] or "")
+    source["archiveReplay"] = True
+    snapshot["source"] = source
+    snapshot["generatedAtIso"] = utc_now_iso()
+    snapshot["status"] = "OK_ARCHIVED_SNAPSHOT"
+    snapshot["mode"] = snapshot.get("mode") or "POLYMARKET_READ_ONLY_RESEARCH_BRIDGE"
+    snapshot.setdefault("safety", {})
+    if isinstance(snapshot["safety"], dict):
+        snapshot["safety"].update({
+            "readOnly": True,
+            "startsExecutor": False,
+            "placesOrders": False,
+            "mutatesMt5": False,
+        })
+    snapshot["replayNote"] = "Replayed latest archived PolymarketResearch snapshot because the history DB has no trade_journal table."
+    return snapshot
+
+
 def build_snapshot(
     polymarket_root: Path,
     db_path: Path,
@@ -591,6 +645,9 @@ def build_snapshot(
 
     con = connect_read_only(db_path)
     try:
+        archived_snapshot = None if table_exists(con, "trade_journal") else latest_history_research_snapshot(con, db_path)
+        if archived_snapshot:
+            return archived_snapshot
         cutoff = time.time() - (days * 86400.0)
         rows_all = aggregate_journal(con)
         rows_recent = aggregate_journal(con, "WHERE entry_timestamp >= ?", (cutoff,))

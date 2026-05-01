@@ -42,6 +42,13 @@ poly_governance = importlib.util.module_from_spec(POLY_GOV_SPEC)
 assert POLY_GOV_SPEC.loader is not None
 POLY_GOV_SPEC.loader.exec_module(poly_governance)
 
+POLY_RESEARCH_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "build_polymarket_research_bridge.py"
+POLY_RESEARCH_SPEC = importlib.util.spec_from_file_location("build_polymarket_research_bridge", POLY_RESEARCH_MODULE_PATH)
+poly_research = importlib.util.module_from_spec(POLY_RESEARCH_SPEC)
+assert POLY_RESEARCH_SPEC.loader is not None
+sys.modules[POLY_RESEARCH_SPEC.name] = poly_research
+POLY_RESEARCH_SPEC.loader.exec_module(poly_research)
+
 
 class DailyAutopilotTests(unittest.TestCase):
     def test_daily_autopilot_uses_bounded_daily_tester_range(self):
@@ -166,6 +173,10 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("buildDailyTesterBounds", server_source)
         self.assertIn("'--terminal-timeout-seconds'", server_source)
         self.assertIn("'--from-date'", server_source)
+        self.assertIn(
+            "build_polymarket_research_bridge.py",
+            (MODULE_PATH.parents[1] / "tools" / "run_mac_polymarket_readonly_cycle.sh").read_text(encoding="utf-8"),
+        )
 
     def test_daily_pnl_negative_is_resolved_when_rsi_sell_side_is_blocked(self):
         daily_pnl = daily_review.close_history_summary([
@@ -266,6 +277,37 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(queue[0]["statusLabel"], "TERMINAL_EXIT_NONZERO")
         self.assertIn("terminal_exit_191", queue[0]["blockers"])
         self.assertEqual(queue[0]["recovery"]["riskLevel"], "red")
+        self.assertFalse(queue[0]["livePresetMutationAllowed"])
+
+    def test_param_action_queue_treats_synced_account_context_as_window_wait(self):
+        scheduler = {
+            "selectedTasks": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "routeKey": "MA_Cross",
+                "score": 1.074,
+                "resultStatus": "CONFIG_ONLY_WAIT_REPORT",
+            }]
+        }
+        auto_tester = {
+            "summary": {"canRunTerminal": False},
+            "gate": {"blockers": ["outside_strategy_tester_window"]},
+        }
+        run_recovery = {
+            "candidateDrilldown": [{
+                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "riskLevel": "yellow",
+                "riskReason": "account_context_synced_retry_ready",
+                "latestStopReason": "account_context_synced_retry_ready",
+                "terminalNonzeroCount": 3,
+                "terminalExitCodes": [191],
+            }]
+        }
+
+        queue = daily_review.param_action_queue(scheduler, auto_tester, 5, run_recovery)
+
+        self.assertEqual(queue[0]["state"], "WAIT_GUARD")
+        self.assertEqual(queue[0]["guardClass"], "WAIT_TESTER_WINDOW")
+        self.assertEqual(queue[0]["statusLabel"], "ACCOUNT_CONTEXT_SYNCED_RETRY_READY")
         self.assertFalse(queue[0]["livePresetMutationAllowed"])
 
     def test_daily_closeout_window_keeps_todos_on_same_local_day(self):
@@ -443,6 +485,53 @@ class DailyAutopilotTests(unittest.TestCase):
             self.assertEqual(review["actionQueue"][0]["type"], "POLY_LOSS_SOURCE_REVIEW")
             self.assertFalse(review["safety"]["walletWriteAllowed"])
             self.assertEqual(review["topLossSources"][0]["experimentKey"], "sports_edge_filter_shadow_v1")
+
+    def test_polymarket_research_replays_archived_snapshot_from_history_db(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "history.sqlite"
+            con = __import__("sqlite3").connect(db_path)
+            con.execute(
+                "CREATE TABLE qd_polymarket_research_snapshots "
+                "(generated_at TEXT, raw_json TEXT)"
+            )
+            con.execute(
+                "INSERT INTO qd_polymarket_research_snapshots VALUES (?, ?)",
+                (
+                    "2026-05-01T18:06:59+00:00",
+                    json.dumps({
+                        "mode": "POLYMARKET_READ_ONLY_RESEARCH_BRIDGE",
+                        "status": "OK",
+                        "summary": {
+                            "executed": {"closed": 0, "profitFactor": None},
+                            "shadow": {"closed": 0, "profitFactor": None},
+                        },
+                    }),
+                ),
+            )
+            con.execute(
+                "INSERT INTO qd_polymarket_research_snapshots VALUES (?, ?)",
+                (
+                    "2026-04-28T10:57:30+00:00",
+                    json.dumps({
+                        "mode": "POLYMARKET_READ_ONLY_RESEARCH_BRIDGE",
+                        "status": "OK",
+                        "summary": {
+                            "executed": {"closed": 24, "profitFactor": 0.0145},
+                            "shadow": {"closed": 383, "profitFactor": 0.7055},
+                        },
+                        "source": {"dbPath": "D:/polymarket/copybot.db"},
+                    }),
+                ),
+            )
+            con.commit()
+            con.close()
+
+            snapshot = poly_research.build_snapshot(Path(tmp), db_path, 14, 5, skip_account_snapshot=True)
+
+            self.assertEqual(snapshot["status"], "OK_ARCHIVED_SNAPSHOT")
+            self.assertEqual(snapshot["summary"]["executed"]["closed"], 24)
+            self.assertEqual(snapshot["summary"]["shadow"]["profitFactor"], 0.7055)
+            self.assertTrue(snapshot["source"]["archiveReplay"])
 
     def test_daily_review_ledger_schema_upgrade_preserves_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

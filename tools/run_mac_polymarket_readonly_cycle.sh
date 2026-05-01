@@ -85,6 +85,13 @@ echo "History DB: $HISTORY_DB"
   --history-dir "$HISTORY_DIR" \
   --db-path "$HISTORY_DB"
 
+"$PYTHON_BIN" tools/build_polymarket_research_bridge.py \
+  --runtime-dir "$RUNTIME_DIR" \
+  --dashboard-dir "$DASHBOARD_DIR" \
+  --polymarket-root "$HISTORY_DIR" \
+  --db-path "$HISTORY_DB" \
+  --skip-account-snapshot
+
 "$PYTHON_BIN" tools/score_polymarket_ai_v1.py \
   --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \

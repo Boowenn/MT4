@@ -298,11 +298,16 @@ def param_action_queue(
         candidate_id = clean(task.get("candidateId"))
         recovery = recovery_rows.get(candidate_id, {})
         recovery_risk = clean(recovery.get("riskLevel")).lower()
+        recovery_reason = clean(recovery.get("riskReason")).lower()
         recovery_stop = clean(recovery.get("latestStopReason")).lower()
+        recovery_retry_ready = recovery_risk in {"yellow", "green"} and recovery_reason == "account_context_synced_retry_ready"
         recovery_terminal_nonzero = (
-            recovery_risk == "red"
-            or recovery_stop in {"terminal_nonzero", "terminal_exit_nonzero"}
-            or as_int(recovery.get("terminalNonzeroCount")) > 0
+            not recovery_retry_ready
+            and (
+                recovery_risk == "red"
+                or recovery_stop in {"terminal_nonzero", "terminal_exit_nonzero"}
+                or as_int(recovery.get("terminalNonzeroCount")) > 0
+            )
         )
         result_status = clean(first(task.get("resultStatus"), task.get("status"), task.get("scheduleAction")))
         guard_class = ""
@@ -315,15 +320,15 @@ def param_action_queue(
             status_label = "TERMINAL_EXIT_NONZERO"
         elif can_run:
             state = "READY_TO_RUN_TESTER"
-            status_label = "READY_TO_RUN_TESTER"
+            status_label = "ACCOUNT_CONTEXT_SYNCED_RETRY_READY" if recovery_retry_ready else "READY_TO_RUN_TESTER"
         else:
             state = "WAIT_GUARD"
             if only_waiting_window:
                 guard_class = "WAIT_TESTER_WINDOW"
-                status_label = "SCHEDULED_TESTER_WINDOW"
+                status_label = "ACCOUNT_CONTEXT_SYNCED_RETRY_READY" if recovery_retry_ready else "SCHEDULED_TESTER_WINDOW"
             else:
                 guard_class = "WAIT_GUARD"
-                status_label = "WAIT_GUARD"
+                status_label = "ACCOUNT_CONTEXT_SYNCED_RETRY_READY" if recovery_retry_ready else "WAIT_GUARD"
         action = {
             "type": "PARAMLAB_TESTER_TASK",
             "state": state,
