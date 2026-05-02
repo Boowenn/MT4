@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -14,29 +13,43 @@ def fail(message: str) -> None:
 
 
 def read_text(path: Path) -> str:
+    """Read repository text files with a few safe fallbacks.
+
+    MQL5 preset files are usually UTF-8, but MT5 can occasionally write files
+    with a BOM or a local encoding. The guard should fail on missing files, not
+    on harmless encoding differences.
+    """
     try:
-        return path.read_text(encoding="utf-8")
+        raw = path.read_bytes()
     except FileNotFoundError:
         fail(f"missing required file: {path.relative_to(ROOT)}")
 
+    for encoding in ("utf-8", "utf-8-sig", "utf-16", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
 
-def require_contains(path: Path, needle: str) -> None:
+
+def require_contains(path: Path, needle: str, label: str | None = None) -> None:
     text = read_text(path)
     if needle not in text:
-        fail(f"{path.relative_to(ROOT)} must contain {needle!r}")
+        detail = label or needle
+        fail(f"{path.relative_to(ROOT)} must contain {detail!r}")
 
 
-def require_not_contains(path: Path, needle: str) -> None:
+def require_any_contains(path: Path, needles: tuple[str, ...], label: str) -> None:
     text = read_text(path)
-    if needle in text:
-        fail(f"{path.relative_to(ROOT)} must not contain stale text {needle!r}")
+    if not any(needle in text for needle in needles):
+        fail(f"{path.relative_to(ROOT)} must contain one of {label}")
 
 
 def parse_set_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
-    for raw in read_text(path).splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for raw_line in read_text(path).splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith(";") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip()
@@ -69,10 +82,14 @@ def tracked_files() -> list[str]:
 
 
 def check_secret_file_hygiene() -> None:
-    allowed_env_files = {".env.example"}
+    """Reject tracked secrets and credential-like files.
+
+    Allow .env.example anywhere in the repository because it documents required
+    environment variables without storing real credentials.
+    """
     for rel in tracked_files():
         name = Path(rel).name.lower()
-        if name.startswith(".env") and rel not in allowed_env_files:
+        if name.startswith(".env") and name != ".env.example":
             fail(f"tracked env file is not allowed: {rel}")
         if any(token in name for token in ("credential", "login_config", "password")):
             fail(f"tracked credential-like file name is not allowed: {rel}")
@@ -80,26 +97,57 @@ def check_secret_file_hygiene() -> None:
             fail(f"tracked secret-like file name is not allowed: {rel}")
 
 
-def main() -> None:
-    app = ROOT / "frontend/src/App.vue"
-    ea = ROOT / "MQL5/Experts/QuantGod_MultiStrategy.mq5"
-    live_preset = ROOT / "MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set"
+def check_backend_split_boundaries() -> None:
+    """Backend repo must not depend on checked-in frontend/infra source trees."""
+    forbidden_dirs = ("frontend", "cloudflare")
+    for dirname in forbidden_dirs:
+        if (ROOT / dirname).exists():
+            fail(f"backend split violation: {dirname}/ must not exist in QuantGodBackend")
+
+    for rel in tracked_files():
+        normalized = rel.replace("\\", "/")
+        if normalized.startswith(("frontend/", "cloudflare/")):
+            fail(f"backend split violation: tracked split-out source file {rel}")
+
+
+def check_required_backend_files() -> None:
+    required = (
+        "Dashboard/dashboard_server.js",
+        "Dashboard/vue-dist/index.html",
+        "MQL5/Experts/QuantGod_MultiStrategy.mq5",
+        "MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set",
+        "tools/ci_guard.py",
+    )
+    for rel in required:
+        path = ROOT / rel
+        if not path.exists():
+            fail(f"missing required backend artifact: {rel}")
+
+
+def check_dashboard_dist() -> None:
+    """The backend may serve built Vue assets, but not frontend source."""
     dist_index = ROOT / "Dashboard/vue-dist/index.html"
+    require_any_contains(
+        dist_index,
+        ("/vue/assets/index-", "assets/index-"),
+        "built Vue asset reference",
+    )
 
-    require_contains(app, "function routeDowngradeLabel(row)")
-    require_contains(app, "function routeNextStepText(row)")
-    require_contains(app, "routeShortName(row) === route")
-    require_contains(app, "return { ...direct, ...symbolState }")
-    require_contains(app, "'降级模拟'")
-    require_contains(app, "MA 已从实盘降级到模拟/候选观察")
-    require_contains(app, "保持模拟/候选观察")
-    require_not_contains(app, "'实盘暂停'")
 
-    require_contains(ea, 'tradeStatus = "STARTUP_GUARD";')
-    require_contains(ea, "PilotRsiBlockSellInUptrend && IsUptrendRegimeLabel(regime.label)")
-    require_contains(ea, "PilotRsiRangeTightBuyOnly && IsRangeTightRegimeLabel(regime.label)")
-    require_contains(ea, "RSI H1 SELL blocked in")
+def check_mql5_safety_guards() -> None:
+    ea = ROOT / "MQL5/Experts/QuantGod_MultiStrategy.mq5"
+    required_markers = {
+        "startup entry guard status": 'tradeStatus = "STARTUP_GUARD";',
+        "RSI H1 uptrend sell blocker": "PilotRsiBlockSellInUptrend && IsUptrendRegimeLabel(regime.label)",
+        "RSI H1 range-tight buy-only blocker": "PilotRsiRangeTightBuyOnly && IsRangeTightRegimeLabel(regime.label)",
+        "RSI H1 blocked-trade audit text": "RSI H1 SELL blocked in",
+    }
+    for label, marker in required_markers.items():
+        require_contains(ea, marker, label)
 
+
+def check_live_preset_defaults() -> None:
+    live_preset = ROOT / "MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set"
     check_expected_set_values(
         live_preset,
         {
@@ -122,7 +170,13 @@ def main() -> None:
         },
     )
 
-    require_contains(dist_index, "/vue/assets/index-")
+
+def main() -> None:
+    check_required_backend_files()
+    check_backend_split_boundaries()
+    check_dashboard_dist()
+    check_mql5_safety_guards()
+    check_live_preset_defaults()
     check_secret_file_hygiene()
     print("CI_GUARD_OK")
 

@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+GUARD_SOURCE = (ROOT / "tools/ci_guard.py").read_text(encoding="utf-8")
+
+
+class BackendSplitCiGuardTest(unittest.TestCase):
+    def test_guard_no_longer_depends_on_frontend_source(self) -> None:
+        stale_frontend_markers = (
+            "frontend/src/App.vue",
+            "routeDowngradeLabel(row)",
+            "routeNextStepText(row)",
+            "routeShortName(row) === route",
+            "MA 已从实盘降级到模拟/候选观察",
+            "保持模拟/候选观察",
+        )
+        for marker in stale_frontend_markers:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, GUARD_SOURCE)
+
+    def test_guard_keeps_backend_safety_checks(self) -> None:
+        required_backend_markers = (
+            "QuantGod_MultiStrategy.mq5",
+            "QuantGod_MT5_HFM_LivePilot.set",
+            "Dashboard/vue-dist/index.html",
+            "tradeStatus = \"STARTUP_GUARD\";",
+            "PilotRsiBlockSellInUptrend",
+            "PilotRsiRangeTightBuyOnly",
+            "check_secret_file_hygiene",
+            "check_backend_split_boundaries",
+        )
+        for marker in required_backend_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, GUARD_SOURCE)
+
+
+if __name__ == "__main__":
+    unittest.main()
