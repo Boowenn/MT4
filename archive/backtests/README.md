@@ -1,21 +1,17 @@
-# QuantGod HFM MT5 Backtest Archive
+# backtests 归档
 
-This folder keeps local HFM MT5 Strategy Tester outputs for the constrained live-pilot research loop.
+这里保存后端回测相关的人工可读证据。实时运行、tester 原始输出和大体积批次目录默认不进 Git。
 
-V1 scope:
+## 建议内容
 
-- Strategy: `MA_Cross`
-- Symbols: `EURUSDc`, `USDJPYc`
-- Execution lot: `0.01`
-- Signal/trend frame: `M15` trigger with `H1` trend filter
-- No `0.10`, no extra symbols, no extra strategies
+- 已整理的 backtest summary。
+- 候选策略的复核结论。
+- 与 Governance/Version Gate 相关的证据摘要。
+- 需要长期保留的异常复盘。
 
-Use:
+## 不应放入
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\run_mt5_backtest_lab.ps1
-```
-
-By default the script prepares tester configs and writes a dashboard summary without interrupting the live HFM terminal. Add `-RunTerminal` only when you intentionally want to run MT5 Strategy Tester from the HFM client.
-
-Generated run folders and latest summary files are local runtime artifacts and are ignored by Git.
+- MT5 登录凭据。
+- HFM 账号密码或 investor/trading password。
+- 大体积 HTML/ZIP 原始报告。
+- 未脱敏的 runtime 文件。

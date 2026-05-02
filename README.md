@@ -1,22 +1,22 @@
 # QuantGodBackend
 
-Backend repository for QuantGod.
+QuantGod 的后端仓库，负责本地优先的 MT5/HFM 运行证据、研究闭环、AI 分析、治理判断和只读 API。
 
-This repo contains the local-first trading/research backend only:
+这个仓库只保留后端职责：
 
-- `MQL5/` — MT5 EA source, presets, tester configs, and live/shadow guarded runtime assets.
-- `Dashboard/` — local Node API server and backend-served static frontend target (`Dashboard/vue-dist/`, populated from the frontend repo by infra sync).
-- `tools/` — Python research, Governance, ParamLab, AI analysis, Vibe Coding, Telegram notification, MT5 bridge, and CI guard tools.
-- `tests/` — Python and Node backend/API contract tests.
-- `archive/` — local backtest/ParamLab/research archives; generated run data is ignored unless intentionally promoted.
+- `MQL5/`：MT5 EA 源码、preset、tester 配置、live/shadow 守护资产。
+- `Dashboard/`：本地 Node API server，以及由前端仓库构建后同步进来的 `Dashboard/vue-dist/`。
+- `tools/`：Python 研究工具、Governance、ParamLab、AI Analysis、Vibe Coding、Telegram push、MT5 bridge、CI guard。
+- `tests/`：Python 单元测试与 Node API contract 测试。
+- `archive/`：本地 backtest、ParamLab、research 归档；运行生成数据默认不进入 Git。
 
-Frontend source, Cloudflare/infra automation, and full documentation have been split out:
+前端源码、Cloudflare/infra 自动化和完整文档已经拆到独立仓库：
 
-- Frontend: <https://github.com/Boowenn/QuantGodFrontend>
-- Infra: <https://github.com/Boowenn/QuantGodInfra>
-- Docs: <https://github.com/Boowenn/QuantGodDocs>
+- Frontend：<https://github.com/Boowenn/QuantGodFrontend>
+- Infra：<https://github.com/Boowenn/QuantGodInfra>
+- Docs：<https://github.com/Boowenn/QuantGodDocs>
 
-## Local development
+## 本地开发
 
 ```powershell
 python -m unittest discover tests -v
@@ -25,17 +25,17 @@ node --test tests/node/*.mjs
 Dashboard\start_dashboard.bat
 ```
 
-Open the Vue workbench after the frontend dist has been synced:
+前端 dist 已同步后，本地工作台入口是：
 
 ```text
 http://localhost:8080/vue/
 ```
 
-During frontend development, run `QuantGodFrontend` separately on Vite and use its dev proxy to call this backend at `http://127.0.0.1:8080`.
+开发前端时，不要在本仓库改 Vue 源码。请在 `QuantGodFrontend` 启动 Vite dev server，并通过 proxy 调用本后端的 `http://127.0.0.1:8080/api/*`。
 
-## Frontend dist sync
+## 前端 dist 同步
 
-The backend does not own Vue source anymore. Build frontend in `QuantGodFrontend`, then sync the compiled dist into this repo's served folder:
+本仓库不再拥有 Vue source。前端构建与同步流程如下：
 
 ```powershell
 cd ..\QuantGodFrontend
@@ -45,6 +45,8 @@ cd ..\QuantGodInfra
 python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json sync-frontend-dist
 ```
 
-## Safety boundaries
+同步后，`QuantGodBackend/Dashboard/vue-dist` 会作为后端 server 的静态页面目录。
 
-Automation cannot bypass Kill Switch, authorization locks, dry-run guards, live preset mutation guards, Telegram push-only boundaries, or Vibe Coding research-only boundaries. Any live-route change must still pass backtest evidence, ParamLab, Governance, Version Gate, and manual authorization.
+## 安全边界
+
+任何自动化都不能绕过 `Kill Switch`、authorization lock、dry-run guard、live preset mutation guard、Telegram push-only 边界或 Vibe Coding research-only 边界。任何 live route 变化仍然必须经过 backtest evidence、ParamLab、Governance、Version Gate 和人工授权。

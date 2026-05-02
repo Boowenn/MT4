@@ -1,37 +1,17 @@
-# MT4 Runtime Archive
+# archive 目录
 
-This folder is the local preservation area for MT4 research assets.
+`archive/` 用来保留后端研究和回测相关的长期材料。这里不是实时运行目录，也不是 MT5/HFM 凭据目录。
 
-Purpose:
+## 当前约定
 
-- keep MT4 historical research samples safe before retiring the MT4 install
-- preserve raw runtime exports outside `C:\Program Files (x86)\MetaTrader 4\`
-- avoid pushing large private runtime datasets to GitHub by default
+- `backtests/`：后端回测摘要、候选结果和人工复核材料。
+- `param-lab/`：ParamLab 历史批次、报告回灌和恢复记录。
+- `polymarket/`：Polymarket 研究样本、历史 ledger、亏损复盘材料。
 
-Rules:
+## Git 规则
 
-- snapshot data is stored under `archive/mt4-runtime-snapshots/`
-- that snapshot directory is intentionally ignored by Git
-- use [tools/archive_mt4_runtime.ps1](C:/Users/OWNER/QuantGod_MT4/tools/archive_mt4_runtime.ps1) to create a new snapshot
-- check `LATEST.txt` inside the snapshot root to find the newest local archive
+大体积运行产物、临时 HTML、原始 tester 报告和每日 runtime ledger 默认不提交。只有当材料已经整理成复盘证据、治理输入或文档引用时，才应进入 Git。
 
-Current scope of each snapshot:
+## 安全边界
 
-- `QuantGod_Dashboard.json`
-- `QuantGod_AdaptiveStateHistory.csv`
-- `QuantGod_BalanceHistory.csv`
-- `QuantGod_EquitySnapshots.csv`
-- `QuantGod_OpportunityLabels.csv`
-- `QuantGod_RegimeEvaluationReport.csv`
-- `QuantGod_SignalLog.csv`
-- `QuantGod_SignalLog_pre_features_20260421_140826.csv`
-- `QuantGod_SignalOpportunityQueue.csv`
-- `QuantGod_StrategyEvaluationReport.csv`
-- `QuantGod_TradeEventLinks.csv`
-- `QuantGod_TradeJournal.csv`
-- `QuantGod_TradeOutcomeLabels.csv`
-
-Notes:
-
-- this archive preserves MT4 research assets locally; it does not migrate those samples into the MT5 shadow runtime
-- the HFM MT5 shadow runtime remains a separate live-account read-only export under `C:\Program Files\HFM Metatrader 5\MQL5\Files\`
+不要把账号、密码、token、HFM 交易凭据、Telegram token、OpenRouter key 或钱包私钥放入本目录。

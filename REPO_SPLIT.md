@@ -1,21 +1,25 @@
-# Backend split status
+# 后端拆分状态
 
-This repository is the backend member of the QuantGod four-repo workspace.
+本仓库是 QuantGod 四仓库工作区中的后端成员。
 
-## Kept here
+## 本仓库保留内容
 
-- MT5/MQL5 engine and presets
-- Node dashboard/API server
-- Python tools and tests
-- backend contract tests
-- local launchers and guarded MT5 workflows
+- MT5/MQL5 engine、preset、tester 配置。
+- Node dashboard/API server。
+- Python tools、AI/Governance/ParamLab/Polymarket/MT5 bridge。
+- 后端 contract tests 与 CI guard。
+- 本地启动脚本和受保护的 MT5 live/shadow/backtest 工作流。
 
-## Moved out
+## 已迁出内容
 
 - `frontend/` → `Boowenn/QuantGodFrontend`
 - `cloudflare/` → `Boowenn/QuantGodInfra`
-- full `docs/` tree → `Boowenn/QuantGodDocs`
+- 完整 `docs/` → `Boowenn/QuantGodDocs`
 
-## Build linkage
+## 构建联动
 
-Frontend source builds to `QuantGodFrontend/dist`. Infra sync copies it into `QuantGodBackend/Dashboard/vue-dist` for the backend server to serve at `/vue/`.
+`QuantGodFrontend` 构建输出到 `dist/`。`QuantGodInfra` 的 `sync-frontend-dist` 会把它复制到 `QuantGodBackend/Dashboard/vue-dist`，让后端继续通过 `/vue/` 提供本地 operator workbench。
+
+## 维护规则
+
+后端变更只处理交易证据、API、EA、工具链、测试和安全边界。UI 布局、样式、KlineCharts、Monaco、工作台组件都应在 `QuantGodFrontend` 修改。
