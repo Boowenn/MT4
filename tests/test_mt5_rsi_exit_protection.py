@@ -116,6 +116,7 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("accountExpertTradeAllowed=", text)
         self.assertIn("symbolTradeMode=", text)
 
+    @unittest.skipUnless(APP_PATH.exists(), "frontend source is validated in QuantGodFrontend after repo split")
     def test_vue_does_not_treat_empty_permission_blocker_as_blocked(self):
         text = APP_PATH.read_text(encoding="utf-8")
         self.assertIn("runtime.tradePermissionBlocker === undefined", text)

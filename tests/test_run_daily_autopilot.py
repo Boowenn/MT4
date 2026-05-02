@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "run_daily_autopilot.py"
+FRONTEND_ROOT = MODULE_PATH.parents[1] / "frontend"
 TOOLS_DIR = str(MODULE_PATH.parent)
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
@@ -224,7 +225,9 @@ class DailyAutopilotTests(unittest.TestCase):
             self.assertFalse(risk["requiresCodexReview"])
 
     def test_frontend_reads_daily_artifacts_through_api_first(self):
-        api_source = (MODULE_PATH.parents[1] / "frontend" / "src" / "services" / "api.js").read_text(encoding="utf-8")
+        if not FRONTEND_ROOT.exists():
+            self.skipTest("frontend source is validated in QuantGodFrontend after repo split")
+        api_source = (FRONTEND_ROOT / "src" / "services" / "api.js").read_text(encoding="utf-8")
 
         self.assertIn("fetchJsonFirst(['/api/daily-review', '/QuantGod_DailyReview.json'])", api_source)
         self.assertIn("fetchJsonFirst(['/api/daily-autopilot', '/QuantGod_DailyAutopilot.json'])", api_source)
@@ -651,7 +654,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(effective["selectedTasks"][0]["retryOverride"], "PREVIOUS_TESTER_CONFIG_MISSING_TESTER_LOGIN_FIXED")
 
     def test_frontend_renders_scheduled_tester_window_copy(self):
-        source = (MODULE_PATH.parents[1] / "frontend" / "src" / "App.vue").read_text(encoding="utf-8")
+        if not FRONTEND_ROOT.exists():
+            self.skipTest("frontend source is validated in QuantGodFrontend after repo split")
+        source = (FRONTEND_ROOT / "src" / "App.vue").read_text(encoding="utf-8")
 
         self.assertIn("今日已排队", source)
         self.assertIn("SCHEDULED_TESTER_WINDOW", source)
@@ -684,7 +689,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("testerLookbackDays: 2", source)
 
     def test_mt5_status_cards_do_not_truncate_evidence_text(self):
-        source = (MODULE_PATH.parents[1] / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+        if not FRONTEND_ROOT.exists():
+            self.skipTest("frontend source is validated in QuantGodFrontend after repo split")
+        source = (FRONTEND_ROOT / "src" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn(".mt5-radar-board .dense-radar", source)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", source)

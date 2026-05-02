@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "workspace": "QuantGod",
+  "generatedAtIso": "2026-05-02T07:24:43.280360+00:00",
+  "repos": {
+    "backend": {
+      "name": "Boowenn/QuantGodBackend",
+      "path": "/Users/bowen/Desktop/Quard/QuantGodBackend",
+      "url": "https://github.com/Boowenn/QuantGodBackend",
+      "role": "MT5/MQL5 engine, Node API, Python tools, tests"
+    },
+    "frontend": {
+      "name": "Boowenn/QuantGodFrontend",
+      "path": "/Users/bowen/Desktop/Quard/QuantGodFrontend",
+      "url": "https://github.com/Boowenn/QuantGodFrontend",
+      "role": "Vue operator workbench"
+    },
+    "infra": {
+      "name": "Boowenn/QuantGodInfra",
+      "path": "/Users/bowen/Desktop/Quard/QuantGodInfra",
+      "url": "https://github.com/Boowenn/QuantGodInfra",
+      "role": "workspace automation, Cloudflare, deployment sync"
+    },
+    "docs": {
+      "name": "Boowenn/QuantGodDocs",
+      "path": "/Users/bowen/Desktop/Quard/QuantGodDocs",
+      "url": "https://github.com/Boowenn/QuantGodDocs",
+      "role": "canonical Markdown documentation hub"
+    }
+  },
+  "contracts": {
+    "backendApiBaseUrl": "http://127.0.0.1:8080",
+    "frontendDevUrl": "http://127.0.0.1:5173",
+    "frontendBuiltDist": "QuantGodFrontend/dist",
+    "backendServedDist": "QuantGodBackend/Dashboard/vue-dist",
+    "frontendBuildSync": "QuantGodInfra/scripts/qg-workspace.py sync-frontend-dist"
+  },
+  "safety": {
+    "aiAdvisoryOnly": true,
+    "telegramPushOnly": true,
+    "apiLocalOnly": true,
+    "vibeCodingResearchOnly": true,
+    "killSwitchBypassAllowed": false,
+    "livePresetMutationAllowedByAutomation": false,
+    "brokerCredentialsInGitAllowed": false
+  }
+}
