@@ -108,12 +108,26 @@ def check_backend_split_boundaries() -> None:
         normalized = rel.replace("\\", "/")
         if normalized.startswith(("frontend/", "cloudflare/")):
             fail(f"backend split violation: tracked split-out source file {rel}")
+        if normalized.startswith("Dashboard/vue-dist/"):
+            fail(f"backend split violation: tracked frontend build artifact {rel}")
+        if normalized.startswith("Dashboard/QuantGod_") and normalized.endswith((".json", ".csv")):
+            fail(f"backend split violation: tracked runtime evidence artifact {rel}")
+        if normalized in {
+            "tools/responsive_check.mjs",
+            "tools/install_phase1_frontend.py",
+            "tools/apply_phase1_full.py",
+            "tools/apply_phase2_full.py",
+            "tools/apply_phase3_full.py",
+            "Dashboard/cloud_sync_uploader.js",
+            "Dashboard/cloud_sync_uploader.ps1",
+            "Dashboard/quantgod_cloud_sync.example.json",
+        }:
+            fail(f"backend split violation: split-out helper must not be tracked here: {rel}")
 
 
 def check_required_backend_files() -> None:
     required = (
         "Dashboard/dashboard_server.js",
-        "Dashboard/vue-dist/index.html",
         "MQL5/Experts/QuantGod_MultiStrategy.mq5",
         "MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set",
         "tools/ci_guard.py",
@@ -122,17 +136,6 @@ def check_required_backend_files() -> None:
         path = ROOT / rel
         if not path.exists():
             fail(f"missing required backend artifact: {rel}")
-
-
-def check_dashboard_dist() -> None:
-    """The backend may serve built Vue assets, but not frontend source."""
-    dist_index = ROOT / "Dashboard/vue-dist/index.html"
-    require_any_contains(
-        dist_index,
-        ("/vue/assets/index-", "assets/index-"),
-        "built Vue asset reference",
-    )
-
 
 def check_mql5_safety_guards() -> None:
     ea = ROOT / "MQL5/Experts/QuantGod_MultiStrategy.mq5"
@@ -174,7 +177,6 @@ def check_live_preset_defaults() -> None:
 def main() -> None:
     check_required_backend_files()
     check_backend_split_boundaries()
-    check_dashboard_dist()
     check_mql5_safety_guards()
     check_live_preset_defaults()
     check_secret_file_hygiene()

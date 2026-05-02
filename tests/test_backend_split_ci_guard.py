@@ -25,7 +25,6 @@ class BackendSplitCiGuardTest(unittest.TestCase):
         required_backend_markers = (
             "QuantGod_MultiStrategy.mq5",
             "QuantGod_MT5_HFM_LivePilot.set",
-            "Dashboard/vue-dist/index.html",
             "tradeStatus = \"STARTUP_GUARD\";",
             "PilotRsiBlockSellInUptrend",
             "PilotRsiRangeTightBuyOnly",
@@ -33,6 +32,18 @@ class BackendSplitCiGuardTest(unittest.TestCase):
             "check_backend_split_boundaries",
         )
         for marker in required_backend_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, GUARD_SOURCE)
+
+    def test_guard_rejects_frontend_build_and_split_helpers(self) -> None:
+        split_out_markers = (
+            "Dashboard/vue-dist/",
+            "Dashboard/QuantGod_",
+            "tools/responsive_check.mjs",
+            "tools/install_phase1_frontend.py",
+            "Dashboard/cloud_sync_uploader.js",
+        )
+        for marker in split_out_markers:
             with self.subTest(marker=marker):
                 self.assertIn(marker, GUARD_SOURCE)
 

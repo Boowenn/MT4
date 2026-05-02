@@ -4,7 +4,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_PATH = ROOT / "MQL5" / "Experts" / "QuantGod_MultiStrategy.mq5"
-APP_PATH = ROOT / "frontend" / "src" / "App.vue"
 LIVE_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_LivePilot.set"
 BACKTEST_USDJPY_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_USDJPYc.set"
 BACKTEST_EURUSD_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_EURUSDc.set"
@@ -115,27 +114,6 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("accountTradeAllowed=", text)
         self.assertIn("accountExpertTradeAllowed=", text)
         self.assertIn("symbolTradeMode=", text)
-
-    @unittest.skipUnless(APP_PATH.exists(), "frontend source is validated in QuantGodFrontend after repo split")
-    def test_vue_does_not_treat_empty_permission_blocker_as_blocked(self):
-        text = APP_PATH.read_text(encoding="utf-8")
-        self.assertIn("runtime.tradePermissionBlocker === undefined", text)
-        self.assertIn("String(runtime.tradePermissionBlocker).trim()", text)
-        self.assertNotIn("String(first(runtime.tradePermissionBlocker, '')).trim()", text)
-        self.assertIn("startupEntryGuardActive", text)
-        self.assertIn("value: '启动保护'", text)
-        self.assertIn("statusText: routeActionLabel(laneRow)", text)
-        self.assertIn("routeShortName(row) === route", text)
-        self.assertIn("return { ...direct, ...symbolState }", text)
-        self.assertIn("function routeRuntimeIsCandidate(row)", text)
-        self.assertIn("function routeDowngradeLabel(row)", text)
-        self.assertIn("function routeNextStepText(row)", text)
-        self.assertIn("'降级模拟'", text)
-        self.assertNotIn("'实盘暂停'", text)
-        self.assertIn("const runtimeReason = first(runtime.adaptiveReason, runtime.reason, '')", text)
-        self.assertIn("MA 已从实盘降级到模拟/候选观察", text)
-        self.assertIn("保持模拟/候选观察", text)
-        self.assertIn("const shadowNeedsReview = codexRequired &&", text)
 
     def test_non_rsi_legacy_routes_need_second_live_authorization_key(self):
         text = EA_PATH.read_text(encoding="utf-8")
