@@ -43,5 +43,14 @@
     "killSwitchBypassAllowed": false,
     "livePresetMutationAllowedByAutomation": false,
     "brokerCredentialsInGitAllowed": false
+  },
+  "repo": "QuantGodBackend",
+  "governance": {
+    "licenseFile": "LICENSE",
+    "securityPolicy": "SECURITY.md",
+    "contributionGuide": "CONTRIBUTING.md",
+    "codeOfConduct": "CODE_OF_CONDUCT.md",
+    "changelog": "CHANGELOG.md",
+    "checker": "scripts/check_repo_governance.py"
   }
 }
