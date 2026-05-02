@@ -1,8 +1,9 @@
-﻿const http = require('http');
+const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const phase1ApiRoutes = require('./phase1_api_routes');
+const phase2ApiRoutes = require('./phase2_api_routes');
 const os = require('os');
 const { spawn } = require('child_process');
 
@@ -3198,6 +3199,12 @@ const server = http.createServer((req, res) => {
   const requestUrl = req.url || '/';
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, {});
+    return;
+  }
+  if (phase2ApiRoutes.isPhase2Path(requestUrl)) {
+    phase2ApiRoutes
+      .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })
+      .catch((error) => phase2ApiRoutes.sendError(res, 500, requestUrl, error));
     return;
   }
   if (phase1ApiRoutes.isPhase1Path(requestUrl)) {

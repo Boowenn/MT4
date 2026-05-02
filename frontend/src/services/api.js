@@ -96,6 +96,13 @@ async function fetchCsv(url) {
   return parseCsv(await fetchText(url, ''));
 }
 
+async function fetchRowsJson(url) {
+  const payload = await fetchJson(url, null);
+  if (Array.isArray(payload?.data?.rows)) return payload.data.rows;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
+
 async function postJson(url, payload, fallback = null) {
   try {
     const response = await fetch(url, {
@@ -179,18 +186,18 @@ export async function loadDashboardState(query = '') {
   ] = await Promise.all([
     fetchJson('/api/latest'),
     fetchJson('/api/mt5-readonly/snapshot'),
-    fetchJson('/QuantGod_GovernanceAdvisor.json'),
-    fetchJson('/QuantGod_BacktestSummary.json'),
-    fetchJson('/QuantGod_ParamLabStatus.json'),
-    fetchJson('/QuantGod_ParamLabResults.json'),
-    fetchJson('/QuantGod_ParamLabAutoScheduler.json'),
-    fetchJson('/QuantGod_ParamLabReportWatcher.json'),
-    fetchJson('/QuantGod_ParamLabRunRecovery.json'),
-    fetchJson('/QuantGod_AutoTesterWindow.json'),
+    fetchJson('/api/governance/advisor'),
+    fetchJson('/api/dashboard/backtest-summary'),
+    fetchJson('/api/paramlab/status'),
+    fetchJson('/api/paramlab/results'),
+    fetchJson('/api/paramlab/scheduler'),
+    fetchJson('/api/paramlab/report-watcher'),
+    fetchJson('/api/paramlab/recovery'),
+    fetchJson('/api/paramlab/tester-window'),
     fetchJsonFirst(['/api/daily-review', '/QuantGod_DailyReview.json']),
     fetchJsonFirst(['/api/daily-autopilot', '/QuantGod_DailyAutopilot.json']),
-    fetchJson('/QuantGod_MT5ResearchStats.json'),
-    fetchJson('/QuantGod_StrategyVersionRegistry.json'),
+    fetchJson('/api/research/stats'),
+    fetchJson('/api/governance/version-registry'),
     fetchJson(`/api/polymarket/search?${search.toString()}`),
     fetchJson('/api/polymarket/radar?limit=12'),
     fetchJson('/api/polymarket/radar-worker'),
@@ -203,33 +210,33 @@ export async function loadDashboardState(query = '') {
     fetchJson('/api/polymarket/cross-linkage'),
     fetchJson('/api/polymarket/markets?limit=10&sort=volume'),
     fetchJson('/api/polymarket/asset-opportunities?limit=10'),
-    fetchJson('/QuantGod_PolymarketSingleMarketAnalysis.json'),
-    fetchCsv('/QuantGod_ShadowSignalLedger.csv'),
-    fetchCsv('/QuantGod_ShadowOutcomeLedger.csv'),
-    fetchCsv('/QuantGod_ShadowCandidateLedger.csv'),
-    fetchCsv('/QuantGod_ShadowCandidateOutcomeLedger.csv'),
-    fetchCsv('/QuantGod_CloseHistory.csv'),
-    fetchCsv('/QuantGod_TradeJournal.csv'),
-    fetchCsv('/QuantGod_ParamLabResultsLedger.csv'),
-    fetchCsv('/QuantGod_ParamLabAutoSchedulerLedger.csv'),
-    fetchCsv('/QuantGod_ParamLabReportWatcherLedger.csv'),
-    fetchCsv('/QuantGod_ParamLabRunRecoveryLedger.csv'),
-    fetchCsv('/QuantGod_AutoTesterWindowLedger.csv'),
-    fetchCsv('/QuantGod_MT5ResearchStatsLedger.csv'),
-    fetchCsv('/QuantGod_StrategyEvaluationReport.csv'),
-    fetchCsv('/QuantGod_RegimeEvaluationReport.csv'),
-    fetchCsv('/QuantGod_MT5TradingAuditLedger.csv'),
-    fetchCsv('/QuantGod_ManualAlphaLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketMarketRadar.csv'),
-    fetchCsv('/QuantGod_PolymarketAiScoreV1.csv'),
-    fetchCsv('/QuantGod_PolymarketCanaryExecutorLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketCanaryPositionLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketCanaryOrderAuditLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketCanaryExitLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketAutoGovernanceLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketCrossMarketLinkage.csv'),
-    fetchCsv('/QuantGod_PolymarketSingleMarketAnalysisLedger.csv'),
-    fetchCsv('/QuantGod_PolymarketRadarWorkerV2.csv')
+    fetchJson('/api/polymarket/single-market-analysis'),
+    fetchRowsJson('/api/shadow/signals?limit=500'),
+    fetchRowsJson('/api/shadow/outcomes?limit=500'),
+    fetchRowsJson('/api/shadow/candidates?limit=500'),
+    fetchRowsJson('/api/shadow/candidate-outcomes?limit=500'),
+    fetchRowsJson('/api/trades/close-history?limit=500'),
+    fetchRowsJson('/api/trades/journal?limit=500'),
+    fetchRowsJson('/api/paramlab/results-ledger?limit=500'),
+    fetchRowsJson('/api/paramlab/scheduler-ledger?limit=500'),
+    fetchRowsJson('/api/paramlab/report-watcher-ledger?limit=500'),
+    fetchRowsJson('/api/paramlab/recovery-ledger?limit=500'),
+    fetchRowsJson('/api/paramlab/tester-window-ledger?limit=500'),
+    fetchRowsJson('/api/research/stats-ledger?limit=500'),
+    fetchRowsJson('/api/research/strategy-evaluation?limit=500'),
+    fetchRowsJson('/api/research/regime-evaluation?limit=500'),
+    fetchRowsJson('/api/trades/trading-audit?limit=500'),
+    fetchRowsJson('/api/research/manual-alpha?limit=500'),
+    fetchRowsJson('/api/polymarket/radar-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/ai-score-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/canary-executor-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/canary-position-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/canary-order-audit-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/canary-exit-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/auto-governance-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/cross-market-linkage-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/single-market-analysis-ledger?limit=500'),
+    fetchRowsJson('/api/polymarket/radar-worker-ledger?limit=500')
   ]);
 
   return {

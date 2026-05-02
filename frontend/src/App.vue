@@ -37,6 +37,7 @@ import TrendVisuals from './components/TrendVisuals.vue';
 import DataTable from './components/DataTable.vue';
 import EvidenceDrawer from './components/EvidenceDrawer.vue';
 import Phase1Workspace from './components/phase1/Phase1Workspace.vue';
+import Phase2OperationsWorkspace from './components/phase2/Phase2OperationsWorkspace.vue';
 
 const workspaces = [
   { id: 'home', label: '总控台', sub: '机会雷达', icon: Gauge, desc: 'MT5、ParamLab 与 Polymarket 的统一只读操作台' },
@@ -45,7 +46,8 @@ const workspaces = [
   { id: 'polymarket', label: 'Polymarket', sub: '研究治理', icon: Network, desc: '市场雷达、AI 评分、小额哨兵契约与历史证据' },
   { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList, desc: 'tester-only 队列、报告回灌、恢复风险与守护窗口' },
   { id: 'charts', label: '趋势图表', sub: '可视化', icon: TrendingUp, desc: '路线趋势、样本速度、ParamLab 与 Polymarket 图表' },
-  { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3, desc: '统一文件/API 新鲜度与核心 ledger 表格' }
+  { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3, desc: '统一文件/API 新鲜度与核心 ledger 表格' },
+  { id: 'phase2', label: 'Phase 2', sub: 'API / 通知', icon: Bell, desc: '统一 API、Telegram 通知与集成测试状态' }
 ];
 
 const state = reactive({
@@ -244,7 +246,7 @@ function handleTopAction(action) {
     return;
   }
   if (action === 'notifications') {
-    setActive('reports');
+    setActive('phase2');
     return;
   }
   if (action === 'market') {
@@ -3025,6 +3027,19 @@ onBeforeUnmount(() => {
           </span>
         </button>
 
+        <button
+          class="nav-item"
+          :class="{ active: state.active === 'phase2' }"
+          type="button"
+          @click="setActive('phase2')"
+        >
+          <Bell :size="18" />
+          <span>
+            <strong>Phase 2</strong>
+            <small>API / 通知</small>
+          </span>
+        </button>
+
         <div class="nav-separator">MT5</div>
         <button
           v-for="item in mt5NavItems"
@@ -3219,7 +3234,7 @@ onBeforeUnmount(() => {
                       <b v-if="item.value && item.value !== '--'">{{ item.value }}</b>
                     </small>
                   </button>
-                </template>
+</template>
                 <div v-else class="calendar-mini-empty">
                   今日已完成，等待明日刷新
                 </div>
@@ -4584,6 +4599,10 @@ onBeforeUnmount(() => {
           <EvidenceDrawer title="MT5ResearchStats raw" :payload="mt5.mt5ResearchStats" />
           <EvidenceDrawer title="Polymarket AI raw" :payload="poly.aiScore" />
         </div>
+      </section>
+
+      <section v-if="state.active === 'phase2'" class="stack page-phase2">
+        <Phase2OperationsWorkspace />
       </section>
         </div>
 

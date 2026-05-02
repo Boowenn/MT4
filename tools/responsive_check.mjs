@@ -10,6 +10,7 @@ const OUT_DIR = process.env.QUANTGOD_RESPONSIVE_OUT || "runtime/responsive-check
 const ROUTES = [
   "",
   "#ai",
+  "#phase2",
   "#mt5",
   "#mt5-strategy",
   "#mt5-trades",

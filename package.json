@@ -1,0 +1,7 @@
+{
+  "name": "quantgod-phase2-integration",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/node/*.mjs"
+  }
+}

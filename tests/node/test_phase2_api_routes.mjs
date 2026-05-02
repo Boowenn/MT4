@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const routes = require('../../Dashboard/phase2_api_routes.js');
+
+function makeResponse() {
+  let resolveResponse;
+  const promise = new Promise((resolve) => {
+    resolveResponse = resolve;
+  });
+  const res = {
+    statusCode: 0,
+    headers: {},
+    writeHead(statusCode, headers) {
+      this.statusCode = statusCode;
+      this.headers = headers;
+    },
+    end(body) {
+      resolveResponse({ statusCode: this.statusCode, headers: this.headers, body: body ? JSON.parse(body) : {} });
+    },
+  };
+  promise.res = res;
+  return promise;
+}
+
+async function invoke(url, ctx = {}, method = 'GET') {
+  const response = makeResponse();
+  await routes.handle({ url, method }, response.res, ctx);
+  return await response;
+}
+
+test('parseCsv handles quoted commas', () => {
+  const parsed = routes.parseCsv('Symbol,Reason\nEURUSDc,"a,b"\n');
+  assert.deepEqual(parsed.headers, ['Symbol', 'Reason']);
+  assert.equal(parsed.rows[0].Reason, 'a,b');
+});
+
+test('phase2 path registry includes required API domains', () => {
+  assert.equal(routes.isPhase2Path('/api/governance/advisor'), true);
+  assert.equal(routes.isPhase2Path('/api/paramlab/status'), true);
+  assert.equal(routes.isPhase2Path('/api/trades/journal'), true);
+  assert.equal(routes.isPhase2Path('/api/research/stats'), true);
+  assert.equal(routes.isPhase2Path('/api/shadow/signals'), true);
+  assert.equal(routes.isPhase2Path('/api/notify/config'), true);
+  assert.equal(routes.PHASE2_API_SAFETY.orderSendAllowed, false);
+  assert.equal(routes.PHASE2_API_SAFETY.telegramCommandExecutionAllowed, false);
+});
+
+test('JSON endpoint returns envelope from runtime dir', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'qg-phase2-json-'));
+  try {
+    await writeFile(path.join(dir, 'QuantGod_GovernanceAdvisor.json'), JSON.stringify({ status: 'ok' }), 'utf8');
+    const res = await invoke('/api/governance/advisor', { defaultRuntimeDir: dir, repoRoot: dir, rootDir: dir });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.data.status, 'ok');
+    assert.equal(res.body.safety.readOnlyDataPlane, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('CSV endpoint filters by symbol and limit', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'qg-phase2-csv-'));
+  try {
+    await writeFile(
+      path.join(dir, 'QuantGod_TradeJournal.csv'),
+      'Timestamp,Symbol,Route\n2026-05-01 00:00:00,EURUSDc,MA_Cross\n2026-05-01 00:01:00,XAUUSDc,RSI_Reversal\n',
+      'utf8',
+    );
+    const res = await invoke('/api/trades/journal?symbol=XAUUSDc&limit=1', { defaultRuntimeDir: dir, repoRoot: dir, rootDir: dir });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.returnedRows, 1);
+    assert.equal(res.body.data.rows[0].Symbol, 'XAUUSDc');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('missing files produce safe 404 envelope', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'qg-phase2-missing-'));
+  try {
+    await mkdir(dir, { recursive: true });
+    const res = await invoke('/api/dashboard/state', { defaultRuntimeDir: dir, repoRoot: dir, rootDir: dir });
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.ok, false);
+    assert.equal(res.body.safety.orderSendAllowed, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

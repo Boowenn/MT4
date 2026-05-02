@@ -59,6 +59,23 @@ class AnalysisService:
         report = self._full_report(clean_symbol, snapshot, technical, risk, decision)
         self.save_report(report)
         self.feed_governance(report)
+
+        # QUANTGOD_PHASE2_NOTIFY_HOOK: push-only Telegram AI summary, never trade execution.
+        try:
+            import os as _qg_notify_os
+            if str(_qg_notify_os.getenv("QG_NOTIFY_AI_ANALYSIS_HOOK", "1")).lower() not in {"0", "false", "no", "off"}:
+                from notify.config import NotifyConfig as _QGNotifyConfig
+                from notify.notify_service import send_ai_analysis_summary as _qg_notify_send_ai_analysis_summary
+                _qg_notify_config = _QGNotifyConfig.from_env()
+                _qg_report = report
+                if hasattr(_qg_report, "to_dict"):
+                    _qg_report = _qg_report.to_dict()
+                elif not isinstance(_qg_report, dict):
+                    _qg_report = getattr(_qg_report, "__dict__", {"summary": str(_qg_report)})
+                if _qg_notify_config.enabled and _qg_notify_config.telegram_configured and _qg_notify_config.notify_ai_summary:
+                    await _qg_notify_send_ai_analysis_summary(_qg_report, config=_qg_notify_config)
+        except Exception:
+            pass
         return report
 
     def _full_report(

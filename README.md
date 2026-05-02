@@ -45,6 +45,8 @@ The repo-local skill is the durable operator guide for Codex-style maintenance w
 ## MT5 Migration Status
 
 The MT5 work is intentionally split into phases:
+  * Phase 1 AI analysis engine: available now. The Vue workbench exposes advisory-only AI analysis and K-line review; AI evidence is written for Governance review but cannot execute orders, override Kill Switch, or mutate live presets.
+  * Phase 2 integration layer: available now. Dashboard data access is wrapped under `/api/*`, Telegram notification support is push-only, and CI includes API contract and coverage checks.
 
 - Phase 1: available now
 - `MQL5/Experts/QuantGod_MultiStrategy.mq5`
