@@ -2,13 +2,14 @@
   <section class="phase2-workspace">
     <header class="phase2-hero">
       <div>
-        <p>PHASE 2 / API + PUSH NOTIFY</p>
-        <h2>统一 API、Telegram 通知与 CI 集成</h2>
+        <p>只读运维 / 推送通知</p>
+        <h2>运维通知中心</h2>
+        <small>统一只读 API、Telegram 推送与 CI 集成状态</small>
       </div>
-      <a-tag color="blue">read-only / push-only</a-tag>
+      <a-tag class="phase2-safety-tag">read-only / push-only</a-tag>
     </header>
 
-    <nav class="phase2-nav" aria-label="Phase 2 groups">
+    <nav class="phase2-nav" aria-label="运维通知分组">
       <a-button
         v-for="item in groups"
         :key="item.key"
@@ -75,7 +76,7 @@
             type="info"
             show-icon
             message="只读数据面"
-            description="Phase 2 API 只读读取 runtime 文件；通知端点只推送消息，不接受 Telegram 命令，也不触发交易。"
+            description="统一 API 只读读取 runtime 文件；通知端点只推送消息，不接受 Telegram 命令，也不触发交易。"
           />
         </a-card>
 
@@ -122,12 +123,12 @@ import {
 } from '../../services/phase2Api';
 
 const groups = [
-  { key: 'governance', label: 'Governance', endpoints: PHASE2_ENDPOINTS.governance },
-  { key: 'paramlab', label: 'ParamLab', endpoints: PHASE2_ENDPOINTS.paramlab },
-  { key: 'trades', label: '交易历史', endpoints: PHASE2_ENDPOINTS.trades },
+  { key: 'governance', label: '治理状态', endpoints: PHASE2_ENDPOINTS.governance },
+  { key: 'paramlab', label: '参数实验', endpoints: PHASE2_ENDPOINTS.paramlab },
+  { key: 'trades', label: '交易记录', endpoints: PHASE2_ENDPOINTS.trades },
   { key: 'research', label: '研究统计', endpoints: PHASE2_ENDPOINTS.research },
-  { key: 'shadow', label: 'Shadow / Candidate', endpoints: PHASE2_ENDPOINTS.shadow },
-  { key: 'dashboard', label: 'Dashboard 状态', endpoints: PHASE2_ENDPOINTS.dashboard },
+  { key: 'shadow', label: '模拟候选', endpoints: PHASE2_ENDPOINTS.shadow },
+  { key: 'dashboard', label: '状态文件', endpoints: PHASE2_ENDPOINTS.dashboard },
 ];
 
 const selectedKeys = ref(['governance']);
@@ -139,7 +140,7 @@ const lastLoaded = ref('');
 const notifyLoading = ref(false);
 const notifyConfig = ref(null);
 const notifyHistory = ref(null);
-const testMessage = ref('QuantGod Phase 2 Telegram test');
+const testMessage = ref('QuantGod 运维通知测试');
 
 const activeGroup = computed(() => groups.find((item) => item.key === selectedKeys.value[0]) || groups[0]);
 const endpointOptions = computed(() => activeGroup.value.endpoints.map(([value, label]) => ({ value, label })));
@@ -204,7 +205,7 @@ onMounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 18px;
   padding: 18px;
-  background: linear-gradient(135deg, rgba(11, 22, 40, 0.86), rgba(15, 23, 42, 0.96));
+  background: #1b1b1b;
 }
 .phase2-hero,
 .phase2-grid {
@@ -218,20 +219,28 @@ onMounted(() => {
   align-items: end;
 }
 .phase2-hero p,
-.phase2-hero h2 {
+.phase2-hero h2,
+.phase2-hero small {
   margin: 0;
 }
 .phase2-hero p {
-  color: #38bdf8;
+  color: #8fd0ff;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 .phase2-hero h2 {
   margin-top: 6px;
-  color: #f8fafc;
+  color: #f3f3f3;
   font-size: 28px;
   line-height: 1.15;
+}
+.phase2-hero small {
+  display: block;
+  margin-top: 8px;
+  color: #a1a1aa;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .phase2-nav,
 .phase2-button-row {
@@ -274,13 +283,22 @@ onMounted(() => {
 }
 .phase2-record {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   min-width: 0;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 12px;
   padding: 10px;
   background: rgba(15, 23, 42, 0.56);
+}
+.phase2-kv {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 8px;
+  padding: 9px;
+  background: rgba(0, 0, 0, 0.14);
 }
 .phase2-kv,
 .phase2-summary div,
@@ -293,13 +311,21 @@ onMounted(() => {
 .phase2-notify-item small,
 .phase2-notify-item span,
 .phase2-empty {
-  color: #94a3b8;
+  color: #a1a1aa;
 }
 .phase2-kv strong,
 .phase2-summary dd {
   display: block;
   margin: 4px 0 0;
-  color: #e5eefc;
+  color: #f3f3f3;
+}
+.phase2-kv strong {
+  max-height: 132px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.45;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(143, 208, 255, 0.32) transparent;
 }
 .phase2-summary {
   display: grid;
@@ -342,5 +368,123 @@ onMounted(() => {
   .phase2-button-row .ant-btn {
     flex: 1 1 120px;
   }
+
+  .phase2-record {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.phase2-workspace :deep(.ant-card) {
+  color: #f3f3f3;
+  background: #20242b;
+  border: 1px solid #303846;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.phase2-workspace :deep(.ant-card-head) {
+  min-height: 52px;
+  color: #f3f3f3;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.phase2-workspace :deep(.ant-card-head-title) {
+  color: #f3f3f3;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.phase2-workspace :deep(.ant-card-body) {
+  color: #d7dde7;
+}
+
+.phase2-workspace :deep(.ant-btn) {
+  min-height: 34px;
+  color: #d7dde7;
+  background: #1b2027;
+  border-color: #3a4656;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.phase2-workspace :deep(.ant-btn:hover),
+.phase2-workspace :deep(.ant-btn:focus-visible) {
+  color: #f3f3f3;
+  background: #20262f;
+  border-color: #8fd0ff;
+}
+
+.phase2-workspace :deep(.ant-btn-primary) {
+  color: #07111d;
+  background: #8fd0ff;
+  border-color: #8fd0ff;
+}
+
+.phase2-workspace :deep(.ant-btn-primary:hover),
+.phase2-workspace :deep(.ant-btn-primary:focus-visible) {
+  color: #07111d;
+  background: #b7e2ff;
+  border-color: #b7e2ff;
+}
+
+.phase2-workspace :deep(.ant-select-selector),
+.phase2-workspace :deep(.ant-input) {
+  color: #f3f3f3;
+  background: #15191f !important;
+  border-color: #3a4656 !important;
+  border-radius: 6px;
+  box-shadow: none !important;
+}
+
+.phase2-workspace :deep(.ant-select-selection-item),
+.phase2-workspace :deep(.ant-select-arrow),
+.phase2-workspace :deep(.ant-input::placeholder) {
+  color: #a1a1aa;
+}
+
+.phase2-workspace :deep(.ant-alert) {
+  color: #d7dde7;
+  background: #15191f;
+  border-color: #303846;
+  border-radius: 8px;
+}
+
+.phase2-workspace :deep(.ant-alert-message) {
+  color: #f3f3f3;
+}
+
+.phase2-workspace :deep(.ant-alert-description) {
+  color: #a1a1aa;
+}
+
+.phase2-safety-tag,
+.phase2-workspace :deep(.ant-tag) {
+  width: fit-content;
+  max-width: 100%;
+  color: #8fd0ff;
+  background: rgba(143, 208, 255, 0.12);
+  border: 1px solid rgba(143, 208, 255, 0.35);
+  border-radius: 6px;
+  white-space: normal;
+}
+
+:global(.ant-select-dropdown) {
+  color: #f3f3f3;
+  background: #1b2027;
+  border: 1px solid #303846;
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+}
+
+:global(.ant-select-dropdown .ant-select-item) {
+  color: #d7dde7;
+  border-radius: 6px;
+}
+
+:global(.ant-select-dropdown .ant-select-item-option-active),
+:global(.ant-select-dropdown .ant-select-item-option-selected) {
+  color: #f3f3f3;
+  background: #26303c;
 }
 </style>

@@ -47,7 +47,7 @@ const workspaces = [
   { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList, desc: 'tester-only 队列、报告回灌、恢复风险与守护窗口' },
   { id: 'charts', label: '趋势图表', sub: '可视化', icon: TrendingUp, desc: '路线趋势、样本速度、ParamLab 与 Polymarket 图表' },
   { id: 'reports', label: '证据报表', sub: '审计总览', icon: BarChart3, desc: '统一文件/API 新鲜度与核心 ledger 表格' },
-  { id: 'phase2', label: 'Phase 2', sub: 'API / 通知', icon: Bell, desc: '统一 API、Telegram 通知与集成测试状态' }
+  { id: 'phase2', label: '运维通知', sub: 'API / 推送', icon: Bell, desc: '统一只读 API、Telegram 推送通知与集成测试状态' }
 ];
 
 const state = reactive({
@@ -3035,8 +3035,8 @@ onBeforeUnmount(() => {
         >
           <Bell :size="18" />
           <span>
-            <strong>Phase 2</strong>
-            <small>API / 通知</small>
+            <strong>运维通知</strong>
+            <small>API / 推送</small>
           </span>
         </button>
 
