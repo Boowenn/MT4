@@ -38,10 +38,12 @@ import DataTable from './components/DataTable.vue';
 import EvidenceDrawer from './components/EvidenceDrawer.vue';
 import Phase1Workspace from './components/phase1/Phase1Workspace.vue';
 import Phase2OperationsWorkspace from './components/phase2/Phase2OperationsWorkspace.vue';
+import Phase3Workspace from './components/phase3/Phase3Workspace.vue';
 
 const workspaces = [
   { id: 'home', label: '总控台', sub: '机会雷达', icon: Gauge, desc: 'MT5、ParamLab 与 Polymarket 的统一只读操作台' },
   { id: 'ai', label: 'AI 工作台', sub: '分析引擎', icon: Activity, desc: '对照 QuantDinger 的 AI 分析入口：即时分析、机会雷达、历史记忆与下一步建议' },
+  { id: 'phase3', label: '策略工坊', sub: 'Vibe / AI V2', icon: Layers, desc: '自然语言策略生成、research-only 回测、AI 多智能体辩论与 K 线叠加' },
   { id: 'mt5', label: 'MT5 策略', sub: '实盘监控', icon: LineChart, desc: '路线、持仓、风控、手动样本与 EA 审计' },
   { id: 'polymarket', label: 'Polymarket', sub: '研究治理', icon: Network, desc: '市场雷达、AI 评分、小额哨兵契约与历史证据' },
   { id: 'paramlab', label: '参数实验', sub: '回测队列', icon: ClipboardList, desc: 'tester-only 队列、报告回灌、恢复风险与守护窗口' },
@@ -3029,6 +3031,19 @@ onBeforeUnmount(() => {
 
         <button
           class="nav-item"
+          :class="{ active: state.active === 'phase3' }"
+          type="button"
+          @click="setActive('phase3')"
+        >
+          <Layers :size="18" />
+          <span>
+            <strong>策略工坊</strong>
+            <small>Vibe / AI V2</small>
+          </span>
+        </button>
+
+        <button
+          class="nav-item"
           :class="{ active: state.active === 'phase2' }"
           type="button"
           @click="setActive('phase2')"
@@ -4603,6 +4618,10 @@ onBeforeUnmount(() => {
 
       <section v-if="state.active === 'phase2'" class="stack page-phase2">
         <Phase2OperationsWorkspace />
+      </section>
+
+      <section v-if="state.active === 'phase3'" class="stack page-phase3">
+        <Phase3Workspace />
       </section>
         </div>
 

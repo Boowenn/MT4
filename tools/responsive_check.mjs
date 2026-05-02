@@ -10,6 +10,7 @@ const OUT_DIR = process.env.QUANTGOD_RESPONSIVE_OUT || "runtime/responsive-check
 const ROUTES = [
   "",
   "#ai",
+  "#phase3",
   "#phase2",
   "#mt5",
   "#mt5-strategy",
@@ -77,6 +78,8 @@ const CHECK_EXPR = String.raw`
     ".history-list",
     ".poly-real-trade-ledger",
     ".data-table-card",
+    ".monaco-editor",
+    ".monaco-host",
     "pre"
   ].join(","));
 
