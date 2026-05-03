@@ -1,6 +1,7 @@
 """Small standard-library Telegram Bot API client for push-only notifications."""
 from __future__ import annotations
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,6 +11,17 @@ class TelegramApiError(RuntimeError):
     """Raised when Telegram returns an API error or non-JSON response."""
 
 Opener = Callable[[urllib.request.Request, int], Any]
+
+
+def default_urlopen(request: urllib.request.Request, timeout_seconds: int) -> Any:
+    context = None
+    try:
+        import certifi  # type: ignore
+
+        context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        context = ssl.create_default_context()
+    return urllib.request.urlopen(request, timeout=timeout_seconds, context=context)
 
 
 def validate_message_text(text: str) -> str:
@@ -26,7 +38,7 @@ class TelegramClient:
         self.token = token.strip()
         self.api_base_url = api_base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
-        self.opener = opener or urllib.request.urlopen
+        self.opener = opener or default_urlopen
 
     def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.token:

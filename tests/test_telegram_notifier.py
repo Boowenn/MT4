@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from telegram_notifier.client import extract_chat_candidates, validate_message_text
+from telegram_notifier.client import default_urlopen, extract_chat_candidates, validate_message_text
 from telegram_notifier.config import load_config, update_env_file
 from telegram_notifier.safety import assert_telegram_safety, require_push_enabled
 
@@ -71,6 +71,9 @@ class TelegramNotifierTests(unittest.TestCase):
             validate_message_text("")
         with self.assertRaises(ValueError):
             validate_message_text("x" * 4097)
+
+    def test_default_urlopen_is_available_for_system_cert_fallback(self) -> None:
+        self.assertTrue(callable(default_urlopen))
 
 if __name__ == "__main__":
     unittest.main()
