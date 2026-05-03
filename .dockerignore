@@ -1,0 +1,17 @@
+.git
+.github
+archive
+runtime
+Dashboard/vue-dist
+node_modules
+__pycache__
+*.pyc
+.venv
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.log
+.DS_Store
