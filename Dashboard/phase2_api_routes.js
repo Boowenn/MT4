@@ -84,7 +84,15 @@ const CSV_ENDPOINTS = Object.freeze({
   '/api/polymarket/radar-worker-ledger': 'QuantGod_PolymarketRadarWorkerV2.csv',
 });
 
-const NOTIFY_ENDPOINTS = new Set(['/api/notify/config', '/api/notify/history', '/api/notify/test']);
+const NOTIFY_ENDPOINTS = new Set([
+  '/api/notify/config',
+  '/api/notify/history',
+  '/api/notify/test',
+  '/api/notify/daily-digest',
+  '/api/notify/runtime-scan',
+  '/api/notify/mt5-ai-monitor/config',
+  '/api/notify/mt5-ai-monitor/run',
+]);
 
 function urlPathOf(urlValue) {
   const url = new URL(urlValue || '/', 'http://127.0.0.1');
@@ -424,6 +432,70 @@ async function handleNotify(req, res, ctx, endpoint) {
     const args = [path.join('tools', 'run_notify.py'), 'test', '--message', message, '--event-type', eventType];
     if (body.dryRun === true || body.dry_run === true) args.push('--dry-run');
     const payload = await runPythonJson(repoRoot, args, notifyEnv(ctx), 30000);
+    sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: PHASE2_API_SAFETY });
+    return true;
+  }
+  if (endpoint === '/api/notify/daily-digest') {
+    if (method !== 'POST') {
+      sendError(res, 405, endpoint, 'POST required');
+      return true;
+    }
+    const body = await readJsonBody(req);
+    const args = [path.join('tools', 'run_notify.py'), 'daily-digest'];
+    if (body.dryRun === true || body.dry_run === true) args.push('--dry-run');
+    const payload = await runPythonJson(repoRoot, args, notifyEnv(ctx), 45000);
+    sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: PHASE2_API_SAFETY });
+    return true;
+  }
+  if (endpoint === '/api/notify/runtime-scan') {
+    if (method !== 'POST') {
+      sendError(res, 405, endpoint, 'POST required');
+      return true;
+    }
+    const body = await readJsonBody(req);
+    const args = [path.join('tools', 'run_notify.py'), 'scan-once'];
+    if (body.dryRun === true || body.dry_run === true) args.push('--dry-run');
+    const payload = await runPythonJson(repoRoot, args, notifyEnv(ctx), 45000);
+    sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: PHASE2_API_SAFETY });
+    return true;
+  }
+  if (endpoint === '/api/notify/mt5-ai-monitor/config') {
+    if (method !== 'GET') {
+      sendError(res, 405, endpoint, 'GET required');
+      return true;
+    }
+    const payload = await runPythonJson(
+      repoRoot,
+      [path.join('tools', 'run_mt5_ai_telegram_monitor.py'), 'config'],
+      notifyEnv(ctx),
+      30000,
+    );
+    sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: PHASE2_API_SAFETY });
+    return true;
+  }
+  if (endpoint === '/api/notify/mt5-ai-monitor/run') {
+    if (method !== 'POST') {
+      sendError(res, 405, endpoint, 'POST required');
+      return true;
+    }
+    const body = await readJsonBody(req);
+    const args = [
+      path.join('tools', 'run_mt5_ai_telegram_monitor.py'),
+      'scan-once',
+      '--repo-root',
+      repoRoot,
+      '--force',
+    ];
+    const symbols = String(body.symbols || '').trim();
+    const timeframes = String(body.timeframes || '').trim();
+    const minInterval = Number.parseInt(String(body.minIntervalSeconds || body.min_interval_seconds || ''), 10);
+    if (symbols) args.push('--symbols', symbols);
+    if (timeframes) args.push('--timeframes', timeframes);
+    if (Number.isFinite(minInterval) && minInterval >= 0) args.push('--min-interval-seconds', String(minInterval));
+    if (body.send === true && body.dryRun !== true && body.dry_run !== true) args.push('--send');
+    if (body.disableNotification === true || body.disable_notification === true) args.push('--disable-notification');
+    if (body.noDeepseek === true || body.no_deepseek === true) args.push('--no-deepseek');
+    const payload = await runPythonJson(repoRoot, args, notifyEnv(ctx), 120000);
     sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: PHASE2_API_SAFETY });
     return true;
   }

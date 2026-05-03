@@ -12,9 +12,12 @@ function makeRes() {
     statusCode: 0,
     headers: null,
     body: '',
+    setHeader(key, value) {
+      this.headers = { ...(this.headers || {}), [key]: value };
+    },
     writeHead(statusCode, headers) {
       this.statusCode = statusCode;
-      this.headers = headers;
+      this.headers = { ...(this.headers || {}), ...(headers || {}) };
     },
     end(body) {
       this.body = String(body || '');
