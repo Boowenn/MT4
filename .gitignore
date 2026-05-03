@@ -18,3 +18,7 @@ archive/backtests/latest/QuantGod_BacktestSummary.json
 archive/param-lab/runs/
 archive/polymarket/history/
 !.env.telegram.local.example
+
+# QuantGod AI provider local env
+.env.ai.local
+!.env.ai.local.example
