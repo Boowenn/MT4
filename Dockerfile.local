@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
+
 FROM node:20-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip curl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends python3 python3-pip curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -15,15 +16,20 @@ RUN if [ -f package-lock.json ]; then npm ci --omit=dev; elif [ -f package.json 
 COPY . .
 
 RUN chmod +x /app/docker/local-entrypoint.sh \
-  && mkdir -p /app/runtime /app/Dashboard/vue-dist \
-  && python3 -m py_compile \
-      tools/run_state_store.py \
-      tools/state_store/config.py \
-      tools/state_store/db.py \
-      tools/state_store/ingest.py \
-      tools/state_store/safety.py \
-  && node --check Dashboard/dashboard_server.js \
-  && node --check Dashboard/state_api_routes.js
+    && mkdir -p /app/runtime /app/Dashboard/vue-dist \
+    && python3 -m py_compile \
+        tools/run_state_store.py \
+        tools/state_store/config.py \
+        tools/state_store/db.py \
+        tools/state_store/ingest.py \
+        tools/state_store/safety.py \
+        tools/run_telegram_notifier.py \
+        tools/telegram_notifier/config.py \
+        tools/telegram_notifier/client.py \
+        tools/telegram_notifier/records.py \
+        tools/telegram_notifier/safety.py \
+    && node --check Dashboard/dashboard_server.js \
+    && node --check Dashboard/state_api_routes.js
 
 ENV QG_DASHBOARD_HOST=0.0.0.0
 ENV QG_DASHBOARD_PORT=8080
@@ -37,6 +43,7 @@ ENV QG_KILL_SWITCH_LOCKED=1
 ENV QG_ORDER_SEND_ALLOWED=0
 ENV QG_LIVE_PRESET_MUTATION_ALLOWED=0
 ENV QG_CREDENTIAL_STORAGE_ALLOWED=0
+ENV QG_TELEGRAM_PUSH_ALLOWED=0
 ENV QG_TELEGRAM_COMMANDS_ALLOWED=0
 
 EXPOSE 8080

@@ -17,3 +17,4 @@ archive/backtests/runs/
 archive/backtests/latest/QuantGod_BacktestSummary.json
 archive/param-lab/runs/
 archive/polymarket/history/
+!.env.telegram.local.example
