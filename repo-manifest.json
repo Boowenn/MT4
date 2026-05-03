@@ -5,25 +5,25 @@
   "repos": {
     "backend": {
       "name": "Boowenn/QuantGodBackend",
-      "path": "/Users/bowen/Desktop/Quard/QuantGodBackend",
+      "path": ".",
       "url": "https://github.com/Boowenn/QuantGodBackend",
       "role": "MT5/MQL5 engine, Node API, Python tools, tests"
     },
     "frontend": {
       "name": "Boowenn/QuantGodFrontend",
-      "path": "/Users/bowen/Desktop/Quard/QuantGodFrontend",
+      "path": "../QuantGodFrontend",
       "url": "https://github.com/Boowenn/QuantGodFrontend",
       "role": "Vue operator workbench"
     },
     "infra": {
       "name": "Boowenn/QuantGodInfra",
-      "path": "/Users/bowen/Desktop/Quard/QuantGodInfra",
+      "path": "../QuantGodInfra",
       "url": "https://github.com/Boowenn/QuantGodInfra",
       "role": "workspace automation, Cloudflare, deployment sync"
     },
     "docs": {
       "name": "Boowenn/QuantGodDocs",
-      "path": "/Users/bowen/Desktop/Quard/QuantGodDocs",
+      "path": "../QuantGodDocs",
       "url": "https://github.com/Boowenn/QuantGodDocs",
       "role": "canonical Markdown documentation hub"
     }
