@@ -556,18 +556,32 @@ def attach_deepseek_advice(args: argparse.Namespace, report: dict[str, Any]) -> 
     enriched = dict(report)
     if getattr(args, "no_deepseek", False):
         enriched["deepseek_advice"] = {"ok": False, "status": "disabled_by_cli", "provider": "deepseek"}
-        return enriched
+    else:
+        try:
+            config = load_deepseek_config(repo_root=REPO_ROOT, env_file=getattr(args, "deepseek_env_file", None))
+            advice = DeepSeekMt5Advisor(config).analyze(enriched)
+        except (DeepSeekAdvisorError, ValueError, OSError) as error:
+            advice = {
+                "ok": False,
+                "status": "error",
+                "provider": "deepseek",
+                "error": str(error)[:240],
+            }
+        enriched["deepseek_advice"] = advice
+
     try:
-        config = load_deepseek_config(repo_root=REPO_ROOT, env_file=getattr(args, "deepseek_env_file", None))
-        advice = DeepSeekMt5Advisor(config).analyze(enriched)
-    except (DeepSeekAdvisorError, ValueError, OSError) as error:
-        advice = {
+        from ai_analysis.advisory_fusion import fuse_advisory_report
+
+        enriched = fuse_advisory_report(enriched)
+    except Exception as fusion_error:  # pragma: no cover - monitor boundary
+        enriched["advisory_fusion"] = {
             "ok": False,
-            "status": "error",
-            "provider": "deepseek",
-            "error": str(error)[:240],
+            "schema": "quantgod.ai_advisory_fusion.v1",
+            "status": "fusion_error",
+            "error": str(fusion_error)[:240],
+            "finalAction": "HOLD",
+            "safety": monitor_safety(),
         }
-    enriched["deepseek_advice"] = advice
     return enriched
 
 
@@ -709,6 +723,7 @@ def build_advisory_message(report: dict[str, Any], *, reason: str) -> str:
                 "执行状态：仅发送观察建议，未自动发送任何订单请求。",
                 "消息系统：只推送，不接收买入、卖出、平仓、撤单或修改参数命令。",
                 f"大模型边界：{execution_boundary}",
+                f"融合审查：finalAction={(report.get('advisory_fusion') if isinstance(report.get('advisory_fusion'), dict) else {}).get('finalAction', 'HOLD')}；validator={((report.get('deepseek_advice') if isinstance(report.get('deepseek_advice'), dict) else {}).get('validation') if isinstance((report.get('deepseek_advice') if isinstance(report.get('deepseek_advice'), dict) else {}).get('validation'), dict) else {}).get('status', 'unknown')}；agreement={(report.get('advisory_fusion') if isinstance(report.get('advisory_fusion'), dict) else {}).get('agreement', 'unknown')}；advisoryOnly=true",
                 "系统边界：不会下单、平仓、撤单、修改实盘参数、解除熔断、放宽风控门禁或替代程序风控。",
             ]
         )
@@ -785,6 +800,7 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
                 "decision": decision_summary(report),
                 "source": summarize_source(report),
                 "deepseek": report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {},
+                "fusion": report.get("advisory_fusion") if isinstance(report.get("advisory_fusion"), dict) else {},
             }
         )
 

@@ -93,7 +93,7 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertIn("【八、执行与风控边界】", text)
         self.assertIn("观望，不开新仓", text)
         self.assertIn("不会下单", text)
-        self.assertNotIn("HOLD", text)
+        self.assertIn("finalAction=HOLD", text)  # P3-3 fusion always generates a safety-gated HOLD fallback when DeepSeek unavailable
         self.assertNotIn("Bid", text)
         self.assertNotIn("Kill Switch", text)
         self.assertNotIn("EA/gate", text)
