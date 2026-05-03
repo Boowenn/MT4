@@ -3481,11 +3481,16 @@ const server = http.createServer((req, res) => {
   sendStaticFile(fallback || target, res);
 });
 
-const LOOPBACK_IPS = new Set(['127.0.0.1', '::1', 'localhost', '0.0.0.0']);
+const LOOPBACK_IPS = new Set(['127.0.0.1', '::1', 'localhost']);
 if (!LOOPBACK_IPS.has(host)) {
-  console.warn('[WARN] QG_DASHBOARD_HOST is set to a non-loopback address (' + host + '). ' +
-    'The dashboard server will be exposed to the network. ' +
-    'This is not recommended for production use.');
+  if (host === '0.0.0.0' || host === '::') {
+    console.warn('[WARN] QG_DASHBOARD_HOST=' + host + ' binds the dashboard to ALL network interfaces. ' +
+      'This exposes the dashboard to your LAN and any reachable network. ' +
+      'Set QG_DASHBOARD_HOST=127.0.0.1 unless you know what you are doing.');
+  } else {
+    console.warn('[WARN] QG_DASHBOARD_HOST=' + host + ' is non-loopback. ' +
+      'The dashboard server will be exposed to the network.');
+  }
 }
 
 server.listen(port, host, () => {
