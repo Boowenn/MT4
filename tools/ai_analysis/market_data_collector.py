@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import math
 import os
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import AIAnalysisConfig, load_config
 from .agents.base_agent import utc_now_iso
+from .config import AIAnalysisConfig, load_config
 
 TIMEFRAME_BARS = {
     "M15": 200,
@@ -17,6 +19,7 @@ TIMEFRAME_BARS = {
     "H4": 100,
     "D1": 60,
 }
+
 TIMEFRAME_SECONDS = {
     "M15": 15 * 60,
     "H1": 60 * 60,
@@ -39,8 +42,11 @@ READ_ONLY_SAFETY = {
 class MarketDataCollector:
     """Collect read-only market/runtime context for the 3-Agent pipeline."""
 
-    def __init__(self, config: AIAnalysisConfig | None = None) -> None:
-        self.config = config or load_config()
+    def __init__(self, config: AIAnalysisConfig | None = None, runtime_dir: str | Path | None = None) -> None:
+        base_config = config or load_config()
+        if runtime_dir is not None:
+            base_config = replace(base_config, runtime_dir=Path(runtime_dir).expanduser())
+        self.config = base_config
 
     async def collect(self, symbol: str, timeframes: list[str] | None = None) -> dict[str, Any]:
         return await asyncio.to_thread(self.collect_sync, symbol, timeframes)
@@ -49,14 +55,17 @@ class MarketDataCollector:
         clean_symbol = (symbol or "").strip()
         if not clean_symbol:
             raise ValueError("symbol is required")
+
         requested = _normalize_timeframes(timeframes)
         mt5_payload = self._collect_from_mt5(clean_symbol, requested)
-        runtime_payload = self._collect_from_runtime_files(clean_symbol)
+        runtime_payload = self._collect_from_runtime_files(clean_symbol, requested)
+        source = _choose_snapshot_source(mt5_payload, runtime_payload)
+
         snapshot: dict[str, Any] = {
             "mode": "QUANTGOD_MARKET_SNAPSHOT_V1",
             "symbol": clean_symbol,
             "generatedAtIso": utc_now_iso(),
-            "source": mt5_payload.get("source") or runtime_payload.get("source") or "mock_fallback",
+            "source": source,
             "safety": READ_ONLY_SAFETY,
             "timeframes": requested,
             "current_price": mt5_payload.get("current_price") or runtime_payload.get("current_price") or _mock_quote(clean_symbol),
@@ -67,16 +76,26 @@ class MarketDataCollector:
             "shadow_signal_recent": runtime_payload.get("shadow_signal_recent", []),
             "consecutive_loss_state": runtime_payload.get("consecutive_loss_state", {}),
             "daily_pnl": runtime_payload.get("daily_pnl", 0.0),
+            "runtimeFresh": bool(runtime_payload.get("runtimeFresh", False)),
+            "runtimeAgeSeconds": runtime_payload.get("runtimeAgeSeconds"),
+            "runtimePath": runtime_payload.get("runtimePath", ""),
+            "runtime": runtime_payload.get("runtime", {}),
+            "fallbackReason": runtime_payload.get("fallbackReason") or mt5_payload.get("source", ""),
         }
+
         for timeframe in requested:
             key = f"kline_{timeframe.lower()}"
-            snapshot[key] = mt5_payload.get(key) or _mock_kline(clean_symbol, timeframe, TIMEFRAME_BARS[timeframe])
-        snapshot["fallback"] = mt5_payload.get("fallback", True) and runtime_payload.get("fallback", True)
+            snapshot[key] = mt5_payload.get(key) or runtime_payload.get(key) or _mock_kline(
+                clean_symbol, timeframe, TIMEFRAME_BARS[timeframe]
+            )
+
+        snapshot["fallback"] = bool(mt5_payload.get("fallback", True) and runtime_payload.get("fallback", True))
         return snapshot
 
     def _collect_from_mt5(self, symbol: str, timeframes: list[str]) -> dict[str, Any]:
         if self.config.mock_mode:
             return {"fallback": True, "source": "mock_mode"}
+
         try:
             import MetaTrader5 as mt5  # type: ignore[import-not-found]
         except Exception:
@@ -104,12 +123,15 @@ class MarketDataCollector:
                 ask = payload["current_price"].get("ask")
                 if isinstance(bid, (int, float)) and isinstance(ask, (int, float)):
                     payload["current_price"]["spread"] = round(ask - bid, 8)
+
             info = mt5.symbol_info(symbol)
             if info is not None:
                 payload["symbol_info"] = _symbol_info_dict(info)
+
             positions = mt5.positions_get(symbol=symbol)
             if positions is not None:
                 payload["open_positions"] = [_position_dict(item) for item in positions]
+
             for timeframe in timeframes:
                 mt5_tf = _mt5_timeframe(mt5, timeframe)
                 if mt5_tf is None:
@@ -128,18 +150,57 @@ class MarketDataCollector:
                 except Exception:
                     pass
 
-    def _collect_from_runtime_files(self, symbol: str) -> dict[str, Any]:
+    def _collect_from_runtime_files(self, symbol: str, timeframes: list[str]) -> dict[str, Any]:
         runtime_dir = self.config.safe_runtime_dir
+        bridge_payload = _read_runtime_bridge_payload(runtime_dir, symbol, timeframes)
+        if not bridge_payload.get("fallback", True):
+            return bridge_payload
+
         dashboard_path = runtime_dir / "QuantGod_Dashboard.json"
-        payload: dict[str, Any] = {"fallback": True, "source": "runtime_files"}
+        payload: dict[str, Any] = dict(bridge_payload) if isinstance(bridge_payload, dict) else {"fallback": True, "source": "runtime_files"}
+        payload.setdefault("fallback", True)
+        payload.setdefault("source", "runtime_files")
+
         dashboard = _read_json(dashboard_path)
         if isinstance(dashboard, dict):
-            payload.update(_extract_dashboard_state(dashboard, symbol))
-            payload["fallback"] = False
+            extracted = _extract_dashboard_state(dashboard, symbol)
+            payload.update(extracted)
+            if extracted:
+                payload["fallback"] = False
+                payload["source"] = payload.get("source") or "dashboard_runtime"
+
         shadow_rows = _read_recent_shadow_rows(runtime_dir, symbol, hours=24)
         if shadow_rows:
             payload["shadow_signal_recent"] = shadow_rows
         return payload
+
+
+def _choose_snapshot_source(mt5_payload: dict[str, Any], runtime_payload: dict[str, Any]) -> str:
+    if not mt5_payload.get("fallback", True):
+        return str(mt5_payload.get("source") or "live_mt5_readonly")
+    if not runtime_payload.get("fallback", True):
+        return str(runtime_payload.get("source") or "runtime_files")
+    return str(mt5_payload.get("source") or runtime_payload.get("source") or "mock_fallback")
+
+
+def _read_runtime_bridge_payload(runtime_dir: Path, symbol: str, timeframes: list[str]) -> dict[str, Any]:
+    try:
+        from mt5_runtime_bridge.reader import RuntimeBridgeReader
+
+        max_age = _env_int("QG_MT5_RUNTIME_MAX_AGE_SECONDS", 1800)
+        allow_stale = _env_bool("QG_MT5_RUNTIME_ALLOW_STALE", False)
+        return RuntimeBridgeReader(runtime_dir, max_age_seconds=max_age, allow_stale=allow_stale).collect_for_ai_snapshot(
+            symbol, timeframes
+        )
+    except Exception as error:
+        return {
+            "fallback": True,
+            "source": "runtime_bridge_error",
+            "fallbackReason": str(error),
+            "runtimeFresh": False,
+            "runtimeAgeSeconds": None,
+            "runtimePath": "",
+        }
 
 
 def _normalize_timeframes(timeframes: list[str] | None) -> list[str]:
@@ -168,6 +229,7 @@ def _extract_dashboard_state(dashboard: dict[str, Any], symbol: str) -> dict[str
     payload["news_filter_status"] = dashboard.get("news") or dashboard.get("newsFilter") or {}
     payload["consecutive_loss_state"] = dashboard.get("consecutiveLoss") or dashboard.get("consecutive_loss") or {}
     payload["daily_pnl"] = dashboard.get("dailyPnl") or dashboard.get("daily_pnl") or 0.0
+
     symbols = dashboard.get("symbols")
     if isinstance(symbols, list):
         for item in symbols:
@@ -187,16 +249,17 @@ def _extract_dashboard_state(dashboard: dict[str, Any], symbol: str) -> dict[str
                 if isinstance(item.get("positions"), list):
                     payload["open_positions"] = item["positions"]
                 break
+
     if "open_positions" not in payload:
         positions = dashboard.get("positions") or dashboard.get("openPositions") or []
         if isinstance(positions, list):
-            payload["open_positions"] = [row for row in positions if str(row.get("symbol", "")).upper() == symbol.upper()] if positions and isinstance(positions[0], dict) else []
+            payload["open_positions"] = [
+                row for row in positions if isinstance(row, dict) and str(row.get("symbol", "")).upper() == symbol.upper()
+            ]
     return payload
 
 
 def _read_recent_shadow_rows(runtime_dir: Path, symbol: str, hours: int = 24) -> list[dict[str, Any]]:
-    import csv
-
     names = ["QuantGod_ShadowSignalLedger.csv", "QuantGod_ShadowCandidateLedger.csv"]
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows: list[dict[str, Any]] = []
@@ -210,9 +273,7 @@ def _read_recent_shadow_rows(runtime_dir: Path, symbol: str, hours: int = 24) ->
                     row_symbol = str(row.get("Symbol") or row.get("symbol") or row.get("BrokerSymbol") or "")
                     if row_symbol and row_symbol.upper() != symbol.upper():
                         continue
-                    event_time = _parse_any_time(
-                        row.get("TimeIso") or row.get("EventTimeIso") or row.get("Timestamp") or row.get("Time")
-                    )
+                    event_time = _parse_any_time(row.get("TimeIso") or row.get("EventTimeIso") or row.get("Timestamp") or row.get("Time"))
                     if event_time and event_time < cutoff:
                         continue
                     row["_sourceFile"] = name
@@ -377,3 +438,20 @@ def _rate_dict(row: Any) -> dict[str, Any]:
         "close": float(get("close", 0.0)),
         "volume": int(get("tick_volume", get("real_volume", 0)) or 0),
     }
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default

@@ -119,6 +119,8 @@ def summarize_source(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "snapshotSource": snapshot.get("source", ""),
         "fallback": bool(snapshot.get("fallback", False)),
+        "runtimeFresh": bool(snapshot.get("runtimeFresh", False)),
+        "runtimeAgeSeconds": snapshot.get("runtimeAgeSeconds"),
         "price": current_price,
         "openPositions": len(positions),
         "riskLevel": risk.get("risk_level", "unknown"),
@@ -212,7 +214,7 @@ def build_advisory_message(report: dict[str, Any], *, reason: str) -> str:
             [
                 f"[QuantGod][MT5 AI 监听][{decision['action']}] {symbol}",
                 f"置信度: {decision.get('confidence', '--')} | 触发: {reason}",
-                f"价格: bid {bid} / ask {ask} | 来源: {source.get('snapshotSource') or 'unknown'}",
+                f"价格: bid {bid} / ask {ask} | 来源: {source.get('snapshotSource') or 'unknown'} | fallback: {source.get('fallback')} | runtimeFresh: {source.get('runtimeFresh')} | ageSec: {source.get('runtimeAgeSeconds')}",
                 f"风险: {source.get('riskLevel')} | KillSwitch: {source.get('killSwitchActive')} | 持仓: {source.get('openPositions')}",
                 f"技术方向: {source.get('technicalDirection') or 'unknown'}",
                 f"AI 建议: {decision.get('reasoning') or 'advisory-only analysis generated'}",

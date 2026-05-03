@@ -110,7 +110,7 @@ class AnalysisServiceV2:
     async def collect_snapshot(self, symbol: str, timeframes: list[str] | None = None) -> dict[str, Any]:
         if MarketDataCollector is not None:
             try:
-                collector = MarketDataCollector()
+                collector = MarketDataCollector(runtime_dir=self.runtime_dir)
                 if hasattr(collector, "collect"):
                     result = collector.collect(symbol, timeframes or ["M15", "H1", "H4", "D1"])
                     if asyncio.iscoroutine(result):
