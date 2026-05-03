@@ -22,16 +22,42 @@ def sample_report(symbol: str = "USDJPYc") -> dict:
         "snapshot": {
             "source": "runtime_files",
             "fallback": False,
+            "runtimeFresh": True,
+            "runtimeAgeSeconds": 12,
             "current_price": {"bid": 155.12, "ask": 155.14},
             "open_positions": [],
         },
-        "technical": {"direction": "neutral"},
-        "risk": {"risk_level": "medium", "kill_switch_active": False},
+        "technical": {
+            "direction": "neutral",
+            "trend": {"m15": "neutral", "h1": "neutral", "h4": "neutral", "d1": "neutral"},
+            "indicators": {"ma_cross": {"signal": "none"}, "rsi": {"h1": 51.2, "zone": "neutral"}},
+            "key_levels": {"support": [154.9], "resistance": [155.8]},
+        },
+        "risk": {
+            "risk_level": "medium",
+            "kill_switch_active": False,
+            "factors": [{"severity": "low", "detail": "No active local risk blocker found in fallback inputs."}],
+        },
+        "news": {"risk_level": "low", "reasoning": "No high-impact news evidence."},
+        "sentiment": {"bias": "neutral", "reasoning": "Local sentiment is neutral."},
+        "bull_case": {"thesis": "Bull case waits for a cleaner breakout.", "conviction": 0.31},
+        "bear_case": {"thesis": "Bear case is limited by current range conditions.", "conviction": 0.29},
         "decision": {
             "action": "HOLD",
             "confidence": 0.64,
             "reasoning": "Advisory only.",
             "key_factors": ["Risk level medium", "Technical direction neutral"],
+            "entry_price": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "risk_reward_ratio": None,
+            "position_size_suggestion": "0.01",
+            "debate_summary": {
+                "bull_conviction": 0.31,
+                "bear_conviction": 0.29,
+                "bull_thesis": "Bull case waits for a cleaner breakout.",
+                "bear_thesis": "Bear case is limited by current range conditions.",
+            },
         },
     }
 
@@ -56,9 +82,48 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
 
     def test_advisory_message_declares_read_only_boundary(self) -> None:
         text = monitor.build_advisory_message(sample_report(), reason="changed")
-        self.assertIn("MT5 AI 监听", text)
-        self.assertIn("只读监听", text)
+        self.assertIn("【QuantGod MT5 智能监控报告】", text)
+        self.assertIn("【一、报告信息】", text)
+        self.assertIn("【二、行情与账户快照】", text)
+        self.assertIn("【三、盘面结构】", text)
+        self.assertIn("【四、智能综合评分】", text)
+        self.assertIn("【五、多空推演】", text)
+        self.assertIn("【六、交易计划】", text)
+        self.assertIn("【七、风险明细】", text)
+        self.assertIn("【八、执行与风控边界】", text)
+        self.assertIn("观望，不开新仓", text)
         self.assertIn("不会下单", text)
+        self.assertNotIn("HOLD", text)
+        self.assertNotIn("Bid", text)
+        self.assertNotIn("Kill Switch", text)
+        self.assertNotIn("EA/gate", text)
+        self.assertNotIn("live preset", text)
+
+    def test_advisory_message_localizes_buy_plan(self) -> None:
+        report = sample_report()
+        report["decision"]["action"] = "BUY"
+        report["decision"]["entry_price"] = 155.12
+        report["decision"]["stop_loss"] = 154.72
+        report["decision"]["take_profit"] = 155.92
+        report["decision"]["risk_reward_ratio"] = 2.0
+        text = monitor.build_advisory_message(report, reason="force")
+        self.assertIn("方向：偏多观察，等待程序风控确认", text)
+        self.assertIn("入场区间：等待程序风控门禁确认后才考虑做多", text)
+        self.assertIn("防守位置：154.72", text)
+        self.assertIn("目标三：155.92", text)
+        self.assertIn("触发原因：手动强制复核", text)
+
+    def test_advisory_message_blocks_plan_when_evidence_is_fallback(self) -> None:
+        report = sample_report()
+        report["snapshot"]["fallback"] = True
+        report["snapshot"]["runtimeFresh"] = False
+        report["snapshot"]["source"] = "mt5_python_unavailable"
+        report["decision"]["action"] = "BUY"
+        text = monitor.build_advisory_message(report, reason="force")
+        self.assertIn("信号等级：数据复核级", text)
+        self.assertIn("数据质量不足，本条只做系统复核，不允许据此入场。", text)
+        self.assertIn("计划状态：暂停，仅允许观察复核。", text)
+        self.assertIn("入场区间：不生成", text)
 
     def test_dedupe_waits_for_unchanged_signature(self) -> None:
         report = sample_report()

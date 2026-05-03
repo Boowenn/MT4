@@ -15,7 +15,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,16 @@ DEFAULT_MIN_INTERVAL_SECONDS = 15 * 60
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def format_report_time(value: Any) -> str:
+    text = str(value or utc_now_iso()).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        tokyo = parsed.astimezone(timezone(timedelta(hours=9)))
+        return tokyo.strftime("%Y-%m-%d %H:%M:%S 东京时间")
+    except Exception:
+        return text
 
 
 def monitor_safety() -> dict[str, Any]:
@@ -136,6 +146,12 @@ def decision_summary(report: dict[str, Any]) -> dict[str, Any]:
         "confidence": decision.get("confidence"),
         "reasoning": str(decision.get("reasoning") or ""),
         "keyFactors": decision.get("key_factors") if isinstance(decision.get("key_factors"), list) else [],
+        "entryPrice": decision.get("entry_price"),
+        "stopLoss": decision.get("stop_loss"),
+        "takeProfit": decision.get("take_profit"),
+        "riskRewardRatio": decision.get("risk_reward_ratio"),
+        "positionSizeSuggestion": decision.get("position_size_suggestion"),
+        "debateSummary": decision.get("debate_summary") if isinstance(decision.get("debate_summary"), dict) else {},
     }
 
 
@@ -147,6 +163,329 @@ def event_signature(report: dict[str, Any]) -> str:
     }
     raw = json.dumps(seed, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def fmt_value(value: Any, fallback: str = "--") -> str:
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, float):
+        return f"{value:.5f}".rstrip("0").rstrip(".")
+    return str(value)
+
+
+def first_text(*values: Any, fallback: str = "暂无") -> str:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, list):
+            parts = [str(item).strip() for item in value if str(item).strip()]
+            if parts:
+                return "；".join(parts[:3])
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return fallback
+
+
+def truncate_text(value: Any, limit: int = 150, fallback: str = "暂无") -> str:
+    text = translate_common_text(first_text(value, fallback=fallback)).replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def translate_common_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    exact = {
+        "Advisory only.": "仅生成建议，不执行任何交易。",
+        "DecisionAgent V2 combines Technical/Risk/News/Sentiment evidence plus Bull/Bear debate. It remains advisory only.": "智能决策综合技术面、风险、新闻、情绪与多空辩论证据；结果仅作为建议，不自动执行。",
+        "Bull case is weak; wait for clearer upside evidence.": "多头证据偏弱，等待更清晰的上行确认。",
+        "Bear case is weak; no strong downside evidence.": "空头证据偏弱，暂无明显下行确认。",
+        "No high-impact news evidence found in local snapshot": "本地快照未发现高影响新闻风险。",
+        "No high-impact news evidence.": "未发现高影响新闻风险。",
+        "Sentiment is derived from local snapshot fields; missing fields default to neutral.": "情绪来自本地快照字段；缺失字段按中性处理。",
+        "Local sentiment is neutral.": "本地情绪为中性。",
+        "No active local risk blocker found in fallback inputs.": "本地输入未发现正在生效的风险阻断。",
+        "Fallback technical summary from local OHLC bars; LLM output unavailable or invalid.": "基于本地价格序列生成技术摘要；智能模型输出不可用或格式无效。",
+        "Fallback risk summary from local dashboard/runtime state; LLM output unavailable or invalid.": "基于本地仪表盘与运行状态生成风险摘要；智能模型输出不可用或格式无效。",
+        "none": "无",
+        "golden_cross": "金叉",
+        "death_cross": "死叉",
+        "overbought": "超买",
+        "oversold": "超卖",
+        "not_evaluated_fallback": "回退模式未评估",
+    }
+    if text in exact:
+        return exact[text]
+    replacements = {
+        "Bull conviction": "多头强度",
+        "Bear conviction": "空头强度",
+        "Risk level": "风险等级",
+        "Technical direction": "技术方向",
+        "bullish": "偏多",
+        "bearish": "偏空",
+        "neutral": "中性",
+        "medium": "中",
+        "critical": "极高",
+        "high": "高",
+        "low": "低",
+        "unknown": "未知",
+        "fallback": "回退",
+        "runtime": "运行时",
+        "news": "新闻",
+        "sentiment": "情绪",
+    }
+    out = text
+    for old, new in replacements.items():
+        out = out.replace(old, new)
+    return out
+
+
+def chinese_action(action: Any) -> str:
+    normalized = str(action or "HOLD").upper()
+    labels = {
+        "BUY": "偏多观察，等待程序风控确认",
+        "SELL": "偏空观察，等待程序风控确认",
+        "HOLD": "观望，不开新仓",
+    }
+    return labels.get(normalized, normalized)
+
+
+def chinese_trigger(reason: Any) -> str:
+    text = str(reason or "").strip()
+    if text == "force":
+        return "手动强制复核"
+    if text == "changed":
+        return "信号或证据变化"
+    if text == "first_seen":
+        return "首次发现"
+    if text == "interval_elapsed":
+        return "定时复核"
+    if text.startswith("dedup_wait_"):
+        return "重复信号等待中"
+    return translate_common_text(text) or "未知"
+
+
+def chinese_source(value: Any) -> str:
+    normalized = str(value or "unknown").strip()
+    labels = {
+        "hfm_ea_runtime": "HFM 程序运行快照",
+        "dashboard_runtime": "仪表盘运行快照",
+        "runtime_files": "本地运行文件",
+        "phase3_v2_fallback_snapshot": "智能分析回退快照",
+        "mt5_python_unavailable": "行情接口不可用，使用安全回退",
+        "unknown": "未知来源",
+    }
+    return labels.get(normalized, translate_common_text(normalized))
+
+
+def chinese_timeframes(items: list[Any]) -> str:
+    labels = {
+        "M1": "1分钟",
+        "M5": "5分钟",
+        "M15": "15分钟",
+        "M30": "30分钟",
+        "H1": "1小时",
+        "H4": "4小时",
+        "D1": "日线",
+    }
+    values = items or [part.strip() for part in DEFAULT_TIMEFRAMES.split(",")]
+    return "、".join(labels.get(str(item), str(item)) for item in values)
+
+
+def chinese_risk(value: Any) -> str:
+    normalized = str(value or "unknown").lower()
+    labels = {
+        "low": "低",
+        "medium": "中",
+        "medium_high": "中高",
+        "high": "高",
+        "critical": "极高",
+        "unknown": "未知",
+    }
+    return labels.get(normalized, str(value or "未知"))
+
+
+def chinese_direction(value: Any) -> str:
+    normalized = str(value or "unknown").lower()
+    labels = {
+        "bullish": "偏多",
+        "bearish": "偏空",
+        "neutral": "中性",
+        "mixed_neutral": "混合中性",
+        "mixed_bullish": "混合偏多",
+        "mixed_bearish": "混合偏空",
+        "neutral_bullish": "中性偏多",
+        "neutral_bearish": "中性偏空",
+        "up": "上行",
+        "down": "下行",
+        "range": "震荡",
+        "unknown": "未知",
+    }
+    return labels.get(normalized, str(value or "未知"))
+
+
+def confidence_pct(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "--"
+    if numeric <= 1:
+        numeric *= 100
+    return f"{numeric:.0f}%"
+
+
+def numeric_value(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def signal_grade(decision: dict[str, Any], source: dict[str, Any]) -> str:
+    if evidence_blocks_trade(source):
+        return "数据复核级"
+    action = str(decision.get("action") or "HOLD").upper()
+    if action == "HOLD":
+        return "观察级"
+    confidence = numeric_value(decision.get("confidence")) or 0.0
+    if confidence <= 1:
+        confidence *= 100
+    risk = str(source.get("riskLevel") or "unknown").lower()
+    if confidence >= 75 and risk in {"low", "medium"}:
+        return "A级"
+    if confidence >= 55 and risk in {"low", "medium"}:
+        return "B级"
+    return "C级"
+
+
+def evidence_blocks_trade(source: dict[str, Any]) -> bool:
+    return bool(source.get("fallback")) or not bool(source.get("runtimeFresh"))
+
+
+def evidence_quality_line(source: dict[str, Any]) -> str:
+    if source.get("fallback"):
+        return "回退证据：行情或账户快照不可直接作为入场依据。"
+    if not source.get("runtimeFresh"):
+        return "证据过期：需要等待新的程序运行快照。"
+    return "运行证据有效：可进入观察复核，但仍不代表自动入场。"
+
+
+def target_plan(decision: dict[str, Any]) -> tuple[str, str, str]:
+    action = str(decision.get("action") or "HOLD").upper()
+    entry = numeric_value(decision.get("entryPrice"))
+    take_profit = numeric_value(decision.get("takeProfit"))
+    if action not in {"BUY", "SELL"} or entry is None or take_profit is None:
+        return ("未生成", "未生成", "未生成")
+    distance = take_profit - entry
+    first = entry + distance * 0.33
+    second = entry + distance * 0.66
+    return (fmt_value(first), fmt_value(second), fmt_value(take_profit))
+
+
+def advisory_plan_lines(decision: dict[str, Any], source: dict[str, Any]) -> list[str]:
+    action = str(decision.get("action") or "HOLD").upper()
+    price = source.get("price") if isinstance(source.get("price"), dict) else {}
+    reference_price = decision.get("entryPrice") or price.get("ask") or price.get("bid")
+    lot = decision.get("positionSizeSuggestion")
+    target_one, target_two, target_three = target_plan(decision)
+    if evidence_blocks_trade(source):
+        return [
+            "计划状态：暂停，仅允许观察复核。",
+            f"暂停原因：{evidence_quality_line(source)}",
+            "入场区间：不生成，等待新鲜运行快照后重算。",
+            "目标一：不生成",
+            "目标二：不生成",
+            "目标三：不生成",
+            "防守位置：不生成",
+            f"仓位上限：{fmt_value(lot, '0.01')} 手，仅作为系统默认上限展示，不构成下单建议。",
+            "复查条件：程序快照恢复新鲜、新闻过滤正常、点差正常、熔断未触发、治理状态允许观察。",
+        ]
+    if action == "BUY":
+        entry = f"等待程序风控门禁确认后才考虑做多；参考价 {fmt_value(reference_price)}"
+        invalidation = "跌破防守价、新闻隔离开启、熔断开启、点差异常或程序风控拒绝。"
+    elif action == "SELL":
+        entry = f"等待程序风控门禁确认后才考虑做空；参考价 {fmt_value(reference_price)}"
+        invalidation = "突破防守价、新闻隔离开启、熔断开启、点差异常或程序风控拒绝。"
+    else:
+        entry = "暂不建议主动入场；等待交易时段、新闻过滤、点差、治理状态和信号方向同时改善。"
+        invalidation = "如果证据继续不足或风险升高，保持观望；不追单、不手动补单。"
+    return [
+        f"建议方向：{chinese_action(action)}",
+        f"入场区间：{entry}",
+        f"目标一：{target_one}",
+        f"目标二：{target_two}",
+        f"目标三：{target_three}",
+        f"防守位置：{fmt_value(decision.get('stopLoss'), '未生成；无交易信号时不设置')}",
+        f"盈亏比：{fmt_value(decision.get('riskRewardRatio'), '未评估')}",
+        f"仓位上限：{fmt_value(lot, '0.01')} 手，仅作为程序风控参考",
+        f"失效条件：{invalidation}",
+    ]
+
+
+def extract_ai_context(report: dict[str, Any]) -> dict[str, str]:
+    bull = report.get("bull_case") if isinstance(report.get("bull_case"), dict) else {}
+    bear = report.get("bear_case") if isinstance(report.get("bear_case"), dict) else {}
+    news = report.get("news") if isinstance(report.get("news"), dict) else {}
+    sentiment = report.get("sentiment") if isinstance(report.get("sentiment"), dict) else {}
+    decision = report.get("decision") if isinstance(report.get("decision"), dict) else {}
+    debate = decision.get("debate_summary") if isinstance(decision.get("debate_summary"), dict) else {}
+    return {
+        "bull": truncate_text(bull.get("thesis") or debate.get("bull_thesis") or bull.get("reasoning"), 150),
+        "bear": truncate_text(bear.get("thesis") or debate.get("bear_thesis") or bear.get("reasoning"), 150),
+        "news": truncate_text(news.get("reasoning") or news.get("risk_level") or news.get("macro_bias"), 130),
+        "sentiment": truncate_text(sentiment.get("reasoning") or sentiment.get("bias") or sentiment.get("score"), 130),
+    }
+
+
+def factor_lines(factors: list[Any]) -> list[str]:
+    if not factors:
+        return ["1. 暂无关键因子"]
+    return [f"{index}. {translate_common_text(item)}" for index, item in enumerate(factors[:5], start=1)]
+
+
+def technical_structure_lines(report: dict[str, Any]) -> list[str]:
+    technical = report.get("technical") if isinstance(report.get("technical"), dict) else {}
+    trend = technical.get("trend") if isinstance(technical.get("trend"), dict) else {}
+    indicators = technical.get("indicators") if isinstance(technical.get("indicators"), dict) else {}
+    levels = technical.get("key_levels") if isinstance(technical.get("key_levels"), dict) else {}
+    ma = indicators.get("ma_cross") if isinstance(indicators.get("ma_cross"), dict) else {}
+    rsi = indicators.get("rsi") if isinstance(indicators.get("rsi"), dict) else {}
+    support = levels.get("support") if isinstance(levels.get("support"), list) else []
+    resistance = levels.get("resistance") if isinstance(levels.get("resistance"), list) else []
+    return [
+        f"15分钟趋势：{chinese_direction(trend.get('m15'))}",
+        f"1小时趋势：{chinese_direction(trend.get('h1'))}",
+        f"4小时趋势：{chinese_direction(trend.get('h4'))}",
+        f"日线趋势：{chinese_direction(trend.get('d1'))}",
+        f"均线信号：{translate_common_text(ma.get('signal') or '无明显交叉')}",
+        f"相对强弱：{fmt_value(rsi.get('h1'))}；区域：{translate_common_text(rsi.get('zone') or '未知')}",
+        f"关键压力：{', '.join(fmt_value(item) for item in resistance[:3]) or '暂无'}",
+        f"关键支撑：{', '.join(fmt_value(item) for item in support[:3]) or '暂无'}",
+    ]
+
+
+def risk_lines(report: dict[str, Any]) -> list[str]:
+    risk = report.get("risk") if isinstance(report.get("risk"), dict) else {}
+    factors = risk.get("factors") if isinstance(risk.get("factors"), list) else []
+    if not factors:
+        return ["1. 暂无本地风险阻断证据"]
+    lines: list[str] = []
+    for index, item in enumerate(factors[:5], start=1):
+        if isinstance(item, dict):
+            severity = chinese_risk(item.get("severity"))
+            detail = translate_common_text(item.get("detail") or item.get("factor") or "风险因子")
+            lines.append(f"{index}. {severity}：{detail}")
+        else:
+            lines.append(f"{index}. {translate_common_text(item)}")
+    return lines
 
 
 def parse_iso_seconds(value: Any) -> float | None:
@@ -205,21 +544,89 @@ def build_advisory_message(report: dict[str, Any], *, reason: str) -> str:
     decision = decision_summary(report)
     source = summarize_source(report)
     factors = decision.get("keyFactors") or []
-    factor_text = "；".join(str(item) for item in factors[:4]) or "暂无关键因子"
     price = source.get("price") if isinstance(source.get("price"), dict) else {}
-    bid = price.get("bid", "--")
-    ask = price.get("ask", "--")
+    bid = fmt_value(price.get("bid"))
+    ask = fmt_value(price.get("ask"))
+    last_price = fmt_value(price.get("last") or price.get("price"))
+    spread = fmt_value(price.get("spread") or price.get("spread_points") or price.get("spreadPoints"))
+    generated_at = format_report_time(report.get("generatedAt") or utc_now_iso())
+    timeframes = report.get("timeframes") if isinstance(report.get("timeframes"), list) else []
+    ai_context = extract_ai_context(report)
+    debate = decision.get("debateSummary") if isinstance(decision.get("debateSummary"), dict) else {}
+    bull_conv = confidence_pct(debate.get("bull_conviction"))
+    bear_conv = confidence_pct(debate.get("bear_conviction"))
+    plan_lines = advisory_plan_lines(decision, source)
+    data_note = "回退证据" if source.get("fallback") else "实时运行证据"
+    grade = signal_grade(decision, source)
+    trigger = chinese_trigger(reason)
+    source_label = chinese_source(source.get("snapshotSource"))
+    fresh_label = "新鲜" if source.get("runtimeFresh") else "待确认"
+    kill_label = "已触发" if source.get("killSwitchActive") else "未触发"
+    quality_line = evidence_quality_line(source)
+    technical_lines = technical_structure_lines(report)
+    risk_detail_lines = risk_lines(report)
+    summary = (
+        "数据质量不足，本条只做系统复核，不允许据此入场。"
+        if evidence_blocks_trade(source)
+        else "当前证据不足，保持观望，不开新仓。"
+        if str(decision.get("action") or "HOLD").upper() == "HOLD"
+        else "出现方向性机会，但仍必须等待程序风控门禁与实盘保护全部确认。"
+    )
     return validate_message_text(
         "\n".join(
             [
-                f"[QuantGod][MT5 AI 监听][{decision['action']}] {symbol}",
-                f"置信度: {decision.get('confidence', '--')} | 触发: {reason}",
-                f"价格: bid {bid} / ask {ask} | 来源: {source.get('snapshotSource') or 'unknown'} | fallback: {source.get('fallback')} | runtimeFresh: {source.get('runtimeFresh')} | ageSec: {source.get('runtimeAgeSeconds')}",
-                f"风险: {source.get('riskLevel')} | KillSwitch: {source.get('killSwitchActive')} | 持仓: {source.get('openPositions')}",
-                f"技术方向: {source.get('technicalDirection') or 'unknown'}",
-                f"AI 建议: {decision.get('reasoning') or 'advisory-only analysis generated'}",
-                f"因子: {factor_text}",
-                "边界: 只读监听 + AI advisory-only + Telegram push-only；不会下单、平仓、撤单或修改 live preset。",
+                "【QuantGod MT5 智能监控报告】",
+                f"品种：{symbol}",
+                f"方向：{chinese_action(decision.get('action'))}",
+                f"信号等级：{grade}",
+                f"置信度：{confidence_pct(decision.get('confidence'))}",
+                f"一句话结论：{summary}",
+                "",
+                "【一、报告信息】",
+                f"触发原因：{trigger}",
+                f"报告时间：{generated_at}",
+                f"观察周期：{chinese_timeframes(timeframes)}",
+                f"证据质量：{quality_line}",
+                "",
+                "【二、行情与账户快照】",
+                f"买价：{bid}",
+                f"卖价：{ask}",
+                f"最新价：{last_price}",
+                f"点差：{spread}",
+                f"数据来源：{source_label}（{data_note}）",
+                f"证据状态：{fresh_label}；证据年龄：{fmt_value(source.get('runtimeAgeSeconds'))} 秒",
+                f"当前持仓：{fmt_value(source.get('openPositions'), '0')}",
+                f"熔断状态：{kill_label}",
+                "",
+                "【三、盘面结构】",
+                *technical_lines,
+                "",
+                "【四、智能综合评分】",
+                f"综合方向：{chinese_action(decision.get('action'))}",
+                f"技术方向：{chinese_direction(source.get('technicalDirection'))}",
+                f"风险等级：{chinese_risk(source.get('riskLevel'))}",
+                f"多头强度：{bull_conv}",
+                f"空头强度：{bear_conv}",
+                f"新闻风险：{ai_context['news']}",
+                f"情绪仓位：{ai_context['sentiment']}",
+                "",
+                "【五、多空推演】",
+                f"多头剧本：{ai_context['bull']}",
+                f"空头剧本：{ai_context['bear']}",
+                "关键因子：",
+                *factor_lines(factors),
+                "",
+                "【六、交易计划】",
+                *plan_lines,
+                f"模型说明：{truncate_text(decision.get('reasoning') or '仅生成建议，不触发交易。', 220)}",
+                "",
+                "【七、风险明细】",
+                *risk_detail_lines,
+                "",
+                "【八、执行与风控边界】",
+                "执行状态：仅发送观察建议，未自动发送任何订单请求。",
+                "消息系统：只推送，不接收买入、卖出、平仓、撤单或修改参数命令。",
+                "系统边界：不会下单、平仓、撤单、修改实盘参数、解除熔断、放宽风控门禁或替代程序风控。",
             ]
         )
     )
