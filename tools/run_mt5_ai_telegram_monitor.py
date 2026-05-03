@@ -731,6 +731,11 @@ def build_advisory_message(report: dict[str, Any], *, reason: str) -> str:
 
 
 def send_or_record(args: argparse.Namespace, *, message: str, event_type: str, dry_run: bool) -> dict[str, Any]:
+    try:
+        from ai_journal.telegram_text import ensure_chinese_telegram_text
+        message = ensure_chinese_telegram_text(message)
+    except Exception:
+        pass
     config = load_config(repo_root=args.repo_root, env_file=args.env_file)
     assert_telegram_safety(config)
     require_token(config)
@@ -773,6 +778,11 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
     for symbol in symbols:
         report = await service.run_analysis(symbol, timeframes)
         report = attach_deepseek_advice(args, report)
+        try:
+            from ai_journal.kill_switch import apply_signal_kill_switch
+            report = apply_signal_kill_switch(report, runtime_dir=runtime_dir, now_iso=now_iso)
+        except Exception as journal_gate_error:
+            report.setdefault("ai_journal_gate", {"ok": False, "status": "error", "error": str(journal_gate_error)[:240]})
         signature = event_signature(report)
         should_send, reason = should_notify(
             state,
@@ -787,6 +797,20 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
         if should_send:
             message = build_advisory_message(report, reason=reason)
             delivery = send_or_record(args, message=message, event_type="MT5_AI_ADVISORY", dry_run=not args.send)
+            if not getattr(args, "disable_journal", False):
+                try:
+                    from ai_journal.writer import record_telegram_advisory
+                    delivery["journal"] = record_telegram_advisory(
+                        runtime_dir=runtime_dir,
+                        report=report,
+                        delivery=delivery,
+                        message=message,
+                        reason=reason,
+                        dry_run=not args.send,
+                        now_iso=now_iso,
+                    )
+                except Exception as journal_error:
+                    delivery["journal"] = {"ok": False, "status": "journal_error", "error": str(journal_error)[:240]}
             status = str(delivery.get("status") or "sent")
             notifications += 1
         state = update_state(state, symbol=symbol, signature=signature, status=status, reason=reason, report=report, now_iso=now_iso)
@@ -846,6 +870,7 @@ def add_common_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--send", action="store_true", help="Actually send Telegram push. Default records dry-run evidence only.")
     parser.add_argument("--disable-notification", action="store_true", help="Send silently when --send is used")
     parser.add_argument("--no-record", action="store_true", help="Do not write notification evidence to SQLite")
+    parser.add_argument("--disable-journal", action="store_true", help="Do not write AI advisory outcome journal records")
     parser.add_argument("--repo-root", type=Path, default=None, help="Backend repo root for Telegram config")
     parser.add_argument("--env-file", type=Path, default=None, help="Local .env.telegram.local path")
     parser.add_argument("--deepseek-env-file", type=Path, default=None, help="Local .env.deepseek.local path")
