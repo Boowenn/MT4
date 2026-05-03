@@ -28,6 +28,7 @@ class BackendSplitCiGuardTest(unittest.TestCase):
             "tradeStatus = \"STARTUP_GUARD\";",
             "PilotRsiBlockSellInUptrend",
             "PilotRsiRangeTightBuyOnly",
+            ".env.ai.local.example",
             "check_secret_file_hygiene",
             "check_backend_split_boundaries",
         )

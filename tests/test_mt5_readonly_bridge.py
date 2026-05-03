@@ -1,4 +1,7 @@
 import importlib.util
+import json
+import os
+import tempfile
 import unittest
 from collections import namedtuple
 from pathlib import Path
@@ -238,6 +241,78 @@ class Mt5ReadOnlyBridgeTests(unittest.TestCase):
             self.assertFalse(payload["safety"]["orderSendAllowed"])
             self.assertFalse(payload["safety"]["closeAllowed"])
             self.assertFalse(payload["safety"]["cancelAllowed"])
+
+    def test_ea_snapshot_fallback_reads_dashboard_without_mt5_python(self):
+        dashboard = {
+            "watchlist": "USDJPYc",
+            "account": {
+                "number": 186054398,
+                "name": "Read Only",
+                "server": "HFMarketsGlobal-Live12",
+                "currency": "USC",
+                "balance": 10003.02,
+                "equity": 10003.02,
+                "freeMargin": 10003.02,
+                "leverage": 1000,
+            },
+            "runtime": {
+                "terminalConnected": True,
+                "accountTradeAllowed": True,
+                "accountExpertTradeAllowed": True,
+                "terminalTradeAllowed": True,
+                "programTradeAllowed": True,
+            },
+            "market": {"symbol": "USDJPYc", "bid": 157.026, "ask": 157.091, "spread": 6.5},
+            "symbols": [
+                {
+                    "symbol": "USDJPYc",
+                    "status": "READY",
+                    "bid": 157.026,
+                    "ask": 157.091,
+                    "spread": 6.5,
+                    "tradeMode": "FULL",
+                    "entryTradeAllowed": True,
+                }
+            ],
+            "openTrades": [
+                {
+                    "ticket": 1001,
+                    "positionId": 1001,
+                    "type": "BUY",
+                    "symbol": "USDJPYc",
+                    "actualLots": 0.01,
+                    "openPrice": 156.5,
+                    "actualProfit": 0.25,
+                    "comment": "QG_RSI_Rev_MT5_BUY",
+                }
+            ],
+        }
+
+        old_runtime = os.environ.get("QG_RUNTIME_DIR")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            Path(tmp_dir, "QuantGod_Dashboard.json").write_text(json.dumps(dashboard), encoding="utf-8")
+            os.environ["QG_RUNTIME_DIR"] = tmp_dir
+            try:
+                args = bridge.parse_args(["--endpoint", "snapshot", "--symbol", "USDJPYc"])
+                payload = bridge.build_ea_snapshot_fallback(args)
+            finally:
+                if old_runtime is None:
+                    os.environ.pop("QG_RUNTIME_DIR", None)
+                else:
+                    os.environ["QG_RUNTIME_DIR"] = old_runtime
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["mode"], "MT5_READONLY_BRIDGE_V1_EA_SNAPSHOT_FALLBACK")
+        self.assertEqual(payload["status"], "EA_SNAPSHOT")
+        self.assertEqual(payload["account"]["login"], 186054398)
+        self.assertEqual(payload["positions"]["count"], 1)
+        self.assertEqual(payload["positions"]["items"][0]["volume"], 0.01)
+        self.assertTrue(payload["quote"]["ok"])
+        self.assertEqual(payload["quote"]["bid"], 157.026)
+        self.assertEqual(payload["symbols"]["items"][0]["tradeMode"], "FULL")
+        self.assertFalse(payload["safety"]["orderSendAllowed"])
 
 
 if __name__ == "__main__":

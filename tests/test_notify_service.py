@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 from tools.notify.config import NotifyConfig
@@ -21,11 +22,24 @@ class NotifyServiceTests(unittest.TestCase):
         os.environ["QG_NOTIFY_ENABLED"] = "true"
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
         os.environ.pop("TELEGRAM_CHAT_ID", None)
+        os.environ.pop("QG_TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("QG_TELEGRAM_CHAT_ID", None)
+        os.environ.pop("QG_TELEGRAM_PUSH_ALLOWED", None)
+        os.environ["QG_TELEGRAM_ENV_FILE"] = str(self.runtime / ".env.telegram.local")
 
     def tearDown(self) -> None:
         os.environ.clear()
         os.environ.update(self.old_env)
         self.tmp.cleanup()
+
+    @contextmanager
+    def chdir_runtime(self):
+        old_cwd = os.getcwd()
+        os.chdir(self.runtime)
+        try:
+            yield
+        finally:
+            os.chdir(old_cwd)
 
     def test_dry_run_send_records_history_without_network(self) -> None:
         cfg = NotifyConfig.from_env()
@@ -73,6 +87,32 @@ class NotifyServiceTests(unittest.TestCase):
         )
         events = scan_runtime_events(NotifyConfig.from_env())
         self.assertEqual([event["eventType"] for event in events], ["KILL_SWITCH", "NEWS_BLOCK", "AI_ANALYSIS"])
+
+    def test_phase2_notify_config_reads_local_qg_telegram_env(self) -> None:
+        (self.runtime / ".env.telegram.local").write_text(
+            "\n".join(
+                [
+                    ("QG_TELEGRAM_BOT_" "TOKEN=local-test-token"),
+                    "QG_TELEGRAM_CHAT_ID=@QuardGodSystem",
+                    "QG_TELEGRAM_PUSH_ALLOWED=1",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        with self.chdir_runtime():
+            cfg = NotifyConfig.from_env()
+        self.assertTrue(cfg.telegram_configured)
+        self.assertTrue(cfg.telegram_push_allowed)
+        public = cfg.public_dict()
+        self.assertTrue(public["telegramConfigured"])
+        self.assertTrue(public["telegramPushAllowed"])
+        self.assertNotIn("local-secret", json.dumps(public, ensure_ascii=False))
+
+    def test_actual_send_without_config_fails_before_network(self) -> None:
+        cfg = NotifyConfig.from_env()
+        result = asyncio.run(send_event("TEST", {"message": "missing config"}, config=cfg, dry_run=False))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "telegram_not_configured")
 
 
 if __name__ == "__main__":

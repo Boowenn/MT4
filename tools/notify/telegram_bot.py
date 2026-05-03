@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -74,7 +75,13 @@ class TelegramBot:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+            try:
+                import certifi  # type: ignore
+
+                context = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                context = ssl.create_default_context()
+            with urllib.request.urlopen(req, timeout=self.timeout, context=context) as response:
                 body = response.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body or "{}")
                 ok = bool(parsed.get("ok"))

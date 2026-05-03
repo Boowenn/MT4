@@ -12,8 +12,65 @@ def _bool_env(name: str, default: bool = True) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _bool_value(raw: str | None, default: bool = True) -> bool:
+    if raw is None or raw == "":
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on", "allow", "allowed"}
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return values
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def _local_telegram_env_values() -> dict[str, str]:
+    raw = os.getenv("QG_TELEGRAM_ENV_FILE") or ".env.telegram.local"
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return _read_env_file(path)
+
+
+def _env_or_file(keys: list[str], file_values: dict[str, str], default: str = "") -> str:
+    for key in keys:
+        raw = os.getenv(key)
+        if raw is not None and str(raw).strip() != "":
+            return str(raw).strip()
+    for key in keys:
+        raw = file_values.get(key)
+        if raw is not None and str(raw).strip() != "":
+            return str(raw).strip()
+    return default
+
+
+def _redact(value: str, keep: int = 4) -> str:
+    if not value:
+        return ""
+    if len(value) <= keep * 2:
+        return "*" * len(value)
+    return f"{value[:keep]}…{value[-keep:]}"
+
+
 def _default_runtime_dir() -> Path:
     raw = os.getenv("QG_RUNTIME_DIR") or os.getenv("QG_MT5_FILES_DIR") or os.getenv("QG_HFM_FILES")
+    if raw and os.name != "nt" and ":\\" in str(raw):
+        return Path.cwd() / "runtime" / "notify"
     if raw:
         return Path(raw).expanduser()
     return Path.cwd() / "runtime" / "notify"
@@ -33,15 +90,20 @@ class NotifyConfig:
     notify_ai_summary: bool
     notify_daily_digest: bool
     notify_governance: bool
+    telegram_push_allowed: bool
 
     @classmethod
     def from_env(cls) -> "NotifyConfig":
+        local_telegram_env = _local_telegram_env_values()
         runtime_dir = _default_runtime_dir()
         history_path = Path(os.getenv("QG_NOTIFY_HISTORY_PATH", str(runtime_dir / "QuantGod_NotifyHistory.json"))).expanduser()
+        bot_token = _env_or_file(["TELEGRAM_BOT_TOKEN", "QG_TELEGRAM_BOT_TOKEN"], local_telegram_env)
+        chat_id = _env_or_file(["TELEGRAM_CHAT_ID", "QG_TELEGRAM_CHAT_ID"], local_telegram_env)
+        default_push = "1" if bot_token and chat_id else "0"
         return cls(
-            bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
-            chat_id=os.getenv("TELEGRAM_CHAT_ID", "").strip(),
-            enabled=_bool_env("QG_NOTIFY_ENABLED", True),
+            bot_token=bot_token,
+            chat_id=chat_id,
+            enabled=_bool_value(_env_or_file(["QG_NOTIFY_ENABLED"], local_telegram_env, "true"), True),
             runtime_dir=runtime_dir,
             history_path=history_path,
             request_timeout=float(os.getenv("QG_NOTIFY_TIMEOUT", "10") or 10),
@@ -51,6 +113,7 @@ class NotifyConfig:
             notify_ai_summary=_bool_env("NOTIFY_AI_SUMMARY", True),
             notify_daily_digest=_bool_env("NOTIFY_DAILY_DIGEST", True),
             notify_governance=_bool_env("NOTIFY_GOVERNANCE", False),
+            telegram_push_allowed=_bool_value(_env_or_file(["QG_TELEGRAM_PUSH_ALLOWED"], local_telegram_env, default_push), False),
         )
 
     @property
@@ -79,8 +142,10 @@ class NotifyConfig:
             "mode": "QUANTGOD_NOTIFY_CONFIG_V1",
             "enabled": self.enabled,
             "telegramConfigured": self.telegram_configured,
+            "telegramPushAllowed": self.telegram_push_allowed,
             "tokenConfigured": bool(self.bot_token),
             "chatConfigured": bool(self.chat_id),
+            "chatIdRedacted": _redact(self.chat_id, keep=3),
             "runtimeDir": str(self.runtime_dir),
             "historyPath": str(self.history_path),
             "requestTimeout": self.request_timeout,

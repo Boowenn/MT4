@@ -10,6 +10,7 @@
  */
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const MAX_BODY_BYTES = 128 * 1024;
@@ -75,6 +76,15 @@ function cleanSymbol(value) {
   return symbol.slice(0, 64);
 }
 
+function cleanSymbols(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return raw
+    .map((item) => cleanSymbol(item))
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index)
+    .slice(0, 8);
+}
+
 function cleanTimeframes(value) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item || '').trim().toUpperCase()).filter(Boolean);
@@ -83,6 +93,12 @@ function cleanTimeframes(value) {
     .split(',')
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean);
+}
+
+function boolValue(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return ['1', 'true', 'yes', 'y', 'on'].includes(String(value).trim().toLowerCase());
 }
 
 function intInRange(value, fallback, min, max) {
@@ -120,7 +136,7 @@ function readJsonBody(req) {
   });
 }
 
-function runPythonJson(repoRoot, args, envOverrides = {}) {
+function runPythonJson(repoRoot, args, envOverrides = {}, timeoutMs = 90000) {
   return new Promise((resolve, reject) => {
     const pythonBin = process.env.QG_PYTHON_BIN || process.env.QG_PYTHON || process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
     const child = spawn(pythonBin, args, {
@@ -131,14 +147,29 @@ function runPythonJson(repoRoot, args, envOverrides = {}) {
     });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGTERM');
+      reject(new Error(`python timed out after ${timeoutMs}ms`));
+    }, Math.max(1000, timeoutMs));
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
     });
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString('utf8');
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (code !== 0) {
         reject(new Error(`python exited ${code}: ${stderr || stdout || 'no output'}`));
         return;
@@ -172,11 +203,56 @@ function withPhase1Envelope(payload, endpoint) {
   };
 }
 
-function runtimeEnv(ctx) {
+function isUnsupportedRuntimePath(value) {
+  const text = String(value || '').trim();
+  return process.platform !== 'win32' && /^[A-Za-z]:\\/.test(text);
+}
+
+function runtimeDirCandidates(ctx, repoRoot) {
+  const rawValues = [
+    ctx && (ctx.defaultRuntimeDir || ctx.runtimeDir),
+    process.env.QG_RUNTIME_DIR,
+    process.env.QG_MT5_FILES_DIR,
+    process.env.QG_HFM_FILES,
+    path.join(repoRoot, 'runtime'),
+  ];
+  const seen = new Set();
+  return rawValues
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && !isUnsupportedRuntimePath(value))
+    .map((value) => path.resolve(value))
+    .filter((value) => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+}
+
+function runtimeDir(ctx, repoRoot) {
+  const candidates = runtimeDirCandidates(ctx, repoRoot);
+  const existing = candidates.find((candidate) => fs.existsSync(candidate));
+  return existing || candidates[0] || path.join(repoRoot, 'runtime');
+}
+
+function runtimeEnv(ctx, repoRoot = path.resolve(__dirname, '..')) {
   const overrides = {};
-  const runtimeDir = ctx && (ctx.defaultRuntimeDir || ctx.runtimeDir);
-  if (runtimeDir) overrides.QG_RUNTIME_DIR = String(runtimeDir);
+  overrides.QG_RUNTIME_DIR = runtimeDir(ctx, repoRoot);
   return overrides;
+}
+
+function readRuntimeJson(ctx, repoRoot, filename) {
+  const errors = [];
+  for (const candidate of runtimeDirCandidates(ctx, repoRoot)) {
+    const filePath = path.join(candidate, filename);
+    try {
+      const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return { ok: true, filePath, payload };
+    } catch (error) {
+      errors.push({ filePath, error: error && error.message ? error.message : String(error) });
+    }
+  }
+  const fallbackPath = path.join(path.join(repoRoot, 'runtime'), filename);
+  return { ok: false, filePath: fallbackPath, errors };
 }
 
 async function handle(req, res, ctx = {}) {
@@ -186,6 +262,63 @@ async function handle(req, res, ctx = {}) {
   const urlPath = url.pathname.replace(/\/+$/, '') || '/';
 
   try {
+    if (urlPath === '/api/ai-analysis/deepseek-telegram/config') {
+      const payload = await runPythonJson(
+        repoRoot,
+        [path.join('tools', 'run_mt5_ai_telegram_monitor.py'), 'config'],
+        runtimeEnv(ctx),
+        30000,
+      );
+      sendJson(res, 200, withPhase1Envelope(payload, urlPath));
+      return true;
+    }
+
+    if (urlPath === '/api/ai-analysis/deepseek-telegram/latest') {
+      const latest = readRuntimeJson(ctx, repoRoot, 'QuantGod_MT5AiTelegramMonitorLatest.json');
+      if (!latest.ok) {
+        sendJson(res, 404, withPhase1Envelope({ ok: false, error: 'DeepSeek Telegram latest report not found', filePath: latest.filePath }, urlPath));
+        return true;
+      }
+      sendJson(res, 200, withPhase1Envelope(latest.payload, urlPath));
+      return true;
+    }
+
+    if (urlPath === '/api/ai-analysis/deepseek-telegram/run') {
+      if (method !== 'POST') {
+        sendJson(res, 405, { ok: false, error: 'POST required', safety: PHASE1_API_SAFETY });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const symbols = cleanSymbols(body.symbols || body.symbol || url.searchParams.get('symbols') || url.searchParams.get('symbol'));
+      if (!symbols.length) {
+        sendJson(res, 400, { ok: false, error: 'symbol is required', safety: PHASE1_API_SAFETY });
+        return true;
+      }
+      const timeframes = cleanTimeframes(body.timeframes || url.searchParams.get('timeframes')).join(',');
+      const sendTelegram = boolValue(body.send ?? url.searchParams.get('send'), false);
+      const force = boolValue(body.force ?? url.searchParams.get('force'), true);
+      const noDeepseek = boolValue(body.noDeepseek ?? url.searchParams.get('noDeepseek'), false);
+      const minInterval = intInRange(body.minIntervalSeconds ?? url.searchParams.get('minIntervalSeconds'), force ? 0 : 900, 0, 86400);
+      const args = [
+        path.join('tools', 'run_mt5_ai_telegram_monitor.py'),
+        'scan-once',
+        '--repo-root',
+        repoRoot,
+        '--symbols',
+        symbols.join(','),
+        '--timeframes',
+        timeframes,
+        '--min-interval-seconds',
+        String(minInterval),
+      ];
+      if (sendTelegram) args.push('--send');
+      if (force) args.push('--force');
+      if (noDeepseek) args.push('--no-deepseek');
+      const payload = await runPythonJson(repoRoot, args, runtimeEnv(ctx), 120000);
+      sendJson(res, 200, withPhase1Envelope(payload, urlPath));
+      return true;
+    }
+
     if (urlPath === '/api/ai-analysis/run') {
       if (method !== 'POST') {
         sendJson(res, 405, { ok: false, error: 'POST required', safety: PHASE1_API_SAFETY });

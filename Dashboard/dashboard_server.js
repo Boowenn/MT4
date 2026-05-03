@@ -60,9 +60,20 @@ function getMacMt5FilesDir() {
   return path.join(getMacMt5RootDir(), 'MQL5', 'Files');
 }
 
+function isWindowsAbsolutePath(value) {
+  return /^[A-Za-z]:[\\/]/.test(String(value || '').trim());
+}
+
 function resolveRuntimeDir() {
   const sourceMode = String(process.env.QG_MAC_RUNTIME_SOURCE || 'auto').trim().toLowerCase();
   const macMt5FilesDir = getMacMt5FilesDir();
+  if (
+    process.platform === 'darwin'
+    && fs.existsSync(macMt5FilesDir)
+    && (sourceMode === 'mt5' || (sourceMode === 'auto' && isWindowsAbsolutePath(configuredRuntimeDir)))
+  ) {
+    return macMt5FilesDir;
+  }
   if (
     process.platform === 'darwin'
     && fs.existsSync(macMt5FilesDir)

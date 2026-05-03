@@ -8,6 +8,8 @@ const files = [
   'tools/ai_analysis/advisory_fusion.py',
   'tools/ai_analysis/deepseek_validator.py',
   'tools/run_ai_advisory_fusion.py',
+  'tools/run_mt5_ai_telegram_monitor.py',
+  'Dashboard/phase1_api_routes.js',
 ];
 
 function read(path) {
@@ -64,4 +66,13 @@ test('monitor includes fusion metadata and audit line after overlay patch', () =
   assert.match(monitor, /fuse_advisory_report/);
   assert.match(monitor, /advisory_fusion/);
   assert.match(monitor, /融合审查/);
+});
+
+test('Phase 1 exposes one-click DeepSeek Telegram route without execution flags', () => {
+  const routes = read('Dashboard/phase1_api_routes.js');
+  assert.match(routes, /\/api\/ai-analysis\/deepseek-telegram\/run/);
+  assert.match(routes, /run_mt5_ai_telegram_monitor\.py/);
+  assert.match(routes, /--send/);
+  assert.match(routes, /orderSendAllowed:\s*false/);
+  assert.match(routes, /livePresetMutationAllowed:\s*false/);
 });

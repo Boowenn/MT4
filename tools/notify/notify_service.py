@@ -98,6 +98,16 @@ async def send_event(
         append_history(cfg, record)
         return {"ok": True, "sent": False, "dryRun": True, "record": record}
 
+    if not cfg.telegram_configured:
+        record.update({"ok": False, "sent": False, "error": "telegram_not_configured"})
+        append_history(cfg, record)
+        return {"ok": False, "sent": False, "error": "telegram_not_configured", "record": record}
+
+    if not cfg.telegram_push_allowed:
+        record.update({"ok": False, "sent": False, "error": "telegram_push_disabled"})
+        append_history(cfg, record)
+        return {"ok": False, "sent": False, "error": "telegram_push_disabled", "record": record}
+
     bot = TelegramBot(cfg.bot_token, cfg.chat_id, timeout=cfg.request_timeout, max_retries=cfg.max_retries)
     result = await bot.send_message_result(text, disable_notification=_should_disable_notification(event))
     record.update({"ok": result.ok, "sent": result.ok, "error": result.error, "statusCode": result.status_code})

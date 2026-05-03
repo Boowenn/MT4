@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -79,6 +81,364 @@ def load_mt5():
             detail=str(exc),
         )
     return mt5, None
+
+
+def is_windows_absolute_path(value: Any) -> bool:
+    return bool(re.match(r"^[A-Za-z]:[\\/]", str(value or "").strip()))
+
+
+def mac_mt5_files_dir() -> Path:
+    return (
+        Path.home()
+        / "Library"
+        / "Application Support"
+        / "net.metaquotes.wine.metatrader5"
+        / "drive_c"
+        / "Program Files"
+        / "MetaTrader 5"
+        / "MQL5"
+        / "Files"
+    )
+
+
+def runtime_dir_candidates() -> list[Path]:
+    repo_root = Path(__file__).resolve().parents[1]
+    raw_values = [
+        os.environ.get("QG_RUNTIME_DIR", ""),
+        os.environ.get("QG_MT5_FILES_DIR", ""),
+        os.environ.get("QG_HFM_FILES_DIR", ""),
+    ]
+    candidates: list[Path] = []
+    for raw in raw_values:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        if os.name != "nt" and is_windows_absolute_path(value):
+            continue
+        candidates.append(Path(value).expanduser())
+    candidates.extend(
+        [
+            mac_mt5_files_dir(),
+            repo_root / "runtime" / "mac_import" / "mt5_files_snapshot",
+            repo_root / "runtime",
+            repo_root / "Dashboard",
+        ]
+    )
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def read_ea_dashboard_snapshot() -> tuple[dict[str, Any] | None, Path | None, dict[str, Any] | None]:
+    found: list[tuple[float, Path, dict[str, Any]]] = []
+    parse_errors: list[dict[str, str]] = []
+    for directory in runtime_dir_candidates():
+        file_path = directory / "QuantGod_Dashboard.json"
+        if not file_path.exists():
+            continue
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8").lstrip("\ufeff"))
+            stat = file_path.stat()
+            found.append((stat.st_mtime, file_path, payload))
+        except Exception as exc:
+            parse_errors.append({"path": str(file_path), "error": str(exc)})
+    if found:
+        _, file_path, payload = sorted(found, key=lambda item: item[0], reverse=True)[0]
+        return payload, file_path, None
+    if parse_errors:
+        return None, None, {"parseErrors": parse_errors}
+    return None, None, None
+
+
+def to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def to_int(value: Any, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def first_present(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in mapping and mapping.get(key) not in (None, ""):
+            return mapping.get(key)
+    return default
+
+
+def find_ea_symbol_row(dashboard: dict[str, Any], symbol: str = "") -> dict[str, Any]:
+    symbol = normalize_symbol_filter(symbol) or normalize_symbol_filter(dashboard.get("watchlist", ""))
+    rows = dashboard.get("symbols") if isinstance(dashboard.get("symbols"), list) else []
+    if symbol:
+        for row in rows:
+            if isinstance(row, dict) and str(row.get("symbol", "")).lower() == symbol.lower():
+                return row
+    market = dashboard.get("market") if isinstance(dashboard.get("market"), dict) else {}
+    if market and (not symbol or str(market.get("symbol", "")).lower() == symbol.lower()):
+        return dict(market)
+    return rows[0] if rows and isinstance(rows[0], dict) else {}
+
+
+def ea_terminal_payload(dashboard: dict[str, Any], file_path: Path | None) -> dict[str, Any]:
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    return {
+        "connected": bool(runtime.get("terminalConnected", runtime.get("connected", False))),
+        "tradeAllowed": bool(runtime.get("terminalTradeAllowed", runtime.get("tradeAllowed", False))),
+        "dllsAllowed": bool(runtime.get("dllAllowed", False)),
+        "name": "HFM MetaTrader 5 EA Snapshot",
+        "company": "HF Markets",
+        "path": str(file_path.parents[2]) if file_path and len(file_path.parents) >= 3 else "",
+        "dataPath": str(file_path.parents[1]) if file_path and len(file_path.parents) >= 2 else "",
+        "commonDataPath": "",
+        "codepage": 0,
+        "maxBars": 0,
+    }
+
+
+def ea_account_payload(dashboard: dict[str, Any]) -> dict[str, Any] | None:
+    account = dashboard.get("account") if isinstance(dashboard.get("account"), dict) else {}
+    if not account:
+        return None
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    return {
+        "login": to_int(first_present(account, "number", "login", default=0)),
+        "server": first_present(account, "server", default=""),
+        "name": first_present(account, "name", default=""),
+        "currency": first_present(account, "currency", default=""),
+        "company": "HF Markets",
+        "balance": to_float(first_present(account, "balance", "startingBalance", default=0.0)),
+        "equity": to_float(first_present(account, "equity", "balance", default=0.0)),
+        "profit": to_float(first_present(account, "profit", default=0.0)),
+        "margin": to_float(first_present(account, "margin", default=0.0)),
+        "marginFree": to_float(first_present(account, "freeMargin", "marginFree", default=0.0)),
+        "marginLevel": to_float(first_present(account, "marginLevel", default=0.0)),
+        "leverage": to_int(first_present(account, "leverage", default=0)),
+        "tradeAllowed": bool(runtime.get("accountTradeAllowed", runtime.get("tradeAllowed", False))),
+        "tradeExpert": bool(runtime.get("accountExpertTradeAllowed", runtime.get("programTradeAllowed", False))),
+    }
+
+
+def ea_position_price_current(dashboard: dict[str, Any], symbol: str, trade_type: str) -> float:
+    row = find_ea_symbol_row(dashboard, symbol)
+    if trade_type.lower() == "sell":
+        return to_float(row.get("ask", 0.0))
+    return to_float(row.get("bid", 0.0))
+
+
+def ea_positions_payload(dashboard: dict[str, Any], symbol: str = "") -> dict[str, Any]:
+    symbol = normalize_symbol_filter(symbol)
+    rows = dashboard.get("openTrades") if isinstance(dashboard.get("openTrades"), list) else []
+    items = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_symbol = str(row.get("symbol", ""))
+        if symbol and row_symbol.lower() != symbol.lower():
+            continue
+        trade_type = str(row.get("type", "")).lower() or str(row.get("direction", "")).lower()
+        items.append(
+            {
+                "ticket": to_int(first_present(row, "ticket", "order", default=0)),
+                "identifier": to_int(first_present(row, "positionId", "identifier", "ticket", default=0)),
+                "symbol": row_symbol,
+                "type": trade_type,
+                "volume": to_float(first_present(row, "actualLots", "lots", "volume", default=0.0)),
+                "priceOpen": to_float(first_present(row, "openPrice", "priceOpen", default=0.0)),
+                "priceCurrent": ea_position_price_current(dashboard, row_symbol, trade_type),
+                "sl": to_float(first_present(row, "sl", "stopLoss", default=0.0)),
+                "tp": to_float(first_present(row, "tp", "takeProfit", default=0.0)),
+                "profit": to_float(first_present(row, "actualProfit", "profit", default=0.0)),
+                "swap": to_float(first_present(row, "swap", default=0.0)),
+                "magic": to_int(first_present(row, "magic", default=520001)),
+                "comment": first_present(row, "comment", default=""),
+                "time": 0,
+                "timeIso": "",
+            }
+        )
+    return {"count": len(items), "symbol": symbol, "items": items}
+
+
+def ea_orders_payload(dashboard: dict[str, Any], symbol: str = "") -> dict[str, Any]:
+    symbol = normalize_symbol_filter(symbol)
+    rows = dashboard.get("pendingOrders") if isinstance(dashboard.get("pendingOrders"), list) else []
+    items = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_symbol = str(row.get("symbol", ""))
+        if symbol and row_symbol.lower() != symbol.lower():
+            continue
+        items.append(
+            {
+                "ticket": to_int(first_present(row, "ticket", "order", default=0)),
+                "symbol": row_symbol,
+                "type": str(first_present(row, "type", default="")).lower(),
+                "volumeInitial": to_float(first_present(row, "volumeInitial", "lots", "volume", default=0.0)),
+                "volumeCurrent": to_float(first_present(row, "volumeCurrent", "lots", "volume", default=0.0)),
+                "priceOpen": to_float(first_present(row, "priceOpen", "openPrice", default=0.0)),
+                "priceCurrent": to_float(first_present(row, "priceCurrent", default=0.0)),
+                "sl": to_float(first_present(row, "sl", "stopLoss", default=0.0)),
+                "tp": to_float(first_present(row, "tp", "takeProfit", default=0.0)),
+                "magic": to_int(first_present(row, "magic", default=520001)),
+                "comment": first_present(row, "comment", default=""),
+                "timeSetup": 0,
+                "timeSetupIso": "",
+            }
+        )
+    return {"count": len(items), "symbol": symbol, "items": items}
+
+
+def ea_symbols_payload(
+    dashboard: dict[str, Any],
+    group: str = "*",
+    query: str = "",
+    limit: int = DEFAULT_SYMBOL_LIMIT,
+) -> dict[str, Any]:
+    query_lower = str(query or "").strip().lower()
+    rows = dashboard.get("symbols") if isinstance(dashboard.get("symbols"), list) else []
+    if not rows and isinstance(dashboard.get("market"), dict):
+        rows = [dashboard["market"]]
+    limit = max(0, min(int(limit or DEFAULT_SYMBOL_LIMIT), MAX_SYMBOL_LIMIT))
+    items = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(first_present(row, "symbol", "name", default=""))
+        text = " ".join(str(row.get(key, "")) for key in ("symbol", "role", "status", "tradeMode")).lower()
+        if query_lower and query_lower not in text:
+            continue
+        spread = to_float(first_present(row, "spread", default=0.0))
+        items.append(
+            {
+                "name": name,
+                "description": f"{name} HFM EA snapshot".strip(),
+                "path": "EA_SNAPSHOT",
+                "visible": True,
+                "selected": True,
+                "currencyBase": name[:3] if len(name) >= 6 else "",
+                "currencyProfit": name[3:6] if len(name) >= 6 else "",
+                "digits": 3 if "JPY" in name.upper() else 5,
+                "point": 0.001 if "JPY" in name.upper() else 0.00001,
+                "spread": spread,
+                "tradeMode": first_present(row, "tradeMode", default=""),
+                "volumeMin": 0.01,
+                "volumeMax": 200.0,
+                "volumeStep": 0.01,
+                "status": first_present(row, "status", default=""),
+                "entryTradeAllowed": bool(row.get("entryTradeAllowed", False)),
+            }
+        )
+    returned = items[:limit] if limit else []
+    return {
+        "group": group,
+        "query": query_lower,
+        "count": len(items),
+        "returned": len(returned),
+        "truncated": bool(limit and len(items) > len(returned)),
+        "items": returned,
+    }
+
+
+def ea_quote_payload(dashboard: dict[str, Any], symbol: str) -> dict[str, Any]:
+    symbol = normalize_symbol_filter(symbol) or normalize_symbol_filter(dashboard.get("watchlist", ""))
+    row = find_ea_symbol_row(dashboard, symbol)
+    row_symbol = str(first_present(row, "symbol", default=symbol))
+    if not row or (symbol and row_symbol.lower() != symbol.lower()):
+        return {"ok": False, "error": f"symbol not found in EA snapshot: {symbol}", "symbol": symbol}
+    bid = to_float(row.get("bid", 0.0))
+    ask = to_float(row.get("ask", 0.0))
+    point = 0.001 if "JPY" in row_symbol.upper() else 0.00001
+    spread = to_float(first_present(row, "spread", default=((ask - bid) / point if point and ask and bid else 0.0)))
+    return {
+        "ok": True,
+        "symbol": row_symbol,
+        "visible": True,
+        "digits": 3 if "JPY" in row_symbol.upper() else 5,
+        "point": point,
+        "bid": bid,
+        "ask": ask,
+        "last": 0.0,
+        "volume": 0,
+        "spreadPoints": round(spread, 2),
+        "time": 0,
+        "timeIso": "",
+        "tickAgeSeconds": to_int(row.get("tickAgeSeconds", 0)),
+        "tradeMode": first_present(row, "tradeMode", default=""),
+    }
+
+
+def build_ea_snapshot_fallback(args: argparse.Namespace) -> dict[str, Any] | None:
+    dashboard, file_path, read_error = read_ea_dashboard_snapshot()
+    if not dashboard:
+        return None
+    endpoint = args.endpoint
+    payload = base_payload(endpoint)
+    stat = file_path.stat() if file_path else None
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    payload.update(
+        {
+            "mode": "MT5_READONLY_BRIDGE_V1_EA_SNAPSHOT_FALLBACK",
+            "status": "EA_SNAPSHOT",
+            "bridgeStatus": "MT5_PYTHON_UNAVAILABLE_EA_SNAPSHOT_FALLBACK",
+            "terminal": ea_terminal_payload(dashboard, file_path),
+            "account": ea_account_payload(dashboard),
+            "runtime": runtime,
+            "watchlist": dashboard.get("watchlist", ""),
+            "market": dashboard.get("market", {}),
+            "source": {
+                "type": "hfm_ea_dashboard_snapshot",
+                "file": str(file_path) if file_path else "",
+                "mtimeIso": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z")
+                if stat
+                else "",
+                "readError": read_error,
+            },
+        }
+    )
+
+    if endpoint == "status":
+        return payload
+    if endpoint == "account":
+        payload["status"] = "CONNECTED" if payload.get("account") else "NO_ACCOUNT"
+        return payload
+    if endpoint == "positions":
+        payload["positions"] = ea_positions_payload(dashboard, args.symbol)
+        return payload
+    if endpoint == "orders":
+        payload["orders"] = ea_orders_payload(dashboard, args.symbol)
+        return payload
+    if endpoint == "symbols":
+        payload["symbols"] = ea_symbols_payload(dashboard, args.group, args.query, args.limit)
+        return payload
+    if endpoint == "quote":
+        quote = ea_quote_payload(dashboard, args.symbol)
+        payload["quote"] = quote
+        payload["ok"] = bool(quote.get("ok"))
+        if not payload["ok"]:
+            payload["error"] = quote.get("error", "quote unavailable")
+        return payload
+    if endpoint == "snapshot":
+        payload["positions"] = ea_positions_payload(dashboard, args.symbol)
+        payload["orders"] = ea_orders_payload(dashboard, args.symbol)
+        payload["symbols"] = ea_symbols_payload(dashboard, args.group, args.query, args.symbols_limit)
+        payload["quote"] = ea_quote_payload(dashboard, args.symbol) if args.symbol else None
+        return payload
+    return payload
 
 
 def maybe_asdict(value: Any) -> dict[str, Any]:
@@ -375,6 +735,12 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     mt5, error = load_mt5()
     if error:
+        fallback = build_ea_snapshot_fallback(args)
+        if fallback:
+            fallback["pythonBridgeError"] = error.get("error", "")
+            fallback["pythonBridgeDetail"] = error.get("detail", "")
+            print(json.dumps(fallback, ensure_ascii=False, indent=2))
+            return 0
         error["endpoint"] = args.endpoint
         print(json.dumps(error, ensure_ascii=False, indent=2))
         return 0

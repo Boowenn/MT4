@@ -84,12 +84,12 @@ def tracked_files() -> list[str]:
 def check_secret_file_hygiene() -> None:
     """Reject tracked secrets and credential-like files.
 
-    Allow .env.example anywhere in the repository because it documents required
-    environment variables without storing real credentials. P3-2 also commits
-    `.env.telegram.local.example` as a disabled push-only template; the real
-    `.env.telegram.local` file remains ignored and must never be tracked.
+    Allow documented `.env*.example` files because they describe required
+    variables without storing real credentials. Real local env files remain
+    ignored and must never be tracked.
     """
     allowed_env_files = {
+        ".env.ai.local.example",
         ".env.example",
         ".env.telegram.local.example",
     }
