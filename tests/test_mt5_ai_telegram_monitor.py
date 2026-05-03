@@ -125,6 +125,42 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertIn("计划状态：暂停，仅允许观察复核。", text)
         self.assertIn("入场区间：不生成", text)
 
+    def test_advisory_message_prefers_deepseek_advice(self) -> None:
+        report = sample_report()
+        report["deepseek_advice"] = {
+            "ok": True,
+            "status": "ok",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "advice": {
+                "headline": "大模型判断证据不够强，继续等待。",
+                "verdict": "观望，不开新仓",
+                "signalGrade": "观察级",
+                "confidencePct": "61%",
+                "marketSummary": "价格横盘，点差正常。",
+                "technicalSummary": "短线中性，缺少突破。",
+                "bullCase": "突破压力后才有做多价值。",
+                "bearCase": "跌破支撑后转弱。",
+                "newsRisk": "暂无高影响新闻。",
+                "sentimentPositioning": "情绪中性。",
+                "planStatus": "暂停，仅允许观察复核",
+                "entryZone": "不生成",
+                "targets": ["不生成", "不生成", "不生成"],
+                "defense": "不生成",
+                "riskReward": "未评估",
+                "positionAdvice": "不构成下单建议",
+                "invalidation": "证据转弱继续观望",
+                "watchPoints": ["等待新鲜证据", "观察支撑压力"],
+                "riskNotes": ["不追单", "不绕过风控"],
+                "executionBoundary": "仅建议，不执行交易。",
+            },
+        }
+        text = monitor.build_advisory_message(report, reason="changed")
+        self.assertIn("分析来源：DeepSeek 大模型研判", text)
+        self.assertIn("一句话结论：大模型判断证据不够强，继续等待。", text)
+        self.assertIn("技术总结：短线中性，缺少突破。", text)
+        self.assertIn("计划状态：暂停，仅允许观察复核", text)
+
     def test_dedupe_waits_for_unchanged_signature(self) -> None:
         report = sample_report()
         sig = monitor.event_signature(report)
@@ -160,6 +196,7 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
                     str(Path(tmp_dir) / ".env.telegram.local"),
                     "--min-interval-seconds",
                     "0",
+                    "--no-deepseek",
                 ]
             )
             env_file = Path(tmp_dir) / ".env.telegram.local"
