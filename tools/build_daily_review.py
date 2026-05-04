@@ -462,6 +462,21 @@ def daily_tester_completed_count(param_status: dict[str, Any], now: datetime, ma
     return min(max(parsed, attempted if parsed >= selected and selected > 0 else parsed), max(1, max_actions))
 
 
+def should_roll_ready_tasks_to_research_backlog(
+    action_queue: list[dict[str, Any]],
+    completed_action_queue: list[dict[str, Any]],
+    daily_tester_completed: int,
+    recovery_summary: dict[str, Any],
+) -> bool:
+    if not action_queue or not completed_action_queue or daily_tester_completed <= 0:
+        return False
+    if any(action.get("state") != "READY_TO_RUN_TESTER" for action in action_queue):
+        return False
+    recovery_red = as_int(first(recovery_summary.get("riskRedCount"), recovery_summary.get("redCount"), 0))
+    recovery_yellow = as_int(first(recovery_summary.get("riskYellowCount"), recovery_summary.get("yellowCount"), 0))
+    return recovery_red <= 0 and recovery_yellow <= 0
+
+
 def metric_group_key(row: dict[str, Any]) -> str:
     return clean(first(
         row.get("experimentKey"),
@@ -862,6 +877,7 @@ def daily_iteration_review(
     poly: dict[str, Any],
     mt5_risk: dict[str, Any],
     max_actions: int,
+    tester_tasks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     code_queue: list[dict[str, Any]] = []
@@ -903,6 +919,39 @@ def daily_iteration_review(
             "safeAction": "wait_next_daily_refresh_or_human_approve_extra_isolated_tester_batch",
         })
 
+    tester_tasks = tester_tasks or []
+    no_trade_tasks = [item for item in tester_tasks if as_int(item.get("closedTrades"), -1) == 0]
+    if tester_tasks and len(no_trade_tasks) == len(tester_tasks):
+        route_counts = Counter(clean(item.get("routeKey")) or "UNKNOWN" for item in no_trade_tasks)
+        route_detail = ", ".join(f"{route}:{count}" for route, count in route_counts.most_common(5))
+        findings.append({
+            "code": "PARAMLAB_NO_TRADE_TESTER_WINDOWS",
+            "severity": "high",
+            "target": "strategy",
+            "title": "ParamLab 全部无成交",
+            "detail": f"parsed={len(tester_tasks)} noTrade={len(no_trade_tasks)} routes={route_detail}",
+            "rootCause": "候选策略过严或测试窗口过短；虽然 tester 账户上下文已打通，但没有成交样本就无法学习或升实盘。",
+            "nextStep": "下一轮只在 isolated tester 扩大 lookback，并为 BB/MACD/SR/MA 调宽触发阈值或增加候选变体；不改 live preset。",
+            "requiresCodeChange": False,
+            "requiresStrategyIteration": True,
+        })
+        strategy_queue.append({
+            "type": "PARAMLAB_NO_TRADE_RETUNE",
+            "status": "REQUIRED_TESTER_ONLY",
+            "targetRoutes": [route for route, _count in route_counts.most_common(5)],
+            "recommendation": "扩大 tester lookback，降低过严过滤器阈值，保留 0.01/单仓/人工升实盘门槛。",
+            "safeMode": "tester-only",
+            "livePresetMutationAllowed": False,
+            "orderSendAllowed": False,
+        })
+        evidence_queue.append({
+            "type": "PARAMLAB_NO_TRADE_DIAGNOSIS",
+            "status": "REQUIRED",
+            "count": len(no_trade_tasks),
+            "reason": "all parsed tester windows produced zero closed trades",
+            "safeAction": "generate wider-window tester-only candidates before any promotion review",
+        })
+
     poly_daily = poly.get("dailyReview") if isinstance(poly.get("dailyReview"), dict) else {}
     poly_summary = poly_daily.get("summary") if isinstance(poly_daily.get("summary"), dict) else {}
     top_losses = as_list(poly_daily.get("topLossSources"))
@@ -935,7 +984,7 @@ def daily_iteration_review(
                 "保持钱包锁定；淘汰/重建 sports/esports edge_filter，下一轮只进 shadow-only retune。"
             ),
             "requiresCodeChange": not retune_applied_today,
-            "requiresStrategyIteration": not retune_applied_today,
+            "requiresStrategyIteration": True,
             "iterationApplied": retune_applied_today,
         })
         strategy_queue.append({
@@ -1204,8 +1253,10 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     completed_action_queue = [action for action in all_action_queue if action.get("state") == "DONE"]
     action_queue = [action for action in all_action_queue if action.get("state") != "DONE"]
     deferred_action_queue: list[dict[str, Any]] = []
+    research_backlog_queue: list[dict[str, Any]] = []
     daily_tester_completed = daily_tester_completed_count(param_status, now, max_actions)
     daily_tester_budget_done = daily_tester_completed >= max_actions
+    recovery_summary = run_recovery.get("summary", {}) if isinstance(run_recovery.get("summary"), dict) else {}
     if daily_tester_budget_done and action_queue:
         deferred_action_queue = [
             {
@@ -1218,12 +1269,36 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             for action in action_queue
         ]
         action_queue = []
+    elif should_roll_ready_tasks_to_research_backlog(
+        action_queue,
+        completed_action_queue,
+        daily_tester_completed,
+        recovery_summary,
+    ):
+        research_backlog_queue = [
+            {
+                **action,
+                "state": "RESEARCH_BACKLOG_NEXT_REFRESH",
+                "guardClass": "DAILY_RESEARCH_BACKLOG",
+                "statusLabel": "RESEARCH_BACKLOG_NEXT_REFRESH",
+                "deferReason": f"daily_tester_completed_{daily_tester_completed}_and_no_recovery_risk",
+            }
+            for action in action_queue
+        ]
+        action_queue = []
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)
     mt5_risk = mt5_terminal_risk(runtime_dir, now)
     tester_summary = auto_tester.get("summary", {}) if isinstance(auto_tester.get("summary"), dict) else {}
-    recovery_summary = run_recovery.get("summary", {}) if isinstance(run_recovery.get("summary"), dict) else {}
-    daily_iteration = daily_iteration_review(daily_pnl, deferred_action_queue, poly, mt5_risk, max_actions)
+    tester_tasks = completed_tester_report_tasks(param_status, param_results)
+    daily_iteration = daily_iteration_review(
+        daily_pnl,
+        deferred_action_queue,
+        poly,
+        mt5_risk,
+        max_actions,
+        tester_tasks,
+    )
     completion_report = build_completion_report(
         review_day,
         daily_pnl,
@@ -1293,6 +1368,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "dailyNetUSC": daily_pnl["netUSC"],
             "paramActionCount": len(action_queue),
             "paramDeferredCount": len(deferred_action_queue),
+            "paramResearchBacklogCount": len(research_backlog_queue),
             "dailyTesterCompletedCount": daily_tester_completed,
             "dailyTesterBudgetDone": daily_tester_budget_done,
             "paramReadyToRunCount": queue_counter.get("READY_TO_RUN_TESTER", 0),
@@ -1323,6 +1399,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "actionQueue": action_queue,
         "completedActionQueue": completed_action_queue[:6],
         "deferredActionQueue": deferred_action_queue[:6],
+        "researchBacklogQueue": research_backlog_queue[:6],
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
         "polymarket": poly,

@@ -467,6 +467,56 @@ class DailyAutopilotTests(unittest.TestCase):
 
         self.assertEqual(completed, 5)
 
+    def test_ready_tasks_roll_to_research_backlog_after_clean_daily_run(self):
+        action_queue = [{
+            "candidateId": "BB_Triple_EURUSDc_bb_current_control",
+            "state": "READY_TO_RUN_TESTER",
+        }]
+        completed_queue = [{
+            "candidateId": "RSI_Reversal_USDJPYc_rsi_extreme_crossback_v2",
+            "state": "DONE",
+        }]
+        recovery_summary = {"riskRedCount": 0, "riskYellowCount": 0}
+
+        self.assertTrue(daily_review.should_roll_ready_tasks_to_research_backlog(
+            action_queue,
+            completed_queue,
+            7,
+            recovery_summary,
+        ))
+
+    def test_ready_tasks_stay_actionable_when_recovery_risk_remains(self):
+        action_queue = [{"state": "READY_TO_RUN_TESTER"}]
+        completed_queue = [{"state": "DONE"}]
+        recovery_summary = {"riskRedCount": 0, "riskYellowCount": 1}
+
+        self.assertFalse(daily_review.should_roll_ready_tasks_to_research_backlog(
+            action_queue,
+            completed_queue,
+            7,
+            recovery_summary,
+        ))
+
+    def test_daily_iteration_flags_all_no_trade_tester_reports(self):
+        tester_tasks = [
+            {"candidateId": "BB_Triple_EURUSDc_a", "routeKey": "BB_Triple", "closedTrades": 0},
+            {"candidateId": "MACD_Divergence_EURUSDc_b", "routeKey": "MACD_Divergence", "closedTrades": 0},
+        ]
+
+        iteration = daily_review.daily_iteration_review(
+            {"date": "2026-05-01", "closedTrades": 0, "netUSC": 0.0},
+            [],
+            {"dailyReview": {"summary": {"lossQuarantine": False}}},
+            {"requiresCodexReview": False},
+            5,
+            tester_tasks,
+        )
+
+        self.assertEqual(iteration["status"], "ITERATION_REQUIRED")
+        self.assertEqual(iteration["findings"][-1]["code"], "PARAMLAB_NO_TRADE_TESTER_WINDOWS")
+        self.assertEqual(iteration["strategyIterationQueue"][-1]["type"], "PARAMLAB_NO_TRADE_RETUNE")
+        self.assertFalse(iteration["strategyIterationQueue"][-1]["livePresetMutationAllowed"])
+
     def test_daily_iteration_flags_polymarket_loss_quarantine_for_codex(self):
         poly = {
             "dailyReview": {
@@ -513,7 +563,7 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertTrue(codex["required"])
         self.assertEqual(codex["reasons"][-1]["code"], "DAILY_ITERATION_ACTIONABLE_FINDINGS")
 
-    def test_daily_iteration_marks_fresh_polymarket_retune_as_applied(self):
+    def test_daily_iteration_keeps_fresh_polymarket_retune_visible_for_review(self):
         poly = {
             "dailyReview": {
                 "summary": {
@@ -556,11 +606,11 @@ class DailyAutopilotTests(unittest.TestCase):
             iteration,
         )
 
-        self.assertEqual(iteration["status"], "REVIEW_COMPLETE_NO_CODE_CHANGE")
-        self.assertFalse(iteration["codexFollowupRequired"])
+        self.assertEqual(iteration["status"], "ITERATION_REQUIRED")
+        self.assertTrue(iteration["codexFollowupRequired"])
         self.assertEqual(iteration["codeIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
         self.assertEqual(iteration["strategyIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
-        self.assertFalse(codex["required"])
+        self.assertTrue(codex["required"])
 
     def test_completion_report_explains_finished_todos_and_recommendations(self):
         poly = {
