@@ -1,0 +1,47 @@
+{
+  "_schema": "quantgod.news_isolation_windows.v1",
+  "_description": "Known high-impact USD economic events. Add one-time overrides in eventOverrideWindows.",
+  "events": [
+    {
+      "name": "FOMC Rate Decision",
+      "label": "FOMC",
+      "scheduleRule": "8x/year, Wed 14:00 ET",
+      "preBlockMinutes": 60,
+      "postBlockMinutes": 90,
+      "comment": "Fed rate decision"
+    },
+    {
+      "name": "US Non-Farm Payrolls",
+      "label": "NFP",
+      "scheduleRule": "1st Friday monthly, 8:30 ET",
+      "preBlockMinutes": 60,
+      "postBlockMinutes": 60,
+      "comment": "Employment report"
+    },
+    {
+      "name": "US CPI",
+      "label": "CPI",
+      "scheduleRule": "Monthly, ~2nd week, 8:30 ET",
+      "preBlockMinutes": 45,
+      "postBlockMinutes": 45,
+      "comment": "Inflation gauge"
+    },
+    {
+      "name": "US GDP",
+      "label": "GDP",
+      "scheduleRule": "Quarterly, 8:30 ET",
+      "preBlockMinutes": 45,
+      "postBlockMinutes": 45,
+      "comment": "Growth gauge"
+    },
+    {
+      "name": "US Core PCE",
+      "label": "Core PCE",
+      "scheduleRule": "Monthly, ~last week, 8:30 ET",
+      "preBlockMinutes": 45,
+      "postBlockMinutes": 45,
+      "comment": "Fed preferred inflation"
+    }
+  ],
+  "eventOverrideWindows": []
+}
