@@ -189,6 +189,16 @@ def fmt_value(value: Any, fallback: str = "--") -> str:
     return str(value)
 
 
+def fmt_price(value: Any, digits: int = 2, fallback: str = "--") -> str:
+    """Format a price with fixed decimal places (keeps trailing zeros)."""
+    if value is None or value == "":
+        return fallback
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def first_text(*values: Any, fallback: str = "暂无") -> str:
     for value in values:
         if value is None:
@@ -374,10 +384,10 @@ def signal_grade(decision: dict[str, Any], source: dict[str, Any]) -> str:
         confidence *= 100
     risk = str(source.get("riskLevel") or "unknown").lower()
     if confidence >= 75 and risk in {"low", "medium"}:
-        return "A级"
+        return "A 级"
     if confidence >= 55 and risk in {"low", "medium"}:
-        return "B级"
-    return "C级"
+        return "B 级"
+    return "C 级"
 
 
 def evidence_blocks_trade(source: dict[str, Any]) -> bool:
@@ -593,6 +603,18 @@ def deepseek_advice(report: dict[str, Any]) -> tuple[dict[str, Any] | None, dict
     return None, payload
 
 
+def _compute_pip_size(symbol: str) -> float:
+    """Return the pip/tick size for a given symbol string."""
+    sym = str(symbol).upper()
+    if "JPY" in sym:
+        return 0.01
+    if "XAU" in sym or "XAG" in sym or "GOLD" in sym:
+        return 0.10
+    if any(idx in sym for idx in ("US30", "NAS", "SPX", "US100", "UK100", "GER30", "US500", "USTEC")):
+        return 1.0
+    return 0.0001  # standard forex (EURUSD, GBPUSD, etc.)
+
+
 def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
     """Extract the fields needed by the message renderers from a raw report.
 
@@ -601,21 +623,46 @@ def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
     """
     decision = decision_summary(report)
     source = summarize_source(report)
-    price = source.get("price") if isinstance(source.get("price"), dict) else {}
+    symbol = str(report.get("symbol") or "UNKNOWN")
+
+    # ── entryZone: prefer DeepSeek's opinion, fall back to entry price ─
+    ds_advice_raw = report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {}
+    ds_advice = (ds_advice_raw.get("advice") or {}) if ds_advice_raw.get("ok") else {}
+    entry_zone = ds_advice.get("entryZone") or fmt_price(decision.get("entryPrice"))
+    entry_price = decision.get("entryPrice")
+
+    # ── stopLossPips: compute if not explicitly provided ─
+    stop_loss_pips = decision.get("stopLossPips")
+    if stop_loss_pips is None:
+        stop_loss = decision.get("stopLoss") or decision.get("stop_loss")
+        if entry_price is not None and stop_loss is not None:
+            try:
+                pip_size = _compute_pip_size(symbol)
+                pips = abs(float(entry_price) - float(stop_loss)) / pip_size
+                stop_loss_pips = int(round(pips))
+            except (TypeError, ValueError):
+                stop_loss_pips = None
+
+    # ── targets: try multi-target fields, then DeepSeek, then single ──
+    targets = _extract_targets(decision, ds_advice)
+
+    # ── stopLoss: use fmt_price for precision ─
+    stop_loss = decision.get("stopLoss") or decision.get("stop_loss")
+    stop_loss_str = fmt_price(stop_loss) if stop_loss is not None else "--"
 
     # Core fields used by ai_advisory / deepseek_insight
     payload: dict[str, Any] = {
-        "symbol": str(report.get("symbol") or "UNKNOWN"),
+        "symbol": symbol,
         "timeframe": (report.get("timeframes") or ["M15"])[0] if isinstance(report.get("timeframes"), list) and report.get("timeframes") else "M15",
         "timeframes": report.get("timeframes") if isinstance(report.get("timeframes"), list) else [],
         "decision": {
             "action": decision.get("action", "HOLD"),
             "confidence": decision.get("confidence", 0),
             "signalGrade": signal_grade(decision, source),
-            "entryZone": f"{fmt_value(decision.get('entryPrice'))} – {fmt_value(price.get('ask') or price.get('last') or price.get('price'))}",
-            "stopLoss": decision.get("stopLoss") or fmt_value(decision.get("stop_loss")),
-            "stopLossPips": decision.get("stopLossPips"),
-            "targets": _extract_targets(decision),
+            "entryZone": entry_zone,
+            "stopLoss": stop_loss_str,
+            "stopLossPips": stop_loss_pips,
+            "targets": targets,
             "riskReward": decision.get("riskRewardRatio") or "--",
             "invalidation": str(decision.get("reasoning") or "等待确认")[:80],
             "risk": source.get("riskLevel", "unknown"),
@@ -623,18 +670,33 @@ def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
     }
 
     # DeepSeek advice (for deepseek_insight kind)
-    ds_advice_raw = report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {}
     if ds_advice_raw.get("ok") and isinstance(ds_advice_raw.get("advice"), dict):
         payload["deepseek_advice"] = ds_advice_raw
+
+    # advisory_fusion for audit line (AI 共识)
+    fusion = report.get("advisory_fusion") if isinstance(report.get("advisory_fusion"), dict) else {}
+    if fusion:
+        payload["advisory_fusion"] = fusion
 
     return payload
 
 
-def _extract_targets(decision: dict[str, Any]) -> list[str]:
-    """Extract target prices from a decision dict."""
+def _extract_targets(decision: dict[str, Any], ds_advice: dict[str, Any] | None = None) -> list[str]:
+    """Extract up to 3 target prices from decision and DeepSeek advice."""
+    # 1) Multi-target fields from decision
+    for key in ("takeProfitTargets", "targets", "tp_levels"):
+        vals = decision.get(key)
+        if isinstance(vals, list) and vals:
+            return [fmt_price(v) for v in vals[:3]]
+    # 2) DeepSeek advice targets
+    if ds_advice:
+        ds_targets = ds_advice.get("targets")
+        if isinstance(ds_targets, list) and ds_targets:
+            return [fmt_price(t) for t in ds_targets[:3]]
+    # 3) Single target fallback
     tp = decision.get("takeProfit") or decision.get("take_profit")
     if tp is not None:
-        return [fmt_value(tp)]
+        return [fmt_price(tp)]
     return []
 
 

@@ -15,6 +15,7 @@ from ._shared import (
     chinese_action,
     chinese_risk,
     fmt_pct,
+    fmt_price,
     fmt_time_tokyo,
     safe_truncate,
 )
@@ -38,6 +39,10 @@ def render_ai_advisory(payload: dict[str, Any]) -> Optional[str]:
     # HOLD → suppress push
     if action == "HOLD":
         return None
+
+    # ── fusion audit ────────────────────────────────────────────────
+    fusion = payload.get("advisory_fusion") or payload.get("fusion") or {}
+    fusion_agreement = (fusion.get("agreement") or fusion.get("finalAction") or "").strip()
 
     # ── resolve fields (decision.* first, then root-level fallback) ──
     symbol = str(payload.get("symbol") or "UNKNOWN")
@@ -94,6 +99,7 @@ def render_ai_advisory(payload: dict[str, Any]) -> Optional[str]:
         f"\U0001f3af AI 实盘建议 — {symbol} {timeframe}",
         f"方向：{direction}｜置信度 {fmt_pct(confidence)}",
         f"信号等级：{grade}｜风险：{risk}",
+        f"AI 共识：{fusion_agreement}" if fusion_agreement else None,
         "",
         f"入场区间：{entry}",
         sl_line,
@@ -103,7 +109,7 @@ def render_ai_advisory(payload: dict[str, Any]) -> Optional[str]:
         f"失效条件：{invalidation}",
         f"仅作建议，不执行交易｜东京时间 {fmt_time_tokyo()}",
     ]
-    return "\n".join(lines)
+    return "\n".join(line for line in lines if line is not None)
 
 
 # -----------------------------------------------------------------------

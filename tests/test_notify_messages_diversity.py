@@ -120,6 +120,79 @@ class DiversityMatrixTests(unittest.TestCase):
                     f"messages have likely regressed to look the same",
                 )
 
+    def test_real_build_render_payload_survives_diversity(self) -> None:
+        """Feed _build_render_payload output through all renders — no crash."""
+        import run_mt5_ai_telegram_monitor as monitor
+
+        report = {
+            "ok": True,
+            "symbol": "USDJPYc",
+            "timeframes": ["M15", "H1"],
+            "generatedAt": "2026-05-04T00:00:00Z",
+            "snapshot": {
+                "source": "runtime_files",
+                "fallback": False,
+                "runtimeFresh": True,
+                "runtimeAgeSeconds": 12,
+                "current_price": {"bid": 155.12, "ask": 155.14},
+                "open_positions": [],
+            },
+            "technical": {
+                "direction": "bullish",
+                "trend": {"m15": "up", "h1": "up", "h4": "neutral", "d1": "neutral"},
+                "indicators": {"ma_cross": {"signal": "golden_cross"}, "rsi": {"h1": 55.2, "zone": "bullish"}},
+                "key_levels": {"support": [154.9], "resistance": [155.8]},
+            },
+            "risk": {"risk_level": "medium", "kill_switch_active": False, "factors": []},
+            "news": {"risk_level": "low", "reasoning": "No high-impact news."},
+            "sentiment": {"bias": "bullish", "reasoning": "Local sentiment bullish."},
+            "bull_case": {"thesis": "Breakout above resistance.", "conviction": 0.65},
+            "bear_case": {"thesis": "Fake breakout.", "conviction": 0.35},
+            "decision": {
+                "action": "BUY",
+                "confidence": 0.72,
+                "reasoning": "M15/H1 bullish convergence",
+                "key_factors": ["momentum", "trend"],
+                "entry_price": 155.12,
+                "stop_loss": 154.72,
+                "take_profit": 155.92,
+                "risk_reward_ratio": 2.0,
+                "position_size_suggestion": "0.01",
+                "debate_summary": {"bull_conviction": 0.65, "bear_conviction": 0.35},
+                "takeProfitTargets": [155.60, 155.95, 156.40],
+            },
+            "deepseek_advice": {
+                "ok": True,
+                "status": "ok",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "advice": {
+                    "headline": "DeepSeek confirms bullish bias",
+                    "verdict": "偏多观察",
+                    "marketSummary": "套利情绪持续，技术面突破",
+                    "bullCase": "M15/H1 共振突破",
+                    "bearCase": "D1 阻力仍在",
+                    "newsRisk": "无高影响事件",
+                    "sentimentPositioning": "机构偏多",
+                    "entryZone": "155.00 – 155.20",
+                    "targets": ["155.60", "155.95", "156.40"],
+                },
+            },
+            "advisory_fusion": {
+                "ok": True,
+                "agreement": "一致",
+                "finalAction": "BUY",
+            },
+        }
+        payload = monitor._build_render_payload(report)
+
+        # Every render kind that expects BUY must produce non-None output
+        for kind in ("ai_advisory", "deepseek_insight"):
+            msg = render(kind, payload)
+            self.assertIsNotNone(msg, f"{kind} returned None for BUY from real payload")
+            self.assertGreater(len(msg), 50, f"{kind} output too short from real payload")
+            self.assertIn("USDJPYc", msg)
+
     def test_lengths_are_distinct(self) -> None:
         """Each kind should have a meaningfully different length profile."""
         lengths = {k: len(v) for k, v in self.messages.items()}

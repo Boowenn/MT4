@@ -66,6 +66,18 @@ def fmt_pct(value: object, digits: int = 0) -> str:
     return f"{n:.{digits}f}%"
 
 
+def fmt_price(value: object, digits: int = 2) -> str:
+    """Format a price with fixed decimal places.
+
+    Unlike ``fmt_value`` this keeps trailing zeros so ``152.80`` stays ``152.80``.
+    """
+    try:
+        n = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "--"
+    return f"{n:.{digits}f}"
+
+
 def fmt_pips(value: object, digits: int = 1) -> str:
     """Format a pip value with sign."""
     try:

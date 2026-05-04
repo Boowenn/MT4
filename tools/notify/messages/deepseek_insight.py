@@ -38,6 +38,10 @@ def render_deepseek_insight(payload: dict[str, Any]) -> Optional[str]:
     if action == "HOLD":
         return None
 
+    # ── fusion audit ────────────────────────────────────────────────
+    fusion = payload.get("advisory_fusion") or payload.get("fusion") or {}
+    fusion_agreement = (fusion.get("agreement") or fusion.get("finalAction") or "").strip()
+
     # ── resolve fields ──────────────────────────────────────────────
     symbol = str(payload.get("symbol") or "UNKNOWN")
     timeframe = str(
@@ -106,6 +110,7 @@ def render_deepseek_insight(payload: dict[str, Any]) -> Optional[str]:
         f"\U0001f916 DeepSeek 深度研判 — {symbol}",
         f"方向：{direction}｜置信度 {fmt_pct(confidence)}",
         f"信号等级：{grade}｜风险：{risk}",
+        f"AI 共识：{fusion_agreement}" if fusion_agreement else None,
         "",
         "【市场摘要】",
         market_summary,
@@ -128,7 +133,7 @@ def render_deepseek_insight(payload: dict[str, Any]) -> Optional[str]:
         "仅作研判，不执行交易",
         f"分析模型：{model}｜东京时间 {fmt_time_tokyo()}",
     ]
-    return "\n".join(lines)
+    return "\n".join(line for line in lines if line is not None)
 
 
 # -----------------------------------------------------------------------

@@ -221,6 +221,110 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertEqual(payload["decision"]["action"], "BUY")
         self.assertEqual(payload["decision"]["confidence"], 0.72)
 
+    def test_build_render_payload_integration_quality(self) -> None:
+        """_build_render_payload produces well-formed output for all renderers."""
+        report = sample_report()
+        report["decision"]["action"] = "BUY"
+        report["decision"]["confidence"] = 0.72
+        report["decision"]["entry_price"] = 155.12
+        report["decision"]["stop_loss"] = 154.72
+        report["decision"]["take_profit"] = 155.92
+        report["decision"]["risk_reward_ratio"] = 2.0
+        report["symbol"] = "USDJPYc"
+
+        payload = monitor._build_render_payload(report)
+
+        # ── Decision fields are present and well-formed ─
+        dec = payload["decision"]
+        self.assertIn(dec["action"], ("BUY", "SELL", "HOLD"))
+        self.assertIsInstance(dec["confidence"], (int, float))
+        self.assertIn("级", dec["signalGrade"])  # Chinese label present
+        self.assertIsInstance(dec["signalGrade"], str)
+        # entryZone is not a fake interval — single entry price or proper zone
+        self.assertIsInstance(dec["entryZone"], str)
+        self.assertNotEqual(dec["entryZone"], "--")
+        # stopLoss formatted with proper precision (not stripped)
+        self.assertIsInstance(dec["stopLoss"], str)
+        # stopLossPips computed when entry and stop loss are present
+        self.assertIsNotNone(dec["stopLossPips"])
+        self.assertIsInstance(dec["stopLossPips"], int)
+        self.assertGreater(dec["stopLossPips"], 0)
+        # targets list
+        self.assertIsInstance(dec["targets"], list)
+        # targets from report with take_profit
+        self.assertGreater(len(dec["targets"]), 0)
+        # riskReward
+        self.assertEqual(dec["riskReward"], 2.0)
+
+        # ── Payload renders without error for both kinds ─
+        from notify.messages import render
+
+        ai_result = render("ai_advisory", payload)
+        self.assertIsNotNone(ai_result)
+        self.assertIn("🎯 AI 实盘建议", str(ai_result))
+        self.assertIn("USDJPYc", str(ai_result))
+        self.assertIn("做多", str(ai_result))
+
+        # deepseek_insight kind (even without deepseek_advice — graceful)
+        ds_result = render("deepseek_insight", payload)
+        self.assertIsNotNone(ds_result)
+        self.assertIn("🤖 DeepSeek 深度研判", str(ds_result))
+
+    def test_build_render_payload_with_deepseek_advice_targets(self) -> None:
+        """When DeepSeek advice provides targets, they take precedence."""
+        report = sample_report("USDJPYc")
+        report["decision"]["action"] = "BUY"
+        report["decision"]["entry_price"] = 155.12
+        report["decision"]["stop_loss"] = 154.72
+        report["decision"]["take_profit"] = None  # No single target
+        report["deepseek_advice"] = {
+            "ok": True,
+            "status": "ok",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "advice": {
+                "headline": "DeepSeek signal",
+                "targets": ["155.60", "155.95", "156.40"],
+                "entryZone": "155.00 – 155.20",
+                "stopLoss": "154.70",
+                "bullCase": "Bullish breakout",
+                "bearCase": "Resistance holds",
+                "newsRisk": "No news",
+                "sentimentPositioning": "Bullish",
+            },
+        }
+        payload = monitor._build_render_payload(report)
+        dec = payload["decision"]
+
+        # entryZone from DeepSeek advice takes priority
+        self.assertEqual(dec["entryZone"], "155.00 – 155.20")
+        # targets from DeepSeek advice (3 targets)
+        self.assertEqual(len(dec["targets"]), 3)
+        self.assertEqual(dec["targets"], ["155.60", "155.95", "156.40"])
+
+    def test_build_render_payload_with_advisory_fusion(self) -> None:
+        """advisory_fusion agreement surfaces in renderer output."""
+        report = sample_report("EURUSDc")
+        report["decision"]["action"] = "SELL"
+        report["decision"]["entry_price"] = 1.0850
+        report["decision"]["stop_loss"] = 1.0890
+        report["decision"]["take_profit"] = 1.0800
+        report["advisory_fusion"] = {
+            "agreement": "一致",
+            "finalAction": "SELL",
+            "ok": True,
+        }
+        payload = monitor._build_render_payload(report)
+
+        # advisory_fusion passed through
+        self.assertEqual(payload["advisory_fusion"]["agreement"], "一致")
+
+        from notify.messages import render
+
+        msg = render("ai_advisory", payload)
+        self.assertIsNotNone(msg)
+        self.assertIn("AI 共识：一致", str(msg))
+
 
 if __name__ == "__main__":
     unittest.main()
