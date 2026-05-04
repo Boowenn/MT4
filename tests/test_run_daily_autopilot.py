@@ -590,12 +590,12 @@ class DailyAutopilotTests(unittest.TestCase):
 
     def test_tester_guard_accepts_wine_archive_report_paths(self):
         path = auto_tester_guard.path_from_tester_text(
-            r"Z:\Users\bowen\Desktop\Quard\QuantGod\archive\param-lab\runs\run\reports\EURUSDc\x.html"
+            r"Z:\Users\bowen\Desktop\Quard\QuantGodBackend\archive\param-lab\runs\run\reports\EURUSDc\x.html"
         )
 
         self.assertEqual(
             str(path),
-            "/Users/bowen/Desktop/Quard/QuantGod/archive/param-lab/runs/run/reports/EURUSDc/x.html",
+            "/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html",
         )
 
     def test_auto_tester_retry_allows_fixed_missing_tester_login(self):
