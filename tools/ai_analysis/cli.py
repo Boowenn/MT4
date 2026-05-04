@@ -9,6 +9,14 @@ from typing import Any
 from .analysis_service import AnalysisService
 
 
+def _get_v2_service():
+    try:
+        from .analysis_service_v2 import AnalysisServiceV2
+        return AnalysisServiceV2()
+    except Exception:
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="QuantGod AI Analysis V1 CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -29,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("config", help="Return AI analysis config/status")
 
+    sub.add_parser("agent-health", help="Return latest agent health snapshot")
+
+    health_hist = sub.add_parser("agent-health-history", help="Return agent health history")
+    health_hist.add_argument("--limit", type=int, default=20)
+
     args = parser.parse_args(argv)
     service = AnalysisService()
     if args.command == "run":
@@ -44,6 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         payload = service.history_item(args.id) or {"ok": False, "error": "history item not found"}
     elif args.command == "config":
         payload = service.config_status()
+    elif args.command == "agent-health":
+        v2 = _get_v2_service()
+        payload = v2.agent_health() if v2 else {"ok": False, "error": "V2 service not available"}
+    elif args.command == "agent-health-history":
+        v2 = _get_v2_service()
+        payload = v2.agent_health_history(args.limit) if v2 else {"ok": False, "error": "V2 service not available"}
     else:  # pragma: no cover - argparse prevents this
         parser.error("unsupported command")
         return 2

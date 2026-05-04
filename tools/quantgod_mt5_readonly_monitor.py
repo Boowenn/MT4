@@ -23,6 +23,7 @@ from typing import Any
 
 JST = timezone(timedelta(hours=9), "JST")
 REPO_ROOT = Path(__file__).resolve().parents[1]
+NEWS_CONFIG_PATH = REPO_ROOT / "config" / "news_isolation_windows.json"
 DEFAULT_MT5_PREFIX = Path.home() / "Library/Application Support/net.metaquotes.wine.metatrader5"
 DEFAULT_MT5_ROOT = DEFAULT_MT5_PREFIX / "drive_c/Program Files/MetaTrader 5"
 DEFAULT_LIVE_PRESET = REPO_ROOT / "MQL5/Presets/QuantGod_MT5_HFM_LivePilot.set"
@@ -304,15 +305,46 @@ def scan_trade_permission_logs(log_dir: Path, today: datetime) -> list[str]:
     return sorted(set(alerts))
 
 
+def _load_news_config() -> dict[str, Any]:
+    try:
+        if NEWS_CONFIG_PATH.exists():
+            return json.loads(NEWS_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {"events": [], "eventOverrideWindows": []}
+
+
 def news_isolation(now: datetime, dashboard: dict[str, Any] | None, shadow_text: str) -> list[str]:
-    windows = [
-        ("FOMC", datetime(2026, 4, 30, 3, 0, tzinfo=JST), datetime(2026, 4, 30, 2, 30, tzinfo=JST), datetime(2026, 4, 30, 4, 30, tzinfo=JST)),
-        ("US GDP + Core PCE", datetime(2026, 4, 30, 21, 30, tzinfo=JST), datetime(2026, 4, 30, 21, 0, tzinfo=JST), datetime(2026, 4, 30, 23, 0, tzinfo=JST)),
-    ]
     reminders: list[str] = []
     automated = get_nested(dashboard or {}, "runtime.automatedTradingEnabled", "automatedTradingEnabled")
     shadow_ok = bool(re.search(r"SHADOW|READ.?ONLY|非交易", shadow_text, flags=re.I))
-    for name, event_at, off_at, on_at in windows:
+
+    # Dynamic check: read EA's current news block state from dashboard
+    news = (dashboard or {}).get("news") or {}
+    if isinstance(news, dict):
+        blocked = news.get("blocked") or news.get("active")
+        event_name = news.get("eventName") or news.get("eventLabel") or ""
+        phase = news.get("phase") or ""
+        minutes_to = news.get("minutesToEvent")
+        if blocked and event_name:
+            eta = f"{int(minutes_to)} 分钟" if minutes_to is not None else "--"
+            reminders.append(f"EA 已阻断：{event_name}（{phase}，距离 {eta}）")
+
+    # Static config windows: check for known upcoming events within 2 hours
+    config = _load_news_config()
+    for event in config.get("eventOverrideWindows", [])[:5]:
+        event_at_str = event.get("eventAt")
+        if not event_at_str:
+            continue
+        try:
+            event_at = datetime.fromisoformat(event_at_str)
+        except ValueError:
+            continue
+        name = event.get("name") or event.get("label") or "event"
+        pre_block = int(event.get("preBlockMinutes", 60))
+        post_block = int(event.get("postBlockMinutes", 60))
+        off_at = event_at - timedelta(minutes=pre_block)
+        on_at = event_at + timedelta(minutes=post_block)
         if off_at - timedelta(minutes=30) <= now <= off_at:
             reminders.append(f"{name}: {off_at.strftime('%H:%M')} 前手动关闭算法交易按钮。")
         elif off_at < now < on_at:
@@ -320,14 +352,15 @@ def news_isolation(now: datetime, dashboard: dict[str, Any] | None, shadow_text:
             reminders.append(f"{name}: 隔离窗口内，{'已见只读/关闭证据' if verified else 'PHYSICAL_ISOLATION_UNVERIFIED'}。")
         elif on_at <= now <= on_at + timedelta(minutes=30):
             reminders.append(f"{name}: 窗口结束，可人工确认后恢复。")
+
     return reminders
 
 
 def weekend_tasks(now: datetime) -> list[str]:
-    if now.date().isoformat() not in {"2026-05-03", "2026-05-04"} or not (9 <= now.hour <= 22):
-        return ["未到 2026-05-03/04 09:00-22:00 JST 周末验证窗口。"]
-    day = now.date().isoformat()
-    prefix = "5/3" if day == "2026-05-03" else "5/4 第二次提醒"
+    if now.weekday() not in (5, 6) or not (9 <= now.hour <= 22):
+        return ["非周末验证窗口（周六/周日 09:00-22:00 JST）。"]
+    day_name = "周六" if now.weekday() == 5 else "周日"
+    prefix = f"{day_name}" if now.weekday() == 5 else f"{day_name} 第二次提醒"
     return [
         f"{prefix}: 手动 Strategy Tester 验证 BB_Triple 越权 probe；期望 Journal 含 non-RSI authorization lock disabled 且 Total trades=0。",
         "同期手动复核 USDJPYc H1 RSI 85/15: PF>=1.2 且 trades>=30 才建议人工反驳 DEMOTE_REVIEW。",

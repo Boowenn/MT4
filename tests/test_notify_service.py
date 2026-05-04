@@ -76,7 +76,20 @@ class NotifyServiceTests(unittest.TestCase):
 
     def test_scan_runtime_events_detects_risk_and_ai(self) -> None:
         (self.runtime / "QuantGod_Dashboard.json").write_text(
-            json.dumps({"killSwitchActive": True, "killSwitchReason": "daily_loss_limit", "newsBlockActive": True}),
+            json.dumps({
+                "killSwitchActive": True,
+                "killSwitchReason": "daily_loss_limit",
+                "news": {
+                    "blocked": True,
+                    "eventName": "Non-Farm Payrolls",
+                    "eventLabel": "NFP",
+                    "minutesToEvent": 15,
+                    "phase": "PRE_EVENT",
+                    "actual": None,
+                    "forecast": 5.25,
+                    "previous": 5.50,
+                },
+            }),
             encoding="utf-8",
         )
         ai_dir = self.runtime / "ai_analysis"
@@ -87,6 +100,29 @@ class NotifyServiceTests(unittest.TestCase):
         )
         events = scan_runtime_events(NotifyConfig.from_env())
         self.assertEqual([event["eventType"] for event in events], ["KILL_SWITCH", "NEWS_BLOCK", "AI_ANALYSIS"])
+        news_event = events[1]
+        self.assertEqual(news_event["eventType"], "NEWS_BLOCK")
+        self.assertEqual(news_event["data"]["label"], "NFP")
+        self.assertEqual(news_event["data"]["eta"], 15)
+        self.assertEqual(news_event["data"]["phase"], "PRE_EVENT")
+        self.assertEqual(news_event["data"]["forecast"], 5.25)
+
+    def test_scan_runtime_events_news_not_blocked_when_no_block(self) -> None:
+        (self.runtime / "QuantGod_Dashboard.json").write_text(
+            json.dumps({"news": {"blocked": False, "eventName": "FOMC", "minutesToEvent": 240}}),
+            encoding="utf-8",
+        )
+        events = scan_runtime_events(NotifyConfig.from_env())
+        event_types = [e["eventType"] for e in events]
+        self.assertNotIn("NEWS_BLOCK", event_types)
+
+    def test_scan_runtime_events_news_missing_key_handled(self) -> None:
+        (self.runtime / "QuantGod_Dashboard.json").write_text(
+            json.dumps({"dashboardBuild": "v3.17.0"}), encoding="utf-8"
+        )
+        events = scan_runtime_events(NotifyConfig.from_env())
+        event_types = [e["eventType"] for e in events]
+        self.assertNotIn("NEWS_BLOCK", event_types)
 
     def test_phase2_notify_config_reads_local_qg_telegram_env(self) -> None:
         (self.runtime / ".env.telegram.local").write_text(

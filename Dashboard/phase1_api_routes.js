@@ -384,6 +384,29 @@ async function handle(req, res, ctx = {}) {
       return true;
     }
 
+    if (urlPath === '/api/ai-analysis/agent-health') {
+      const payload = await runPythonJson(
+        repoRoot,
+        [path.join('tools', 'run_ai_analysis.py'), 'agent-health'],
+        runtimeEnv(ctx),
+        30000,
+      );
+      sendJson(res, 200, withPhase1Envelope(payload, urlPath));
+      return true;
+    }
+
+    if (urlPath === '/api/ai-analysis/agent-health/history') {
+      const limit = intInRange(url.searchParams.get('limit'), 20, 1, 200);
+      const payload = await runPythonJson(
+        repoRoot,
+        [path.join('tools', 'run_ai_analysis.py'), 'agent-health-history', '--limit', String(limit)],
+        runtimeEnv(ctx),
+        30000,
+      );
+      sendJson(res, 200, withPhase1Envelope(payload, urlPath));
+      return true;
+    }
+
     if (urlPath === '/api/mt5-readonly/kline') {
       const symbol = cleanSymbol(url.searchParams.get('symbol'));
       if (!symbol) {

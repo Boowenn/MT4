@@ -1,4 +1,5 @@
 📰 高影响新闻预警
-事件：US Non-Farm Payrolls
+事件：US Non-Farm Payrolls｜阶段：PRE_EVENT
 距离：12 分钟
-预阻断：USDJPYc / EURUSDc / XAUUSDc
+EA 已自动阻断｜实际 180 / 预期 175 / 前值 165
+原因：NFP release window

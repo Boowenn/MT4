@@ -168,6 +168,12 @@ class RuntimeEventTests(unittest.TestCase):
         self.assertIn("\U0001f4f0 高影响新闻预警", msg)
         self.assertIn("Non-Farm", msg)
         self.assertIn("12 分钟", msg)
+        self.assertIn("阶段：PRE_EVENT", msg)
+        self.assertIn("EA 已自动阻断", msg)
+        self.assertIn("实际 180", msg)
+        self.assertIn("预期 175", msg)
+        self.assertIn("前值 165", msg)
+        self.assertIn("NFP release window", msg)
 
     def test_consecutive_loss(self) -> None:
         msg = render(

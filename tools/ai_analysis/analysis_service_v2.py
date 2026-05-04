@@ -128,6 +128,66 @@ class AnalysisServiceV2:
             "source": "phase3_v2_fallback_snapshot",
         }
 
+    @staticmethod
+    def _assess_agent_quality(output: dict[str, Any]) -> str:
+        """Classify agent output quality: primary / fallback / degraded / error."""
+        reasoning = str(output.get("reasoning") or "").lower()
+        if reasoning.startswith("fallback"):
+            return "fallback"
+        if reasoning.startswith("error") or output.get("error"):
+            return "error"
+        risk = output.get("risk_level") or output.get("risk_score")
+        if risk is not None and risk != "unknown":
+            return "primary"
+        if output.get("events_considered") is not None or output.get("signal_strength") is not None:
+            return "primary"
+        return "degraded"
+
+    @staticmethod
+    def _agent_health_record(agents_output: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        record = {}
+        for name in ("technical", "risk", "news", "sentiment"):
+            output = agents_output.get(name) or {}
+            record[name] = {
+                "quality": AnalysisServiceV2._assess_agent_quality(output),
+                "risk_level": output.get("risk_level"),
+                "has_reasoning": bool(output.get("reasoning")),
+                "cost_usd": output.get("cost_usd", 0.0),
+            }
+        return record
+
+    def _write_agent_health(self, health: dict[str, Any]) -> None:
+        health_path = self.runtime_dir / "QuantGod_AgentHealth.json"
+        health_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path = self.runtime_dir / "QuantGod_AgentHealthHistory.json"
+        health_path.write_text(json.dumps(health, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Rolling history (keep last 100)
+        try:
+            history = json.loads(history_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            history = []
+        history.append(health)
+        history_path.write_text(json.dumps(history[-100:], ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def agent_health(self) -> dict[str, Any]:
+        path = self.runtime_dir / "QuantGod_AgentHealth.json"
+        if not path.exists():
+            return {"ok": False, "error": "no agent health data yet", "safety": phase3_ai_safety()}
+        return {"ok": True, **json.loads(path.read_text(encoding="utf-8-sig")), "safety": phase3_ai_safety()}
+
+    def agent_health_history(self, limit: int = 20) -> dict[str, Any]:
+        path = self.runtime_dir / "QuantGod_AgentHealthHistory.json"
+        try:
+            history = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            history = []
+        return {
+            "ok": True,
+            "items": list(history)[-limit:],
+            "total": len(history),
+            "safety": phase3_ai_safety(),
+        }
+
     async def run_analysis(self, symbol: str, timeframes: list[str] | None = None) -> dict[str, Any]:
         snapshot = await self.collect_snapshot(symbol, timeframes)
         similar_cases = self.memory.query(symbol=symbol, conditions=["ai_v2", "debate"], text=json.dumps(snapshot, ensure_ascii=False)[:1000], top_k=3)
@@ -142,6 +202,22 @@ class AnalysisServiceV2:
         evidence = {"technical": technical, "risk": risk, "news": news, "sentiment": sentiment, "snapshot": snapshot}
         bull_case, bear_case = await asyncio.gather(self.bull_agent.argue(evidence), self.bear_agent.argue(evidence))
         decision = await self.decision_agent.analyze({**evidence, "bull_case": bull_case, "bear_case": bear_case})
+
+        # Agent health tracking
+        agent_outputs = {"technical": technical, "risk": risk, "news": news, "sentiment": sentiment}
+        health = {
+            "generatedAt": utc_now(),
+            "symbol": symbol,
+            "agents": self._agent_health_record(agent_outputs),
+            "summary": {
+                "primary_count": sum(1 for a in self._agent_health_record(agent_outputs).values() if a["quality"] == "primary"),
+                "fallback_count": sum(1 for a in self._agent_health_record(agent_outputs).values() if a["quality"] == "fallback"),
+                "degraded_count": sum(1 for a in self._agent_health_record(agent_outputs).values() if a["quality"] == "degraded"),
+                "error_count": sum(1 for a in self._agent_health_record(agent_outputs).values() if a["quality"] == "error"),
+            },
+        }
+        self._write_agent_health(health)
+
         report = {
             "ok": True,
             "schema": "quantgod.ai_analysis.v2",
@@ -157,6 +233,7 @@ class AnalysisServiceV2:
             "bear_case": bear_case,
             "decision": decision,
             "memory": {"similar_cases": similar_cases, "status": self.memory.status()},
+            "agent_health": health,
             "safety": phase3_ai_safety(),
         }
         self.save_report(report)

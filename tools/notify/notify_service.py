@@ -174,9 +174,21 @@ def scan_runtime_events(config: NotifyConfig | None = None) -> list[dict[str, An
     if isinstance(dashboard, dict):
         if dashboard.get("killSwitchActive") or dashboard.get("KillSwitchActive"):
             events.append({"eventType": "KILL_SWITCH", "data": {"reason": dashboard.get("killSwitchReason") or dashboard.get("KillSwitchReason") or "dashboard", "pnl": dashboard.get("dailyPnl") or dashboard.get("DailyPnl") or 0}})
-        news_active = dashboard.get("newsBlockActive") or dashboard.get("NewsBlockActive") or dashboard.get("news_filter_block_active")
+        news = dashboard.get("news") or {}
+        news_active = news.get("blocked") or news.get("active")
         if news_active:
-            events.append({"eventType": "NEWS_BLOCK", "data": {"label": dashboard.get("newsEventLabel") or dashboard.get("NewsEventLabel") or "tracked USD event", "eta": dashboard.get("newsMinutesToEvent") or dashboard.get("NewsMinutesToEvent") or "--"}})
+            events.append({
+                "eventType": "NEWS_BLOCK",
+                "data": {
+                    "label": news.get("eventLabel") or news.get("eventName") or "tracked USD event",
+                    "eta": news.get("minutesToEvent") or "--",
+                    "phase": news.get("phase"),
+                    "actual": news.get("actual"),
+                    "forecast": news.get("forecast"),
+                    "previous": news.get("previous"),
+                    "reason": news.get("reason"),
+                },
+            })
     ai_latest = _read_json(cfg.runtime_dir / "ai_analysis" / "latest.json", {})
     if isinstance(ai_latest, dict) and ai_latest:
         events.append({"eventType": "AI_ANALYSIS", "data": _event_payload_from_analysis(ai_latest)})

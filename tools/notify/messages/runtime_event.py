@@ -40,14 +40,29 @@ def _render_kill_switch(p: dict[str, Any]) -> str:
 
 
 def _render_news_block(p: dict[str, Any]) -> str:
-    return "\n".join(
-        [
-            "\U0001f4f0 高影响新闻预警",
-            f"事件：{safe_truncate(p.get('label') or p.get('event'), 50, '跟踪事件')}",
-            f"距离：{p.get('eta') or '--'} 分钟",
-            f"预阻断：{safe_truncate(p.get('symbols') or p.get('blocked_symbols'), 60, '所有挂单')}",
-        ]
-    )
+    phase = p.get("phase") or ""
+    phase_display = f"｜阶段：{phase}" if phase else ""
+    actual = p.get("actual")
+    forecast = p.get("forecast")
+    previous = p.get("previous")
+    data_line_parts = []
+    if actual is not None:
+        data_line_parts.append(f"实际 {actual}")
+    if forecast is not None:
+        data_line_parts.append(f"预期 {forecast}")
+    if previous is not None:
+        data_line_parts.append(f"前值 {previous}")
+    data_line = "｜" + " / ".join(data_line_parts) if data_line_parts else ""
+    lines = [
+        "\U0001f4f0 高影响新闻预警",
+        f"事件：{safe_truncate(p.get('label') or p.get('event'), 50, '跟踪事件')}{phase_display}",
+        f"距离：{p.get('eta') or '--'} 分钟",
+        f"EA 已自动阻断{data_line}",
+    ]
+    reason = p.get("reason")
+    if reason:
+        lines.append(f"原因：{safe_truncate(reason, 80)}")
+    return "\n".join(lines)
 
 
 def _render_consecutive_loss(p: dict[str, Any]) -> str:
