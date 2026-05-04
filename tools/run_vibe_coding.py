@@ -40,6 +40,12 @@ async def main_async(argv: list[str] | None = None) -> int:
     p.add_argument("--timeframe", "--tf", dest="timeframe", default=None)
     p.add_argument("--payload-file", default=None)
 
+    p = sub.add_parser("import-library")
+    p.add_argument("--name", default="chanlun_macd_td")
+    p.add_argument("--symbol", default=None)
+    p.add_argument("--timeframe", "--tf", dest="timeframe", default=None)
+    p.add_argument("--payload-file", default=None)
+
     p = sub.add_parser("iterate")
     p.add_argument("--strategy-id", default="")
     p.add_argument("--feedback", default="")
@@ -71,6 +77,8 @@ async def main_async(argv: list[str] | None = None) -> int:
         emit(service.config_payload())
     elif args.cmd == "generate":
         emit(await service.generate_strategy(payload.get("description") or args.description, payload.get("symbol") or args.symbol, payload.get("timeframe") or payload.get("tf") or args.timeframe))
+    elif args.cmd == "import-library":
+        emit(await service.import_library_strategy(payload.get("name") or args.name, payload.get("symbol") or args.symbol, payload.get("timeframe") or payload.get("tf") or args.timeframe))
     elif args.cmd == "iterate":
         emit(await service.iterate_strategy(payload.get("strategy_id") or payload.get("strategyId") or args.strategy_id, payload.get("feedback") or args.feedback, payload.get("backtest_result") or payload.get("backtestResult")))
     elif args.cmd == "backtest":

@@ -1,0 +1,31 @@
+{
+  "symbol": "USDJPYc",
+  "timeframe": "M15",
+  "decision": {
+    "action": "BUY",
+    "confidence": 0.75,
+    "signalGrade": "A 级",
+    "entryZone": "153.05 – 153.15",
+    "stopLoss": "152.80",
+    "stopLossPips": 25,
+    "targets": [
+      "153.60",
+      "153.95",
+      "154.40"
+    ],
+    "riskReward": "1:2.2",
+    "invalidation": "1H 收盘跌破 152.95",
+    "risk": "medium"
+  },
+  "deepseek_advice": {
+    "ok": true,
+    "model": "deepseek-v4-flash",
+    "advice": {
+      "marketSummary": "日元利差套利情绪持续，技术面 153.20 突破后短期动能偏强",
+      "bullCase": "M15/H1 共振突破，RSI 回踩到 50 后转强",
+      "bearCase": "D1 上方仍有 154.50 阻力，持仓拥挤",
+      "newsRisk": "12 小时内无 USD/JPY 高影响事件",
+      "sentimentPositioning": "机构持仓偏多，散户偏空（逆向信号 +）"
+    }
+  }
+}

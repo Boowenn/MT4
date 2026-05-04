@@ -60,9 +60,9 @@ class NotifyServiceTests(unittest.TestCase):
         result = asyncio.run(send_ai_analysis_summary(report, config=cfg, dry_run=True))
         text = result["record"]["text"]
         self.assertIn("XAUUSDc", text)
-        self.assertIn("SELL", text)
+        self.assertIn("做空", text)  # Chinese renderer output
         self.assertIn("62%", text)
-        self.assertIn("medium", text)
+        self.assertIn("中", text)  # Chinese risk label for "medium"
 
     def test_daily_digest_counts_close_history_and_shadow(self) -> None:
         (self.runtime / "QuantGod_CloseHistory.csv").write_text("Ticket,Profit\n1,0.45\n2,-0.20\n", encoding="utf-8")

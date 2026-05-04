@@ -190,6 +190,12 @@ async function handleVibe(req, res, ctx, endpoint) {
     const payload = await runPythonWithPayload(repoRoot, [script, 'generate'], body, env, 60000);
     return sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: payload.safety || PHASE3_API_SAFETY });
   }
+  if (endpoint === '/api/vibe-coding/import-library') {
+    if (method !== 'POST') return sendError(res, 405, endpoint, 'POST required');
+    const body = await readJsonBody(req);
+    const payload = await runPythonWithPayload(repoRoot, [script, 'import-library'], body, env, 60000);
+    return sendJson(res, payload.ok === false ? 500 : 200, { ...payload, endpoint, safety: payload.safety || PHASE3_API_SAFETY });
+  }
   if (endpoint === '/api/vibe-coding/iterate') {
     if (method !== 'POST') return sendError(res, 405, endpoint, 'POST required');
     const body = await readJsonBody(req);

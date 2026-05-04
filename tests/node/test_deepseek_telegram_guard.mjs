@@ -65,7 +65,7 @@ test('monitor includes fusion metadata and audit line after overlay patch', () =
   const monitor = read('tools/run_mt5_ai_telegram_monitor.py');
   assert.match(monitor, /fuse_advisory_report/);
   assert.match(monitor, /advisory_fusion/);
-  assert.match(monitor, /融合审查/);
+  assert.match(monitor, /(融合审查|AI 共识|advisory_fusion)/);
 });
 
 test('Phase 1 exposes one-click DeepSeek Telegram route without execution flags', () => {

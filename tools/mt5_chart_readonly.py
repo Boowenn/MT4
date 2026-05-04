@@ -177,18 +177,34 @@ def _read_signal_file(path: Path, source_name: str, symbol: str, cutoff: datetim
                 row_symbol = _first(raw, "Symbol", "symbol", "BrokerSymbol", "brokerSymbol")
                 if row_symbol and row_symbol.upper() != symbol.upper():
                     continue
-                event_time = _parse_time(_first(raw, "EventTimeIso", "TimeIso", "Timestamp", "Time"))
-                if event_time and event_time < cutoff:
+                time_key, time_value = _first_pair(
+                    raw,
+                    "EventTimeIso",
+                    "TimeIso",
+                    "Timestamp",
+                    "Time",
+                    "LabelTimeLocal",
+                    "LabelTimeServer",
+                    "OutcomeLabelTimeLocal",
+                    "OutcomeLabelTimeServer",
+                    "EventTimeServer",
+                    "EventBarTime",
+                )
+                event_time = _parse_time(time_value, assume_local="LOCAL" in time_key.upper())
+                if not event_time:
+                    continue
+                if event_time < cutoff:
                     continue
                 rows.append(
                     {
                         "source": source_name,
+                        "id": _first(raw, "EventId", "eventId", "Id", "id"),
                         "symbol": row_symbol or symbol,
                         "route": _first(raw, "Strategy", "Route", "CandidateRoute", "route") or "UNKNOWN",
-                        "side": _normalize_side(_first(raw, "Side", "SignalSide", "Direction", "Type")),
-                        "signal": _first(raw, "Signal", "Decision", "Status", "Action") or "UNKNOWN",
+                        "side": _normalize_side(_first(raw, "Side", "SignalSide", "SignalDirection", "CandidateDirection", "Direction", "Type")),
+                        "signal": _first(raw, "Signal", "Decision", "SignalStatus", "Status", "ExecutionAction", "Action") or "UNKNOWN",
                         "price": _float_or_none(_first(raw, "Price", "EntryPrice", "Close", "Bid", "Ask")),
-                        "timeIso": event_time.isoformat().replace("+00:00", "Z") if event_time else None,
+                        "timeIso": event_time.isoformat().replace("+00:00", "Z"),
                         "blockedReason": _first(raw, "BlockedReason", "BlockReason", "Reason"),
                         "raw": _compact_raw(raw),
                     }
@@ -237,7 +253,24 @@ def _first(row: dict[str, Any], *keys: str) -> str:
     return ""
 
 
-def _parse_time(value: str) -> datetime | None:
+def _first_pair(row: dict[str, Any], *keys: str) -> tuple[str, str]:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip() != "":
+            return key, str(value).strip()
+    return "", ""
+
+
+def _coerce_tz(dt: datetime, assume_local: bool) -> datetime:
+    if dt.tzinfo:
+        return dt.astimezone(timezone.utc)
+    if assume_local:
+        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+        return dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
+    return dt.replace(tzinfo=timezone.utc)
+
+
+def _parse_time(value: str, assume_local: bool = False) -> datetime | None:
     text = str(value or "").strip()
     if not text:
         return None
@@ -245,7 +278,19 @@ def _parse_time(value: str) -> datetime | None:
     for candidate in candidates:
         try:
             dt = datetime.fromisoformat(candidate)
-            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return _coerce_tz(dt, assume_local)
+        except ValueError:
+            continue
+    for fmt in (
+        "%Y.%m.%d %H:%M:%S",
+        "%Y.%m.%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+    ):
+        try:
+            return _coerce_tz(datetime.strptime(text, fmt), assume_local)
         except ValueError:
             continue
     return None

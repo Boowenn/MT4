@@ -1,0 +1,6 @@
+{
+  "_event_type": "KILL_SWITCH",
+  "reason": "daily_drawdown_exceeded",
+  "pnl": -420.5,
+  "recovery": "手动复核 + 第二日 09:00 重置"
+}

@@ -1,0 +1,19 @@
+{
+  "symbol": "EURUSDc",
+  "timeframe": "H1",
+  "decision": {
+    "action": "SELL",
+    "confidence": 0.68,
+    "signalGrade": "B 级",
+    "entryZone": "1.0850 – 1.0860",
+    "stopLoss": "1.0890",
+    "stopLossPips": 30,
+    "targets": [
+      "1.0800",
+      "1.0750"
+    ],
+    "riskReward": "1:1.8",
+    "invalidation": "H1 收盘突破 1.0890",
+    "risk": "high"
+  }
+}
