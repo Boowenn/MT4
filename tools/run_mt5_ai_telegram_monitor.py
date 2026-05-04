@@ -44,9 +44,10 @@ from telegram_notifier.safety import (  # noqa: E402
 )
 
 MODE = "QUANTGOD_MT5_AI_TELEGRAM_MONITOR_V1"
-DEFAULT_SYMBOLS = "USDJPYc,EURUSDc,XAUUSDc"
+DEFAULT_SYMBOLS = "USDJPYc"
 DEFAULT_TIMEFRAMES = "M15,H1,H4,D1"
 DEFAULT_MIN_INTERVAL_SECONDS = 15 * 60
+DEFAULT_MIN_CONFIDENCE_PCT = 70.0
 
 
 def utc_now_iso() -> str:
@@ -177,6 +178,31 @@ def event_signature(report: dict[str, Any]) -> str:
     }
     raw = json.dumps(seed, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _confidence_to_pct(value: Any) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return numeric * 100.0 if numeric <= 1.0 else numeric
+
+
+def unsafe_advisory_message_reason(message: str) -> str | None:
+    """Last-resort block for fake/stale text before Telegram delivery."""
+    text = str(message or "").lower()
+    blocked_patterns = (
+        ("mock decision", "mock_decision_text"),
+        ("mock_fallback", "mock_fallback_text"),
+        ("fallback evidence", "fallback_evidence_text"),
+        ("runtime_files_missing_or_stale", "stale_runtime_text"),
+        ("运行快照不新鲜", "stale_runtime_text"),
+        ("回退模式", "fallback_evidence_text"),
+    )
+    for needle, reason in blocked_patterns:
+        if needle in text:
+            return reason
+    return None
 
 
 def fmt_value(value: Any, fallback: str = "--") -> str:
@@ -538,6 +564,47 @@ def should_notify(state: dict[str, Any], *, symbol: str, signature: str, now_epo
     return False, f"dedup_wait_{remaining}s"
 
 
+def advisory_push_gate(report: dict[str, Any], *, min_confidence_pct: float = DEFAULT_MIN_CONFIDENCE_PCT) -> tuple[bool, str]:
+    """Return whether a report is allowed to become a Telegram advisory push.
+
+    This gate is intentionally stricter than the renderer. It prevents fallback,
+    mock, stale, or non-validated AI output from being formatted as a live-looking
+    advisory. The notification remains advisory-only even when this passes.
+    """
+    source = summarize_source(report)
+    if bool(source.get("fallback")):
+        return False, "fallback_evidence"
+    if not bool(source.get("runtimeFresh")):
+        return False, "runtime_not_fresh"
+    if bool(source.get("killSwitchActive")):
+        return False, "kill_switch_active"
+    if str(source.get("riskLevel") or "unknown").lower() in {"high", "critical"}:
+        return False, "risk_too_high"
+
+    decision = decision_summary(report)
+    action = str(decision.get("action") or "HOLD").upper()
+    if action not in {"BUY", "SELL"}:
+        return False, "action_hold"
+
+    confidence = _confidence_to_pct(decision.get("confidence"))
+    if confidence < float(min_confidence_pct):
+        return False, f"confidence_below_{float(min_confidence_pct):.0f}"
+
+    deepseek = report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {}
+    validation = deepseek.get("validation") if isinstance(deepseek.get("validation"), dict) else {}
+    if not deepseek.get("ok"):
+        return False, "deepseek_not_available"
+    if validation.get("status") != "pass":
+        return False, f"deepseek_validation_{validation.get('status') or 'unknown'}"
+
+    fusion = report.get("advisory_fusion") if isinstance(report.get("advisory_fusion"), dict) else {}
+    final_action = str(fusion.get("finalAction") or "HOLD").upper()
+    expected = "WATCH_LONG" if action == "BUY" else "WATCH_SHORT"
+    if final_action != expected:
+        return False, f"fusion_{final_action.lower()}"
+    return True, "passed"
+
+
 def update_state(state: dict[str, Any], *, symbol: str, signature: str, status: str, reason: str, report: dict[str, Any], now_iso: str) -> dict[str, Any]:
     out = dict(state)
     out["mode"] = MODE
@@ -625,7 +692,7 @@ def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
     source = summarize_source(report)
     symbol = str(report.get("symbol") or "UNKNOWN")
 
-    # ── entryZone: prefer DeepSeek's opinion, fall back to entry price ─
+    # ── entryZone: prefer DeepSeek's validated opinion, fall back to entry price ─
     ds_advice_raw = report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {}
     ds_advice = (ds_advice_raw.get("advice") or {}) if ds_advice_raw.get("ok") else {}
     entry_zone = ds_advice.get("entryZone") or fmt_price(decision.get("entryPrice"))
@@ -633,8 +700,8 @@ def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
 
     # ── stopLossPips: compute if not explicitly provided ─
     stop_loss_pips = decision.get("stopLossPips")
+    stop_loss = decision.get("stopLoss") or decision.get("stop_loss") or ds_advice.get("defense") or ds_advice.get("stopLoss")
     if stop_loss_pips is None:
-        stop_loss = decision.get("stopLoss") or decision.get("stop_loss")
         if entry_price is not None and stop_loss is not None:
             try:
                 pip_size = _compute_pip_size(symbol)
@@ -646,9 +713,8 @@ def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
     # ── targets: try multi-target fields, then DeepSeek, then single ──
     targets = _extract_targets(decision, ds_advice)
 
-    # ── stopLoss: use fmt_price for precision ─
-    stop_loss = decision.get("stopLoss") or decision.get("stop_loss")
-    stop_loss_str = fmt_price(stop_loss) if stop_loss is not None else "--"
+    # ── stopLoss: keep AI-provided string precision, e.g. 1.0980 ─
+    stop_loss_str = _format_target(stop_loss) if stop_loss is not None else "--"
 
     # Core fields used by ai_advisory / deepseek_insight
     payload: dict[str, Any] = {
@@ -658,13 +724,13 @@ def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
         "decision": {
             "action": decision.get("action", "HOLD"),
             "confidence": decision.get("confidence", 0),
-            "signalGrade": signal_grade(decision, source),
+            "signalGrade": ds_advice.get("signalGrade") or signal_grade(decision, source),
             "entryZone": entry_zone,
             "stopLoss": stop_loss_str,
             "stopLossPips": stop_loss_pips,
             "targets": targets,
-            "riskReward": decision.get("riskRewardRatio") or "--",
-            "invalidation": str(decision.get("reasoning") or "等待确认")[:80],
+            "riskReward": ds_advice.get("riskReward") or decision.get("riskRewardRatio") or "--",
+            "invalidation": str(ds_advice.get("invalidation") or decision.get("reasoning") or "等待确认")[:80],
             "risk": source.get("riskLevel", "unknown"),
         },
     }
@@ -687,17 +753,23 @@ def _extract_targets(decision: dict[str, Any], ds_advice: dict[str, Any] | None 
     for key in ("takeProfitTargets", "targets", "tp_levels"):
         vals = decision.get(key)
         if isinstance(vals, list) and vals:
-            return [fmt_price(v) for v in vals[:3]]
+            return [_format_target(v) for v in vals[:3]]
     # 2) DeepSeek advice targets
     if ds_advice:
         ds_targets = ds_advice.get("targets")
         if isinstance(ds_targets, list) and ds_targets:
-            return [fmt_price(t) for t in ds_targets[:3]]
+            return [_format_target(t) for t in ds_targets[:3]]
     # 3) Single target fallback
     tp = decision.get("takeProfit") or decision.get("take_profit")
     if tp is not None:
-        return [fmt_price(tp)]
+        return [_format_target(tp)]
     return []
+
+
+def _format_target(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return fmt_price(value)
 
 
 def send_or_record(args: argparse.Namespace, *, message: str, event_type: str, dry_run: bool) -> dict[str, Any]:
@@ -706,6 +778,14 @@ def send_or_record(args: argparse.Namespace, *, message: str, event_type: str, d
         message = ensure_chinese_telegram_text(message)
     except Exception:
         pass
+    unsafe_reason = unsafe_advisory_message_reason(message)
+    if unsafe_reason:
+        return {
+            "ok": True,
+            "status": "blocked_unsafe_message",
+            "reason": unsafe_reason,
+            "safety": monitor_safety(),
+        }
     config = load_config(repo_root=args.repo_root, env_file=args.env_file)
     assert_telegram_safety(config)
     require_token(config)
@@ -765,6 +845,25 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
         delivery: dict[str, Any] = {"ok": True, "status": "skipped", "reason": reason}
         status = "skipped"
         if should_send:
+            gate_ok, gate_reason = advisory_push_gate(report, min_confidence_pct=float(args.min_confidence_pct))
+            if not gate_ok:
+                status = "skipped_hold" if gate_reason == "action_hold" else "skipped_gate"
+                delivery = {"ok": True, "status": status, "reason": gate_reason}
+                items.append(
+                    {
+                        "symbol": symbol,
+                        "signature": signature,
+                        "shouldNotify": should_send,
+                        "reason": reason,
+                        "delivery": delivery,
+                        "decision": decision_summary(report),
+                        "source": summarize_source(report),
+                        "deepseek": report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {},
+                        "fusion": report.get("advisory_fusion") if isinstance(report.get("advisory_fusion"), dict) else {},
+                    }
+                )
+                state = update_state(state, symbol=symbol, signature=signature, status=status, reason=gate_reason, report=report, now_iso=now_iso)
+                continue
             kind = getattr(args, "kind", "ai_advisory") or "ai_advisory"
             payload = _build_render_payload(report)
             message = render(kind, payload)
@@ -837,12 +936,14 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
 
 
 async def run_loop(args: argparse.Namespace) -> dict[str, Any]:
-    cycles = max(1, int(args.cycles))
+    cycles = int(args.cycles)
     interval = max(1, int(args.interval_seconds))
     runs: list[dict[str, Any]] = []
-    for index in range(cycles):
+    index = 0
+    while cycles <= 0 or index < cycles:
         runs.append(await scan_once(args))
-        if index < cycles - 1:
+        index += 1
+        if cycles <= 0 or index < cycles:
             await asyncio.sleep(interval)
     return {"ok": True, "mode": MODE, "cycles": cycles, "runs": runs, "safety": monitor_safety()}
 
@@ -858,6 +959,7 @@ def add_common_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state-file", default="", help="Optional monitor state JSON path")
     parser.add_argument("--min-interval-seconds", type=int, default=DEFAULT_MIN_INTERVAL_SECONDS, help="Minimum interval before repeating unchanged advisory")
     parser.add_argument("--force", action="store_true", help="Bypass dedupe for this run")
+    parser.add_argument("--min-confidence-pct", type=float, default=DEFAULT_MIN_CONFIDENCE_PCT, help="Minimum local AI confidence required before Telegram push")
     parser.add_argument("--send", action="store_true", help="Actually send Telegram push. Default records dry-run evidence only.")
     parser.add_argument("--disable-notification", action="store_true", help="Send silently when --send is used")
     parser.add_argument("--no-record", action="store_true", help="Do not write notification evidence to SQLite")
@@ -866,7 +968,7 @@ def add_common_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-file", type=Path, default=None, help="Local .env.telegram.local path")
     parser.add_argument("--deepseek-env-file", type=Path, default=None, help="Local .env.deepseek.local path")
     parser.add_argument("--no-deepseek", action="store_true", help="Skip DeepSeek advisory call and use local fallback text")
-    parser.add_argument("--kind", default="ai_advisory", choices=["ai_advisory", "deepseek_insight"], help="Message renderer kind. ai_advisory for local AI, deepseek_insight for DeepSeek-powered insights.")
+    parser.add_argument("--kind", default="deepseek_insight", choices=["ai_advisory", "deepseek_insight"], help="Message renderer kind. deepseek_insight is the default for DeepSeek-powered Chinese reports.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -879,7 +981,7 @@ def build_parser() -> argparse.ArgumentParser:
     once.set_defaults(func=scan_once)
     loop = sub.add_parser("loop", help="Run a bounded polling loop")
     add_common_scan_args(loop)
-    loop.add_argument("--cycles", type=int, default=3, help="Number of cycles to run")
+    loop.add_argument("--cycles", type=int, default=3, help="Number of cycles to run; use 0 for a continuous event-driven monitor")
     loop.add_argument("--interval-seconds", type=int, default=60, help="Delay between cycles")
     loop.set_defaults(func=run_loop)
     return parser

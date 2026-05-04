@@ -219,13 +219,13 @@ class RuntimeBridgeReader:
                     "ask": item.get("ask"),
                     "last": item.get("last") or item.get("price"),
                     "spread": item.get("spread") or item.get("spreadPoints"),
-                    "timeIso": item.get("timeIso") or dashboard.get("generatedAt") or dashboard.get("generatedAtIso"),
+                    "timeIso": item.get("timeIso") or _dashboard_timestamp(dashboard),
                 }
                 return _with_dashboard_defaults(
                     {
                         "schema": RUNTIME_SNAPSHOT_SCHEMA,
                         "source": "dashboard_runtime",
-                        "generatedAt": dashboard.get("generatedAt") or dashboard.get("generatedAtIso"),
+                        "generatedAt": _dashboard_timestamp(dashboard),
                         "symbol": symbol,
                         "current_price": price,
                         "symbol_info": item.get("symbolInfo") or item,
@@ -245,10 +245,22 @@ def _with_dashboard_defaults(snapshot: dict[str, Any], dashboard: dict[str, Any]
     out = dict(snapshot)
     out.setdefault("schema", RUNTIME_SNAPSHOT_SCHEMA)
     out.setdefault("source", "dashboard_runtime")
-    out.setdefault("generatedAt", dashboard.get("generatedAt") or dashboard.get("generatedAtIso"))
+    out.setdefault("generatedAt", _dashboard_timestamp(dashboard))
     out.setdefault("symbol", symbol)
     out.setdefault("safety", bridge_safety_payload() | {"readOnly": True})
     return out
+
+
+def _dashboard_timestamp(dashboard: dict[str, Any]) -> Any:
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    return (
+        dashboard.get("generatedAt")
+        or dashboard.get("generatedAtIso")
+        or runtime.get("gmtTime")
+        or runtime.get("serverTime")
+        or dashboard.get("timestamp")
+        or runtime.get("localTime")
+    )
 
 
 def _redact_snapshot(item: dict[str, Any]) -> dict[str, Any]:

@@ -79,6 +79,31 @@ class Mt5RuntimeBridgeTests(unittest.TestCase):
             self.assertIn("kline_m15", snapshot)
             self.assertNotEqual(snapshot["kline_m15"][0].get("source"), "mock_fallback")
 
+    def test_dashboard_embedded_runtime_uses_hfm_gmt_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            dashboard = {
+                "timestamp": "2026.05.04 20:00:00",
+                "runtime": {"gmtTime": "2026.05.04 11:00:00", "localTime": "2026.05.04 20:00:00"},
+                "symbols": [
+                    {
+                        "symbol": "USDJPYc",
+                        "bid": 157.09,
+                        "ask": 157.12,
+                        "spread": 3.0,
+                        "tradeMode": "FULL",
+                    }
+                ],
+            }
+            path = Path(tmp_dir) / "QuantGod_Dashboard.json"
+            path.write_text(json.dumps(dashboard), encoding="utf-8")
+            reader = RuntimeBridgeReader(tmp_dir, max_age_seconds=0)
+            payload = reader.collect_for_ai_snapshot("USDJPYc", ["M15"])
+
+            self.assertFalse(payload["fallback"], payload)
+            self.assertEqual(payload["source"], "dashboard_runtime")
+            self.assertTrue(payload["runtimeFresh"])
+            self.assertEqual(payload["current_price"]["timeIso"], "2026.05.04 11:00:00")
+
 
 if __name__ == "__main__":
     unittest.main()

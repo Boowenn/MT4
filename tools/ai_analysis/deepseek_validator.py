@@ -179,6 +179,19 @@ def advice_text_blob(advice: dict[str, Any]) -> str:
 
 def _remove_safe_negated_phrases(text: str) -> str:
     out = text
+    # Safety boundary text often uses compact Chinese lists, for example:
+    # "不会下单、平仓、撤单、修改实盘或解除熔断". After replacing only
+    # "不会下单", the remaining list items would look executable. Remove the
+    # whole negated clause so the validator still catches real instructions but
+    # does not punish explicit "will not execute" wording.
+    out = re.sub(
+        r"(?:不|不会|不得|禁止|不能)[^。；;.!?\n]{0,80}"
+        r"(?:下单|开仓|平仓|撤单|执行交易|修改实盘|修改实盘参数|解除熔断|绕过风控)"
+        r"[^。；;.!?\n]{0,80}",
+        " ",
+        out,
+        flags=re.IGNORECASE,
+    )
     for phrase in SAFE_NEGATED_EXECUTION_PHRASES:
         out = out.replace(phrase, " ")
         out = out.replace(phrase.upper(), " ")

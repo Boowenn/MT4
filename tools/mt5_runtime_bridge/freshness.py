@@ -38,6 +38,11 @@ def parse_timestamp(value: Any) -> datetime | None:
             return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
         except ValueError:
             continue
+    for pattern in ("%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M"):
+        try:
+            return datetime.strptime(text, pattern).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
     return None
 
 

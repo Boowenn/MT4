@@ -84,6 +84,14 @@ class DeepSeekValidatorTests(unittest.TestCase):
         self.assertIn("execution_language_detected", result["reasons"])
         self.assertEqual(result["effectiveAdvice"]["verdict"], "观望，不开新仓")
 
+    def test_negated_execution_boundary_is_not_rejected(self) -> None:
+        report = base_report(fallback=False, runtime_fresh=True, action="BUY")
+        payload = good_deepseek("偏多观察，等待程序风控确认")
+        payload["advice"]["executionBoundary"] = "仅作建议；不会下单、平仓、撤单、修改实盘或解除熔断。"
+        result = validate_deepseek_advice(report, payload)
+        self.assertEqual(result["status"], "pass")
+        self.assertNotIn("execution_language_detected", result["reasons"])
+
     def test_local_and_deepseek_direction_conflict_forces_hold(self) -> None:
         report = base_report(fallback=False, runtime_fresh=True, action="BUY")
         payload = good_deepseek("偏空观察，等待确认")

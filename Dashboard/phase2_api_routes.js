@@ -489,9 +489,13 @@ async function handleNotify(req, res, ctx, endpoint) {
     const symbols = String(body.symbols || '').trim();
     const timeframes = String(body.timeframes || '').trim();
     const minInterval = Number.parseInt(String(body.minIntervalSeconds || body.min_interval_seconds || ''), 10);
+    const minConfidence = Number.parseInt(String(body.minConfidencePct || body.min_confidence_pct || ''), 10);
     if (symbols) args.push('--symbols', symbols);
     if (timeframes) args.push('--timeframes', timeframes);
     if (Number.isFinite(minInterval) && minInterval >= 0) args.push('--min-interval-seconds', String(minInterval));
+    if (Number.isFinite(minConfidence) && minConfidence >= 1 && minConfidence <= 100) {
+      args.push('--min-confidence-pct', String(minConfidence));
+    }
     if (body.send === true && body.dryRun !== true && body.dry_run !== true) args.push('--send');
     if (body.disableNotification === true || body.disable_notification === true) args.push('--disable-notification');
     if (body.noDeepseek === true || body.no_deepseek === true) args.push('--no-deepseek');

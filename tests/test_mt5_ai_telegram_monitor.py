@@ -81,6 +81,15 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertFalse(safety["telegramCommandExecutionAllowed"])
         self.assertFalse(safety["livePresetMutationAllowed"])
 
+    def test_default_symbol_universe_is_live_usdjpy_only(self) -> None:
+        self.assertEqual(monitor.DEFAULT_SYMBOLS, "USDJPYc")
+
+    def test_send_layer_blocks_mock_message_text(self) -> None:
+        self.assertEqual(
+            monitor.unsafe_advisory_message_reason("失效条件：mock decision"),
+            "mock_decision_text",
+        )
+
     def test_advisory_message_hold_returns_none(self) -> None:
         """HOLD decisions must return None (suppressed push)."""
         payload = monitor._build_render_payload(sample_report())
@@ -210,6 +219,51 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
                 json.loads(state.read_text())["symbols"]["USDJPYc"]["status"],
                 "skipped_hold",
             )
+
+    def test_buy_with_untrusted_evidence_is_not_pushed(self) -> None:
+        report = sample_report("EURUSDc")
+        report["decision"]["action"] = "BUY"
+        report["decision"]["confidence"] = 0.88
+        report["snapshot"]["runtimeFresh"] = False
+        ok, reason = monitor.advisory_push_gate(report)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "runtime_not_fresh")
+
+    def test_buy_requires_real_deepseek_validation(self) -> None:
+        report = sample_report("EURUSDc")
+        report["decision"]["action"] = "BUY"
+        report["decision"]["confidence"] = 0.88
+        report["deepseek_advice"] = {"ok": False, "status": "missing_api_key"}
+        ok, reason = monitor.advisory_push_gate(report)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "deepseek_not_available")
+
+    def test_confident_validated_report_passes_push_gate(self) -> None:
+        report = sample_report("EURUSDc")
+        report["decision"]["action"] = "BUY"
+        report["decision"]["confidence"] = 0.82
+        report["deepseek_advice"] = {
+            "ok": True,
+            "status": "ok",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "validation": {"status": "pass"},
+            "advice": {
+                "entryZone": "1.1010 - 1.1020",
+                "targets": ["1.1040", "1.1060", "1.1080"],
+                "defense": "1.0980",
+                "riskReward": "1:2.0",
+                "invalidation": "跌破 1.0980 后失效",
+            },
+        }
+        report["advisory_fusion"] = {"finalAction": "WATCH_LONG", "agreement": "local_and_deepseek_compatible"}
+        ok, reason = monitor.advisory_push_gate(report, min_confidence_pct=70)
+        self.assertTrue(ok, reason)
+        payload = monitor._build_render_payload(report)
+        self.assertEqual(payload["decision"]["entryZone"], "1.1010 - 1.1020")
+        self.assertEqual(payload["decision"]["targets"], ["1.1040", "1.1060", "1.1080"])
+        self.assertEqual(payload["decision"]["stopLoss"], "1.0980")
+        self.assertEqual(payload["decision"]["riskReward"], "1:2.0")
 
     def test_build_render_payload_extracts_decision_fields(self) -> None:
         """_build_render_payload correctly maps report fields to renderer payload."""

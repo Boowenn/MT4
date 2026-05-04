@@ -299,6 +299,7 @@ async function handle(req, res, ctx = {}) {
       const force = boolValue(body.force ?? url.searchParams.get('force'), true);
       const noDeepseek = boolValue(body.noDeepseek ?? url.searchParams.get('noDeepseek'), false);
       const minInterval = intInRange(body.minIntervalSeconds ?? url.searchParams.get('minIntervalSeconds'), force ? 0 : 900, 0, 86400);
+      const minConfidence = intInRange(body.minConfidencePct ?? url.searchParams.get('minConfidencePct'), 70, 1, 100);
       const args = [
         path.join('tools', 'run_mt5_ai_telegram_monitor.py'),
         'scan-once',
@@ -310,6 +311,8 @@ async function handle(req, res, ctx = {}) {
         timeframes,
         '--min-interval-seconds',
         String(minInterval),
+        '--min-confidence-pct',
+        String(minConfidence),
       ];
       if (sendTelegram) args.push('--send');
       if (force) args.push('--force');
