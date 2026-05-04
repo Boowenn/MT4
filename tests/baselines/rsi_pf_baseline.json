@@ -1,0 +1,13 @@
+{
+  "_schema": "quantgod.rsi_baseline.v1",
+  "_description": "Last accepted RSI backtest performance baseline. Update only when intentionally improving params.",
+  "min_profit_factor": 0.85,
+  "min_win_rate_pct": 40.0,
+  "max_drawdown_usc": 80.0,
+  "last_updated": "2026-05-04",
+  "params_snapshot": {
+    "PilotRsiPeriod": 2,
+    "PilotRsiOverbought": 85,
+    "PilotRsiOversold": 15
+  }
+}

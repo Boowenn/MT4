@@ -379,6 +379,17 @@ int g_usdTrackedEventKinds[];
 int g_usdTrackedEventImportance[];
 NewsFilterState g_newsState;
 datetime g_lastNewsRefresh = 0;
+datetime g_lastFullExport = 0;
+datetime g_lastPilotTick = 0;
+
+struct TradeRetryState
+{
+   int      consecutiveFailures;
+   datetime lastFailureAt;
+   int      blockedUntilUnix;
+};
+TradeRetryState g_tradeRetryState;
+
 datetime g_pilotStartupTime = 0;
 datetime g_pilotStartupLocalTime = 0;
 datetime g_pilotStartupH1BarTime = 0;
@@ -3678,6 +3689,14 @@ bool ProcessLegacyPilotRoute(string strategyKey, string symbol, int symbolIndex,
    return true;
 }
 
+bool ShouldRetryRetcode(uint retcode)
+{
+   return retcode == TRADE_RETCODE_REQUOTE
+       || retcode == TRADE_RETCODE_TIMEOUT
+       || retcode == TRADE_RETCODE_CONNECTION
+       || retcode == TRADE_RETCODE_PRICE_OFF;
+}
+
 bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice, string strategyKey)
 {
    if(!IsPilotLiveMode())
@@ -3727,28 +3746,83 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
    g_trade.SetDeviationInPoints(PilotDeviationPoints);
    g_trade.SetTypeFillingBySymbol(symbol);
 
-   bool ok = false;
-   string comment = PilotTradeComment(strategyKey, direction);
-   if(direction > 0)
-      ok = g_trade.Buy(volume, symbol, 0.0, slPrice, tpPrice, comment);
-   else if(direction < 0)
-      ok = g_trade.Sell(volume, symbol, 0.0, slPrice, tpPrice, comment);
-
-   if(!ok || (g_trade.ResultRetcode() != TRADE_RETCODE_DONE && g_trade.ResultRetcode() != TRADE_RETCODE_PLACED))
+   // Clamp SL to PilotMaxFloatingLossUSC (broker-side sentinel)
+   double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickSize > 0 && tickValue > 0 && PilotLotSize > 0 && slPrice > 0)
    {
-      Print("QuantGod MT5 pilot order failed: symbol=", symbol,
-            " dir=", direction, " retcode=", g_trade.ResultRetcode(),
-            " comment=", g_trade.ResultComment());
+      double entryPrice = (direction > 0) ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
+      double maxLossPriceDist = (PilotMaxFloatingLossUSC / (PilotLotSize * tickValue)) * tickSize;
+      if(maxLossPriceDist > 0)
+      {
+         if(direction > 0)
+         {
+            double hardFloor = entryPrice - maxLossPriceDist;
+            if(slPrice < hardFloor) slPrice = hardFloor;
+         }
+         else
+         {
+            double hardCeiling = entryPrice + maxLossPriceDist;
+            if(slPrice > hardCeiling) slPrice = hardCeiling;
+         }
+      }
+   }
+
+   // Circuit breaker check
+   if(TimeCurrent() < g_tradeRetryState.blockedUntilUnix)
+   {
+      Print("QuantGod MT5 pilot order blocked: circuit breaker active until ",
+            TimeToString(g_tradeRetryState.blockedUntilUnix));
       return false;
    }
 
-   Print("QuantGod MT5 pilot order sent: strategy=", strategyKey,
-         " symbol=", symbol,
-         " dir=", direction > 0 ? "BUY" : "SELL",
-         " volume=", DoubleToString(volume, 2),
-         " sl=", DoubleToString(slPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
-         " tp=", DoubleToString(tpPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)));
-   return true;
+   string comment = PilotTradeComment(strategyKey, direction);
+   for(int attempt = 0; attempt < 3; attempt++)
+   {
+      bool ok = false;
+      if(direction > 0)
+         ok = g_trade.Buy(volume, symbol, 0.0, slPrice, tpPrice, comment);
+      else if(direction < 0)
+         ok = g_trade.Sell(volume, symbol, 0.0, slPrice, tpPrice, comment);
+
+      uint retcode = g_trade.ResultRetcode();
+      if(ok && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_PLACED))
+      {
+         g_tradeRetryState.consecutiveFailures = 0;
+         Print("QuantGod MT5 pilot order sent: strategy=", strategyKey,
+               " symbol=", symbol,
+               " dir=", direction > 0 ? "BUY" : "SELL",
+               " volume=", DoubleToString(volume, 2),
+               " sl=", DoubleToString(slPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
+               " tp=", DoubleToString(tpPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
+               " attempt=", attempt + 1);
+         return true;
+      }
+
+      if(!ShouldRetryRetcode(retcode))
+      {
+         Print("QuantGod MT5 pilot order failed (permanent): symbol=", symbol,
+               " dir=", direction, " retcode=", retcode,
+               " comment=", g_trade.ResultComment());
+         return false;
+      }
+
+      Sleep(500 * (attempt + 1));
+   }
+
+   g_tradeRetryState.consecutiveFailures++;
+   g_tradeRetryState.lastFailureAt = TimeCurrent();
+   Print("QuantGod MT5 pilot order failed after 3 retries: symbol=", symbol,
+         " dir=", direction, " retcode=", g_trade.ResultRetcode(),
+         " consecutiveFailures=", g_tradeRetryState.consecutiveFailures);
+
+   if(g_tradeRetryState.consecutiveFailures >= 3)
+   {
+      g_tradeRetryState.blockedUntilUnix = TimeCurrent() + 5 * 60;
+      Print("ALERT: Trade failed ", g_tradeRetryState.consecutiveFailures,
+            " times in a row. Circuit breaker engaged for 5 minutes.");
+   }
+   return false;
 }
 
 void ClosePilotPositions(const string reason)
@@ -6123,12 +6197,95 @@ void ExportDashboard()
    UpdateShadowChartComment(tradeStatus, connected, accountLogin);
 }
 
+void ReconcileExistingPilotPositions()
+{
+   int total = PositionsTotal();
+   int reconciled = 0;
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      string comment = PositionGetString(POSITION_COMMENT);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      if(!IsPilotManagedPosition(comment, magic)) continue;
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      string strategyKey = "";
+      if(StringFind(comment, "RSI_Reversal") >= 0) strategyKey = "RSI_Reversal";
+      else if(StringFind(comment, "BB_Triple") >= 0) strategyKey = "BB_Triple";
+      else if(StringFind(comment, "MACD_Divergence") >= 0) strategyKey = "MACD_Divergence";
+      else if(StringFind(comment, "SR_Breakout") >= 0) strategyKey = "SR_Breakout";
+      else if(StringFind(comment, "MA_Cross") >= 0) strategyKey = "MA_Cross";
+
+      datetime barOpen = iTime(symbol, PERIOD_H1, 0);
+      int idx = FindSymbolIndex(symbol);
+      if(idx < 0) continue;
+      if(strategyKey == "RSI_Reversal" && barOpen > 0 && idx < ArraySize(g_lastRsiPilotBarTime))
+         g_lastRsiPilotBarTime[idx] = barOpen;
+      else if(strategyKey == "BB_Triple" && barOpen > 0 && idx < ArraySize(g_lastBBPilotBarTime))
+         g_lastBBPilotBarTime[idx] = barOpen;
+      else if(strategyKey == "MACD_Divergence" && barOpen > 0 && idx < ArraySize(g_lastMacdPilotBarTime))
+         g_lastMacdPilotBarTime[idx] = barOpen;
+      else if(strategyKey == "SR_Breakout" && barOpen > 0 && idx < ArraySize(g_lastSRPilotBarTime))
+         g_lastSRPilotBarTime[idx] = barOpen;
+      reconciled++;
+   }
+   if(reconciled > 0)
+      Print("QuantGod reconcile: adopted ", reconciled, " existing pilot positions");
+}
+
+void ReconcileConsecutiveLossesFromHistory()
+{
+   datetime todayStart = iTime(_Symbol, PERIOD_D1, 0);
+   if(todayStart <= 0) return;
+   HistorySelect(todayStart, TimeCurrent());
+   int total = HistoryDealsTotal();
+   int consecutiveLosses = 0;
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(HistoryDealGetInteger(dealTicket, DEAL_MAGIC) != PilotMagic) continue;
+      if(HistoryDealGetInteger(dealTicket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+      if(profit < 0)
+         consecutiveLosses++;
+      else
+         break;
+   }
+   g_pilotConsecutiveLosses = consecutiveLosses;
+   if(consecutiveLosses > 0)
+      Print("QuantGod reconcile: restored consecutiveLosses=", consecutiveLosses, " from history");
+}
+
+void ReconcileDailyRealizedLossFromHistory()
+{
+   datetime todayStart = iTime(_Symbol, PERIOD_D1, 0);
+   if(todayStart <= 0) return;
+   HistorySelect(todayStart, TimeCurrent());
+   int total = HistoryDealsTotal();
+   double realizedLoss = 0;
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(HistoryDealGetInteger(dealTicket, DEAL_MAGIC) != PilotMagic) continue;
+      if(HistoryDealGetInteger(dealTicket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+      if(profit < 0)
+         realizedLoss += MathAbs(profit);
+   }
+   g_pilotRealizedLossToday = realizedLoss;
+   if(realizedLoss > 0)
+      Print("QuantGod reconcile: restored realizedLossToday=", DoubleToString(realizedLoss, 2), " from history");
+}
+
 int OnInit()
 {
    InitializeWatchlist();
    ArmPilotStartupEntryGuard();
    LoadTrackedUsdCalendarEvents();
    RefreshNewsFilterState(true);
+   ReconcileExistingPilotPositions();
+   ReconcileConsecutiveLossesFromHistory();
+   ReconcileDailyRealizedLossFromHistory();
    EventSetTimer(MathMax(1, RefreshIntervalSec));
    ExportDashboard();
    string startupReason = "";
@@ -6150,7 +6307,27 @@ void OnDeinit(const int reason)
 
 void OnTick()
 {
-   ExportDashboard();
+   datetime now = TimeCurrent();
+
+   // Risk-critical protections: every tick
+   ManagePilotBreakevenStops();
+   ManagePilotRsiFailFastStops();
+   if(g_pilotKillSwitch && PilotCloseOnKillSwitch)
+      ClosePilotPositions(g_pilotKillReason);
+
+   // Strategy evaluation: 1s cadence
+   if(now - g_lastPilotTick >= 1)
+   {
+      RunPilotExecutionLoop();
+      g_lastPilotTick = now;
+   }
+
+   // Full dashboard export: 5s cadence
+   if(now - g_lastFullExport >= 5)
+   {
+      ExportDashboard();
+      g_lastFullExport = now;
+   }
 }
 
 void OnTimer()
