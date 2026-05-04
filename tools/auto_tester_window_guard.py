@@ -112,6 +112,15 @@ def path_from_tester_text(value: str) -> Path:
     return Path(text)
 
 
+def normalize_repo_archive_path(path: Path, repo_root: Path) -> Path:
+    marker = "archive/param-lab/runs/"
+    normalized = str(path).replace("\\", "/")
+    if path.is_absolute() and marker in normalized and "QuantGod" in path.parts and repo_root.name == "QuantGodBackend":
+        suffix = normalized.split(marker, 1)[1]
+        return repo_root / marker.rstrip("/") / suffix
+    return path
+
+
 def normalize_account_number(value: Any) -> str:
     text = str(value or "").strip()
     if text.endswith(".0"):
@@ -442,7 +451,7 @@ def validate_tester_config(config_path: Path, *, repo_root: Path) -> dict[str, A
         blockers.append("tester_config_tester_login_missing")
 
     report_text = tester.get("Report", "")
-    report_path = path_from_tester_text(report_text) if report_text else Path()
+    report_path = normalize_repo_archive_path(path_from_tester_text(report_text), repo_root) if report_text else Path()
     if not report_text:
         blockers.append("tester_config_report_missing")
     elif not path_under(report_path, repo_root / "archive" / "param-lab" / "runs"):

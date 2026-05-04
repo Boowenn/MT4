@@ -115,6 +115,11 @@ def normalize_report_path(raw: Any, repo_root: Path) -> Path | None:
     path = Path(slash_text)
     if not path.is_absolute():
         path = repo_root / path
+    marker = "archive/param-lab/runs/"
+    normalized = str(path).replace("\\", "/")
+    if path.is_absolute() and marker in normalized and "QuantGod" in path.parts and repo_root.name == "QuantGodBackend":
+        suffix = normalized.split(marker, 1)[1]
+        path = repo_root / marker.rstrip("/") / suffix
     return path
 
 

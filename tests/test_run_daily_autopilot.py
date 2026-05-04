@@ -87,7 +87,7 @@ class DailyAutopilotTests(unittest.TestCase):
 
     def test_watcher_preserves_absolute_posix_report_path(self):
         repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
-        raw = "/Users/bowen/Desktop/Quard/QuantGod/archive/param-lab/runs/run/reports/EURUSDc/x.html"
+        raw = "/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html"
 
         self.assertEqual(watcher.normalize_report_path(raw, repo_root), Path(raw))
 
@@ -95,12 +95,30 @@ class DailyAutopilotTests(unittest.TestCase):
         repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
         raw = (
             "/Users/bowen/Desktop/Quard/QuantGodBackend/"
-            "\\Users\\bowen\\Desktop\\Quard\\QuantGod\\archive\\param-lab\\runs\\run\\reports\\EURUSDc\\x.html"
+            "\\Users\\bowen\\Desktop\\Quard\\QuantGodBackend\\archive\\param-lab\\runs\\run\\reports\\EURUSDc\\x.html"
         )
 
         self.assertEqual(
             watcher.normalize_report_path(raw, repo_root),
-            Path("/Users/bowen/Desktop/Quard/QuantGod/archive/param-lab/runs/run/reports/EURUSDc/x.html"),
+            Path("/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html"),
+        )
+
+    def test_watcher_remaps_legacy_monorepo_report_path_after_split(self):
+        repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
+        raw = "/Users/bowen/Desktop/Quard/" + "Quant" + "God/archive/param-lab/runs/run/reports/EURUSDc/x.html"
+
+        self.assertEqual(
+            watcher.normalize_report_path(raw, repo_root),
+            Path("/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html"),
+        )
+
+    def test_watcher_remaps_legacy_monorepo_wine_report_path_after_split(self):
+        repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
+        raw = r"Z:\Users\bowen\Desktop\Quard\\" + "Quant" + r"God\archive\param-lab\runs\run\reports\EURUSDc\x.html"
+
+        self.assertEqual(
+            watcher.normalize_report_path(raw, repo_root),
+            Path("/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html"),
         )
 
     def test_auto_tester_runner_command_forwards_daily_bounds_and_timeout(self):
@@ -630,6 +648,17 @@ class DailyAutopilotTests(unittest.TestCase):
             "/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html",
         )
 
+    def test_tester_guard_remaps_legacy_monorepo_archive_path_after_split(self):
+        repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
+        path = auto_tester_guard.path_from_tester_text(
+            r"Z:\Users\bowen\Desktop\Quard\\" + "Quant" + r"God\archive\param-lab\runs\run\reports\EURUSDc\x.html"
+        )
+
+        self.assertEqual(
+            str(auto_tester_guard.normalize_repo_archive_path(path, repo_root)),
+            "/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html",
+        )
+
     def test_auto_tester_retry_allows_fixed_missing_tester_login(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -863,8 +892,19 @@ class DailyAutopilotTests(unittest.TestCase):
             rows = list(__import__("csv").DictReader(ledger.read_text(encoding="utf-8").splitlines()))
 
             self.assertEqual(rows[0], {"A": "old_a", "B": "old_b", "C": ""})
-            self.assertEqual(rows[1], {"A": "new_a", "B": "new_b", "C": "new_c"})
+            self.assertEqual(rows[1], {"A": "new_a", "B": "new_b", "C": ""})
             self.assertEqual(rows[2], {"A": "tail_a", "B": "tail_b", "C": "tail_c"})
+
+    def test_daily_review_ledger_same_width_schema_change_does_not_shift_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "review.csv"
+            ledger.write_text("A,B,C\nold_a,old_b,old_c\n", encoding="utf-8")
+
+            daily_review.append_csv(ledger, {"A": "tail_a", "C": "tail_c", "D": "tail_d"}, ["A", "C", "D"])
+            rows = list(__import__("csv").DictReader(ledger.read_text(encoding="utf-8").splitlines()))
+
+            self.assertEqual(rows[0], {"A": "old_a", "C": "old_c", "D": ""})
+            self.assertEqual(rows[1], {"A": "tail_a", "C": "tail_c", "D": "tail_d"})
 
     def test_autopilot_ledger_schema_upgrade_preserves_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -875,8 +915,19 @@ class DailyAutopilotTests(unittest.TestCase):
             rows = list(__import__("csv").DictReader(ledger.read_text(encoding="utf-8").splitlines()))
 
             self.assertEqual(rows[0], {"A": "old_a", "B": "old_b", "C": ""})
-            self.assertEqual(rows[1], {"A": "new_a", "B": "new_b", "C": "new_c"})
+            self.assertEqual(rows[1], {"A": "new_a", "B": "new_b", "C": ""})
             self.assertEqual(rows[2], {"A": "tail_a", "B": "tail_b", "C": "tail_c"})
+
+    def test_autopilot_ledger_same_width_schema_change_does_not_shift_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "autopilot.csv"
+            ledger.write_text("A,B,C\nold_a,old_b,old_c\n", encoding="utf-8")
+
+            autopilot.append_csv(ledger, {"A": "tail_a", "C": "tail_c", "D": "tail_d"}, ["A", "C", "D"])
+            rows = list(__import__("csv").DictReader(ledger.read_text(encoding="utf-8").splitlines()))
+
+            self.assertEqual(rows[0], {"A": "old_a", "C": "old_c", "D": ""})
+            self.assertEqual(rows[1], {"A": "tail_a", "C": "tail_c", "D": "tail_d"})
 
 
 if __name__ == "__main__":

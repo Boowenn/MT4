@@ -86,8 +86,9 @@ def append_csv(path: Path, row: dict[str, Any], fieldnames: list[str]) -> None:
         if existing_header != fieldnames:
             migrated_rows: list[dict[str, Any]] = []
             for values in rows[1:]:
-                source_header = fieldnames if len(values) == len(fieldnames) else existing_header
-                migrated_rows.append(dict(zip(source_header, values)))
+                # Preserve existing rows by their original header.  Same-width
+                # schema changes must not shift old values into new columns.
+                migrated_rows.append(dict(zip(existing_header, values)))
             with path.open("w", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(handle, fieldnames=fieldnames)
                 writer.writeheader()
