@@ -386,7 +386,7 @@ struct TradeRetryState
 {
    int      consecutiveFailures;
    datetime lastFailureAt;
-   int      blockedUntilUnix;
+   datetime blockedUntil;
 };
 TradeRetryState g_tradeRetryState;
 
@@ -3697,6 +3697,26 @@ bool ShouldRetryRetcode(uint retcode)
        || retcode == TRADE_RETCODE_PRICE_OFF;
 }
 
+void RegisterPilotOrderSendFailure(string symbol, int direction, uint retcode, string resultComment, bool retryExhausted)
+{
+   g_tradeRetryState.consecutiveFailures++;
+   g_tradeRetryState.lastFailureAt = TimeCurrent();
+   Print("QuantGod MT5 pilot order failed", (retryExhausted ? " after 3 retries" : " (permanent)"),
+         ": symbol=", symbol,
+         " dir=", direction,
+         " retcode=", retcode,
+         " comment=", resultComment,
+         " consecutiveFailures=", g_tradeRetryState.consecutiveFailures);
+
+   if(g_tradeRetryState.consecutiveFailures >= 3)
+   {
+      g_tradeRetryState.blockedUntil = TimeCurrent() + 5 * 60;
+      Print("ALERT: Trade failed ", g_tradeRetryState.consecutiveFailures,
+            " times in a row. Circuit breaker engaged until ",
+            TimeToString(g_tradeRetryState.blockedUntil));
+   }
+}
+
 bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double tpPrice, string strategyKey)
 {
    if(!IsPilotLiveMode())
@@ -3749,10 +3769,10 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
    // Clamp SL to PilotMaxFloatingLossUSC (broker-side sentinel)
    double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
    double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tickSize > 0 && tickValue > 0 && PilotLotSize > 0 && slPrice > 0)
+   if(tickSize > 0 && tickValue > 0 && volume > 0 && slPrice > 0)
    {
       double entryPrice = (direction > 0) ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
-      double maxLossPriceDist = (PilotMaxFloatingLossUSC / (PilotLotSize * tickValue)) * tickSize;
+      double maxLossPriceDist = (PilotMaxFloatingLossUSC / (volume * tickValue)) * tickSize;
       if(maxLossPriceDist > 0)
       {
          if(direction > 0)
@@ -3767,12 +3787,17 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
          }
       }
    }
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(slPrice > 0.0)
+      slPrice = NormalizeDouble(slPrice, digits);
+   if(tpPrice > 0.0)
+      tpPrice = NormalizeDouble(tpPrice, digits);
 
    // Circuit breaker check
-   if(TimeCurrent() < g_tradeRetryState.blockedUntilUnix)
+   if(TimeCurrent() < g_tradeRetryState.blockedUntil)
    {
       Print("QuantGod MT5 pilot order blocked: circuit breaker active until ",
-            TimeToString(g_tradeRetryState.blockedUntilUnix));
+            TimeToString(g_tradeRetryState.blockedUntil));
       return false;
    }
 
@@ -3801,27 +3826,14 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
 
       if(!ShouldRetryRetcode(retcode))
       {
-         Print("QuantGod MT5 pilot order failed (permanent): symbol=", symbol,
-               " dir=", direction, " retcode=", retcode,
-               " comment=", g_trade.ResultComment());
+         RegisterPilotOrderSendFailure(symbol, direction, retcode, g_trade.ResultComment(), false);
          return false;
       }
 
       Sleep(500 * (attempt + 1));
    }
 
-   g_tradeRetryState.consecutiveFailures++;
-   g_tradeRetryState.lastFailureAt = TimeCurrent();
-   Print("QuantGod MT5 pilot order failed after 3 retries: symbol=", symbol,
-         " dir=", direction, " retcode=", g_trade.ResultRetcode(),
-         " consecutiveFailures=", g_tradeRetryState.consecutiveFailures);
-
-   if(g_tradeRetryState.consecutiveFailures >= 3)
-   {
-      g_tradeRetryState.blockedUntilUnix = TimeCurrent() + 5 * 60;
-      Print("ALERT: Trade failed ", g_tradeRetryState.consecutiveFailures,
-            " times in a row. Circuit breaker engaged for 5 minutes.");
-   }
+   RegisterPilotOrderSendFailure(symbol, direction, g_trade.ResultRetcode(), g_trade.ResultComment(), true);
    return false;
 }
 
@@ -5943,12 +5955,13 @@ string BuildDiagnosticsJson()
    return json;
 }
 
-void ExportDashboard()
+void ExportDashboard(bool runExecutionLoop)
 {
    if(ArraySize(g_symbols) == 0)
       InitializeWatchlist();
 
-   RunPilotExecutionLoop();
+   if(runExecutionLoop)
+      RunPilotExecutionLoop();
 
    SymbolSnapshot snapshots[];
    InitializeSnapshots(snapshots);
@@ -6287,7 +6300,7 @@ int OnInit()
    ReconcileConsecutiveLossesFromHistory();
    ReconcileDailyRealizedLossFromHistory();
    EventSetTimer(MathMax(1, RefreshIntervalSec));
-   ExportDashboard();
+   ExportDashboard(true);
    string startupReason = "";
    bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupReason);
    Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,
@@ -6325,12 +6338,12 @@ void OnTick()
    // Full dashboard export: 5s cadence
    if(now - g_lastFullExport >= 5)
    {
-      ExportDashboard();
+      ExportDashboard(false);
       g_lastFullExport = now;
    }
 }
 
 void OnTimer()
 {
-   ExportDashboard();
+   ExportDashboard(true);
 }
