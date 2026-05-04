@@ -48,6 +48,22 @@ class Bad(BaseStrategy):
         listed = service.list_strategies()
         self.assertEqual(len(listed["strategies"]), 1)
 
+    def test_import_chanlun_macd_td_library_strategy(self):
+        service = VibeCodingService(load_config())
+        imported = asyncio.run(service.import_library_strategy("chanlun_macd_td", "EURUSDc", "M15"))
+        self.assertTrue(imported["ok"])
+        self.assertTrue(imported["imported"])
+        self.assertEqual(imported["source"]["license"], "MIT")
+        self.assertFalse(imported["safety"]["orderSendAllowed"])
+        self.assertIn("MACD 背驰", imported["code"])
+        strategy_id = imported["strategy"]["strategy_id"]
+        backtest = asyncio.run(service.run_backtest(strategy_id, "EURUSDc", "M15", 20))
+        self.assertTrue(backtest["ok"])
+        self.assertIn("metrics", backtest)
+        duplicate = asyncio.run(service.import_library_strategy("macd_td", "EURUSDc", "M15"))
+        self.assertTrue(duplicate["ok"])
+        self.assertFalse(duplicate["imported"])
+
     def test_iterate_creates_new_version(self):
         service = VibeCodingService(load_config())
         generated = asyncio.run(service.generate_strategy("Sell MA breakdown", "USDJPYc", "M15"))

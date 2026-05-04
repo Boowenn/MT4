@@ -70,6 +70,51 @@ class Mt5ChartReadOnlyTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["signal"], "blocked_news")
         self.assertEqual(payload["items"][0]["side"], "SELL")
 
+    def test_shadow_signals_skip_rows_without_valid_time_and_parse_label_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "QuantGod_ShadowCandidateLedger.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "EventId",
+                        "LabelTimeLocal",
+                        "Symbol",
+                        "CandidateRoute",
+                        "CandidateDirection",
+                        "CandidateScore",
+                        "ReferencePrice",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "EventId": "missing-time",
+                        "LabelTimeLocal": "",
+                        "Symbol": "EURUSDc",
+                        "CandidateRoute": "BB_TRIPLE_SHADOW",
+                        "CandidateDirection": "UNKNOWN",
+                    }
+                )
+                writer.writerow(
+                    {
+                        "EventId": "valid-local-time",
+                        "LabelTimeLocal": datetime.now(timezone.utc).strftime("%Y.%m.%d %H:%M:%S"),
+                        "Symbol": "EURUSDc",
+                        "CandidateRoute": "BB_TRIPLE_SHADOW",
+                        "CandidateDirection": "BUY",
+                        "CandidateScore": "0.71",
+                        "ReferencePrice": "1.107",
+                    }
+                )
+            payload = build_shadow_signals_payload("EURUSDc", days=7, runtime_dir=root)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["id"], "valid-local-time")
+        self.assertEqual(payload["items"][0]["route"], "BB_TRIPLE_SHADOW")
+        self.assertEqual(payload["items"][0]["side"], "BUY")
+        self.assertNotIn("1970", payload["items"][0]["timeIso"])
+
 
 if __name__ == "__main__":
     unittest.main()

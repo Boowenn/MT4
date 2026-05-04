@@ -9,6 +9,7 @@ from typing import Any
 from .backtest_analyzer import BacktestAnalyzer
 from .backtest_connector import BacktestConnector, BacktestRequest
 from .config import VibeCodingConfig, load_config, phase3_vibe_safety
+from .library import CHANLUN_MACD_TD_SOURCE, chanlun_macd_td_template
 from .safety import validate_strategy_code
 from .strategy_registry import StrategyRegistry, utc_now
 
@@ -98,6 +99,65 @@ class VibeCodingService:
             "code": code,
             "validation": validation.to_dict(),
             "llm": {"used": False, "mode": "deterministic_fallback", "model": self.config.llm_model},
+            "safety": phase3_vibe_safety(),
+        }
+
+    async def import_library_strategy(
+        self,
+        name: str,
+        target_symbol: str | None = None,
+        target_tf: str | None = None,
+    ) -> dict[str, Any]:
+        library_name = str(name or "").strip().lower().replace("-", "_")
+        aliases = {"chanlun", "chanlun_macd_td", "macd_td", "macd_divergence_td"}
+        if library_name not in aliases:
+            return {
+                "ok": False,
+                "error": "unsupported_library_strategy",
+                "supported": sorted(aliases),
+                "safety": phase3_vibe_safety(),
+            }
+        strategy_id = "vibe-chanlun-macd-td"
+        description = "内置研究策略：MACD 背驰 + TD9 组合，改编自 haigechanlun/chanlun_auto_trading；仅用于 Vibe 回测和人工复核。"
+        code = chanlun_macd_td_template(target_symbol, target_tf)
+        validation = validate_strategy_code(
+            code,
+            allowed_imports=self.config.allowed_imports,
+            max_code_bytes=self.config.max_code_bytes,
+        )
+        existing = self.registry.get_strategy(strategy_id, include_code=True)
+        if existing.get("ok") and existing.get("code") == code:
+            return {
+                "ok": validation.ok,
+                "schema": "quantgod.vibe_library_strategy_import.v1",
+                "generatedAt": utc_now(),
+                "imported": False,
+                "strategy": existing["strategy"],
+                "code": code,
+                "validation": validation.to_dict(),
+                "source": CHANLUN_MACD_TD_SOURCE,
+                "llm": {"used": False, "mode": "builtin_research_template"},
+                "safety": phase3_vibe_safety(),
+            }
+        record = self.registry.save_strategy(
+            code=code,
+            description=description,
+            symbol=target_symbol or "EURUSDc",
+            timeframe=target_tf or "M15",
+            strategy_id=strategy_id,
+            name="ChanlunMacdTdResearchStrategy",
+            validation=validation.to_dict(),
+        )
+        return {
+            "ok": validation.ok,
+            "schema": "quantgod.vibe_library_strategy_import.v1",
+            "generatedAt": utc_now(),
+            "imported": True,
+            "strategy": record.to_dict(),
+            "code": code,
+            "validation": validation.to_dict(),
+            "source": CHANLUN_MACD_TD_SOURCE,
+            "llm": {"used": False, "mode": "builtin_research_template"},
             "safety": phase3_vibe_safety(),
         }
 
