@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from tools.vibe_coding.library.chanlun_macd_td import CHANLUN_MACD_TD_SOURCE
 from tools.vibe_coding.config import load_config
 from tools.vibe_coding.safety import validate_strategy_code
 from tools.vibe_coding.vibe_coding_service import VibeCodingService
@@ -63,6 +64,15 @@ class Bad(BaseStrategy):
         duplicate = asyncio.run(service.import_library_strategy("macd_td", "EURUSDc", "M15"))
         self.assertTrue(duplicate["ok"])
         self.assertFalse(duplicate["imported"])
+
+    def test_chanlun_third_party_notice_is_retained(self):
+        notice_path = Path(__file__).resolve().parents[1] / CHANLUN_MACD_TD_SOURCE["noticeFile"]
+        self.assertTrue(notice_path.exists())
+        notice = notice_path.read_text(encoding="utf-8")
+        self.assertIn("haigechanlun/chanlun_auto_trading", notice)
+        self.assertIn("MIT License", notice)
+        self.assertIn("Permission is hereby granted", notice)
+        self.assertIn("research-only", CHANLUN_MACD_TD_SOURCE["adaptation"])
 
     def test_iterate_creates_new_version(self):
         service = VibeCodingService(load_config())

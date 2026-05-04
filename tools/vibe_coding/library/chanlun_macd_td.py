@@ -9,6 +9,7 @@ CHANLUN_MACD_TD_SOURCE = {
     "repo": "https://github.com/haigechanlun/chanlun_auto_trading",
     "sourceFile": "https://github.com/haigechanlun/chanlun_auto_trading/blob/main/strategy/backtest_macd_td.py",
     "license": "MIT",
+    "noticeFile": "THIRD_PARTY_NOTICES.md",
     "copyright": "Copyright (c) 2026 haigechanlun",
     "adaptation": "QuantGod research-only BaseStrategy adapter; no live trading integration.",
 }
