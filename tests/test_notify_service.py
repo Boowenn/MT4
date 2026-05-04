@@ -54,7 +54,15 @@ class NotifyServiceTests(unittest.TestCase):
         cfg = NotifyConfig.from_env()
         report = {
             "symbol": "XAUUSDc",
-            "decision": {"action": "SELL", "confidence": 0.62, "suggested_wait_condition": "breakdown confirmed"},
+            "decision": {
+                "action": "SELL",
+                "confidence": 0.62,
+                "entry_price": 2388.0,
+                "stop_loss": 2401.5,
+                "take_profit": 2358.0,
+                "risk_reward_ratio": 2.2,
+                "suggested_wait_condition": "breakdown confirmed",
+            },
             "risk": {"risk_level": "medium"},
         }
         result = asyncio.run(send_ai_analysis_summary(report, config=cfg, dry_run=True))
@@ -74,7 +82,7 @@ class NotifyServiceTests(unittest.TestCase):
         self.assertEqual(digest["losses"], 1)
         self.assertEqual(digest["shadowSignals"], 1)
 
-    def test_scan_runtime_events_detects_risk_and_ai(self) -> None:
+    def test_scan_runtime_events_detects_risk_and_ignores_stale_ai_latest(self) -> None:
         (self.runtime / "QuantGod_Dashboard.json").write_text(
             json.dumps({
                 "killSwitchActive": True,
@@ -99,13 +107,44 @@ class NotifyServiceTests(unittest.TestCase):
             encoding="utf-8",
         )
         events = scan_runtime_events(NotifyConfig.from_env())
-        self.assertEqual([event["eventType"] for event in events], ["KILL_SWITCH", "NEWS_BLOCK", "AI_ANALYSIS"])
+        self.assertEqual([event["eventType"] for event in events], ["KILL_SWITCH", "NEWS_BLOCK"])
         news_event = events[1]
         self.assertEqual(news_event["eventType"], "NEWS_BLOCK")
         self.assertEqual(news_event["data"]["label"], "NFP")
         self.assertEqual(news_event["data"]["eta"], 15)
         self.assertEqual(news_event["data"]["phase"], "PRE_EVENT")
         self.assertEqual(news_event["data"]["forecast"], 5.25)
+
+    def test_ai_analysis_notification_blocks_mock_or_incomplete_trade_plan(self) -> None:
+        cfg = NotifyConfig.from_env()
+        mock_result = asyncio.run(
+            send_event(
+                "AI_ANALYSIS",
+                {
+                    "symbol": "EURUSDc",
+                    "action": "BUY",
+                    "confidence": 0.66,
+                    "risk": "low",
+                    "note": "mock decision",
+                },
+                config=cfg,
+                dry_run=True,
+            )
+        )
+        self.assertTrue(mock_result["skipped"])
+        self.assertEqual(mock_result["status"], "blocked_unsafe_message")
+        self.assertEqual(mock_result["reason"], "mock_decision_text")
+
+        incomplete_result = asyncio.run(
+            send_event(
+                "AI_ANALYSIS",
+                {"symbol": "EURUSDc", "action": "BUY", "confidence": 0.66, "risk": "low", "note": "wait"},
+                config=cfg,
+                dry_run=True,
+            )
+        )
+        self.assertTrue(incomplete_result["skipped"])
+        self.assertEqual(incomplete_result["reason"], "incomplete_trade_plan")
 
     def test_scan_runtime_events_news_not_blocked_when_no_block(self) -> None:
         (self.runtime / "QuantGod_Dashboard.json").write_text(

@@ -46,16 +46,76 @@ def append_history(config: NotifyConfig, record: dict[str, Any]) -> None:
     _write_json(config.history_path, payload)
 
 
+UNSAFE_AI_TEXT_PATTERNS = (
+    ("mock decision", "mock_decision_text"),
+    ("mock_fallback", "mock_fallback_text"),
+    ("fallback evidence", "fallback_evidence_text"),
+    ("runtime_files_missing_or_stale", "stale_runtime_text"),
+    ("运行快照不新鲜", "stale_runtime_text"),
+    ("回退模式", "fallback_evidence_text"),
+)
+
+INCOMPLETE_AI_PLAN_PATTERNS = (
+    "入场区间：--",
+    "止损位：--",
+    "目标位：--",
+    "盈亏比：--",
+)
+
+
 def _event_payload_from_analysis(report: dict[str, Any]) -> dict[str, Any]:
     decision = report.get("decision") or report.get("decision_report") or report.get("DecisionReport") or {}
     risk = report.get("risk") or report.get("risk_report") or report.get("RiskReport") or {}
+    entry = decision.get("entryZone") or decision.get("entry_zone") or decision.get("entry_price")
+    stop_loss = decision.get("stopLoss") or decision.get("stop_loss")
+    take_profit = decision.get("takeProfit") or decision.get("take_profit")
+    targets = decision.get("targets")
+    if not isinstance(targets, list):
+        targets = [take_profit] if take_profit not in (None, "") else []
+    risk_reward = decision.get("riskReward") or decision.get("risk_reward_ratio")
+    invalidation = (
+        decision.get("invalidation")
+        or decision.get("suggested_wait_condition")
+        or decision.get("reasoning")
+        or report.get("summary")
+        or "analysis complete"
+    )
+    action = decision.get("action") or decision.get("decision") or "HOLD"
+    confidence = decision.get("confidence") or 0
     return {
         "symbol": report.get("symbol") or decision.get("symbol") or report.get("Symbol") or "--",
-        "action": decision.get("action") or decision.get("decision") or "HOLD",
-        "confidence": decision.get("confidence") or 0,
+        "action": action,
+        "confidence": confidence,
         "risk": risk.get("risk_level") or risk.get("riskLevel") or risk.get("level") or "unknown",
-        "note": decision.get("suggested_wait_condition") or decision.get("reasoning") or report.get("summary") or "analysis complete",
+        "note": invalidation,
+        "decision": {
+            "action": action,
+            "confidence": confidence,
+            "entryZone": entry,
+            "stopLoss": stop_loss,
+            "targets": targets,
+            "riskReward": risk_reward,
+            "invalidation": invalidation,
+        },
     }
+
+
+def unsafe_ai_notification_reason(event_type: str, payload: dict[str, Any], text: str) -> str | None:
+    if str(event_type or "").upper() != "AI_ANALYSIS":
+        return None
+    haystack = "\n".join(
+        [
+            str(text or ""),
+            json.dumps(payload or {}, ensure_ascii=False, sort_keys=True),
+        ]
+    ).lower()
+    for needle, reason in UNSAFE_AI_TEXT_PATTERNS:
+        if needle in haystack:
+            return reason
+    for marker in INCOMPLETE_AI_PLAN_PATTERNS:
+        if marker.lower() in haystack:
+            return "incomplete_trade_plan"
+    return None
 
 
 def _should_disable_notification(event_type: str) -> bool:
@@ -88,6 +148,19 @@ async def send_event(
         record.update({"ok": True, "skipped": True, "status": "skipped_hold", "error": "action=HOLD"})
         append_history(cfg, record)
         return {"ok": True, "sent": False, "skipped": True, "status": "skipped_hold", "reason": "action=HOLD", "record": record}
+
+    unsafe_reason = unsafe_ai_notification_reason(event, payload, text)
+    if unsafe_reason:
+        record.update({"ok": True, "skipped": True, "status": "blocked_unsafe_message", "error": unsafe_reason})
+        append_history(cfg, record)
+        return {
+            "ok": True,
+            "sent": False,
+            "skipped": True,
+            "status": "blocked_unsafe_message",
+            "reason": unsafe_reason,
+            "record": record,
+        }
 
     if not cfg.enabled:
         record.update({"ok": True, "skipped": True, "error": "notify_disabled"})
@@ -189,9 +262,6 @@ def scan_runtime_events(config: NotifyConfig | None = None) -> list[dict[str, An
                     "reason": news.get("reason"),
                 },
             })
-    ai_latest = _read_json(cfg.runtime_dir / "ai_analysis" / "latest.json", {})
-    if isinstance(ai_latest, dict) and ai_latest:
-        events.append({"eventType": "AI_ANALYSIS", "data": _event_payload_from_analysis(ai_latest)})
     return events
 
 
