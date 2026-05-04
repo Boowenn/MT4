@@ -83,6 +83,12 @@ async def send_event(
         "error": "",
     }
 
+    # HOLD → skip push (renderer returned None, wrapper gave us "")
+    if not text.strip():
+        record.update({"ok": True, "skipped": True, "status": "skipped_hold", "error": "action=HOLD"})
+        append_history(cfg, record)
+        return {"ok": True, "sent": False, "skipped": True, "status": "skipped_hold", "reason": "action=HOLD", "record": record}
+
     if not cfg.enabled:
         record.update({"ok": True, "skipped": True, "error": "notify_disabled"})
         append_history(cfg, record)

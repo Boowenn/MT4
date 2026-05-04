@@ -1,0 +1,4 @@
+⛔ Kill Switch 触发
+原因：daily_drawdown_exceeded
+当日盈亏：$-420.50
+恢复条件：手动复核 + 第二日 09:00 重置

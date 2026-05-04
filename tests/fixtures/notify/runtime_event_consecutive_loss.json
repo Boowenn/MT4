@@ -1,0 +1,7 @@
+{
+  "_event_type": "CONSECUTIVE_LOSS",
+  "losses": 3,
+  "todayPnl": -78.2,
+  "cooldown": 60,
+  "resumeAt": "14:55"
+}

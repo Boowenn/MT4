@@ -31,7 +31,8 @@ from ai_analysis.deepseek_mt5_advisor import (  # noqa: E402
     DeepSeekMt5Advisor,
     load_deepseek_config,
 )
-from telegram_notifier.client import TelegramClient, validate_message_text  # noqa: E402
+from notify.messages import render  # noqa: E402
+from telegram_notifier.client import TelegramClient  # noqa: E402
 from telegram_notifier.config import load_config  # noqa: E402
 from telegram_notifier.records import record_notification  # noqa: E402
 from telegram_notifier.safety import (  # noqa: E402
@@ -592,142 +593,49 @@ def deepseek_advice(report: dict[str, Any]) -> tuple[dict[str, Any] | None, dict
     return None, payload
 
 
-def build_advisory_message(report: dict[str, Any], *, reason: str) -> str:
-    symbol = str(report.get("symbol") or "UNKNOWN")
+def _build_render_payload(report: dict[str, Any]) -> dict[str, Any]:
+    """Extract the fields needed by the message renderers from a raw report.
+
+    This replaces the old ``build_advisory_message`` which mixed extraction
+    and formatting into one 200-line function.
+    """
     decision = decision_summary(report)
     source = summarize_source(report)
-    factors = decision.get("keyFactors") or []
     price = source.get("price") if isinstance(source.get("price"), dict) else {}
-    bid = fmt_value(price.get("bid"))
-    ask = fmt_value(price.get("ask"))
-    last_price = fmt_value(price.get("last") or price.get("price"))
-    spread = fmt_value(price.get("spread") or price.get("spread_points") or price.get("spreadPoints"))
-    generated_at = format_report_time(report.get("generatedAt") or utc_now_iso())
-    timeframes = report.get("timeframes") if isinstance(report.get("timeframes"), list) else []
-    ai_context = extract_ai_context(report)
-    debate = decision.get("debateSummary") if isinstance(decision.get("debateSummary"), dict) else {}
-    bull_conv = confidence_pct(debate.get("bull_conviction"))
-    bear_conv = confidence_pct(debate.get("bear_conviction"))
-    plan_lines = advisory_plan_lines(decision, source)
-    data_note = "回退证据" if source.get("fallback") else "实时运行证据"
-    grade = signal_grade(decision, source)
-    trigger = chinese_trigger(reason)
-    source_label = chinese_source(source.get("snapshotSource"))
-    fresh_label = "新鲜" if source.get("runtimeFresh") else "待确认"
-    kill_label = "已触发" if source.get("killSwitchActive") else "未触发"
-    quality_line = evidence_quality_line(source)
-    technical_lines = technical_structure_lines(report)
-    risk_detail_lines = risk_lines(report)
-    advice, advice_meta = deepseek_advice(report)
-    local_summary = (
-        "数据质量不足，本条只做系统复核，不允许据此入场。"
-        if evidence_blocks_trade(source)
-        else "当前证据不足，保持观望，不开新仓。"
-        if str(decision.get("action") or "HOLD").upper() == "HOLD"
-        else "出现方向性机会，但仍必须等待程序风控门禁与实盘保护全部确认。"
-    )
-    if advice:
-        analysis_source = f"DeepSeek 大模型研判（{advice_meta.get('model') or '默认模型'}）"
-        headline = truncate_text(advice.get("headline"), 90, fallback=local_summary)
-        verdict = truncate_text(advice.get("verdict"), 80, fallback=chinese_action(decision.get("action")))
-        grade_line = truncate_text(advice.get("signalGrade"), 40, fallback=grade)
-        confidence_line = truncate_text(advice.get("confidencePct"), 30, fallback=confidence_pct(decision.get("confidence")))
-        market_summary = truncate_text(advice.get("marketSummary"), 150)
-        technical_summary = truncate_text(advice.get("technicalSummary"), 160)
-        bull_case = truncate_text(advice.get("bullCase"), 160, fallback=ai_context["bull"])
-        bear_case = truncate_text(advice.get("bearCase"), 160, fallback=ai_context["bear"])
-        news_risk = truncate_text(advice.get("newsRisk"), 130, fallback=ai_context["news"])
-        sentiment_positioning = truncate_text(advice.get("sentimentPositioning"), 130, fallback=ai_context["sentiment"])
-        plan_lines = [
-            f"计划状态：{truncate_text(advice.get('planStatus'), 100)}",
-            f"入场区间：{truncate_text(advice.get('entryZone'), 120)}",
-            f"目标一：{truncate_text((advice.get('targets') or ['不生成'])[0], 90)}",
-            f"目标二：{truncate_text((advice.get('targets') or ['不生成', '不生成'])[1], 90)}",
-            f"目标三：{truncate_text((advice.get('targets') or ['不生成', '不生成', '不生成'])[2], 90)}",
-            f"防守位置：{truncate_text(advice.get('defense'), 100)}",
-            f"盈亏比：{truncate_text(advice.get('riskReward'), 60)}",
-            f"仓位建议：{truncate_text(advice.get('positionAdvice'), 120)}",
-            f"失效条件：{truncate_text(advice.get('invalidation'), 150)}",
-        ]
-        watch_lines = [f"{index}. {truncate_text(item, 120)}" for index, item in enumerate(advice.get("watchPoints") or [], start=1)]
-        risk_detail_lines = [f"{index}. {truncate_text(item, 120)}" for index, item in enumerate(advice.get("riskNotes") or [], start=1)]
-        execution_boundary = truncate_text(advice.get("executionBoundary"), 160, fallback="仅建议，不执行交易。")
-    else:
-        status = advice_meta.get("status") or "not_configured"
-        analysis_source = f"本地兜底研判（DeepSeek 未完成：{translate_common_text(status)}）"
-        headline = local_summary
-        verdict = chinese_action(decision.get("action"))
-        grade_line = grade
-        confidence_line = confidence_pct(decision.get("confidence"))
-        market_summary = f"{source_label}，证据状态{fresh_label}，当前持仓 {fmt_value(source.get('openPositions'), '0')}。"
-        technical_summary = f"技术方向{chinese_direction(source.get('technicalDirection'))}，风险等级{chinese_risk(source.get('riskLevel'))}。"
-        bull_case = ai_context["bull"]
-        bear_case = ai_context["bear"]
-        news_risk = ai_context["news"]
-        sentiment_positioning = ai_context["sentiment"]
-        execution_boundary = "仅建议，不执行交易。"
-    return validate_message_text(
-        "\n".join(
-            [
-                "【QuantGod MT5 智能监控报告】",
-                f"品种：{symbol}",
-                f"分析来源：{analysis_source}",
-                f"方向：{verdict}",
-                f"信号等级：{grade_line}",
-                f"置信度：{confidence_line}",
-                f"一句话结论：{headline}",
-                "",
-                "【一、报告信息】",
-                f"触发原因：{trigger}",
-                f"报告时间：{generated_at}",
-                f"观察周期：{chinese_timeframes(timeframes)}",
-                f"证据质量：{quality_line}",
-                "",
-                "【二、行情与账户快照】",
-                f"行情摘要：{market_summary}",
-                f"买价：{bid}",
-                f"卖价：{ask}",
-                f"最新价：{last_price}",
-                f"点差：{spread}",
-                f"数据来源：{source_label}（{data_note}）",
-                f"证据状态：{fresh_label}；证据年龄：{fmt_value(source.get('runtimeAgeSeconds'))} 秒",
-                f"当前持仓：{fmt_value(source.get('openPositions'), '0')}",
-                f"熔断状态：{kill_label}",
-                "",
-                "【三、盘面结构】",
-                *technical_lines,
-                "",
-                "【四、智能综合评分】",
-                f"综合方向：{verdict}",
-                f"技术总结：{technical_summary}",
-                f"风险等级：{chinese_risk(source.get('riskLevel'))}",
-                f"多头强度：{bull_conv}",
-                f"空头强度：{bear_conv}",
-                f"新闻风险：{news_risk}",
-                f"情绪仓位：{sentiment_positioning}",
-                "",
-                "【五、多空推演】",
-                f"多头剧本：{bull_case}",
-                f"空头剧本：{bear_case}",
-                "关键因子：",
-                *factor_lines(factors),
-                "",
-                "【六、交易计划】",
-                *plan_lines,
-                f"模型说明：{truncate_text(decision.get('reasoning') or '仅生成建议，不触发交易。', 220)}",
-                "",
-                "【七、风险明细】",
-                *risk_detail_lines,
-                "",
-                "【八、执行与风控边界】",
-                "执行状态：仅发送观察建议，未自动发送任何订单请求。",
-                "消息系统：只推送，不接收买入、卖出、平仓、撤单或修改参数命令。",
-                f"大模型边界：{execution_boundary}",
-                f"融合审查：finalAction={(report.get('advisory_fusion') if isinstance(report.get('advisory_fusion'), dict) else {}).get('finalAction', 'HOLD')}；validator={((report.get('deepseek_advice') if isinstance(report.get('deepseek_advice'), dict) else {}).get('validation') if isinstance((report.get('deepseek_advice') if isinstance(report.get('deepseek_advice'), dict) else {}).get('validation'), dict) else {}).get('status', 'unknown')}；agreement={(report.get('advisory_fusion') if isinstance(report.get('advisory_fusion'), dict) else {}).get('agreement', 'unknown')}；advisoryOnly=true",
-                "系统边界：不会下单、平仓、撤单、修改实盘参数、解除熔断、放宽风控门禁或替代程序风控。",
-            ]
-        )
-    )
+
+    # Core fields used by ai_advisory / deepseek_insight
+    payload: dict[str, Any] = {
+        "symbol": str(report.get("symbol") or "UNKNOWN"),
+        "timeframe": (report.get("timeframes") or ["M15"])[0] if isinstance(report.get("timeframes"), list) and report.get("timeframes") else "M15",
+        "timeframes": report.get("timeframes") if isinstance(report.get("timeframes"), list) else [],
+        "decision": {
+            "action": decision.get("action", "HOLD"),
+            "confidence": decision.get("confidence", 0),
+            "signalGrade": signal_grade(decision, source),
+            "entryZone": f"{fmt_value(decision.get('entryPrice'))} – {fmt_value(price.get('ask') or price.get('last') or price.get('price'))}",
+            "stopLoss": decision.get("stopLoss") or fmt_value(decision.get("stop_loss")),
+            "stopLossPips": decision.get("stopLossPips"),
+            "targets": _extract_targets(decision),
+            "riskReward": decision.get("riskRewardRatio") or "--",
+            "invalidation": str(decision.get("reasoning") or "等待确认")[:80],
+            "risk": source.get("riskLevel", "unknown"),
+        },
+    }
+
+    # DeepSeek advice (for deepseek_insight kind)
+    ds_advice_raw = report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {}
+    if ds_advice_raw.get("ok") and isinstance(ds_advice_raw.get("advice"), dict):
+        payload["deepseek_advice"] = ds_advice_raw
+
+    return payload
+
+
+def _extract_targets(decision: dict[str, Any]) -> list[str]:
+    """Extract target prices from a decision dict."""
+    tp = decision.get("takeProfit") or decision.get("take_profit")
+    if tp is not None:
+        return [fmt_value(tp)]
+    return []
 
 
 def send_or_record(args: argparse.Namespace, *, message: str, event_type: str, dry_run: bool) -> dict[str, Any]:
@@ -795,7 +703,28 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
         delivery: dict[str, Any] = {"ok": True, "status": "skipped", "reason": reason}
         status = "skipped"
         if should_send:
-            message = build_advisory_message(report, reason=reason)
+            kind = getattr(args, "kind", "ai_advisory") or "ai_advisory"
+            payload = _build_render_payload(report)
+            message = render(kind, payload)
+            if message is None:
+                # HOLD → skip push, record as skipped_hold
+                delivery = {"ok": True, "status": "skipped_hold", "reason": "action=HOLD"}
+                status = "skipped_hold"
+                items.append(
+                    {
+                        "symbol": symbol,
+                        "signature": signature,
+                        "shouldNotify": should_send,
+                        "reason": reason,
+                        "delivery": delivery,
+                        "decision": decision_summary(report),
+                        "source": summarize_source(report),
+                        "deepseek": report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {},
+                        "fusion": report.get("advisory_fusion") if isinstance(report.get("advisory_fusion"), dict) else {},
+                    }
+                )
+                state = update_state(state, symbol=symbol, signature=signature, status=status, reason=reason, report=report, now_iso=now_iso)
+                continue
             delivery = send_or_record(args, message=message, event_type="MT5_AI_ADVISORY", dry_run=not args.send)
             if not getattr(args, "disable_journal", False):
                 try:
@@ -875,6 +804,7 @@ def add_common_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-file", type=Path, default=None, help="Local .env.telegram.local path")
     parser.add_argument("--deepseek-env-file", type=Path, default=None, help="Local .env.deepseek.local path")
     parser.add_argument("--no-deepseek", action="store_true", help="Skip DeepSeek advisory call and use local fallback text")
+    parser.add_argument("--kind", default="ai_advisory", choices=["ai_advisory", "deepseek_insight"], help="Message renderer kind. ai_advisory for local AI, deepseek_insight for DeepSeek-powered insights.")
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import run_mt5_ai_telegram_monitor as monitor
+from notify.messages import render
 
 
 def sample_report(symbol: str = "USDJPYc") -> dict:
@@ -80,86 +81,70 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertFalse(safety["telegramCommandExecutionAllowed"])
         self.assertFalse(safety["livePresetMutationAllowed"])
 
-    def test_advisory_message_declares_read_only_boundary(self) -> None:
-        text = monitor.build_advisory_message(sample_report(), reason="changed")
-        self.assertIn("【QuantGod MT5 智能监控报告】", text)
-        self.assertIn("【一、报告信息】", text)
-        self.assertIn("【二、行情与账户快照】", text)
-        self.assertIn("【三、盘面结构】", text)
-        self.assertIn("【四、智能综合评分】", text)
-        self.assertIn("【五、多空推演】", text)
-        self.assertIn("【六、交易计划】", text)
-        self.assertIn("【七、风险明细】", text)
-        self.assertIn("【八、执行与风控边界】", text)
-        self.assertIn("观望，不开新仓", text)
-        self.assertIn("不会下单", text)
-        self.assertIn("finalAction=HOLD", text)  # P3-3 fusion always generates a safety-gated HOLD fallback when DeepSeek unavailable
-        self.assertNotIn("Bid", text)
-        self.assertNotIn("Kill Switch", text)
-        self.assertNotIn("EA/gate", text)
-        self.assertNotIn("live preset", text)
+    def test_advisory_message_hold_returns_none(self) -> None:
+        """HOLD decisions must return None (suppressed push)."""
+        payload = monitor._build_render_payload(sample_report())
+        msg = render("ai_advisory", payload)
+        self.assertIsNone(msg)
 
-    def test_advisory_message_localizes_buy_plan(self) -> None:
+    def test_advisory_message_buy_produces_chinese_message(self) -> None:
+        """BUY decision produces a Chinese advisory with 🎯 prefix."""
         report = sample_report()
         report["decision"]["action"] = "BUY"
         report["decision"]["entry_price"] = 155.12
         report["decision"]["stop_loss"] = 154.72
         report["decision"]["take_profit"] = 155.92
         report["decision"]["risk_reward_ratio"] = 2.0
-        text = monitor.build_advisory_message(report, reason="force")
-        self.assertIn("方向：偏多观察，等待程序风控确认", text)
-        self.assertIn("入场区间：等待程序风控门禁确认后才考虑做多", text)
-        self.assertIn("防守位置：154.72", text)
-        self.assertIn("目标三：155.92", text)
-        self.assertIn("触发原因：手动强制复核", text)
+        payload = monitor._build_render_payload(report)
+        msg = render("ai_advisory", payload)
+        assert msg is not None
+        self.assertIn("\U0001f3af AI 实盘建议", msg)
+        self.assertIn("USDJPYc", msg)
+        self.assertIn("做多", msg)
+        self.assertIn("仅作建议，不执行交易", msg)
 
-    def test_advisory_message_blocks_plan_when_evidence_is_fallback(self) -> None:
+    def test_deepseek_insight_uses_distinct_format(self) -> None:
+        """DeepSeek insight uses 🤖 prefix and includes extra sections."""
         report = sample_report()
-        report["snapshot"]["fallback"] = True
-        report["snapshot"]["runtimeFresh"] = False
-        report["snapshot"]["source"] = "mt5_python_unavailable"
         report["decision"]["action"] = "BUY"
-        text = monitor.build_advisory_message(report, reason="force")
-        self.assertIn("信号等级：数据复核级", text)
-        self.assertIn("数据质量不足，本条只做系统复核，不允许据此入场。", text)
-        self.assertIn("计划状态：暂停，仅允许观察复核。", text)
-        self.assertIn("入场区间：不生成", text)
-
-    def test_advisory_message_prefers_deepseek_advice(self) -> None:
-        report = sample_report()
         report["deepseek_advice"] = {
             "ok": True,
             "status": "ok",
             "provider": "deepseek",
             "model": "deepseek-v4-pro",
             "advice": {
-                "headline": "大模型判断证据不够强，继续等待。",
-                "verdict": "观望，不开新仓",
-                "signalGrade": "观察级",
-                "confidencePct": "61%",
-                "marketSummary": "价格横盘，点差正常。",
-                "technicalSummary": "短线中性，缺少突破。",
-                "bullCase": "突破压力后才有做多价值。",
-                "bearCase": "跌破支撑后转弱。",
+                "headline": "大模型判断证据偏多，可在风控确认后入场。",
+                "verdict": "偏多观察",
+                "signalGrade": "A 级",
+                "confidencePct": "75%",
+                "marketSummary": "价格向上突破，点差正常。",
+                "technicalSummary": "短线偏多，M15/H1共振。",
+                "bullCase": "突破压力位后延续上攻。",
+                "bearCase": "上方阻力仍在，假突破风险。",
                 "newsRisk": "暂无高影响新闻。",
-                "sentimentPositioning": "情绪中性。",
-                "planStatus": "暂停，仅允许观察复核",
-                "entryZone": "不生成",
-                "targets": ["不生成", "不生成", "不生成"],
-                "defense": "不生成",
-                "riskReward": "未评估",
-                "positionAdvice": "不构成下单建议",
-                "invalidation": "证据转弱继续观望",
+                "sentimentPositioning": "机构偏多，散户偏空。",
+                "planStatus": "等待风控确认",
+                "entryZone": "155.00 – 155.20",
+                "targets": ["155.60", "155.95", "156.40"],
+                "defense": "154.70",
+                "riskReward": "1:2.0",
+                "positionAdvice": "不超过0.02手",
+                "invalidation": "H1收盘跌破154.70",
                 "watchPoints": ["等待新鲜证据", "观察支撑压力"],
                 "riskNotes": ["不追单", "不绕过风控"],
                 "executionBoundary": "仅建议，不执行交易。",
             },
         }
-        text = monitor.build_advisory_message(report, reason="changed")
-        self.assertIn("分析来源：DeepSeek 大模型研判", text)
-        self.assertIn("一句话结论：大模型判断证据不够强，继续等待。", text)
-        self.assertIn("技术总结：短线中性，缺少突破。", text)
-        self.assertIn("计划状态：暂停，仅允许观察复核", text)
+        payload = monitor._build_render_payload(report)
+        msg = render("deepseek_insight", payload)
+        assert msg is not None
+        self.assertIn("\U0001f916 DeepSeek 深度研判", msg)
+        self.assertIn("【市场摘要】", msg)
+        self.assertIn("【多空辩论】", msg)
+        self.assertIn("【新闻与情绪】", msg)
+        self.assertIn("deepseek-v4-pro", msg)
+        # ai_advisory prefix should NOT appear in deepseek message
+        self.assertNotIn("\U0001f3af AI 实盘建议", msg)
 
     def test_dedupe_waits_for_unchanged_signature(self) -> None:
         report = sample_report()
@@ -183,7 +168,8 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(reason.startswith("dedup_wait_"))
 
-    def test_scan_once_defaults_to_dry_run_and_writes_runtime_report(self) -> None:
+    def test_scan_once_hold_skips_push_with_skipped_hold_status(self) -> None:
+        """When action=HOLD, scan_once should record skipped_hold, not push."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             args = monitor.build_parser().parse_args(
                 [
@@ -211,12 +197,29 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
                 payload = asyncio.run(monitor.scan_once(args))
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["dryRun"])
-            self.assertEqual(payload["summary"]["notifications"], 1)
+            # HOLD → no notifications, skipped_hold status
+            self.assertEqual(payload["summary"]["notifications"], 0)
+            items = payload["items"]
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["delivery"]["status"], "skipped_hold")
             latest = Path(tmp_dir) / "QuantGod_MT5AiTelegramMonitorLatest.json"
             state = Path(tmp_dir) / "QuantGod_MT5AiTelegramMonitorState.json"
             self.assertTrue(latest.exists())
             self.assertTrue(state.exists())
-            self.assertEqual(json.loads(state.read_text())["symbols"]["USDJPYc"]["status"], "dry_run")
+            self.assertEqual(
+                json.loads(state.read_text())["symbols"]["USDJPYc"]["status"],
+                "skipped_hold",
+            )
+
+    def test_build_render_payload_extracts_decision_fields(self) -> None:
+        """_build_render_payload correctly maps report fields to renderer payload."""
+        report = sample_report()
+        report["decision"]["action"] = "BUY"
+        report["decision"]["confidence"] = 0.72
+        payload = monitor._build_render_payload(report)
+        self.assertEqual(payload["symbol"], "USDJPYc")
+        self.assertEqual(payload["decision"]["action"], "BUY")
+        self.assertEqual(payload["decision"]["confidence"], 0.72)
 
 
 if __name__ == "__main__":

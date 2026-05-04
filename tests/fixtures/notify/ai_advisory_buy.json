@@ -1,0 +1,20 @@
+{
+  "symbol": "USDJPYc",
+  "timeframe": "M15",
+  "decision": {
+    "action": "BUY",
+    "confidence": 0.72,
+    "signalGrade": "A 级（多周期共振）",
+    "entryZone": "153.05 – 153.15",
+    "stopLoss": "152.80",
+    "stopLossPips": 25,
+    "targets": [
+      "153.60",
+      "153.95",
+      "154.40"
+    ],
+    "riskReward": "1:2.2",
+    "invalidation": "1H 收盘跌破 152.95",
+    "risk": "medium"
+  }
+}

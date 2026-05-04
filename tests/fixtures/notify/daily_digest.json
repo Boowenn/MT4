@@ -1,0 +1,12 @@
+{
+  "pnl": 245.6,
+  "wins": 8,
+  "losses": 3,
+  "routes": "mt5_rsi_failfast (5)、mt5_rsi_exit (3)",
+  "shadowSignals": 14,
+  "shadowPending": 6,
+  "shadowConfirmed": 8,
+  "riskEvents": 0,
+  "maxDrawdown": -82.4,
+  "maxDrawdownTime": "13:42 USDJPYc"
+}
