@@ -165,13 +165,16 @@ function safeBaseDirs(ctx = {}) {
 
 function resolveRuntimeFile(fileName, ctx = {}) {
   const baseName = path.basename(fileName || '');
-  const candidates = safeBaseDirs(ctx).map((baseDir) => path.join(baseDir, baseName));
+  const candidates = safeBaseDirs(ctx).map((baseDir, priority) => ({
+    priority,
+    filePath: path.join(baseDir, baseName),
+  }));
   const existing = candidates
-    .filter((candidate) => fs.existsSync(candidate))
-    .map((candidate) => ({ filePath: candidate, stat: fs.statSync(candidate) }))
+    .filter((candidate) => fs.existsSync(candidate.filePath))
+    .map((candidate) => ({ ...candidate, stat: fs.statSync(candidate.filePath) }))
     .filter((item) => item.stat.isFile())
-    .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
-  return existing[0] || { filePath: candidates[0], stat: null };
+    .sort((a, b) => a.priority - b.priority || b.stat.mtimeMs - a.stat.mtimeMs);
+  return existing[0] || { filePath: candidates[0]?.filePath || baseName, stat: null };
 }
 
 function fileMeta(filePath, stat, format) {

@@ -69,6 +69,35 @@ test('JSON endpoint returns envelope from runtime dir', async () => {
   }
 });
 
+test('JSON endpoint prefers configured MT5 runtime over fresher Dashboard copies', async () => {
+  const runtimeDir = await mkdtemp(path.join(tmpdir(), 'qg-phase2-runtime-'));
+  const dashboardDir = await mkdtemp(path.join(tmpdir(), 'qg-phase2-dashboard-'));
+  try {
+    await writeFile(
+      path.join(runtimeDir, 'QuantGod_MT5ResearchStats.json'),
+      JSON.stringify({ summary: { shadowRows: 671, source: 'mt5-files' } }),
+      'utf8',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await writeFile(
+      path.join(dashboardDir, 'QuantGod_MT5ResearchStats.json'),
+      JSON.stringify({ summary: { shadowRows: 0, source: 'dashboard-copy' } }),
+      'utf8',
+    );
+    const res = await invoke('/api/research/stats', {
+      defaultRuntimeDir: runtimeDir,
+      repoRoot: dashboardDir,
+      rootDir: dashboardDir,
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.summary.source, 'mt5-files');
+    assert.equal(res.body.source.filePath, path.join(runtimeDir, 'QuantGod_MT5ResearchStats.json'));
+  } finally {
+    await rm(runtimeDir, { recursive: true, force: true });
+    await rm(dashboardDir, { recursive: true, force: true });
+  }
+});
+
 test('CSV endpoint filters by symbol and limit', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'qg-phase2-csv-'));
   try {
