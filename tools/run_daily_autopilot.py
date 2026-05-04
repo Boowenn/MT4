@@ -60,6 +60,10 @@ def mac_mt5_files_dir() -> Path:
     return Path.home() / "Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Files"
 
 
+def mac_mt5_root() -> Path:
+    return mac_mt5_files_dir().parent.parent
+
+
 def resolve_runtime_dir(repo_root: Path, configured: str) -> Path:
     candidate = Path(configured).expanduser() if configured else repo_root / "Dashboard"
     if not candidate.is_absolute():
@@ -71,6 +75,23 @@ def resolve_runtime_dir(repo_root: Path, configured: str) -> Path:
         if source_mode == "mt5" or (source_mode == "auto" and "/runtime/mac_import/mt5_files_snapshot" in normalized):
             return mac_files
     return candidate
+
+
+def resolve_hfm_root(repo_root: Path, runtime_dir: Path, configured: str) -> Path:
+    if configured:
+        candidate = Path(configured).expanduser()
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        return candidate
+    if os.uname().sysname == "Darwin":
+        if runtime_dir.name == "Files" and runtime_dir.parent.name == "MQL5":
+            candidate = runtime_dir.parent.parent
+            if candidate.exists():
+                return candidate
+        mac_root = mac_mt5_root()
+        if mac_root.exists():
+            return mac_root
+    return repo_root / "runtime/ParamLab_Tester_Sandbox/live_hfm_placeholder"
 
 
 def resolve_dashboard_dir(repo_root: Path, configured: str) -> Path:
@@ -184,11 +205,9 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
     runtime_dir = resolve_runtime_dir(repo_root, args.runtime_dir)
     dashboard_dir = resolve_dashboard_dir(repo_root, args.dashboard_dir)
     tester_root = Path(args.tester_root).expanduser() if args.tester_root else repo_root / "runtime/HFM_MT5_Tester_Isolated"
-    hfm_root = Path(args.hfm_root).expanduser() if args.hfm_root else repo_root / "runtime/ParamLab_Tester_Sandbox/live_hfm_placeholder"
+    hfm_root = resolve_hfm_root(repo_root, runtime_dir, args.hfm_root)
     if not tester_root.is_absolute():
         tester_root = repo_root / tester_root
-    if not hfm_root.is_absolute():
-        hfm_root = repo_root / hfm_root
     runtime_dir.mkdir(parents=True, exist_ok=True)
     dashboard_dir.mkdir(parents=True, exist_ok=True)
 

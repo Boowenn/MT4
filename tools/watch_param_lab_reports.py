@@ -102,10 +102,17 @@ def normalize_report_path(raw: Any, repo_root: Path) -> Path | None:
     text = str(raw or "").strip().strip('"')
     if not text:
         return None
-    text = text.replace("/", "\\")
-    text = text.replace("archive\\param_lab_runs\\", "archive\\param-lab\\runs\\")
-    text = text.replace("archive\\param_lab\\runs\\", "archive\\param-lab\\runs\\")
-    path = Path(text)
+    if len(text) >= 3 and text[1:3] == ":\\" and text[0].upper() == "Z":
+        text = "/" + text[3:].lstrip("\\/")
+    slash_text = text.replace("\\", "/")
+    slash_text = slash_text.replace("archive/param_lab_runs/", "archive/param-lab/runs/")
+    slash_text = slash_text.replace("archive/param_lab/runs/", "archive/param-lab/runs/")
+    for anchor in ("/Users/", "/private/", "/tmp/", "/Volumes/"):
+        index = slash_text.rfind(anchor)
+        if index > 0:
+            slash_text = slash_text[index:]
+            break
+    path = Path(slash_text)
     if not path.is_absolute():
         path = repo_root / path
     return path

@@ -332,6 +332,54 @@ def update_trend_cache(
     return cache, counts
 
 
+def stale_rows_from_trend_cache(trend_cache: dict[str, Any], generated_at: str, run_id: str, limit: int) -> list[dict[str, Any]]:
+    markets = trend_cache.get("markets") if isinstance(trend_cache.get("markets"), dict) else {}
+    rows: list[dict[str, Any]] = []
+    for state in markets.values():
+        if not isinstance(state, dict):
+            continue
+        row = {
+            "marketId": state.get("marketId", ""),
+            "eventId": state.get("eventId", ""),
+            "question": state.get("question", ""),
+            "polymarketUrl": state.get("polymarketUrl", ""),
+            "category": state.get("category", ""),
+            "suggestedShadowTrack": state.get("suggestedShadowTrack", ""),
+            "risk": state.get("risk", ""),
+            "riskFlags": state.get("riskFlags", []),
+            "probability": state.get("lastProbability"),
+            "aiRuleScore": state.get("lastAiRuleScore"),
+            "bestAiRuleScore": state.get("bestAiRuleScore"),
+            "volume24h": state.get("lastVolume24h"),
+            "liquidity": state.get("lastLiquidity"),
+            "yesTokenId": state.get("yesTokenId"),
+            "noTokenId": state.get("noTokenId"),
+            "clobStatus": state.get("clobStatus"),
+            "clobSpread": state.get("clobSpread"),
+            "clobLiquidityUsd": state.get("clobLiquidityUsd"),
+            "clobDepthScore": state.get("clobDepthScore"),
+            "trendDirection": "stale_cache",
+            "lastSeenAt": state.get("lastSeenAt", ""),
+            "staleCycles": safe_int(state.get("staleCycles"), 0),
+            "cacheGeneratedAt": generated_at,
+            "lastRunId": run_id,
+            "recommendedAction": "OBSERVE_ONLY",
+        }
+        rows.append(row)
+    rows.sort(
+        key=lambda row: (
+            safe_number(row.get("aiRuleScore"), 0.0),
+            safe_number(row.get("clobDepthScore"), 0.0),
+            safe_number(row.get("liquidity"), 0.0),
+            safe_number(row.get("volume24h"), 0.0),
+        ),
+        reverse=True,
+    )
+    for index, row in enumerate(rows[: max(0, limit)], start=1):
+        row["workerRank"] = index
+    return rows[: max(0, limit)]
+
+
 def priority_score(item: dict[str, Any]) -> float:
     score = safe_number(item.get("aiRuleScore"), 0.0)
     abs_score_delta = abs(safe_number(item.get("aiRuleScoreDelta"), 0.0))
@@ -662,7 +710,33 @@ def main() -> int:
                 args.stale_retention_cycles,
             )
             previous_cache = trend_cache
-            queue = build_candidate_queue(deduped_rows, args, generated_at, run_id)
+            fallback_error = str(latest_radar.get("error") or "")
+            if latest_radar.get("status") == "ERROR" and trend_cache.get("markets"):
+                deduped_rows = stale_rows_from_trend_cache(trend_cache, generated_at, run_id, max(1, args.top))
+                queue = []
+                latest_radar = {
+                    **latest_radar,
+                    "status": "STALE_CACHE",
+                    "mode": "POLYMARKET_OPPORTUNITY_RADAR_V1_STALE_CACHE",
+                    "radar": deduped_rows,
+                    "summary": {
+                        **(latest_radar.get("summary") if isinstance(latest_radar.get("summary"), dict) else {}),
+                        "rankedMarkets": len(deduped_rows),
+                        "candidateQueueSize": 0,
+                        "staleCacheMarkets": len(deduped_rows),
+                    },
+                    "source": {
+                        **(latest_radar.get("source") if isinstance(latest_radar.get("source"), dict) else {}),
+                        "scanner": "stale_trend_cache_after_gamma_error",
+                        "cacheSource": cache_source,
+                    },
+                    "nextActions": [
+                        "Gamma API snapshot failed; using stale read-only trend cache for review only.",
+                        "Keep Polymarket execution disabled and retry public API refresh later.",
+                    ],
+                }
+            else:
+                queue = build_candidate_queue(deduped_rows, args, generated_at, run_id)
             latest_radar = dict(latest_radar)
             latest_radar["mode"] = "POLYMARKET_OPPORTUNITY_RADAR_V1_WITH_WORKER_V2_TRENDS"
             latest_radar["radar"] = deduped_rows[: max(1, args.top)]
@@ -690,7 +764,7 @@ def main() -> int:
                     "rankedMarkets": len(deduped_rows),
                     "candidateQueueSize": len(queue),
                     "topMarket": deduped_rows[0].get("question", "") if deduped_rows else "",
-                    "error": latest_radar.get("error", ""),
+                    "error": fallback_error if latest_radar.get("status") == "STALE_CACHE" else latest_radar.get("error", ""),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - worker must emit a diagnostic snapshot.

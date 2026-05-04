@@ -1,5 +1,7 @@
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -184,6 +186,90 @@ class PolymarketMarketRadarTests(unittest.TestCase):
         args = SimpleNamespace(queue_risk="low,medium", queue_min_score=45, queue_top=10)
 
         self.assertEqual(worker.build_candidate_queue(rows, args, "2026-05-02T00:00:00+00:00", "run"), [])
+
+    def test_worker_stale_cache_fallback_is_review_only(self):
+        cache = {
+            "markets": {
+                "m1": {
+                    "marketId": "m1",
+                    "question": "Cached market",
+                    "category": "sports",
+                    "risk": "low",
+                    "suggestedShadowTrack": "poly_sports_edge_filter_strict_score_liquidity_v2",
+                    "lastProbability": 62.5,
+                    "lastAiRuleScore": 80,
+                    "lastLiquidity": 50000,
+                    "lastVolume24h": 20000,
+                    "clobStatus": "OK",
+                    "clobDepthScore": 60,
+                    "staleCycles": 1,
+                }
+            }
+        }
+
+        rows = worker.stale_rows_from_trend_cache(cache, "2026-05-04T00:00:00+00:00", "run", 10)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["recommendedAction"], "OBSERVE_ONLY")
+        self.assertEqual(rows[0]["trendDirection"], "stale_cache")
+
+    def test_worker_main_uses_stale_cache_after_gamma_error(self):
+        original_parse_args = worker.parse_args
+        original_build_gamma_snapshot = worker.build_gamma_snapshot
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp) / "runtime"
+            dashboard_dir = Path(tmp) / "dashboard"
+            dashboard_dir.mkdir(parents=True)
+            (dashboard_dir / worker.TREND_CACHE_NAME).write_text(json.dumps({
+                "markets": {
+                    "m1": {
+                        "marketId": "m1",
+                        "question": "Cached market",
+                        "category": "sports",
+                        "risk": "low",
+                        "lastAiRuleScore": 80,
+                        "staleCycles": 0,
+                    }
+                }
+            }), encoding="utf-8")
+            worker.parse_args = lambda: SimpleNamespace(
+                runtime_dir=str(runtime_dir),
+                dashboard_dir=str(dashboard_dir),
+                endpoint="https://example.invalid",
+                limit=1,
+                top=10,
+                min_volume=0,
+                min_liquidity=0,
+                timeout=1,
+                cycles=1,
+                max_cycles=1,
+                interval_seconds=0,
+                queue_top=10,
+                queue_min_score=45,
+                queue_risk="low,medium",
+                stale_retention_cycles=12,
+                input_radar="",
+                skip_clob_depth=True,
+                clob_depth_limit=0,
+                clob_timeout=1,
+            )
+            worker.build_gamma_snapshot = lambda args: {
+                "status": "ERROR",
+                "generatedAt": "2026-05-04T00:00:00+00:00",
+                "summary": {},
+                "radar": [],
+                "error": "URLError: DNS",
+            }
+            try:
+                self.assertEqual(worker.main(), 0)
+                payload = json.loads((dashboard_dir / worker.WORKER_NAME).read_text(encoding="utf-8"))
+            finally:
+                worker.parse_args = original_parse_args
+                worker.build_gamma_snapshot = original_build_gamma_snapshot
+
+        self.assertEqual(payload["status"], "OK")
+        self.assertEqual(payload["cycles"][0]["status"], "STALE_CACHE")
+        self.assertEqual(payload["summary"]["candidateQueueSize"], 0)
 
     def test_clob_wide_spread_blocks_shadow_review_queue_entry(self):
         original_fetch = radar.fetch_order_book

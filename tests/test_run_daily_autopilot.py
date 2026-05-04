@@ -36,6 +36,12 @@ auto_tester_window = importlib.util.module_from_spec(AUTO_TESTER_SPEC)
 assert AUTO_TESTER_SPEC.loader is not None
 AUTO_TESTER_SPEC.loader.exec_module(auto_tester_window)
 
+WATCHER_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "watch_param_lab_reports.py"
+WATCHER_SPEC = importlib.util.spec_from_file_location("watch_param_lab_reports", WATCHER_MODULE_PATH)
+watcher = importlib.util.module_from_spec(WATCHER_SPEC)
+assert WATCHER_SPEC.loader is not None
+WATCHER_SPEC.loader.exec_module(watcher)
+
 POLY_GOV_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "build_polymarket_auto_governance.py"
 POLY_GOV_SPEC = importlib.util.spec_from_file_location("build_polymarket_auto_governance", POLY_GOV_MODULE_PATH)
 poly_governance = importlib.util.module_from_spec(POLY_GOV_SPEC)
@@ -70,6 +76,32 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(autopilot.daily_tester_date_range(now, 99), ("2026.04.18", "2026.05.02"))
         self.assertEqual(autopilot.daily_tester_timeout_seconds(120), 300)
         self.assertEqual(autopilot.daily_tester_timeout_seconds(99999), 3600)
+
+    def test_mac_autopilot_resolves_existing_hfm_root_from_mt5_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_dir = root / "MetaTrader 5" / "MQL5" / "Files"
+            runtime_dir.mkdir(parents=True)
+
+            self.assertEqual(autopilot.resolve_hfm_root(root, runtime_dir, ""), runtime_dir.parent.parent)
+
+    def test_watcher_preserves_absolute_posix_report_path(self):
+        repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
+        raw = "/Users/bowen/Desktop/Quard/QuantGod/archive/param-lab/runs/run/reports/EURUSDc/x.html"
+
+        self.assertEqual(watcher.normalize_report_path(raw, repo_root), Path(raw))
+
+    def test_watcher_repairs_repo_prefixed_wine_report_path(self):
+        repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
+        raw = (
+            "/Users/bowen/Desktop/Quard/QuantGodBackend/"
+            "\\Users\\bowen\\Desktop\\Quard\\QuantGod\\archive\\param-lab\\runs\\run\\reports\\EURUSDc\\x.html"
+        )
+
+        self.assertEqual(
+            watcher.normalize_report_path(raw, repo_root),
+            Path("/Users/bowen/Desktop/Quard/QuantGod/archive/param-lab/runs/run/reports/EURUSDc/x.html"),
+        )
 
     def test_auto_tester_runner_command_forwards_daily_bounds_and_timeout(self):
         args = type("Args", (), {
