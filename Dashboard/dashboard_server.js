@@ -214,21 +214,62 @@ const runtimeTextExtensions = new Set(['.json', '.csv', '.txt']);
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 const shiftJisDecoder = new TextDecoder('shift_jis');
 
+const ALLOWED_ORIGINS = new Set([
+  'http://127.0.0.1:5173',
+  'http://localhost:5173',
+  'http://127.0.0.1:8080',
+  'http://localhost:8080',
+]);
+
+function corsHeadersFor(req) {
+  const origin = (req.headers.origin || '').replace(/\/+$/, '');
+  if (ALLOWED_ORIGINS.has(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Vary': 'Origin'
+    };
+  }
+  return {};
+}
+
+function corsPreflightHeadersFor(req) {
+  const origin = (req.headers.origin || '').replace(/\/+$/, '');
+  if (ALLOWED_ORIGINS.has(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-QuantGod-Local',
+      'Vary': 'Origin'
+    };
+  }
+  return {};
+}
+
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function isCsrfSafe(req) {
+  if (CSRF_SAFE_METHODS.has((req.method || 'GET').toUpperCase())) {
+    return true;
+  }
+  return (req.headers['x-quantgod-local'] || '').trim() === '1';
+}
+
 function send(res, statusCode, headers, body) {
-  res.writeHead(statusCode, headers);
+  for (const [k, v] of Object.entries(headers)) {
+    res.setHeader(k, v);
+  }
+  res.writeHead(statusCode);
   res.end(body);
 }
 
-function sendJson(res, statusCode, payload) {
-  send(res, statusCode, {
+function sendJson(res, statusCode, payload, req) {
+  const cors = req ? corsHeadersFor(req) : {};
+  send(res, statusCode, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
     Pragma: 'no-cache',
     Expires: '0',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  }, JSON.stringify(payload, null, 2));
+  }, cors), JSON.stringify(payload, null, 2));
 }
 
 function readRequestBody(req, maxBytes = 64 * 1024) {
@@ -3200,8 +3241,7 @@ function sendStaticFile(target, res) {
         'Content-Type': contentType,
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         Pragma: 'no-cache',
-        Expires: '0',
-        'Access-Control-Allow-Origin': '*'
+        Expires: '0'
       }, body);
     });
   });
@@ -3209,10 +3249,30 @@ function sendStaticFile(target, res) {
 
 const server = http.createServer((req, res) => {
   const requestUrl = req.url || '/';
+
+  // Set CORS origin header early so it persists through writeHead in send/sendJson
+  const origin = (req.headers.origin || '').replace(/\/+$/, '');
+  if (ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+
   if (req.method === 'OPTIONS') {
-    sendJson(res, 204, {});
+    const preflightHeaders = corsPreflightHeadersFor(req);
+    if (Object.keys(preflightHeaders).length > 0) {
+      send(res, 204, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, preflightHeaders), JSON.stringify({}));
+    } else {
+      send(res, 204, { 'Content-Type': 'application/json; charset=utf-8' }, JSON.stringify({}));
+    }
     return;
   }
+
+  // CSRF guard: non-safe methods require X-QuantGod-Local: 1 header
+  if (!isCsrfSafe(req)) {
+    sendJson(res, 403, { ok: false, error: 'CSRF_FORBIDDEN', detail: 'Non-safe methods require X-QuantGod-Local: 1 header' }, req);
+    return;
+  }
+
   if (stateApiRoutes.isStatePath(requestUrl)) { stateApiRoutes .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir }) .catch((error) => stateApiRoutes.sendError(res, 500, requestUrl, error)); return; } if (phase3ApiRoutes.isPhase3Path(requestUrl)) {
     phase3ApiRoutes
       .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })
@@ -3420,6 +3480,18 @@ const server = http.createServer((req, res) => {
   const fallback = fs.existsSync(target) ? target : resolveRuntimeFallback(target);
   sendStaticFile(fallback || target, res);
 });
+
+const LOOPBACK_IPS = new Set(['127.0.0.1', '::1', 'localhost']);
+if (!LOOPBACK_IPS.has(host)) {
+  if (host === '0.0.0.0' || host === '::') {
+    console.warn('[WARN] QG_DASHBOARD_HOST=' + host + ' binds the dashboard to ALL network interfaces. ' +
+      'This exposes the dashboard to your LAN and any reachable network. ' +
+      'Set QG_DASHBOARD_HOST=127.0.0.1 unless you know what you are doing.');
+  } else {
+    console.warn('[WARN] QG_DASHBOARD_HOST=' + host + ' is non-loopback. ' +
+      'The dashboard server will be exposed to the network.');
+  }
+}
 
 server.listen(port, host, () => {
   console.log(`QuantGod Vue workbench running at http://${host}:${port}/vue/`);

@@ -47,6 +47,10 @@ test('phase2 path registry includes required API domains', () => {
   assert.equal(routes.isPhase2Path('/api/research/stats'), true);
   assert.equal(routes.isPhase2Path('/api/shadow/signals'), true);
   assert.equal(routes.isPhase2Path('/api/notify/config'), true);
+  assert.equal(routes.isPhase2Path('/api/notify/daily-digest'), true);
+  assert.equal(routes.isPhase2Path('/api/notify/runtime-scan'), true);
+  assert.equal(routes.isPhase2Path('/api/notify/mt5-ai-monitor/config'), true);
+  assert.equal(routes.isPhase2Path('/api/notify/mt5-ai-monitor/run'), true);
   assert.equal(routes.PHASE2_API_SAFETY.orderSendAllowed, false);
   assert.equal(routes.PHASE2_API_SAFETY.telegramCommandExecutionAllowed, false);
 });

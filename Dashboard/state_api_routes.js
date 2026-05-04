@@ -16,9 +16,6 @@ const JSON_HEADERS = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
   Pragma: 'no-cache',
   Expires: '0',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
 };
 
 const STATE_API_SAFETY = Object.freeze({
@@ -68,7 +65,10 @@ function isStatePath(urlValue) {
 }
 
 function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, JSON_HEADERS);
+  for (const [k, v] of Object.entries(JSON_HEADERS)) {
+    res.setHeader(k, v);
+  }
+  res.writeHead(statusCode);
   res.end(JSON.stringify(payload, null, 2));
 }
 
