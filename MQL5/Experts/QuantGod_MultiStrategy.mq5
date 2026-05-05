@@ -868,17 +868,18 @@ void LoadTrackedUsdCalendarEvents()
    {
       if(events[i].type != CALENDAR_TYPE_INDICATOR)
          continue;
-      if(events[i].importance < CALENDAR_IMPORTANCE_MODERATE)
-         continue;
-
       string descriptor = events[i].event_code + " " + events[i].name;
       int kind = DetermineUsdNewsKind(descriptor);
+      if(events[i].importance < CALENDAR_IMPORTANCE_HIGH && kind == USD_NEWS_UNKNOWN)
+         continue;
 
       PushULong(g_usdTrackedEventIds, events[i].id);
       PushString(g_usdTrackedEventNames, events[i].name);
       PushString(g_usdTrackedEventCodes, events[i].event_code);
       PushInt(g_usdTrackedEventKinds, kind);
       PushInt(g_usdTrackedEventImportance, (int)events[i].importance);
+      if(ArraySize(g_usdTrackedEventIds) >= 40)
+         break;
    }
 
    if(ArraySize(g_usdTrackedEventIds) > 0)
@@ -6295,10 +6296,6 @@ int OnInit()
    InitializeWatchlist();
    ArmPilotStartupEntryGuard();
    LoadTrackedUsdCalendarEvents();
-   RefreshNewsFilterState(true);
-   ReconcileExistingPilotPositions();
-   ReconcileConsecutiveLossesFromHistory();
-   ReconcileDailyRealizedLossFromHistory();
    EventSetTimer(MathMax(1, RefreshIntervalSec));
    ExportDashboard(true);
    string startupReason = "";
