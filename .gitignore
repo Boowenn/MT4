@@ -22,3 +22,7 @@ archive/polymarket/history/
 # QuantGod AI provider local env
 .env.ai.local
 !.env.ai.local.example
+
+# QuantGod local pilot safety env
+.env.pilot.local
+!.env.pilot.local.example
