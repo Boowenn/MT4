@@ -1,0 +1,262 @@
+from __future__ import annotations
+
+import csv
+import json
+import os
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+from .schema import DEFAULT_STRATEGIES, FOCUS_SYMBOL, is_focus_symbol, normalize_symbol
+
+
+def _read_json(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        if path.exists() and path.is_file():
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return None
+    return None
+
+
+def _write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_csv_rows(path: Path) -> List[Dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    for encoding in ("utf-8-sig", "utf-8", "shift_jis", "cp932"):
+        try:
+            with path.open("r", encoding=encoding, newline="") as handle:
+                return list(csv.DictReader(handle))
+        except Exception:
+            continue
+    return []
+
+
+def _candidate_paths(runtime_dir: Path, *names: str) -> List[Path]:
+    bases = [
+        runtime_dir,
+        runtime_dir / "adaptive",
+        runtime_dir / "quality",
+        runtime_dir / "journal",
+        runtime_dir / "reports",
+        runtime_dir / "history",
+    ]
+    paths: List[Path] = []
+    for base in bases:
+        for name in names:
+            paths.append(base / name)
+    return paths
+
+
+def first_json(runtime_dir: Path, *names: str) -> Optional[Dict[str, Any]]:
+    for path in _candidate_paths(runtime_dir, *names):
+        payload = _read_json(path)
+        if payload is not None:
+            payload.setdefault("_filePath", str(path))
+            return payload
+    return None
+
+
+def read_all_csv(runtime_dir: Path, *names: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for path in _candidate_paths(runtime_dir, *names):
+        rows.extend(_read_csv_rows(path))
+    return rows
+
+
+def _get(row: Dict[str, Any], *keys: str, default: Any = "") -> Any:
+    if not row:
+        return default
+    lower = {str(k).lower(): v for k, v in row.items()}
+    for key in keys:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+        lower_key = key.lower()
+        if lower_key in lower and lower[lower_key] not in (None, ""):
+            return lower[lower_key]
+    return default
+
+
+def to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        text = str(value).strip().replace("%", "")
+        if text == "":
+            return default
+        return float(text)
+    except Exception:
+        return default
+
+
+def to_direction(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if text in {"BUY", "LONG", "1", "多", "买", "买入"}:
+        return "LONG"
+    if text in {"SELL", "SHORT", "-1", "空", "卖", "卖出"}:
+        return "SHORT"
+    return "UNKNOWN"
+
+
+def normalize_strategy(value: Any) -> str:
+    text = str(value or "").strip()
+    return text or "UNKNOWN_STRATEGY"
+
+
+def focus_runtime_snapshot(runtime_dir: Path, symbol: str = FOCUS_SYMBOL) -> Optional[Dict[str, Any]]:
+    aliases = [symbol, "USDJPY", FOCUS_SYMBOL]
+    names = []
+    for alias in aliases:
+        names.append(f"QuantGod_MT5RuntimeSnapshot_{alias}.json")
+    names.append("QuantGod_Dashboard.json")
+    payload = first_json(runtime_dir, *names)
+    if payload and ("symbol" not in payload or is_focus_symbol(payload.get("symbol") or symbol)):
+        return payload
+    return None
+
+
+def fastlane_quality(runtime_dir: Path) -> Dict[str, Any]:
+    payload = first_json(runtime_dir, "QuantGod_MT5FastLaneQuality.json") or {}
+    quality = str(payload.get("quality") or payload.get("status") or "MISSING").upper()
+    symbols = payload.get("symbols")
+    focus = None
+    if isinstance(symbols, list):
+        for item in symbols:
+            if isinstance(item, dict) and is_focus_symbol(item.get("symbol")):
+                focus = item
+                break
+    if focus:
+        quality = str(focus.get("quality") or focus.get("status") or quality).upper()
+    return {
+        "found": bool(payload),
+        "quality": quality,
+        "focusSymbolFound": bool(focus) or not isinstance(symbols, list),
+        "payload": payload,
+    }
+
+
+def dynamic_sltp(runtime_dir: Path) -> Dict[str, Any]:
+    return first_json(
+        runtime_dir,
+        "QuantGod_DynamicSLTPCalibration.json",
+        "QuantGod_DynamicSLTPPlan.json",
+    ) or {}
+
+
+def entry_trigger_plan(runtime_dir: Path) -> Dict[str, Any]:
+    return first_json(runtime_dir, "QuantGod_EntryTriggerPlan.json") or {}
+
+
+def adaptive_policy(runtime_dir: Path) -> Dict[str, Any]:
+    return first_json(runtime_dir, "QuantGod_AdaptivePolicy.json", "QuantGod_DynamicEntryGate.json") or {}
+
+
+def existing_auto_policy(runtime_dir: Path) -> Dict[str, Any]:
+    return first_json(runtime_dir, "QuantGod_AutoExecutionPolicy.json") or {}
+
+
+def load_evidence_rows(runtime_dir: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for row in read_all_csv(
+        runtime_dir,
+        "ShadowCandidateOutcomeLedger.csv",
+        "QuantGod_ShadowCandidateOutcomeLedger.csv",
+        "QuantGod_CloseHistory.csv",
+        "QuantGod_CloseHistoryLedger.csv",
+        "QuantGod_StrategyEvaluationReport.csv",
+        "QuantGod_DynamicSLTPCalibrationLedger.csv",
+        "QuantGod_AutoExecutionPolicyLedger.csv",
+    ):
+        symbol = normalize_symbol(_get(row, "symbol", "Symbol", "SYMBOL", default=FOCUS_SYMBOL))
+        if not is_focus_symbol(symbol):
+            continue
+        direction = to_direction(_get(row, "direction", "side", "orderType", "cmd", "signalDirection", default="UNKNOWN"))
+        strategy = normalize_strategy(_get(row, "strategy", "strategyName", "route", "name", "magicName", default="UNKNOWN_STRATEGY"))
+        regime = str(_get(row, "regime", "marketRegime", "state", default="UNKNOWN") or "UNKNOWN").strip() or "UNKNOWN"
+        timeframe = str(_get(row, "timeframe", "tf", "horizon", default="UNKNOWN") or "UNKNOWN").strip() or "UNKNOWN"
+        pnl = to_float(_get(row, "scoreR", "r", "R", "profitR", "pnlR", default="nan"), default=float("nan"))
+        if pnl != pnl:
+            pnl = to_float(_get(row, "pips", "profitPips", "netPips", "outcomePips", "profit", "pnl", "netProfit", default=0.0))
+        mfe = to_float(_get(row, "mfe", "mfePips", "maxFavorableMove", "maxFavorablePips", default=0.0))
+        mae = abs(to_float(_get(row, "mae", "maePips", "maxAdverseMove", "maxAdversePips", default=0.0)))
+        rows.append({
+            "symbol": FOCUS_SYMBOL,
+            "strategy": strategy if strategy != "UNKNOWN_STRATEGY" else infer_strategy_from_row(row),
+            "direction": direction,
+            "regime": regime,
+            "timeframe": timeframe,
+            "pnl": pnl,
+            "mfe": mfe,
+            "mae": mae,
+            "raw": row,
+        })
+    return rows
+
+
+def infer_strategy_from_row(row: Dict[str, Any]) -> str:
+    text = " ".join(str(v) for v in row.values() if v is not None)
+    for strategy in DEFAULT_STRATEGIES:
+        if strategy.lower() in text.lower():
+            return strategy
+    return "UNKNOWN_STRATEGY"
+
+
+def sample_runtime(runtime_dir: Path, overwrite: bool = False) -> Dict[str, Any]:
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    adaptive = runtime_dir / "adaptive"
+    adaptive.mkdir(parents=True, exist_ok=True)
+    snapshot = runtime_dir / f"QuantGod_MT5RuntimeSnapshot_{FOCUS_SYMBOL}.json"
+    if overwrite or not snapshot.exists():
+        _write_json(snapshot, {
+            "schema": "quantgod.mt5.runtime_snapshot.v1",
+            "symbol": FOCUS_SYMBOL,
+            "source": "hfm_ea_runtime",
+            "fallback": False,
+            "runtimeFresh": True,
+            "runtimeAgeSeconds": 3,
+            "current_price": {"bid": 155.12, "ask": 155.14, "spread": 0.02},
+            "safety": {"readOnly": True, "orderSendAllowed": False},
+        })
+    quality = runtime_dir / "quality" / "QuantGod_MT5FastLaneQuality.json"
+    quality.parent.mkdir(parents=True, exist_ok=True)
+    if overwrite or not quality.exists():
+        _write_json(quality, {
+            "schema": "quantgod.mt5.fastlane_quality.v1",
+            "quality": "OK",
+            "symbols": [{"symbol": FOCUS_SYMBOL, "quality": "OK", "tickAgeSeconds": 1, "spreadOk": True}],
+        })
+    gate = adaptive / "QuantGod_EntryTriggerPlan.json"
+    if overwrite or not gate.exists():
+        _write_json(gate, {
+            "schema": "quantgod.entry_trigger_lab.v1",
+            "plans": [
+                {"symbol": FOCUS_SYMBOL, "direction": "LONG", "status": "READY_FOR_CONFIRMATION", "triggerScore": 0.86, "missingConfirmations": []},
+                {"symbol": FOCUS_SYMBOL, "direction": "SHORT", "status": "BLOCKED", "triggerScore": 0.25, "missingConfirmations": ["方向近期负期望"]},
+            ],
+        })
+    sltp = adaptive / "QuantGod_DynamicSLTPCalibration.json"
+    if overwrite or not sltp.exists():
+        _write_json(sltp, {
+            "schema": "quantgod.dynamic_sltp_calibration.v1",
+            "plans": [
+                {"symbol": FOCUS_SYMBOL, "strategy": "RSI_Reversal", "direction": "LONG", "status": "CALIBRATED", "initialStopPips": 3.2, "target1Pips": 4.8, "target2Pips": 6.1},
+            ],
+        })
+    ledger = runtime_dir / "ShadowCandidateOutcomeLedger.csv"
+    if overwrite or not ledger.exists():
+        ledger.write_text(
+            "symbol,strategy,direction,regime,timeframe,pips,mfePips,maePips\n"
+            "USDJPYc,RSI_Reversal,LONG,TREND_EXP_DOWN,M15,3.2,6.4,1.8\n"
+            "USDJPYc,RSI_Reversal,LONG,TREND_EXP_DOWN,M15,2.5,5.1,1.1\n"
+            "USDJPYc,RSI_Reversal,LONG,TREND_EXP_DOWN,M15,4.1,7.2,2.0\n"
+            "USDJPYc,RSI_Reversal,LONG,TREND_EXP_DOWN,M15,1.7,3.8,1.5\n"
+            "USDJPYc,RSI_Reversal,LONG,TREND_EXP_DOWN,M15,2.1,5.0,1.7\n"
+            "USDJPYc,RSI_Reversal,SHORT,RANGE,M15,-3.0,1.2,5.2\n"
+            "USDJPYc,RSI_Reversal,SHORT,RANGE,M15,-2.2,1.0,4.0\n"
+            "USDJPYc,MA_Cross,LONG,TREND_EXP_UP,M15,1.0,2.0,1.5\n"
+            "USDJPYc,MA_Cross,LONG,TREND_EXP_UP,M15,0.8,1.9,1.1\n"
+            "USDJPYc,MA_Cross,LONG,TREND_EXP_UP,M15,-0.4,1.0,1.7\n",
+            encoding="utf-8",
+        )
+    return {"ok": True, "runtimeDir": str(runtime_dir), "focusSymbol": FOCUS_SYMBOL}

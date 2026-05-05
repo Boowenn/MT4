@@ -30,3 +30,5 @@ archive/polymarket/history/
 # QuantGod auto execution policy local env
 .env.auto.local
 !.env.auto.local.example
+.env.usdjpy.local
+!.env.usdjpy.local.example

@@ -6,6 +6,7 @@ const phase1ApiRoutes = require('./phase1_api_routes');
 const phase2ApiRoutes = require('./phase2_api_routes');
 const phase3ApiRoutes = require('./phase3_api_routes');
 const automationChainApiRoutes = require('./automation_chain_api_routes');
+const usdjpyStrategyLabApiRoutes = require('./usdjpy_strategy_lab_api_routes');
 const stateApiRoutes = require('./state_api_routes');
 const os = require('os');
 const { spawn } = require('child_process');
@@ -3275,6 +3276,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (usdjpyStrategyLabApiRoutes.isUSDJPYStrategyLabPath(requestUrl)) {
+    usdjpyStrategyLabApiRoutes
+      .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })
+      .catch((error) => usdjpyStrategyLabApiRoutes.sendError(res, 500, requestUrl, error));
+    return;
+  }
   if (automationChainApiRoutes.isAutomationChainPath(requestUrl)) {
     automationChainApiRoutes
       .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })

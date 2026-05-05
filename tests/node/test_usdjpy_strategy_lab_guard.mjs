@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const repoRoot = path.resolve(process.cwd());
+const files = [
+  'tools/usdjpy_strategy_lab/schema.py',
+  'tools/usdjpy_strategy_lab/policy_builder.py',
+  'tools/usdjpy_strategy_lab/dry_run_bridge.py',
+  'tools/run_usdjpy_strategy_lab.py',
+  'Dashboard/usdjpy_strategy_lab_api_routes.js',
+  'tools/usdjpy_strategy_lab/QuantGodUSDJPYPolicyDryRun.mq5',
+];
+
+const forbidden = /\b(OrderSend|OrderSendAsync|PositionClose|OrderModify|TRADE_ACTION_DEAL|CTrade\s*\(|MT5OrderRequest|writesMt5OrderRequest\s*[:=]\s*true|telegramCommandExecutionAllowed\s*[:=]\s*true|livePresetMutationAllowed\s*[:=]\s*true)\b/;
+
+test('USDJPY strategy lab files exist', () => {
+  for (const file of files) {
+    assert.ok(fs.existsSync(path.join(repoRoot, file)), `${file} should exist`);
+  }
+});
+
+test('USDJPY strategy lab is focus-only and dry-run only', () => {
+  const schema = fs.readFileSync(path.join(repoRoot, 'tools/usdjpy_strategy_lab/schema.py'), 'utf8');
+  assert.match(schema, /FOCUS_SYMBOL\s*=\s*["']USDJPYc["']/);
+  assert.match(schema, /dryRunOnly["']?\s*:\s*True/);
+  assert.match(schema, /orderSendAllowed["']?\s*:\s*False/);
+  assert.match(schema, /livePresetMutationAllowed["']?\s*:\s*False/);
+});
+
+test('USDJPY strategy lab does not contain execution primitives', () => {
+  for (const file of files) {
+    const text = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+    assert.doesNotMatch(text, forbidden, `${file} must not contain execution primitives`);
+  }
+});
+
+test('USDJPY API route exposes only /api/usdjpy-strategy-lab', () => {
+  const route = fs.readFileSync(path.join(repoRoot, 'Dashboard/usdjpy_strategy_lab_api_routes.js'), 'utf8');
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/status/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/telegram-text/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/run/);
+});
