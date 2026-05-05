@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +46,28 @@ class AutoExecutionPolicyTests(unittest.TestCase):
             self.assertFalse(doc["safety"]["orderSendAllowed"])
             self.assertFalse(doc["safety"]["writesMt5OrderRequest"])
             self.assertFalse(doc["safety"]["livePresetMutationAllowed"])
+
+    def test_fastlane_quality_accepts_p3_7_symbol_list_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime = Path(td)
+            cmd_sample(Namespace(runtime_dir=str(runtime), overwrite=True))
+            quality_dir = runtime / "quality"
+            quality_dir.mkdir(parents=True, exist_ok=True)
+            (quality_dir / "QuantGod_MT5FastLaneQuality.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.mt5.fast_lane_quality.v1",
+                        "symbols": [
+                            {"symbol": "EURUSDc", "quality": "DEGRADED"},
+                            {"symbol": "USDJPYc", "quality": "OK", "reason": "快通道质量通过"},
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            row = AutoExecutionPolicyEngine(runtime).build_row("USDJPYc", "LONG").to_dict()
+            self.assertFalse(any("快通道" in item for item in row["blockers"]))
 
 
 if __name__ == "__main__":

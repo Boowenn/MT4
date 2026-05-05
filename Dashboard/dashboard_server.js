@@ -4,7 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const phase1ApiRoutes = require('./phase1_api_routes');
 const phase2ApiRoutes = require('./phase2_api_routes');
-const phase3ApiRoutes = require('./phase3_api_routes'); const stateApiRoutes = require('./state_api_routes');
+const phase3ApiRoutes = require('./phase3_api_routes');
+const automationChainApiRoutes = require('./automation_chain_api_routes');
+const stateApiRoutes = require('./state_api_routes');
 const os = require('os');
 const { spawn } = require('child_process');
 
@@ -3273,7 +3275,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (stateApiRoutes.isStatePath(requestUrl)) { stateApiRoutes .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir }) .catch((error) => stateApiRoutes.sendError(res, 500, requestUrl, error)); return; } if (phase3ApiRoutes.isPhase3Path(requestUrl)) {
+  if (automationChainApiRoutes.isAutomationChainPath(requestUrl)) {
+    automationChainApiRoutes
+      .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })
+      .catch((error) => automationChainApiRoutes.sendError(res, 500, requestUrl, error));
+    return;
+  }
+  if (stateApiRoutes.isStatePath(requestUrl)) {
+    stateApiRoutes
+      .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })
+      .catch((error) => stateApiRoutes.sendError(res, 500, requestUrl, error));
+    return;
+  }
+  if (phase3ApiRoutes.isPhase3Path(requestUrl)) {
     phase3ApiRoutes
       .handle(req, res, { repoRoot, rootDir, defaultRuntimeDir })
       .catch((error) => phase3ApiRoutes.sendError(res, 500, requestUrl, error));

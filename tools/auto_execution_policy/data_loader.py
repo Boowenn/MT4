@@ -182,7 +182,20 @@ class EvidenceLoader:
                 break
         if not data:
             return FastLaneQuality("MISSING", False, "缺少快通道质量证据")
-        symbol_data = data.get(symbol) or data.get("symbols", {}).get(symbol) or data
+        symbol_rows = data.get("symbols")
+        if isinstance(symbol_rows, list):
+            symbol_data = next(
+                (
+                    row
+                    for row in symbol_rows
+                    if isinstance(row, dict) and str(row.get("symbol") or "") == symbol
+                ),
+                data,
+            )
+        elif isinstance(symbol_rows, dict):
+            symbol_data = symbol_rows.get(symbol) or data.get(symbol) or data
+        else:
+            symbol_data = data.get(symbol) or data
         quality = str(symbol_data.get("quality") or symbol_data.get("status") or data.get("quality") or "UNKNOWN").upper()
         ok = quality in {"OK", "PASS", "PASSED", "GOOD", "HEALTHY"}
         reason = str(symbol_data.get("reason") or data.get("reason") or ("快通道质量通过" if ok else f"快通道质量为 {quality}"))
