@@ -119,6 +119,30 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertEqual(risk["status"], "PASS")
             self.assertFalse(risk["safety"]["orderSendAllowed"])
 
+    def test_live_dashboard_snapshot_can_back_risk_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            dashboard = runtime / "QuantGod_Dashboard.json"
+            dashboard.write_text(
+                json.dumps({
+                    "timestamp": "2026.05.06 01:40:21",
+                    "watchlist": FOCUS_SYMBOL,
+                    "runtime": {
+                        "tradeStatus": "READY",
+                        "executionEnabled": True,
+                        "readOnlyMode": False,
+                        "tickAgeSeconds": 0,
+                    },
+                    "market": {"bid": 157.762, "ask": 157.788, "spread": 2.6},
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            snapshot = focus_runtime_snapshot(runtime)
+            self.assertIsNotNone(snapshot)
+            self.assertLess(snapshot["runtimeAgeSeconds"], 30)
+            risk = build_risk_check(runtime)
+            self.assertEqual(risk["status"], "PASS")
+
     def test_import_backtest_results_are_usdjpy_only_and_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp)

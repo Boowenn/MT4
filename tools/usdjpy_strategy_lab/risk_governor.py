@@ -23,7 +23,7 @@ def build_risk_check(runtime_dir: Path) -> Dict[str, Any]:
         blockers.append("运行快照年龄不可解析")
     if not quality.get("found"):
         blockers.append("缺少快通道质量")
-    elif str(quality.get("quality") or "").upper() not in {"OK", "PASS", "GOOD", "HEALTHY"}:
+    elif str(quality.get("quality") or "").upper() not in {"OK", "PASS", "GOOD", "HEALTHY", "EA_DASHBOARD_OK"}:
         blockers.append(f"快通道质量未通过：{quality.get('quality')}")
     payload = {
         "schema": "quantgod.usdjpy_strategy_risk_check.v1",

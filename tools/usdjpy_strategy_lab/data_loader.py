@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import json
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -12,7 +14,13 @@ from .schema import DEFAULT_STRATEGIES, FOCUS_SYMBOL, is_focus_symbol, normalize
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
         if path.exists() and path.is_file():
-            return json.loads(path.read_text(encoding="utf-8-sig"))
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+            if isinstance(payload, dict):
+                mtime = path.stat().st_mtime
+                payload.setdefault("_filePath", str(path))
+                payload.setdefault("_fileMtimeIso", datetime.fromtimestamp(mtime, timezone.utc).isoformat())
+                payload.setdefault("_fileAgeSeconds", max(0.0, time.time() - mtime))
+            return payload
     except Exception:
         return None
     return None
@@ -112,6 +120,23 @@ def focus_runtime_snapshot(runtime_dir: Path, symbol: str = FOCUS_SYMBOL) -> Opt
     names.append("QuantGod_Dashboard.json")
     payload = first_json(runtime_dir, *names)
     if payload and ("symbol" not in payload or is_focus_symbol(payload.get("symbol") or symbol)):
+        if "runtime" in payload and "watchlist" in payload:
+            runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+            market = payload.get("market") if isinstance(payload.get("market"), dict) else {}
+            payload = dict(payload)
+            payload.setdefault("schema", "quantgod.hfm_ea_dashboard_snapshot.v1")
+            payload.setdefault("symbol", payload.get("watchlist") or symbol)
+            payload.setdefault("fallback", False)
+            payload.setdefault("runtimeAgeSeconds", payload.get("_fileAgeSeconds", 9999))
+            payload.setdefault("runtimeFresh", float(payload.get("runtimeAgeSeconds", 9999)) <= 30)
+            payload.setdefault("current_price", {
+                "bid": market.get("bid"),
+                "ask": market.get("ask"),
+                "spread": market.get("spread"),
+            })
+            payload.setdefault("tradeStatus", runtime.get("tradeStatus"))
+            payload.setdefault("executionEnabled", runtime.get("executionEnabled"))
+            payload.setdefault("readOnlyMode", runtime.get("readOnlyMode"))
         return payload
     return None
 
@@ -128,6 +153,21 @@ def fastlane_quality(runtime_dir: Path) -> Dict[str, Any]:
                 break
     if focus:
         quality = str(focus.get("quality") or focus.get("status") or quality).upper()
+    if not payload:
+        dashboard = focus_runtime_snapshot(runtime_dir)
+        if dashboard and float(dashboard.get("runtimeAgeSeconds", 9999)) <= 30:
+            return {
+                "found": True,
+                "quality": "EA_DASHBOARD_OK",
+                "focusSymbolFound": True,
+                "source": "QuantGod_Dashboard.json",
+                "payload": {
+                    "quality": "EA_DASHBOARD_OK",
+                    "runtimeAgeSeconds": dashboard.get("runtimeAgeSeconds"),
+                    "tickAgeSeconds": (dashboard.get("runtime") or {}).get("tickAgeSeconds") if isinstance(dashboard.get("runtime"), dict) else None,
+                    "note": "未发现独立快通道质量文件，已使用 HFM EA Dashboard 新鲜快照作为降级证据。",
+                },
+            }
     return {
         "found": bool(payload),
         "quality": quality,
