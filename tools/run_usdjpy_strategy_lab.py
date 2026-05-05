@@ -12,9 +12,14 @@ from pathlib import Path
 from typing import Dict
 
 from usdjpy_strategy_lab.data_loader import sample_runtime
+from usdjpy_strategy_lab.backtest_plan_builder import build_backtest_plan
+from usdjpy_strategy_lab.backtest_importer import import_backtest_results, load_imported_backtests
 from usdjpy_strategy_lab.dry_run_bridge import build_dry_run_decision
 from usdjpy_strategy_lab.policy_builder import build_usdjpy_policy
+from usdjpy_strategy_lab.risk_governor import build_risk_check
 from usdjpy_strategy_lab.schema import FOCUS_SYMBOL, READ_ONLY_SAFETY
+from usdjpy_strategy_lab.strategy_catalog import build_strategy_catalog
+from usdjpy_strategy_lab.strategy_signals import build_candidate_signals
 from usdjpy_strategy_lab.strategy_scoreboard import build_strategy_scoreboard
 from usdjpy_strategy_lab.telegram_text import dry_run_to_chinese_text, policy_to_chinese_text
 
@@ -73,6 +78,18 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("config")
     sub.add_parser("status")
+    sub.add_parser("catalog")
+    signals = sub.add_parser("signals")
+    signals.add_argument("--limit", type=int, default=50)
+    sub.add_parser("risk-check")
+    sub.add_parser("backtest-plan")
+    imported = sub.add_parser("imported-backtests")
+    imported.add_argument("--limit", type=int, default=50)
+    import_backtest = sub.add_parser("import-backtest")
+    import_backtest.add_argument("--source", required=True)
+    import_backtest.add_argument("--strategy", default="")
+    candidate_policy = sub.add_parser("candidate-policy")
+    candidate_policy.add_argument("--write", action="store_true")
     sample = sub.add_parser("sample")
     sample.add_argument("--overwrite", action="store_true")
     build = sub.add_parser("build")
@@ -104,9 +121,21 @@ def main(argv=None) -> int:
         })
     if args.command == "sample":
         return emit(sample_runtime(runtime_dir, overwrite=args.overwrite))
+    if args.command == "catalog":
+        return emit(build_strategy_catalog())
+    if args.command == "signals":
+        return emit(build_candidate_signals(runtime_dir, limit=args.limit))
+    if args.command == "risk-check":
+        return emit(build_risk_check(runtime_dir))
+    if args.command == "backtest-plan":
+        return emit(build_backtest_plan(runtime_dir))
+    if args.command == "imported-backtests":
+        return emit(load_imported_backtests(runtime_dir, limit=args.limit))
+    if args.command == "import-backtest":
+        return emit(import_backtest_results(runtime_dir, args.source, fallback_strategy=args.strategy))
     if args.command == "scoreboard":
         return emit(build_strategy_scoreboard(runtime_dir, min_samples=args.min_samples))
-    if args.command in {"policy", "build", "status"}:
+    if args.command in {"policy", "build", "status", "candidate-policy"}:
         payload = build_usdjpy_policy(runtime_dir, write=getattr(args, "write", False), min_samples=args.min_samples)
         return emit(payload)
     if args.command == "dry-run":

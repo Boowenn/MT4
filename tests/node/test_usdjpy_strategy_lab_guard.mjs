@@ -6,6 +6,11 @@ import path from 'node:path';
 const repoRoot = path.resolve(process.cwd());
 const files = [
   'tools/usdjpy_strategy_lab/schema.py',
+  'tools/usdjpy_strategy_lab/strategy_catalog.py',
+  'tools/usdjpy_strategy_lab/strategy_signals.py',
+  'tools/usdjpy_strategy_lab/risk_governor.py',
+  'tools/usdjpy_strategy_lab/backtest_plan_builder.py',
+  'tools/usdjpy_strategy_lab/backtest_importer.py',
   'tools/usdjpy_strategy_lab/policy_builder.py',
   'tools/usdjpy_strategy_lab/dry_run_bridge.py',
   'tools/run_usdjpy_strategy_lab.py',
@@ -39,6 +44,13 @@ test('USDJPY strategy lab does not contain execution primitives', () => {
 test('USDJPY API route exposes only /api/usdjpy-strategy-lab', () => {
   const route = fs.readFileSync(path.join(repoRoot, 'Dashboard/usdjpy_strategy_lab_api_routes.js'), 'utf8');
   assert.match(route, /\/api\/usdjpy-strategy-lab\/status/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/catalog/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/signals/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/candidate-policy/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/backtest-plan/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/imported-backtests/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/import-backtest/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/risk-check/);
   assert.match(route, /\/api\/usdjpy-strategy-lab\/telegram-text/);
   assert.match(route, /\/api\/usdjpy-strategy-lab\/run/);
 });

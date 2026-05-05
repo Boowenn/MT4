@@ -12,6 +12,18 @@ SHADOW_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_Shadow.ini"
 SHADOW_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Shadow.set"
 MAC_LAUNCHER_PATH = ROOT / "Start_QuantGod_mac.sh"
 
+USDJPY_SHADOW_ROUTES = (
+    "USDJPY_TOKYO_RANGE_BREAKOUT",
+    "USDJPY_NIGHT_REVERSION_SAFE",
+    "USDJPY_H4_TREND_PULLBACK",
+)
+
+USDJPY_SHADOW_ROUTE_SWITCHES = (
+    "EnableUsdJpyTokyoBreakoutShadowResearch=true",
+    "EnableUsdJpyNightReversionShadowResearch=true",
+    "EnableUsdJpyH4PullbackShadowResearch=true",
+)
+
 
 class Mt5RsiExitProtectionTests(unittest.TestCase):
     def test_ea_has_rsi_only_fast_exit_inputs(self):
@@ -64,6 +76,24 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("RSI H1 SELL blocked in", text)
         self.assertIn("PilotRsiSellLiveBlocked && !MQLInfoInteger(MQL_TESTER)", text)
         self.assertIn("RSI SELL live side demoted to shadow/candidate", text)
+
+    def test_usdjpy_strategy_factory_routes_are_shadow_only(self):
+        text = EA_PATH.read_text(encoding="utf-8")
+        self.assertIn("input bool   EnableUsdJpyTokyoBreakoutShadowResearch = true;", text)
+        self.assertIn("input bool   EnableUsdJpyNightReversionShadowResearch = true;", text)
+        self.assertIn("input bool   EnableUsdJpyH4PullbackShadowResearch = true;", text)
+        self.assertIn("bool IsUsdJpyShadowResearchRoute(string strategyKey)", text)
+        self.assertIn("bool IsUsdJpyShadowResearchRouteEnabled(string strategyKey)", text)
+        self.assertIn("AppendUsdJpyTokyoBreakoutShadowRoute(", text)
+        self.assertIn("AppendUsdJpyNightReversionShadowRoute(", text)
+        self.assertIn("AppendUsdJpyH4PullbackShadowRoute(", text)
+        self.assertIn('"USDJPY_TOKYO_RANGE_BREAKOUT"', text)
+        self.assertIn('"USDJPY_NIGHT_REVERSION_SAFE"', text)
+        self.assertIn('"USDJPY_H4_TREND_PULLBACK"', text)
+
+        order_send_block = text.split("bool SendPilotMarketOrder", 1)[1].split("bool ShouldSkipPilotEntry", 1)[0]
+        for route in USDJPY_SHADOW_ROUTES:
+            self.assertNotIn(route, order_send_block)
 
     def test_startup_entry_guard_blocks_new_orders_after_ea_reload(self):
         text = EA_PATH.read_text(encoding="utf-8")
@@ -152,7 +182,9 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PilotBreakevenTriggerPips=6.0", text)
         self.assertIn("PilotTrailingStartPips=10.0", text)
         self.assertIn("PilotTrailingDistancePips=5.0", text)
-        self.assertIn("PilotMaxTotalPositions=1", text)
+        self.assertIn("PilotMaxTotalPositions=2", text)
+        self.assertIn("PilotMaxPositionsPerSymbol=2", text)
+        self.assertIn("PilotRequireStrategyCommentForManagedPosition=true", text)
         self.assertIn("PilotLotSize=0.01", text)
 
     def test_live_preset_is_downshifted_to_usdjpy_rsi_iteration(self):
@@ -178,6 +210,8 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PilotNewsHighImpactPreBlockMinutes=60", text)
         self.assertIn("PilotNewsPostBlockMinutes=30", text)
         self.assertIn("PilotNewsBiasMinutes=60", text)
+        for switch in USDJPY_SHADOW_ROUTE_SWITCHES:
+            self.assertIn(switch, text)
 
     def test_hfm_start_configs_open_usdjpy_chart_for_usdjpy_only_pilot(self):
         for path in (LIVE_CONFIG_PATH, SHADOW_CONFIG_PATH):
@@ -196,6 +230,8 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PreferredSymbolSuffix=c", preset_text)
         self.assertIn("ShadowMode=true", preset_text)
         self.assertIn("ReadOnlyMode=true", preset_text)
+        for switch in USDJPY_SHADOW_ROUTE_SWITCHES:
+            self.assertIn(switch, preset_text)
 
         launcher_text = MAC_LAUNCHER_PATH.read_text(encoding="utf-8")
         self.assertIn("MT5_SHADOW_SCREEN", launcher_text)
@@ -225,6 +261,8 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
             self.assertIn("PilotRsiCloseOnServerDayChange=true", text)
             self.assertIn("PilotRsiBlockSellInUptrend=true", text)
             self.assertIn("PilotRsiRangeTightBuyOnly=true", text)
+            for switch in USDJPY_SHADOW_ROUTE_SWITCHES:
+                self.assertIn(switch, text)
 
     def test_eurusd_backtest_only_authorizes_non_rsi_legacy_routes_in_tester(self):
         text = BACKTEST_EURUSD_PATH.read_text(encoding="utf-8")

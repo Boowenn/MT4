@@ -90,8 +90,11 @@ def check_secret_file_hygiene() -> None:
     """
     allowed_env_files = {
         ".env.ai.local.example",
+        ".env.auto.local.example",
         ".env.example",
+        ".env.pilot.local.example",
         ".env.telegram.local.example",
+        ".env.usdjpy.local.example",
     }
     for rel in tracked_files():
         name = Path(rel).name.lower()
@@ -175,7 +178,13 @@ def check_live_preset_defaults() -> None:
             "EnableNonRsiLegacyLiveAuthorization": "false",
             "NonRsiLegacyLiveAuthorizationTag": "",
             "PilotLotSize": "0.01",
-            "PilotMaxTotalPositions": "1",
+            "PilotMaxTotalPositions": "2",
+            "PilotMaxPositionsPerSymbol": "2",
+            "PilotRequireStrategyCommentForManagedPosition": "true",
+            "PilotNewsCurrencies": "USD,JPY",
+            "EnableUsdJpyTokyoBreakoutShadowResearch": "true",
+            "EnableUsdJpyNightReversionShadowResearch": "true",
+            "EnableUsdJpyH4PullbackShadowResearch": "true",
         },
     )
 

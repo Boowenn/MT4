@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 SCHEMA_VERSION = "quantgod.usdjpy_strategy_policy_lab.v1"
+STRATEGY_CATALOG_VERSION = "quantgod.usdjpy_strategy_catalog.v1"
 FOCUS_SYMBOL = "USDJPYc"
 FOCUS_SYMBOL_ALIASES = {"USDJPY", "USDJPYc", "USDJPYm", "USDJPYpro", "USDJPY."}
 DEFAULT_STRATEGIES = [
@@ -14,7 +15,25 @@ DEFAULT_STRATEGIES = [
     "BB_Triple",
     "MACD_Divergence",
     "SR_Breakout",
+    "USDJPY_TOKYO_RANGE_BREAKOUT",
+    "USDJPY_NIGHT_REVERSION_SAFE",
+    "USDJPY_H4_TREND_PULLBACK",
 ]
+NEW_USDJPY_STRATEGIES = [
+    "USDJPY_TOKYO_RANGE_BREAKOUT",
+    "USDJPY_NIGHT_REVERSION_SAFE",
+    "USDJPY_H4_TREND_PULLBACK",
+]
+STRATEGY_DISPLAY_NAMES = {
+    "RSI_Reversal": "RSI 反转",
+    "MA_Cross": "均线交叉",
+    "BB_Triple": "布林三重过滤",
+    "MACD_Divergence": "MACD 背离",
+    "SR_Breakout": "支撑阻力突破",
+    "USDJPY_TOKYO_RANGE_BREAKOUT": "东京箱体突破",
+    "USDJPY_NIGHT_REVERSION_SAFE": "夜盘安全均值回归",
+    "USDJPY_H4_TREND_PULLBACK": "H4 趋势回调",
+}
 DIRECTIONS = ("LONG", "SHORT")
 
 STATUS_RUNNABLE = "RUNNABLE"

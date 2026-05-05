@@ -82,6 +82,28 @@ function runPythonJson(repoRoot, args, timeoutMs = 45000) {
   });
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+      if (body.length > 1024 * 1024) req.destroy();
+    });
+    req.on('end', () => {
+      if (!body.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        resolve({ __jsonError: error.message });
+      }
+    });
+    req.on('error', () => resolve({}));
+  });
+}
+
 async function handle(req, res, ctx) {
   const requestUrl = req.url || '/';
   const url = new URL(requestUrl, 'http://127.0.0.1');
@@ -97,6 +119,80 @@ async function handle(req, res, ctx) {
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/scoreboard') {
     const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'scoreboard']);
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/catalog') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'catalog']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/signals') {
+    const limit = url.searchParams.get('limit') || '50';
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'signals', '--limit', limit]);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/signals/run') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'signals', '--limit', '100']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/risk-check') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'risk-check']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/backtest-plan') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'backtest-plan']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/backtest-plan/build') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'backtest-plan']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/imported-backtests') {
+    const limit = url.searchParams.get('limit') || '50';
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'imported-backtests', '--limit', limit]);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/import-backtest') {
+    const body = await readJsonBody(req);
+    if (body.__jsonError) {
+      sendJson(res, 400, { ok: false, error: 'INVALID_JSON_BODY', detail: body.__jsonError });
+      return;
+    }
+    const source = String(body.source || body.sourceFile || '').trim();
+    if (!source) {
+      sendJson(res, 400, { ok: false, error: 'BACKTEST_SOURCE_REQUIRED' });
+      return;
+    }
+    const args = [...baseArgs, 'import-backtest', '--source', source];
+    if (body.strategy) args.push('--strategy', String(body.strategy));
+    const payload = await runPythonJson(ctx.repoRoot, args);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/candidate-policy') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'candidate-policy']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/candidate-policy/build') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'candidate-policy', '--write']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evidence') {
+    const scoreboard = await runPythonJson(ctx.repoRoot, [...baseArgs, 'scoreboard']);
+    const signals = await runPythonJson(ctx.repoRoot, [...baseArgs, 'signals', '--limit', '50']);
+    sendJson(res, scoreboard && scoreboard.ok === false ? 500 : 200, {
+      ok: !(scoreboard && scoreboard.ok === false),
+      scoreboard,
+      signals,
+    });
     return;
   }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/dry-run') {

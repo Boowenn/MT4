@@ -201,6 +201,11 @@ def preset_drift(values: dict[str, str]) -> list[str]:
         ("EnableNonRsiLegacyLiveAuthorization", "bool_false", ""),
         ("NonRsiLegacyLiveAuthorizationTag", "eq", ""),
         ("PilotRsiFailFastCloseOnMaxLoss", "bool_true", ""),
+        ("PilotRequireStrategyCommentForManagedPosition", "bool_true", ""),
+        ("PilotNewsCurrencies", "eq", "USD,JPY"),
+        ("EnableUsdJpyTokyoBreakoutShadowResearch", "bool_true", ""),
+        ("EnableUsdJpyNightReversionShadowResearch", "bool_true", ""),
+        ("EnableUsdJpyH4PullbackShadowResearch", "bool_true", ""),
     ]
     drifts: list[str] = []
     for key, mode, expected in checks:
@@ -213,7 +218,9 @@ def preset_drift(values: dict[str, str]) -> list[str]:
             drifts.append(f"PRESET_DRIFT:{key}")
     numeric_checks = [
         ("PilotLotSize", "eq", 0.01),
-        ("PilotMaxTotalPositions", "eq", 1.0),
+        ("PilotMaxTotalPositions", "eq", 2.0),
+        ("PilotMaxPositionsPerSymbol", "eq", 2.0),
+        ("PilotNewsPostHardBlockMinutes", "max", 5.0),
         ("PilotNewsHighImpactPreBlockMinutes", "min", 60.0),
         ("PilotMaxFloatingLossUSC", "max", 30.0),
         ("PilotMaxRealizedLossDayUSC", "max", 60.0),

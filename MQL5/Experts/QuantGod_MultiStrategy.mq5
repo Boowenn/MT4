@@ -108,8 +108,9 @@ input double PilotATRMulitplierSL     = 2.0;
 input double PilotRewardRatio         = 1.5;
 input double PilotLotSize             = 0.01;
 input double PilotMaxSpreadPips       = 3.0;
-input int    PilotMaxTotalPositions   = 1;
-input int    PilotMaxPositionsPerSymbol = 1;
+input int    PilotMaxTotalPositions   = 2;
+input int    PilotMaxPositionsPerSymbol = 2;
+input bool   PilotRequireStrategyCommentForManagedPosition = true;
 input bool   PilotBlockManualPerSymbol  = false;
 input bool   PilotRestrictSession       = true;
 input int    PilotSessionStartHour      = 8;
@@ -118,13 +119,18 @@ input bool   EnablePilotNewsFilter      = true;
 input int    PilotNewsPreBlockMinutes   = 30;
 input int    PilotNewsHighImpactPreBlockMinutes = 60;
 input int    PilotNewsPostBlockMinutes  = 30;
+input int    PilotNewsPostHardBlockMinutes = 5;
 input int    PilotNewsBiasMinutes       = 60;
 input int    PilotNewsRefreshSeconds    = 15;
+input string PilotNewsCurrencies        = "USD,JPY";
 input bool   EnableShadowOutcomeLedger  = true;
 input int    ShadowOutcomeMaxSourceRows = 800;
 input double ShadowOutcomeNeutralPips   = 2.0;
 input bool   EnableShadowCandidateRouter = true;
 input int    ShadowCandidateMaxSourceRows = 800;
+input bool   EnableUsdJpyTokyoBreakoutShadowResearch = true;
+input bool   EnableUsdJpyNightReversionShadowResearch = true;
+input bool   EnableUsdJpyH4PullbackShadowResearch = true;
 input double PilotUsdJpyNoChaseLevel    = 160.0;
 input double PilotUsdJpyNoChaseBufferPips = 10.0;
 input double PilotMaxFloatingLossUSC    = 30.0;
@@ -140,13 +146,16 @@ string g_focusSymbol = "";
 string g_requestedSymbols[];
 string g_resolvedWatchlist = "";
 string g_detectedSuffix = "";
-string g_strategyKeys[5] =
+string g_strategyKeys[8] =
 {
    "MA_Cross",
    "RSI_Reversal",
    "BB_Triple",
    "MACD_Divergence",
-   "SR_Breakout"
+   "SR_Breakout",
+   "USDJPY_TOKYO_RANGE_BREAKOUT",
+   "USDJPY_NIGHT_REVERSION_SAFE",
+   "USDJPY_H4_TREND_PULLBACK"
 };
 
 CTrade g_trade;
@@ -312,6 +321,7 @@ struct NewsFilterState
    string   phase;
    string   eventName;
    string   eventCode;
+   string   eventCurrency;
    int      eventKind;
    datetime eventTime;
    double   actual;
@@ -375,6 +385,7 @@ bool g_pilotConsecutiveLossPauseExpired = false;
 ulong g_usdTrackedEventIds[];
 string g_usdTrackedEventNames[];
 string g_usdTrackedEventCodes[];
+string g_usdTrackedEventCurrencies[];
 int g_usdTrackedEventKinds[];
 int g_usdTrackedEventImportance[];
 NewsFilterState g_newsState;
@@ -398,7 +409,14 @@ enum ENUM_USD_NEWS_KIND
 {
    USD_NEWS_UNKNOWN = 0,
    USD_NEWS_JOBLESS = 1,
-   USD_NEWS_PMI     = 2
+   USD_NEWS_PMI     = 2,
+   USD_NEWS_CPI     = 3,
+   USD_NEWS_GDP     = 4,
+   USD_NEWS_RETAIL  = 5,
+   USD_NEWS_RATE    = 6,
+   USD_NEWS_WAGES   = 7,
+   USD_NEWS_TANKAN  = 8,
+   USD_NEWS_TRADE   = 9
 };
 
 enum ENUM_PILOT_EVAL_CODE
@@ -799,6 +817,7 @@ void ResetNewsFilterState()
    g_newsState.phase = "none";
    g_newsState.eventName = "";
    g_newsState.eventCode = "";
+   g_newsState.eventCurrency = "";
    g_newsState.eventKind = USD_NEWS_UNKNOWN;
    g_newsState.eventTime = 0;
    g_newsState.actual = 0.0;
@@ -807,8 +826,8 @@ void ResetNewsFilterState()
    g_newsState.minutesToEvent = 0;
    g_newsState.minutesSinceEvent = 0;
    g_newsState.reason = EnablePilotNewsFilter
-      ? "USD high-impact news filter is armed"
-      : "USD high-impact news filter is disabled";
+      ? "USDJPY high-impact news filter is armed"
+      : "USDJPY high-impact news filter is disabled";
 }
 
 int DetermineUsdNewsKind(string sourceText)
@@ -823,16 +842,56 @@ int DetermineUsdNewsKind(string sourceText)
    if(StringFind(upper, "PMI") >= 0 || StringFind(upper, "PURCHASING MANAGERS") >= 0)
       return USD_NEWS_PMI;
 
+   if(StringFind(upper, "CPI") >= 0 || StringFind(upper, "INFLATION") >= 0 ||
+      StringFind(upper, "PCE") >= 0 || StringFind(upper, "PRICE INDEX") >= 0)
+      return USD_NEWS_CPI;
+
+   if(StringFind(upper, "GDP") >= 0 || StringFind(upper, "GROSS DOMESTIC") >= 0)
+      return USD_NEWS_GDP;
+
+   if(StringFind(upper, "RETAIL") >= 0 || StringFind(upper, "SALES") >= 0 ||
+      StringFind(upper, "HOUSEHOLD SPENDING") >= 0)
+      return USD_NEWS_RETAIL;
+
+   if(StringFind(upper, "INTEREST RATE") >= 0 || StringFind(upper, "POLICY RATE") >= 0 ||
+      StringFind(upper, "RATE DECISION") >= 0 || StringFind(upper, "BOJ") >= 0 ||
+      StringFind(upper, "BANK OF JAPAN") >= 0 || StringFind(upper, "FOMC") >= 0)
+      return USD_NEWS_RATE;
+
+   if(StringFind(upper, "WAGE") >= 0 || StringFind(upper, "EARNINGS") >= 0 ||
+      StringFind(upper, "LABOR CASH") >= 0)
+      return USD_NEWS_WAGES;
+
+   if(StringFind(upper, "TANKAN") >= 0)
+      return USD_NEWS_TANKAN;
+
+   if(StringFind(upper, "TRADE BALANCE") >= 0 || StringFind(upper, "CURRENT ACCOUNT") >= 0)
+      return USD_NEWS_TRADE;
+
    return USD_NEWS_UNKNOWN;
 }
 
 string UsdNewsKindLabel(int kind)
 {
    if(kind == USD_NEWS_JOBLESS)
-      return "US jobless claims";
+      return "jobless claims";
    if(kind == USD_NEWS_PMI)
-      return "US PMI";
-   return "USD calendar event";
+      return "PMI";
+   if(kind == USD_NEWS_CPI)
+      return "inflation/CPI";
+   if(kind == USD_NEWS_GDP)
+      return "GDP";
+   if(kind == USD_NEWS_RETAIL)
+      return "retail/sales";
+   if(kind == USD_NEWS_RATE)
+      return "central bank/rate decision";
+   if(kind == USD_NEWS_WAGES)
+      return "wages/earnings";
+   if(kind == USD_NEWS_TANKAN)
+      return "Tankan";
+   if(kind == USD_NEWS_TRADE)
+      return "trade/current account";
+   return "tracked calendar event";
 }
 
 bool CalendarFieldToDouble(long rawValue, double &value)
@@ -849,47 +908,68 @@ void LoadTrackedUsdCalendarEvents()
    ArrayResize(g_usdTrackedEventIds, 0);
    ArrayResize(g_usdTrackedEventNames, 0);
    ArrayResize(g_usdTrackedEventCodes, 0);
+   ArrayResize(g_usdTrackedEventCurrencies, 0);
    ArrayResize(g_usdTrackedEventKinds, 0);
    ArrayResize(g_usdTrackedEventImportance, 0);
 
    if(!EnablePilotNewsFilter)
       return;
 
-   MqlCalendarEvent events[];
-   ResetLastError();
-   int count = CalendarEventByCurrency("USD", events);
-   if(count <= 0)
+   string currencies[];
+   int currencyCount = StringSplit(PilotNewsCurrencies, ',', currencies);
+   if(currencyCount <= 0)
    {
-      Print("QuantGod MT5 news filter failed to load USD calendar events. err=", GetLastError());
-      return;
+      ArrayResize(currencies, 2);
+      currencies[0] = "USD";
+      currencies[1] = "JPY";
+      currencyCount = 2;
    }
 
-   for(int i = 0; i < count; i++)
+   for(int c = 0; c < currencyCount; c++)
    {
-      if(events[i].type != CALENDAR_TYPE_INDICATOR)
-         continue;
-      string descriptor = events[i].event_code + " " + events[i].name;
-      int kind = DetermineUsdNewsKind(descriptor);
-      if(events[i].importance < CALENDAR_IMPORTANCE_HIGH && kind == USD_NEWS_UNKNOWN)
+      string currency = ToUpperString(TrimString(currencies[c]));
+      if(currency != "USD" && currency != "JPY")
          continue;
 
-      PushULong(g_usdTrackedEventIds, events[i].id);
-      PushString(g_usdTrackedEventNames, events[i].name);
-      PushString(g_usdTrackedEventCodes, events[i].event_code);
-      PushInt(g_usdTrackedEventKinds, kind);
-      PushInt(g_usdTrackedEventImportance, (int)events[i].importance);
-      if(ArraySize(g_usdTrackedEventIds) >= 40)
+      MqlCalendarEvent events[];
+      ResetLastError();
+      int count = CalendarEventByCurrency(currency, events);
+      if(count <= 0)
+      {
+         Print("QuantGod MT5 news filter failed to load ", currency, " calendar events. err=", GetLastError());
+         continue;
+      }
+
+      for(int i = 0; i < count; i++)
+      {
+         if(events[i].type != CALENDAR_TYPE_INDICATOR)
+            continue;
+         string descriptor = events[i].event_code + " " + events[i].name;
+         int kind = DetermineUsdNewsKind(descriptor);
+         if(events[i].importance < CALENDAR_IMPORTANCE_HIGH && kind == USD_NEWS_UNKNOWN)
+            continue;
+
+         PushULong(g_usdTrackedEventIds, events[i].id);
+         PushString(g_usdTrackedEventNames, events[i].name);
+         PushString(g_usdTrackedEventCodes, events[i].event_code);
+         PushString(g_usdTrackedEventCurrencies, currency);
+         PushInt(g_usdTrackedEventKinds, kind);
+         PushInt(g_usdTrackedEventImportance, (int)events[i].importance);
+         if(ArraySize(g_usdTrackedEventIds) >= 80)
+            break;
+      }
+      if(ArraySize(g_usdTrackedEventIds) >= 80)
          break;
    }
 
    if(ArraySize(g_usdTrackedEventIds) > 0)
    {
       Print("QuantGod MT5 news filter armed with ", ArraySize(g_usdTrackedEventIds),
-            " USD calendar events");
+            " USDJPY calendar events from ", PilotNewsCurrencies);
    }
    else
    {
-      Print("QuantGod MT5 news filter found no matching USD events in terminal calendar");
+      Print("QuantGod MT5 news filter found no matching USDJPY events in terminal calendar");
    }
 }
 
@@ -902,18 +982,44 @@ int UsdBiasFromEventKind(int kind, double actual, double forecast)
    if(kind == USD_NEWS_JOBLESS)
       return (diff < 0.0) ? 1 : -1;
 
-   if(kind == USD_NEWS_PMI)
+   if(kind == USD_NEWS_PMI ||
+      kind == USD_NEWS_CPI ||
+      kind == USD_NEWS_GDP ||
+      kind == USD_NEWS_RETAIL ||
+      kind == USD_NEWS_RATE ||
+      kind == USD_NEWS_WAGES ||
+      kind == USD_NEWS_TANKAN ||
+      kind == USD_NEWS_TRADE)
       return (diff > 0.0) ? 1 : -1;
 
+   return 0;
+}
+
+int PilotDirectionBiasForEventCurrency(string symbol, string currency, int currencyBiasDirection)
+{
+   if(currencyBiasDirection == 0)
+      return 0;
+
+   string upper = ToUpperString(symbol);
+   string cur = ToUpperString(currency);
+   if(StringFind(upper, "USDJPY") >= 0)
+   {
+      if(cur == "USD")
+         return currencyBiasDirection;
+      if(cur == "JPY")
+         return -currencyBiasDirection;
+   }
+   if(StringFind(upper, "EURUSD") >= 0 && cur == "USD")
+      return -currencyBiasDirection;
    return 0;
 }
 
 string UsdBiasLabel(int direction)
 {
    if(direction > 0)
-      return "USD_BULLISH";
+      return "USDJPY_BUY_BIAS";
    if(direction < 0)
-      return "USD_BEARISH";
+      return "USDJPY_SELL_BIAS";
    return "NEUTRAL";
 }
 
@@ -964,7 +1070,7 @@ void RefreshNewsFilterState(bool force=false)
    if(ArraySize(g_usdTrackedEventIds) == 0)
    {
       g_newsState.status = "NO_CALENDAR";
-      g_newsState.reason = "USD calendar events unavailable in this terminal";
+      g_newsState.reason = "USDJPY calendar events unavailable in this terminal";
       return;
    }
 
@@ -978,6 +1084,7 @@ void RefreshNewsFilterState(bool force=false)
    datetime preBlockTime = 0;
    string preBlockName = "";
    string preBlockCode = "";
+   string preBlockCurrency = "";
    int preBlockKind = USD_NEWS_UNKNOWN;
    int preBlockMinutes = 0;
 
@@ -985,6 +1092,7 @@ void RefreshNewsFilterState(bool force=false)
    datetime postBlockTime = 0;
    string postBlockName = "";
    string postBlockCode = "";
+   string postBlockCurrency = "";
    int postBlockKind = USD_NEWS_UNKNOWN;
    int postBlockMinutes = 0;
 
@@ -992,6 +1100,7 @@ void RefreshNewsFilterState(bool force=false)
    datetime upcomingTime = 0;
    string upcomingName = "";
    string upcomingCode = "";
+   string upcomingCurrency = "";
    int upcomingKind = USD_NEWS_UNKNOWN;
    int upcomingMinutes = 0;
 
@@ -1000,6 +1109,7 @@ void RefreshNewsFilterState(bool force=false)
    datetime biasEventTime = 0;
    string biasEventName = "";
    string biasEventCode = "";
+   string biasEventCurrency = "";
    int biasEventKind = USD_NEWS_UNKNOWN;
    double biasActual = 0.0;
    double biasForecast = 0.0;
@@ -1022,6 +1132,7 @@ void RefreshNewsFilterState(bool force=false)
 
          string eventName = g_usdTrackedEventNames[i];
          string eventCode = (i < ArraySize(g_usdTrackedEventCodes)) ? g_usdTrackedEventCodes[i] : "";
+         string eventCurrency = (i < ArraySize(g_usdTrackedEventCurrencies)) ? g_usdTrackedEventCurrencies[i] : "USD";
          int eventKind = (i < ArraySize(g_usdTrackedEventKinds)) ? g_usdTrackedEventKinds[i] : USD_NEWS_UNKNOWN;
          int eventImportance = (i < ArraySize(g_usdTrackedEventImportance)) ? g_usdTrackedEventImportance[i] : (int)CALENDAR_IMPORTANCE_MODERATE;
          if(eventTime > now)
@@ -1036,6 +1147,7 @@ void RefreshNewsFilterState(bool force=false)
                upcomingTime = eventTime;
                upcomingName = eventName;
                upcomingCode = eventCode;
+               upcomingCurrency = eventCurrency;
                upcomingKind = eventKind;
                upcomingMinutes = minutesToEvent;
             }
@@ -1045,6 +1157,7 @@ void RefreshNewsFilterState(bool force=false)
                preBlockTime = eventTime;
                preBlockName = eventName;
                preBlockCode = eventCode;
+               preBlockCurrency = eventCurrency;
                preBlockKind = eventKind;
                preBlockMinutes = minutesToEvent;
             }
@@ -1052,19 +1165,6 @@ void RefreshNewsFilterState(bool force=false)
          }
 
          int minutesSinceEvent = (int)MathMax(0, (long)(now - eventTime) / 60);
-         if(minutesSinceEvent <= PilotNewsPostBlockMinutes)
-         {
-            if(!hasPostBlock || eventTime > postBlockTime)
-            {
-               hasPostBlock = true;
-               postBlockTime = eventTime;
-               postBlockName = eventName;
-               postBlockCode = eventCode;
-               postBlockKind = eventKind;
-               postBlockMinutes = minutesSinceEvent;
-            }
-         }
-
          double actual = 0.0;
          double forecast = 0.0;
          double previous = 0.0;
@@ -1074,10 +1174,29 @@ void RefreshNewsFilterState(bool force=false)
          if(!hasPrevious)
             CalendarFieldToDouble(values[j].revised_prev_value, previous);
 
+         int currencyBias = (hasActual && hasForecast) ? UsdBiasFromEventKind(eventKind, actual, forecast) : 0;
+         int eventBias = PilotDirectionBiasForEventCurrency(g_focusSymbol, eventCurrency, currencyBias);
+         bool hasDirectionalBias = (eventBias != 0);
+
+         if(minutesSinceEvent <= PilotNewsPostBlockMinutes)
+         {
+            int hardPostWindow = MathMin(PilotNewsPostBlockMinutes, MathMax(0, PilotNewsPostHardBlockMinutes));
+            bool hardBlock = (minutesSinceEvent <= hardPostWindow || !hasDirectionalBias);
+            if(hardBlock && (!hasPostBlock || eventTime > postBlockTime))
+            {
+               hasPostBlock = true;
+               postBlockTime = eventTime;
+               postBlockName = eventName;
+               postBlockCode = eventCode;
+               postBlockCurrency = eventCurrency;
+               postBlockKind = eventKind;
+               postBlockMinutes = minutesSinceEvent;
+            }
+         }
+
          if(!hasActual || !hasForecast || minutesSinceEvent > PilotNewsBiasMinutes)
             continue;
 
-         int eventBias = UsdBiasFromEventKind(g_usdTrackedEventKinds[i], actual, forecast);
          if(eventBias == 0)
             continue;
 
@@ -1088,6 +1207,7 @@ void RefreshNewsFilterState(bool force=false)
             biasEventTime = eventTime;
             biasEventName = eventName;
             biasEventCode = eventCode;
+            biasEventCurrency = eventCurrency;
             biasEventKind = eventKind;
             biasActual = actual;
             biasForecast = forecast;
@@ -1104,10 +1224,11 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.phase = "pre";
       g_newsState.eventName = preBlockName;
       g_newsState.eventCode = preBlockCode;
+      g_newsState.eventCurrency = preBlockCurrency;
       g_newsState.eventKind = preBlockKind;
       g_newsState.eventTime = preBlockTime;
       g_newsState.minutesToEvent = preBlockMinutes;
-      g_newsState.reason = "USD news pre-block: " + CurrentNewsEventLabel() +
+      g_newsState.reason = "USDJPY news pre-block: " + CurrentNewsEventLabel() +
          " in " + IntegerToString(preBlockMinutes) + "m";
       return;
    }
@@ -1119,10 +1240,11 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.phase = "post";
       g_newsState.eventName = postBlockName;
       g_newsState.eventCode = postBlockCode;
+      g_newsState.eventCurrency = postBlockCurrency;
       g_newsState.eventKind = postBlockKind;
       g_newsState.eventTime = postBlockTime;
       g_newsState.minutesSinceEvent = postBlockMinutes;
-      g_newsState.reason = "USD news post-release cooldown: " + CurrentNewsEventLabel() +
+      g_newsState.reason = "USDJPY news post-release hard cooldown: " + CurrentNewsEventLabel() +
          " +" + IntegerToString(postBlockMinutes) + "m";
       return;
    }
@@ -1135,13 +1257,14 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.phase = "bias";
       g_newsState.eventName = biasEventName;
       g_newsState.eventCode = biasEventCode;
+      g_newsState.eventCurrency = biasEventCurrency;
       g_newsState.eventKind = biasEventKind;
       g_newsState.eventTime = biasEventTime;
       g_newsState.actual = biasActual;
       g_newsState.forecast = biasForecast;
       g_newsState.previous = biasPrevious;
       g_newsState.minutesSinceEvent = biasMinutesSince;
-      g_newsState.reason = "USD news bias " + UsdBiasLabel(g_newsState.usdBiasDirection) +
+      g_newsState.reason = "USDJPY news bias " + UsdBiasLabel(g_newsState.usdBiasDirection) +
          " from " + CurrentNewsEventLabel() +
          " | actual=" + DoubleToString(biasActual, 2) +
          " forecast=" + DoubleToString(biasForecast, 2);
@@ -1154,16 +1277,17 @@ void RefreshNewsFilterState(bool force=false)
       g_newsState.phase = "tracking";
       g_newsState.eventName = upcomingName;
       g_newsState.eventCode = upcomingCode;
+      g_newsState.eventCurrency = upcomingCurrency;
       g_newsState.eventKind = upcomingKind;
       g_newsState.eventTime = upcomingTime;
       g_newsState.minutesToEvent = upcomingMinutes;
-      g_newsState.reason = "Tracking next USD event: " + CurrentNewsEventLabel() +
+      g_newsState.reason = "Tracking next USDJPY event: " + CurrentNewsEventLabel() +
          " in " + IntegerToString(upcomingMinutes) + "m";
       return;
    }
 
    g_newsState.status = "IDLE";
-   g_newsState.reason = "No tracked USD event near the current pilot window";
+   g_newsState.reason = "No tracked USDJPY event near the current pilot window";
 }
 
 bool PilotNewsBlocksSymbol(string symbol, string &reason)
@@ -1199,7 +1323,7 @@ string SafeNewsEventName(string value)
       return "";
    if(IsDisplaySafeAscii(value))
       return value;
-   return "USD tracked event";
+   return "tracked event";
 }
 
 string SafeNewsEventLabel(string eventCode, string eventName, int eventKind)
@@ -1209,7 +1333,7 @@ string SafeNewsEventLabel(string eventCode, string eventName, int eventKind)
       return safeCode;
 
    string safeName = SafeNewsEventName(eventName);
-   if(StringLen(safeName) > 0 && safeName != "USD tracked event")
+   if(StringLen(safeName) > 0 && safeName != "tracked event")
       return safeName;
 
    return UsdNewsKindLabel(eventKind);
@@ -1233,19 +1357,19 @@ string SafeNewsReasonText(string reason)
    if(IsDisplaySafeAscii(safeReason))
       return safeReason;
 
-   string label = (StringLen(safeEvent) > 0) ? safeEvent : "USD calendar event";
+   string label = (StringLen(safeEvent) > 0) ? safeEvent : "USDJPY calendar event";
    if(g_newsState.status == "PRE_BLOCK")
-      return "USD news pre-block: " + label + " in " + IntegerToString(g_newsState.minutesToEvent) + "m";
+      return "USDJPY news pre-block: " + label + " in " + IntegerToString(g_newsState.minutesToEvent) + "m";
    if(g_newsState.status == "POST_BLOCK")
-      return "USD news post-release cooldown: " + label + " +" + IntegerToString(g_newsState.minutesSinceEvent) + "m";
+      return "USDJPY news post-release hard cooldown: " + label + " +" + IntegerToString(g_newsState.minutesSinceEvent) + "m";
    if(g_newsState.status == "BIAS_ACTIVE")
-      return "USD news bias " + UsdBiasLabel(g_newsState.usdBiasDirection) +
+      return "USDJPY news bias " + UsdBiasLabel(g_newsState.usdBiasDirection) +
          " from " + label +
          " | actual=" + DoubleToString(g_newsState.actual, 2) +
          " forecast=" + DoubleToString(g_newsState.forecast, 2);
    if(g_newsState.status == "TRACKING")
-      return "Tracking next USD event: " + label + " in " + IntegerToString(g_newsState.minutesToEvent) + "m";
-   return "USD news filter: " + label;
+      return "Tracking next USDJPY event: " + label + " in " + IntegerToString(g_newsState.minutesToEvent) + "m";
+   return "USDJPY news filter: " + label;
 }
 
 bool PilotDirectionAllowedByNews(string symbol, int direction, MqlTick &tick, string &reason)
@@ -1277,7 +1401,7 @@ bool PilotDirectionAllowedByNews(string symbol, int direction, MqlTick &tick, st
       double noChasePrice = PilotUsdJpyNoChaseLevel - (PilotUsdJpyNoChaseBufferPips * PipSize(symbol));
       if(tick.ask >= noChasePrice)
       {
-         reason = "USDJPY anti-chase guard near 160 blocks breakout BUY after USD-positive news";
+         reason = "USDJPY anti-chase guard near 160 blocks breakout BUY after positive USDJPY news bias";
          return false;
       }
    }
@@ -1292,9 +1416,9 @@ string BuildNewsJson()
    if(EnablePilotNewsFilter &&
       calendarAvailable &&
       g_newsState.status == "IDLE" &&
-      g_newsState.reason == "USD high-impact news filter is armed")
+      g_newsState.reason == "USDJPY high-impact news filter is armed")
    {
-      newsReason = "No tracked USD event near the current pilot window";
+      newsReason = "No tracked USDJPY event near the current pilot window";
    }
    string safeEventName = SafeNewsEventName(g_newsState.eventName);
    string safeEventLabel = CurrentNewsEventLabel();
@@ -1311,6 +1435,7 @@ string BuildNewsJson()
    json += "\"usdBias\": \"" + JsonEscape(UsdBiasLabel(g_newsState.usdBiasDirection)) + "\", ";
    json += "\"eventName\": \"" + JsonEscape(safeEventName) + "\", ";
    json += "\"eventCode\": \"" + JsonEscape(g_newsState.eventCode) + "\", ";
+   json += "\"eventCurrency\": \"" + JsonEscape(g_newsState.eventCurrency) + "\", ";
    json += "\"eventKind\": \"" + JsonEscape(UsdNewsKindLabel(g_newsState.eventKind)) + "\", ";
    json += "\"eventLabel\": \"" + JsonEscape(safeEventLabel) + "\", ";
    json += "\"eventTimeServer\": \"" + JsonEscape(FormatDateTime(g_newsState.eventTime, true)) + "\", ";
@@ -1387,6 +1512,52 @@ int ServerDayKeyFromTime(datetime value)
    MqlDateTime dt;
    TimeToStruct(value, dt);
    return dt.year * 10000 + dt.mon * 100 + dt.day;
+}
+
+datetime ServerTimeToJst(datetime value)
+{
+   if(value <= 0)
+      value = CurrentServerTime();
+   datetime serverNow = CurrentServerTime();
+   datetime gmtNow = TimeGMT();
+   int serverOffsetSeconds = 0;
+   if(serverNow > 0 && gmtNow > 0)
+      serverOffsetSeconds = (int)(serverNow - gmtNow);
+   return value - serverOffsetSeconds + 9 * 3600;
+}
+
+int JstDayKeyFromServerTime(datetime value)
+{
+   datetime jst = ServerTimeToJst(value);
+   MqlDateTime dt;
+   TimeToStruct(jst, dt);
+   return dt.year * 10000 + dt.mon * 100 + dt.day;
+}
+
+int JstMinuteOfDayFromServerTime(datetime value)
+{
+   datetime jst = ServerTimeToJst(value);
+   MqlDateTime dt;
+   TimeToStruct(jst, dt);
+   return dt.hour * 60 + dt.min;
+}
+
+bool IsUsdJpyShadowResearchRoute(string strategyKey)
+{
+   return (strategyKey == "USDJPY_TOKYO_RANGE_BREAKOUT" ||
+           strategyKey == "USDJPY_NIGHT_REVERSION_SAFE" ||
+           strategyKey == "USDJPY_H4_TREND_PULLBACK");
+}
+
+bool IsUsdJpyShadowResearchRouteEnabled(string strategyKey)
+{
+   if(strategyKey == "USDJPY_TOKYO_RANGE_BREAKOUT")
+      return EnableUsdJpyTokyoBreakoutShadowResearch;
+   if(strategyKey == "USDJPY_NIGHT_REVERSION_SAFE")
+      return EnableUsdJpyNightReversionShadowResearch;
+   if(strategyKey == "USDJPY_H4_TREND_PULLBACK")
+      return EnableUsdJpyH4PullbackShadowResearch;
+   return false;
 }
 
 bool IsLegacyPilotRouteCandidateEnabled(string strategyKey)
@@ -1728,7 +1899,11 @@ double CalcSpreadPips(string symbol, double bid, double ask)
 
 bool IsPilotManagedPosition(string comment, long magic)
 {
-   return (magic == PilotMagic || IsPilotStrategyComment(comment));
+   if(IsPilotStrategyComment(comment))
+      return true;
+   if(PilotRequireStrategyCommentForManagedPosition)
+      return false;
+   return (magic == PilotMagic);
 }
 
 int CountPilotPositions(string symbol = "")
@@ -2180,6 +2355,154 @@ void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string
    AppendShadowCandidateLedgerRowForTimeframe(symbol, PilotSignalTimeframe, eventBarTime, route, direction, score, trigger, reason);
 }
 
+void AppendUsdJpyTokyoBreakoutShadowRoute(string symbol, datetime eventBarTime, double close1, double open1, double atr1, double pip, double routeSpreadPips, bool lowSpreadForResearch)
+{
+   if(!EnableUsdJpyTokyoBreakoutShadowResearch || !IsUsdJpySymbol(symbol) || !lowSpreadForResearch || atr1 <= 0.0 || pip <= 0.0)
+      return;
+
+   int minute = JstMinuteOfDayFromServerTime(eventBarTime);
+   if(minute < 12 * 60 || minute > 18 * 60)
+      return;
+
+   int dayKey = JstDayKeyFromServerTime(eventBarTime);
+   double boxHigh = 0.0;
+   double boxLow = 0.0;
+   int samples = 0;
+   int bars = Bars(symbol, PERIOD_M15);
+   int maxLookback = MathMin(bars - 1, 120);
+   for(int shift = 1; shift <= maxLookback; shift++)
+   {
+      datetime barTime = iTime(symbol, PERIOD_M15, shift);
+      if(barTime <= 0)
+         continue;
+      if(JstDayKeyFromServerTime(barTime) != dayKey)
+         continue;
+      int barMinute = JstMinuteOfDayFromServerTime(barTime);
+      if(barMinute < 9 * 60 || barMinute >= 12 * 60)
+         continue;
+
+      double high = iHigh(symbol, PERIOD_M15, shift);
+      double low = iLow(symbol, PERIOD_M15, shift);
+      if(high <= 0.0 || low <= 0.0)
+         continue;
+      if(samples == 0)
+      {
+         boxHigh = high;
+         boxLow = low;
+      }
+      else
+      {
+         boxHigh = MathMax(boxHigh, high);
+         boxLow = MathMin(boxLow, low);
+      }
+      samples++;
+   }
+
+   if(samples < 6 || boxHigh <= boxLow)
+      return;
+
+   double boxPips = (boxHigh - boxLow) / pip;
+   if(boxPips < 12.0 || boxPips > 75.0)
+      return;
+
+   double buffer = MathMax(8.0 * pip, atr1 * 0.15);
+   double adx = ADXValue(symbol, PERIOD_M15, 14, 1);
+   bool adxPass = (adx != EMPTY_VALUE && adx >= 18.0);
+   bool bullishClose = (close1 > open1);
+   bool bearishClose = (close1 < open1);
+
+   if(adxPass && close1 > boxHigh + buffer)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_TOKYO_RANGE_BREAKOUT", 1, 74.0,
+                                     "JST 09-12 box high breakout, ADX confirmed",
+                                     "Shadow-only Tokyo range breakout candidate; never sends live orders");
+   else if(adxPass && close1 < boxLow - buffer)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_TOKYO_RANGE_BREAKOUT", -1, 74.0,
+                                     "JST 09-12 box low breakdown, ADX confirmed",
+                                     "Shadow-only Tokyo range breakout candidate; never sends live orders");
+   else if(close1 > boxHigh - buffer * 0.50 && bullishClose)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_TOKYO_RANGE_BREAKOUT", 1, 52.0,
+                                     "Near Tokyo box high with bullish pressure",
+                                     "Shadow-only pre-breakout sample for faster research collection");
+   else if(close1 < boxLow + buffer * 0.50 && bearishClose)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_TOKYO_RANGE_BREAKOUT", -1, 52.0,
+                                     "Near Tokyo box low with bearish pressure",
+                                     "Shadow-only pre-breakout sample for faster research collection");
+}
+
+void AppendUsdJpyNightReversionShadowRoute(string symbol, datetime eventBarTime, double close1, double open1, double atr1, string regimeLabel, bool lowSpreadForResearch)
+{
+   if(!EnableUsdJpyNightReversionShadowResearch || !IsUsdJpySymbol(symbol) || !lowSpreadForResearch || atr1 <= 0.0)
+      return;
+
+   int minute = JstMinuteOfDayFromServerTime(eventBarTime);
+   bool nightWindow = (minute >= 21 * 60 || minute <= 8 * 60 + 30);
+   if(!nightWindow)
+      return;
+
+   double rsi1 = RSIValue(symbol, PERIOD_M15, 14, 1);
+   double upperBand = BandsValue(symbol, PERIOD_M15, 20, 2.0, 1, 1);
+   double lowerBand = BandsValue(symbol, PERIOD_M15, 20, 2.0, 2, 1);
+   double adx = ADXValue(symbol, PERIOD_M15, 14, 1);
+   if(rsi1 <= 0.0 || upperBand <= 0.0 || lowerBand <= 0.0 || adx == EMPTY_VALUE || adx >= 20.0)
+      return;
+   if(!(regimeLabel == "RANGE" || regimeLabel == "RANGE_TIGHT"))
+      return;
+
+   bool bullishClose = (close1 >= open1);
+   bool bearishClose = (close1 <= open1);
+   if(close1 <= lowerBand && rsi1 <= 35.0 && bullishClose)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_NIGHT_REVERSION_SAFE", 1, 64.0,
+                                     "Low-volatility night lower-band reversion setup",
+                                     "Shadow-only night reversion candidate; opportunity grade only");
+   else if(close1 >= upperBand && rsi1 >= 65.0 && bearishClose)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_NIGHT_REVERSION_SAFE", -1, 64.0,
+                                     "Low-volatility night upper-band reversion setup",
+                                     "Shadow-only night reversion candidate; opportunity grade only");
+   else if(close1 <= lowerBand + atr1 * 0.15 && rsi1 <= 40.0)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_NIGHT_REVERSION_SAFE", 1, 50.0,
+                                     "Soft night lower-band reversion pressure",
+                                     "Shadow-only soft reversion sample for faster outcome labeling");
+   else if(close1 >= upperBand - atr1 * 0.15 && rsi1 >= 60.0)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_NIGHT_REVERSION_SAFE", -1, 50.0,
+                                     "Soft night upper-band reversion pressure",
+                                     "Shadow-only soft reversion sample for faster outcome labeling");
+}
+
+void AppendUsdJpyH4PullbackShadowRoute(string symbol, datetime eventBarTime, double close1, double open1, double high1, double low1, double atr1, double fast1, double slow1, double pip, bool lowSpreadForResearch)
+{
+   if(!EnableUsdJpyH4PullbackShadowResearch || !IsUsdJpySymbol(symbol) || !lowSpreadForResearch || atr1 <= 0.0 || pip <= 0.0)
+      return;
+   if(Bars(symbol, PERIOD_H4) < 205)
+      return;
+
+   double h4Close1 = iClose(symbol, PERIOD_H4, 1);
+   double h4Ema50 = MAValue(symbol, PERIOD_H4, 50, 1, MODE_EMA);
+   double h4Ema50Prev = MAValue(symbol, PERIOD_H4, 50, 2, MODE_EMA);
+   double h4Ema200 = MAValue(symbol, PERIOD_H4, 200, 1, MODE_EMA);
+   double rsi1 = RSIValue(symbol, PERIOD_M15, 14, 1);
+   double rsi2 = RSIValue(symbol, PERIOD_M15, 14, 2);
+   if(h4Close1 <= 0.0 || h4Ema50 <= 0.0 || h4Ema200 <= 0.0 || rsi1 <= 0.0)
+      return;
+
+   bool h4LongTrend = (h4Close1 > h4Ema200 && h4Ema50 > h4Ema200 && h4Ema50 >= h4Ema50Prev);
+   bool h4ShortTrend = (h4Close1 < h4Ema200 && h4Ema50 < h4Ema200 && h4Ema50 <= h4Ema50Prev);
+   bool bullishClose = (close1 > open1);
+   bool bearishClose = (close1 < open1);
+   bool longPullback = (low1 <= slow1 + atr1 * 0.30 && close1 >= fast1 && bullishClose &&
+                        ((rsi1 >= 38.0 && rsi1 <= 62.0) || (rsi2 > 0.0 && rsi1 > rsi2 + 2.0)));
+   bool shortPullback = (high1 >= slow1 - atr1 * 0.30 && close1 <= fast1 && bearishClose &&
+                         ((rsi1 >= 38.0 && rsi1 <= 62.0) || (rsi2 > 0.0 && rsi1 < rsi2 - 2.0)));
+
+   if(h4LongTrend && longPullback)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_H4_TREND_PULLBACK", 1, 70.0,
+                                     "H4 uptrend with M15 pullback recovery",
+                                     "Shadow-only H4 trend pullback candidate; requires backtest and governance before live");
+   else if(h4ShortTrend && shortPullback)
+      AppendShadowCandidateLedgerRow(symbol, eventBarTime, "USDJPY_H4_TREND_PULLBACK", -1, 70.0,
+                                     "H4 downtrend with M15 pullback rejection",
+                                     "Shadow-only H4 trend pullback candidate; requires backtest and governance before live");
+}
+
 void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime eventBarTime)
 {
    if(!EnableShadowCandidateRouter ||
@@ -2256,6 +2579,10 @@ void AppendShadowCandidateRoutesForBar(string symbol, int symbolIndex, datetime 
       routeSpreadPips = CalcSpreadPips(symbol, routeTick.bid, routeTick.ask);
       lowSpreadForResearch = (routeSpreadPips <= PilotMaxSpreadPips);
    }
+
+   AppendUsdJpyTokyoBreakoutShadowRoute(symbol, eventBarTime, close1, open1, atr1, pip, routeSpreadPips, lowSpreadForResearch);
+   AppendUsdJpyNightReversionShadowRoute(symbol, eventBarTime, close1, open1, atr1, regime.label, lowSpreadForResearch);
+   AppendUsdJpyH4PullbackShadowRoute(symbol, eventBarTime, close1, open1, high1, low1, atr1, fast1, slow1, pip, lowSpreadForResearch);
 
    if(!freshCross && buyTrend && bullishStructure && close1 >= fast1 && fastDistanceAtr <= 1.20)
       AppendShadowCandidateLedgerRow(symbol, eventBarTime, "TREND_CONT_NO_CROSS", 1, 66.0,
@@ -2783,7 +3110,7 @@ string PilotAggregateJson(string scopeSymbol)
    json += "\"avgNet\": 0.00, ";
    json += "\"netProfit\": 0.00, ";
    json += "\"disabledUntil\": \"\", ";
-   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 5-bar cross plus 24-bar pullback continuation, range guard, post-loss cooldown, USD news filter") + "\", ";
+   json += "\"reason\": \"" + JsonEscape(g_pilotKillSwitch ? g_pilotKillReason : "MT5 0.01 live pilot: M15 trigger, H1 trend filter, 5-bar cross plus 24-bar pullback continuation, range guard, post-loss cooldown, USDJPY news filter") + "\", ";
    json += "\"positions\": " + IntegerToString(positions) + ", ";
    json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
    json += "}";
@@ -4426,7 +4753,7 @@ void RunPilotExecutionLoop()
       g_maRuntimeStates[i].adaptiveReason = g_pilotKillSwitch
          ? g_pilotKillReason
          : (EnablePilotMA
-            ? "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, range guard, post-loss cooldown, USD news filter, hard SL/TP, and kill switch"
+            ? "HFM MT5 0.01 live pilot with M15 trigger, H1 trend filter, range guard, post-loss cooldown, USDJPY news filter, hard SL/TP, and kill switch"
             : "MA_Cross live route is disabled while USDJPY RSI_Reversal is iterated after live loss review");
       if(g_pilotKillSwitch)
       {
@@ -4671,6 +4998,35 @@ string DiagnosticPlaceholderJson(string statusReason)
    return json;
 }
 
+string UsdJpyShadowResearchStrategyJson(string strategyKey, string scopeSymbol)
+{
+   bool enabled = IsUsdJpyShadowResearchRouteEnabled(strategyKey) && IsUsdJpySymbol(scopeSymbol);
+   string json = "{";
+   json += "\"enabled\": " + JsonBool(enabled) + ", ";
+   json += "\"active\": false, ";
+   json += "\"scopeSymbol\": \"" + JsonEscape(scopeSymbol) + "\", ";
+   json += "\"state\": \"" + JsonEscape(enabled ? "SHADOW_RESEARCH" : "DISABLED") + "\", ";
+   json += "\"status\": \"" + JsonEscape(enabled ? "SHADOW_ONLY" : "DISABLED") + "\", ";
+   json += "\"score\": 0.0, ";
+   json += "\"riskMultiplier\": 0.00, ";
+   json += "\"sampleTrades\": 0, ";
+   json += "\"sampleWindowTrades\": 0, ";
+   json += "\"winRate\": 0.0, ";
+   json += "\"profitFactor\": 0.00, ";
+   json += "\"avgNet\": 0.00, ";
+   json += "\"netProfit\": 0.00, ";
+   json += "\"disabledUntil\": \"\", ";
+   json += "\"reason\": \"" + JsonEscape(enabled
+      ? "USDJPY strategy factory shadow-only route: writes candidate evidence, never sends live orders"
+      : "USDJPY strategy factory route disabled or outside USDJPY scope") + "\", ";
+   json += "\"adaptiveState\": \"" + JsonEscape(enabled ? "CANDIDATE_ONLY" : "DISABLED") + "\", ";
+   json += "\"adaptiveReason\": \"" + JsonEscape("Simulation first: ParamLab/backtest/governance/manual review required before any live promotion") + "\", ";
+   json += "\"positions\": 0, ";
+   json += "\"portfolioPositions\": " + IntegerToString(CountPilotPositions());
+   json += "}";
+   return json;
+}
+
 string BuildSymbolStrategyJson(string symbol, int symbolIndex, string strategyKey)
 {
    if(strategyKey == "MA_Cross" && symbolIndex >= 0 && symbolIndex < ArraySize(g_maRuntimeStates) && (EnablePilotMA || IsPilotLiveMode()))
@@ -4683,6 +5039,8 @@ string BuildSymbolStrategyJson(string symbol, int symbolIndex, string strategyKe
       return PilotStatusJson(g_macdRuntimeStates[symbolIndex]);
    if(strategyKey == "SR_Breakout" && symbolIndex >= 0 && symbolIndex < ArraySize(g_srRuntimeStates) && IsLegacyPilotRouteCandidateEnabled("SR_Breakout"))
       return PilotStatusJson(g_srRuntimeStates[symbolIndex]);
+   if(IsUsdJpyShadowResearchRoute(strategyKey))
+      return UsdJpyShadowResearchStrategyJson(strategyKey, symbol);
 
    string placeholderReason = "MT5 phase 1 skeleton: JSON export is live, strategy execution port is not implemented yet";
    return SymbolStrategyPlaceholderJson(placeholderReason);
@@ -4694,6 +5052,8 @@ string BuildRootStrategyJson(string strategyKey)
       return PilotAggregateJson(g_focusSymbol);
    if(strategyKey != "MA_Cross" && IsLegacyPilotRouteCandidateEnabled(strategyKey))
       return LegacyPilotAggregateJson(strategyKey, LegacyPilotAggregateScopeSymbol(strategyKey, g_focusSymbol));
+   if(IsUsdJpyShadowResearchRoute(strategyKey))
+      return UsdJpyShadowResearchStrategyJson(strategyKey, g_focusSymbol);
 
    string reason = "MT5 phase 1 skeleton: adaptive control and strategy execution have not been ported yet";
    return StrategyPlaceholderJson(g_focusSymbol, reason);
@@ -4719,6 +5079,8 @@ string BuildRootDiagnosticJson(string strategyKey)
       return PilotStatusJson(g_macdRuntimeStates[0]);
    if(strategyKey == "SR_Breakout" && ArraySize(g_srRuntimeStates) > 0 && IsLegacyPilotRouteCandidateEnabled("SR_Breakout"))
       return PilotStatusJson(g_srRuntimeStates[0]);
+   if(IsUsdJpyShadowResearchRoute(strategyKey))
+      return UsdJpyShadowResearchStrategyJson(strategyKey, g_focusSymbol);
 
    string reason = "MT5 phase 1 skeleton: diagnostics become live after the MT5 strategy engine is ported";
    return DiagnosticPlaceholderJson(reason);
@@ -4813,6 +5175,12 @@ double MAValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift, 
 double ATRValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift)
 {
    int handle = iATR(symbol, timeframe, period);
+   return ReadSingleBufferValue(handle, 0, shift);
+}
+
+double ADXValue(string symbol, ENUM_TIMEFRAMES timeframe, int period, int shift)
+{
+   int handle = iADX(symbol, timeframe, period);
    return ReadSingleBufferValue(handle, 0, shift);
 }
 
@@ -6176,15 +6544,16 @@ void ExportDashboard(bool runExecutionLoop)
    if(EnablePilotNewsFilter &&
       (g_newsState.calendarAvailable || ArraySize(g_usdTrackedEventIds) > 0) &&
       g_newsState.status == "IDLE" &&
-      g_newsState.reason == "USD high-impact news filter is armed")
+      g_newsState.reason == "USDJPY high-impact news filter is armed")
    {
-      exportNewsReason = "No tracked USD event near the current pilot window";
+      exportNewsReason = "No tracked USDJPY event near the current pilot window";
    }
    string exportNewsEvent = SafeNewsEventName(g_newsState.eventName);
    exportNewsReason = SafeNewsReasonText(exportNewsReason);
    statusFile += "newsStatus=" + g_newsState.status + "\r\n";
    statusFile += "newsBias=" + UsdBiasLabel(g_newsState.usdBiasDirection) + "\r\n";
    statusFile += "newsEvent=" + exportNewsEvent + "\r\n";
+   statusFile += "newsCurrency=" + g_newsState.eventCurrency + "\r\n";
    statusFile += "newsReason=" + exportNewsReason + "\r\n";
    statusFile += "connected=" + (connected ? "true" : "false") + "\r\n";
    statusFile += "focusSymbol=" + g_focusSymbol + "\r\n";

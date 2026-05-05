@@ -17,9 +17,11 @@ from .schema import (
     STATUS_PAUSED,
     STATUS_RUNNABLE,
     STATUS_WATCH_ONLY,
+    STRATEGY_CATALOG_VERSION,
     assert_no_secret_or_execution_flags,
     utc_now_iso,
 )
+from .strategy_signals import build_candidate_signals
 from .strategy_scoreboard import build_strategy_scoreboard
 
 
@@ -135,6 +137,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
     min_lot = _env_float("QG_AUTO_MIN_LOT", 0.01)
     step = _env_float("QG_AUTO_LOT_STEP", 0.01)
     scoreboard = build_strategy_scoreboard(runtime_dir, min_samples=min_samples)
+    candidate_signals = build_candidate_signals(runtime_dir, limit=20)
     snapshot = focus_runtime_snapshot(runtime_dir)
     quality = fastlane_quality(runtime_dir)
     trigger = entry_trigger_plan(runtime_dir)
@@ -200,10 +203,20 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
     payload = {
         "schema": "quantgod.usdjpy_auto_execution_policy.v1",
         "generatedAt": utc_now_iso(),
+        "strategyCatalogVersion": STRATEGY_CATALOG_VERSION,
         "focusOnly": True,
         "symbol": FOCUS_SYMBOL,
         "allowedSymbols": [FOCUS_SYMBOL],
         "ignoredNonFocusSymbols": True,
+        "marketRegime": (snapshot or {}).get("regime") or (snapshot or {}).get("marketRegime") or "UNKNOWN",
+        "policyConstraints": {
+            "focusOnly": True,
+            "newStrategiesShadowOnly": True,
+            "requiresBacktestBeforeLive": True,
+            "requiresGovernanceBeforeLive": True,
+            "manualPromotionRequired": True,
+            "rsiLiveRoutePreserved": True,
+        },
         "maxLot": max_lot,
         "standardEntryCount": sum(1 for item in policies if item.entryMode == ENTRY_STANDARD),
         "opportunityEntryCount": sum(1 for item in policies if item.entryMode == ENTRY_OPPORTUNITY),
@@ -217,7 +230,9 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "dynamicSltpFound": bool(sltp),
             "adaptivePolicyFound": bool(adaptive),
             "scoreboardRoutes": len(scoreboard.get("routes", [])),
+            "candidateSignalCount": candidate_signals.get("count", 0),
         },
+        "candidateSignals": candidate_signals.get("signals", []),
         "scoreboard": scoreboard,
         "safety": dict(READ_ONLY_SAFETY),
     }

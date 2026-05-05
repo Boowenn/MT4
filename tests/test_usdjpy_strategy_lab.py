@@ -8,7 +8,12 @@ from tools.usdjpy_strategy_lab.data_loader import focus_runtime_snapshot
 from tools.usdjpy_strategy_lab.policy_builder import build_usdjpy_policy
 from tools.usdjpy_strategy_lab.dry_run_bridge import build_dry_run_decision
 from tools.usdjpy_strategy_lab.schema import FOCUS_SYMBOL, ENTRY_STANDARD, ENTRY_OPPORTUNITY, ENTRY_BLOCKED
+from tools.usdjpy_strategy_lab.strategy_catalog import build_strategy_catalog
+from tools.usdjpy_strategy_lab.strategy_signals import build_candidate_signals
 from tools.usdjpy_strategy_lab.strategy_scoreboard import build_strategy_scoreboard
+from tools.usdjpy_strategy_lab.risk_governor import build_risk_check
+from tools.usdjpy_strategy_lab.backtest_plan_builder import build_backtest_plan
+from tools.usdjpy_strategy_lab.backtest_importer import import_backtest_results, load_imported_backtests
 from tools.usdjpy_strategy_lab.telegram_text import policy_to_chinese_text
 
 
@@ -20,12 +25,18 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             policy = build_usdjpy_policy(runtime, write=True)
             self.assertEqual(policy["symbol"], FOCUS_SYMBOL)
             self.assertEqual(policy["allowedSymbols"], [FOCUS_SYMBOL])
+            self.assertTrue(policy["policyConstraints"]["rsiLiveRoutePreserved"])
+            self.assertIn("strategyCatalogVersion", policy)
             self.assertTrue(policy["focusOnly"])
             self.assertGreaterEqual(policy["standardEntryCount"] + policy["opportunityEntryCount"], 1)
+            self.assertGreaterEqual(policy["evidence"]["candidateSignalCount"], 1)
             output = runtime / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json"
             self.assertTrue(output.exists())
             saved = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(saved["symbol"], FOCUS_SYMBOL)
+            regimes = {item["regime"] for item in policy["strategies"]}
+            self.assertNotIn("0.6", regimes)
+            self.assertIn("RANGE", regimes)
 
     def test_non_focus_rows_are_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,6 +92,52 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertIn(decision["entryMode"], {ENTRY_STANDARD, ENTRY_OPPORTUNITY, ENTRY_BLOCKED})
             self.assertFalse(decision["safety"]["orderSendAllowed"])
             self.assertTrue((runtime / "adaptive" / "QuantGod_USDJPYEADryRunDecision.json").exists())
+
+    def test_strategy_factory_catalog_and_signals_are_shadow_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            catalog = build_strategy_catalog()
+            keys = {item["key"] for item in catalog["catalog"]}
+            self.assertIn("USDJPY_TOKYO_RANGE_BREAKOUT", keys)
+            self.assertIn("USDJPY_NIGHT_REVERSION_SAFE", keys)
+            self.assertIn("USDJPY_H4_TREND_PULLBACK", keys)
+            self.assertTrue(all(item["shadowTradingOnly"] for item in catalog["catalog"]))
+            self.assertTrue(all(item["orderSendAllowed"] is False for item in catalog["catalog"]))
+            signals = build_candidate_signals(runtime, limit=10)
+            self.assertGreaterEqual(signals["count"], 3)
+            self.assertTrue(all(signal["strategy"].startswith("USDJPY_") for signal in signals["signals"]))
+
+    def test_backtest_plan_and_risk_check_are_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            plan = build_backtest_plan(runtime)
+            self.assertEqual(len(plan["plans"]), 3)
+            self.assertTrue(all(item["dryRunOnly"] for item in plan["plans"]))
+            risk = build_risk_check(runtime)
+            self.assertEqual(risk["status"], "PASS")
+            self.assertFalse(risk["safety"]["orderSendAllowed"])
+
+    def test_import_backtest_results_are_usdjpy_only_and_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            source = runtime / "tester_results.csv"
+            source.write_text(
+                "symbol,strategy,timeframe,trades,profitFactor,winRate,netProfit,maxDrawdown\n"
+                "USDJPYc,USDJPY_TOKYO_RANGE_BREAKOUT,M15,86,1.26,54.2,18.5,7.1\n"
+                "EURUSDc,USDJPY_TOKYO_RANGE_BREAKOUT,M15,90,2.0,60,22,5\n"
+                "USDJPYc,UNKNOWN,M15,10,1.0,50,0,1\n",
+                encoding="utf-8",
+            )
+            result = import_backtest_results(runtime, source)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["acceptedRows"], 1)
+            self.assertFalse(result["imports"][0]["safety"]["orderSendAllowed"])
+            self.assertEqual(result["imports"][0]["strategy"], "USDJPY_TOKYO_RANGE_BREAKOUT")
+            imported = load_imported_backtests(runtime)
+            self.assertEqual(imported["count"], 1)
+            self.assertEqual(imported["imports"][0]["status"], "PROMOTABLE")
 
 
 if __name__ == "__main__":
