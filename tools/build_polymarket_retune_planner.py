@@ -68,6 +68,8 @@ def metric_bucket(item: dict[str, Any]) -> dict[str, Any]:
     closed = safe_int(item.get("closed"))
     wins = safe_int(item.get("wins"))
     pnl = safe_number(item.get("realizedPnl"))
+    gross_win = safe_number(item.get("grossWin"))
+    gross_loss = safe_number(item.get("grossLoss"))
     pf_raw = item.get("profitFactor")
     pf = None if pf_raw in (None, "") else safe_number(pf_raw)
     win_rate_raw = item.get("winRatePct")
@@ -78,6 +80,8 @@ def metric_bucket(item: dict[str, Any]) -> dict[str, Any]:
         "wins": wins,
         "losses": safe_int(item.get("losses")),
         "realizedPnl": round(pnl, 4),
+        "grossWin": round(gross_win, 4),
+        "grossLoss": round(gross_loss, 4),
         "profitFactor": pf,
         "winRatePct": win_rate,
         "avgPnl": round(avg, 4),
@@ -138,9 +142,9 @@ def suggestions_for(family: str, scope: str, metrics: dict[str, Any]) -> list[st
     if family == "copy_archive":
         suggestions.extend(
             [
-                "Shadow-only: prune copied traders to those with fresh positive realized PnL and enough settled samples.",
+                "Shadow-only: prune copied traders/signals to those with fresh positive realized PnL and enough settled samples.",
                 "Require copied market liquidity/spread sanity before recording a candidate; keep failed copy_archive rows as quarantine evidence.",
-                "Split sports leagues and reject weak subfamilies instead of treating all copy archive signals as one pool.",
+                "Split copied evidence by market category and source quality; do not treat sports, politics, macro, crypto, company events, and long-tail markets as one pool.",
             ]
         )
         if metrics["profitFactor"] is not None and metrics["profitFactor"] < 1.05:
@@ -192,12 +196,12 @@ def next_shadow_tests(family: str, scope: str, action: str) -> list[dict[str, st
         return [
             {
                 "name": "copy_archive_whitelist_pruned_v2",
-                "goal": "Replay only traders with recent positive settled copy evidence and skip stale/illiquid markets.",
+                "goal": "Replay only copied traders/signals with recent positive settled evidence across any market category, and skip stale/illiquid markets.",
                 "mode": "shadow-only",
             },
             {
-                "name": "copy_archive_league_split_v1",
-                "goal": "Split sports copy evidence by league so weak leagues cannot hide inside pooled stats.",
+                "name": "copy_archive_market_family_split_v1",
+                "goal": "Split copy evidence by market family and source quality so one weak category cannot hide inside pooled stats.",
                 "mode": "shadow-only",
             },
         ]
@@ -236,6 +240,13 @@ def build_recommendation(item: dict[str, Any]) -> dict[str, Any]:
         "routeFamily": family,
         "marketScope": scope,
         "signalSource": source or "unknown",
+        "strategyRole": "copy_trading_shadow" if family == "copy_archive" else "autonomous_filter_shadow",
+        "operatorLabel": (
+            "跟单策略模拟" if family == "copy_archive" else
+            "雷达筛选模拟" if family == "edge_filter" else
+            "基准/对照样本" if family.startswith("baseline") else
+            "未归类研究样本"
+        ),
         "severity": severity,
         "score": score,
         "primaryAction": action,
@@ -245,6 +256,124 @@ def build_recommendation(item: dict[str, Any]) -> dict[str, Any]:
         "metrics": metrics,
         "filterSuggestions": suggestions_for(family, scope, metrics),
         "nextShadowTests": next_shadow_tests(family, scope, action),
+    }
+
+
+def copy_capital_simulation(metrics: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    cash = safe_number(account.get("accountCash"), 0.0)
+    bankroll = safe_number(account.get("bankroll"), 0.0)
+    effective_cash = cash if cash > 0 else bankroll
+    effective_bankroll = min(cash, bankroll) if cash > 0 and bankroll > 0 else max(cash, bankroll)
+    gross_win = abs(safe_number(metrics.get("grossWin"), 0.0))
+    gross_loss = abs(safe_number(metrics.get("grossLoss"), 0.0))
+    closed = safe_int(metrics.get("closed"))
+    exposure_proxy = max(gross_win + gross_loss, float(closed), 1.0)
+    ledger_pnl = safe_number(metrics.get("realizedPnl"), 0.0)
+    exposure_return = ledger_pnl / exposure_proxy
+    cash_scaled_pnl = exposure_return * effective_cash
+    bankroll_scaled_pnl = exposure_return * effective_bankroll
+    restored_review_eligible = (
+        closed >= 200
+        and safe_number(metrics.get("profitFactor"), 0.0) >= 1.10
+        and safe_number(metrics.get("winRatePct"), 0.0) >= 52.0
+        and cash_scaled_pnl > 0
+    )
+    return {
+        "method": "shadow_pnl_normalized_by_absolute_settled_pnl_proxy",
+        "accountCashUSDC": round(cash, 6),
+        "configuredBankrollUSDC": round(bankroll, 6),
+        "effectiveCashUSDC": round(effective_cash, 6),
+        "effectiveBankrollUSDC": round(effective_bankroll, 6),
+        "shadowLedgerPnlUSDC": round(ledger_pnl, 6),
+        "settledExposureProxyUSDC": round(exposure_proxy, 6),
+        "estimatedReturnPct": round(exposure_return * 100.0, 4),
+        "cashScaledPnlUSDC": round(cash_scaled_pnl, 6),
+        "bankrollScaledPnlUSDC": round(bankroll_scaled_pnl, 6),
+        "restoreLiveReviewEligible": restored_review_eligible,
+        "restoreLiveReviewBlockers": [] if restored_review_eligible else [
+            blocker for blocker in [
+            "sample_lt_200" if closed < 200 else "",
+            "pf_lt_1_10" if safe_number(metrics.get("profitFactor"), 0.0) < 1.10 else "",
+            "win_rate_lt_52" if safe_number(metrics.get("winRatePct"), 0.0) < 52.0 else "",
+            "cash_scaled_pnl_not_positive" if cash_scaled_pnl <= 0 else "",
+            ] if blocker
+        ],
+        "note": "这是按当前只读资金规模做的 shadow accounting 估算，不会连接钱包、不会恢复真钱执行。",
+    }
+
+
+def copy_source_toolkit() -> list[dict[str, str]]:
+    return [
+        {
+            "source": "Telegram signals",
+            "mode": "operator-approved-channel-or-export-only",
+            "use": "只读取你授权的频道、机器人推送或导出的历史消息，把信号转成 shadow copy 样本。",
+        },
+        {
+            "source": "Public leaderboards / copied traders",
+            "mode": "public-readonly",
+            "use": "按历史结算表现、样本数、市场家族和流动性筛选可复制信号。",
+        },
+        {
+            "source": "QuantGod radar / AI score",
+            "mode": "local-evidence-fusion",
+            "use": "把外部跟单信号与本地雷达评分交叉验证，低置信度只记录为隔离证据。",
+        },
+        {
+            "source": "Manual watchlist",
+            "mode": "human-curated-shadow-only",
+            "use": "人工加入观察名单后，只跑模拟账本；达到恢复门槛也只进入人工确认。",
+        },
+    ]
+
+
+def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str, Any]) -> dict[str, Any]:
+    copy_rows = [row for row in recommendations if row.get("routeFamily") == "copy_archive"]
+    copy_rows.sort(key=lambda row: (
+        safe_number((row.get("metrics") or {}).get("profitFactor"), -1.0),
+        safe_number((row.get("metrics") or {}).get("realizedPnl"), -9999.0),
+    ), reverse=True)
+    if not copy_rows:
+        return {
+            "status": "NO_COPY_TRADING_SHADOW_EVIDENCE",
+            "active": False,
+            "summary": "当前没有跟单策略模拟样本；预测市场只在跑雷达/基准筛选。",
+            "bestExperimentKey": "",
+            "sourceToolkit": copy_source_toolkit(),
+            "nextActions": ["先收集 copy_archive shadow 样本，再比较跟单与自主雷达筛选。"],
+        }
+    best = copy_rows[0]
+    metrics = best.get("metrics") or {}
+    pf = safe_number(metrics.get("profitFactor"))
+    pnl = safe_number(metrics.get("realizedPnl"))
+    closed = safe_int(metrics.get("closed"))
+    win_rate = safe_number(metrics.get("winRatePct"))
+    needs_retune = best.get("primaryAction") != "KEEP_SHADOW_CANDIDATE_NO_LIVE" or pf < 1.1 or pnl <= 0
+    capital_simulation = copy_capital_simulation(metrics, account)
+    return {
+        "status": "COPY_TRADING_RETUNE_REQUIRED" if needs_retune else "COPY_TRADING_SHADOW_WATCH",
+        "active": True,
+        "summary": (
+            f"正在模拟跟单策略 {best.get('experimentKey')}："
+            f"样本 {closed}，PF {pf:.4g}，胜率 {win_rate:.2f}%，净值 {pnl:.4g} USDC。"
+        ),
+        "bestExperimentKey": best.get("experimentKey", ""),
+        "bestMetrics": metrics,
+        "capitalSimulation": capital_simulation,
+        "sourceToolkit": copy_source_toolkit(),
+        "primaryAction": best.get("primaryAction", ""),
+        "shadowOnly": True,
+        "walletWriteAllowed": False,
+        "orderSendAllowed": False,
+        "nextActions": [
+            "跟单策略继续 shadow-only：可跟任何市场模块，但只复制历史强交易员/强信号，不连接钱包。",
+            "先剪掉近期负收益或样本不足的 copied trader，再按市场家族、来源质量和流动性分桶重放。",
+            (
+                "达到 PF >= 1.10、胜率 >= 52%、样本 >= 200、按当前资金估算净收益为正之前，不进入真钱恢复复核。"
+                if not capital_simulation.get("restoreLiveReviewEligible") else
+                "跟单结果已达到恢复复核门槛；仍需人工确认钱包、限额、隔离和单笔风险。"
+            ),
+        ],
     }
 
 
@@ -295,7 +424,6 @@ def build_plan(research: dict[str, Any]) -> dict[str, Any]:
     groups = [enrich_group(item, journal_groups) for item in groups]
     recommendations = [build_recommendation(item) for item in groups]
     recommendations.sort(key=lambda item: ({"red": 0, "yellow": 1, "gray": 2, "green": 3}.get(item["severity"], 9), -item["metrics"]["closed"]))
-
     account = research.get("accountSnapshot") or {}
     summary = research.get("summary") or {}
     executed = summary.get("executed") or {}
@@ -307,6 +435,7 @@ def build_plan(research: dict[str, Any]) -> dict[str, Any]:
         blockers.append("executed_loss_quarantine")
     if safe_number(shadow.get("realizedPnl")) < 0:
         blockers.append("shadow_recovery_negative")
+    copy_review = copy_trading_review(recommendations, account)
 
     return {
         "generatedAtIso": utc_now_iso(),
@@ -339,7 +468,9 @@ def build_plan(research: dict[str, Any]) -> dict[str, Any]:
             "yellow": sum(1 for item in recommendations if item["severity"] == "yellow"),
             "green": sum(1 for item in recommendations if item["severity"] == "green"),
             "gray": sum(1 for item in recommendations if item["severity"] == "gray"),
+            "copyTrading": sum(1 for item in recommendations if item["routeFamily"] == "copy_archive"),
         },
+        "copyTradingReview": copy_review,
         "recommendations": recommendations,
         "nextActions": [
             "Keep all Polymarket retunes shadow-only while executed and shadow evidence are negative.",

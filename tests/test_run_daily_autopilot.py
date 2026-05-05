@@ -535,6 +535,16 @@ class DailyAutopilotTests(unittest.TestCase):
                 "retuneSources": [{
                     "experimentKey": "sports_edge_filter_shadow_v1",
                 }],
+                "copyTradingReview": {
+                    "active": True,
+                    "status": "COPY_TRADING_RETUNE_REQUIRED",
+                    "summary": "正在模拟跨市场跟单策略，等待重调。",
+                    "bestExperimentKey": "copy_archive_all_markets_v1",
+                },
+                "copyRetuneSources": [{
+                    "experimentKey": "copy_archive_all_markets_v1",
+                    "routeFamily": "copy_archive",
+                }],
             }
         }
         iteration = daily_review.daily_iteration_review(
@@ -585,6 +595,16 @@ class DailyAutopilotTests(unittest.TestCase):
                 "retuneSources": [{
                     "experimentKey": "sports_edge_filter_shadow_v1",
                 }],
+                "copyTradingReview": {
+                    "active": True,
+                    "status": "COPY_TRADING_RETUNE_REQUIRED",
+                    "summary": "正在模拟跨市场跟单策略，等待重调。",
+                    "bestExperimentKey": "copy_archive_all_markets_v1",
+                },
+                "copyRetuneSources": [{
+                    "experimentKey": "copy_archive_all_markets_v1",
+                    "routeFamily": "copy_archive",
+                }],
             }
         }
         iteration = daily_review.daily_iteration_review(
@@ -610,6 +630,8 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertTrue(iteration["codexFollowupRequired"])
         self.assertEqual(iteration["codeIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
         self.assertEqual(iteration["strategyIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
+        self.assertEqual(iteration["strategyIterationQueue"][1]["type"], "POLYMARKET_COPY_TRADING_RETUNE")
+        self.assertIn("任何市场模块", iteration["strategyIterationQueue"][1]["recommendation"])
         self.assertTrue(codex["required"])
 
     def test_completion_report_explains_finished_todos_and_recommendations(self):
@@ -861,7 +883,19 @@ class DailyAutopilotTests(unittest.TestCase):
                 "generatedAtIso": now,
                 "status": "OK",
                 "decision": "SHADOW_ONLY_RETUNE_NO_BETTING",
-                "recommendationCounts": {"total": 3, "red": 1, "yellow": 2},
+                "recommendationCounts": {"total": 3, "red": 1, "yellow": 2, "copyTrading": 1},
+                "copyTradingReview": {
+                    "status": "COPY_TRADING_RETUNE_REQUIRED",
+                    "active": True,
+                    "summary": "正在模拟跟单策略：样本 20，PF 0.98。",
+                    "bestExperimentKey": "copy_archive_all_markets_v1",
+                },
+                "recommendations": [{
+                    "experimentKey": "copy_archive_all_markets_v1",
+                    "routeFamily": "copy_archive",
+                    "marketScope": "all_markets",
+                    "primaryAction": "RETUNE_SHADOW_ONLY",
+                }],
             }), encoding="utf-8")
             (runtime / "QuantGod_PolymarketAutoGovernance.json").write_text(json.dumps({
                 "generatedAt": now,
@@ -883,6 +917,9 @@ class DailyAutopilotTests(unittest.TestCase):
             self.assertTrue(review["summary"]["lossQuarantine"])
             self.assertEqual(review["summary"]["todoCount"], 0)
             self.assertGreaterEqual(review["summary"]["completedCount"], 4)
+            self.assertEqual(review["summary"]["retuneCopyTrading"], 1)
+            self.assertTrue(review["copyTradingReview"]["active"])
+            self.assertEqual(review["copyRetuneSources"][0]["experimentKey"], "copy_archive_all_markets_v1")
             self.assertEqual(review["actionQueue"], [])
             self.assertEqual(review["completedActionQueue"][0]["state"], "DONE")
 

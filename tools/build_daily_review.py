@@ -504,6 +504,47 @@ def compact_metric_group(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def no_trade_retune_plan(route_counts: Counter[str]) -> list[dict[str, Any]]:
+    templates = {
+        "MA_Cross": {
+            "diagnosis": "均线确认和退出过滤过严，短窗口容易完全无成交。",
+            "nextBacktest": "扩大 lookback，测试更宽的交叉回看和更早退出窗口。",
+        },
+        "RSI_Reversal": {
+            "diagnosis": "RSI 极值和 crossback 条件触发少；BUY 实盘保留，SELL 继续模拟。",
+            "nextBacktest": "只在 tester 里比较 85/15、80/20 和趋势过滤组合，不改 live preset。",
+        },
+        "BB_Triple": {
+            "diagnosis": "外轨/慢过滤组合过严，缺少足够触发样本。",
+            "nextBacktest": "放宽 band touch 与 RSI/MACD 确认顺序，保留 non-RSI 授权锁。",
+        },
+        "MACD_Divergence": {
+            "diagnosis": "背离确认滞后，M15/H1 窗口内触发不足。",
+            "nextBacktest": "测试 fast momentum turn 与 histogram continuation 两组候选。",
+        },
+        "SR_Breakout": {
+            "diagnosis": "突破必须带成交量确认，震荡日容易无成交。",
+            "nextBacktest": "扩大支撑阻力 lookback，分开测试突破和回踩确认。",
+        },
+    }
+    plans: list[dict[str, Any]] = []
+    for route, count in route_counts.most_common():
+        template = templates.get(route, {
+            "diagnosis": "该路线在已解析 tester 窗口没有成交样本。",
+            "nextBacktest": "扩大测试窗口并生成更宽松的 tester-only 候选。",
+        })
+        plans.append({
+            "routeKey": route,
+            "noTradeWindows": count,
+            "diagnosis": template["diagnosis"],
+            "nextBacktest": template["nextBacktest"],
+            "safeMode": "tester-only",
+            "livePresetMutationAllowed": False,
+            "orderSendAllowed": False,
+        })
+    return plans
+
+
 def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     research = read_json(runtime_dir / "QuantGod_PolymarketResearch.json")
     retune = read_json(runtime_dir / "QuantGod_PolymarketRetunePlanner.json")
@@ -517,6 +558,8 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     auto_summary = auto_gov.get("summary") if isinstance(auto_gov.get("summary"), dict) else {}
     gate_summary = gate.get("summary") if isinstance(gate.get("summary"), dict) else {}
     retune_counts = retune.get("recommendationCounts") if isinstance(retune.get("recommendationCounts"), dict) else {}
+    retune_recommendations = as_list(retune.get("recommendations"))
+    copy_review = retune.get("copyTradingReview") if isinstance(retune.get("copyTradingReview"), dict) else {}
     evidence_times = [generated_at(item) for item in (research, retune, auto_gov, outcome, gate)]
     evidence_times = [item for item in evidence_times if item]
     latest_evidence_at = max(evidence_times) if evidence_times else None
@@ -548,6 +591,10 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
         compact_metric_group(row)
         for row in sorted(experiment_rows, key=lambda item: as_float(item.get("realizedPnl")))[:3]
     ]
+    copy_retune_sources = [
+        row for row in retune_recommendations
+        if isinstance(row, dict) and clean(row.get("routeFamily")) == "copy_archive"
+    ]
     action_queue: list[dict[str, Any]] = []
     if loss_quarantine:
         action_queue.append({
@@ -565,6 +612,19 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
+    if copy_review.get("active"):
+        action_queue.append({
+            "type": "POLY_COPY_TRADING_RETUNE_REVIEW",
+            "state": "DONE" if review_fresh_for_day and retune.get("status") == "OK" else "DUE_TODAY",
+            "title": "Polymarket 跟单策略复盘",
+            "market": "COPY_ARCHIVE",
+            "detail": copy_review.get("summary", ""),
+            "nextStep": "跟单可覆盖任何市场模块；剪掉近期负收益 copied trader，只保留高流动性、高样本、正收益分桶继续 shadow-only 重放。",
+            "blockers": ["COPY_TRADING_NOT_PROMOTABLE_YET"],
+            "completionEvidence": "fresh_copy_trading_retune_review" if review_fresh_for_day and retune.get("status") == "OK" else "",
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
     if shadow_pf < 1.0 or shadow_net < 0:
         action_queue.append({
             "type": "POLY_SHADOW_RETUNE_REVIEW",
@@ -572,7 +632,7 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "title": "Polymarket Shadow 参数复盘",
             "market": "SHADOW",
             "detail": f"shadow PF {shadow_pf:.4g} / 净 {shadow_net:.4g} USDC",
-            "nextStep": "优先保留接近 PF>=1 的实验，淘汰低胜率 autonomous/esports 变体。",
+            "nextStep": "优先保留接近 PF>=1 的实验，淘汰低胜率 autonomous 或弱市场家族变体。",
             "blockers": ["SHADOW_PF_BELOW_1"],
             "completionEvidence": "fresh_retune_planner" if review_fresh_for_day and retune.get("status") == "OK" else "",
             "walletWriteAllowed": False,
@@ -632,12 +692,16 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "retuneTotal": first(retune_counts.get("total"), 0),
             "retuneRed": first(retune_counts.get("red"), 0),
             "retuneYellow": first(retune_counts.get("yellow"), 0),
+            "retuneCopyTrading": first(retune_counts.get("copyTrading"), 0),
             "wouldExit": as_int(outcome_summary.get("wouldExit"), 0),
             "todoCount": len(active_queue),
             "completedCount": len(completed_queue),
         },
         "topLossSources": top_loss_sources,
         "retuneSources": retune_sources,
+        "copyTradingReview": copy_review,
+        "copyRetuneSources": copy_retune_sources[:3],
+        "retuneRecommendations": retune_recommendations[:6],
         "actionQueue": active_queue[:6],
         "completedActionQueue": completed_queue[:6],
         "safety": {
@@ -940,6 +1004,7 @@ def daily_iteration_review(
             "status": "REQUIRED_TESTER_ONLY",
             "targetRoutes": [route for route, _count in route_counts.most_common(5)],
             "recommendation": "扩大 tester lookback，降低过严过滤器阈值，保留 0.01/单仓/人工升实盘门槛。",
+            "routePlans": no_trade_retune_plan(route_counts),
             "safeMode": "tester-only",
             "livePresetMutationAllowed": False,
             "orderSendAllowed": False,
@@ -956,6 +1021,8 @@ def daily_iteration_review(
     poly_summary = poly_daily.get("summary") if isinstance(poly_daily.get("summary"), dict) else {}
     top_losses = as_list(poly_daily.get("topLossSources"))
     retunes = as_list(poly_daily.get("retuneSources"))
+    copy_review = poly_daily.get("copyTradingReview") if isinstance(poly_daily.get("copyTradingReview"), dict) else {}
+    copy_sources = as_list(poly_daily.get("copyRetuneSources"))
     if poly_summary.get("lossQuarantine"):
         worst = top_losses[0] if top_losses and isinstance(top_losses[0], dict) else {}
         retune_total = as_int(poly_summary.get("retuneTotal"), 0)
@@ -981,7 +1048,7 @@ def daily_iteration_review(
             "nextStep": (
                 "今日已生成 shadow-only retune；保持钱包锁定，明日复查新批次效果。"
                 if retune_applied_today else
-                "保持钱包锁定；淘汰/重建 sports/esports edge_filter，下一轮只进 shadow-only retune。"
+                "保持钱包锁定；淘汰/重建低胜率 edge_filter，并按市场家族分桶，下一轮只进 shadow-only retune。"
             ),
             "requiresCodeChange": not retune_applied_today,
             "requiresStrategyIteration": True,
@@ -995,11 +1062,23 @@ def daily_iteration_review(
             "recommendation": (
                 f"retune planner produced {retune_red} red / {retune_yellow} yellow shadow-only families"
                 if retune_applied_today else
-                "raise score/liquidity thresholds, split sports/esports, keep global loss quarantine"
+                "raise score/liquidity thresholds, split market families, keep global loss quarantine"
             ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
+        if copy_review.get("active"):
+            strategy_queue.append({
+                "type": "POLYMARKET_COPY_TRADING_RETUNE",
+                "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "REQUIRED",
+                "targetFamilies": [clean(item.get("experimentKey")) for item in copy_sources[:3] if isinstance(item, dict)] or [clean(copy_review.get("bestExperimentKey"))],
+                "safeMode": "shadow-only",
+                "recommendation": "跟单可覆盖任何市场模块；按 copied trader、市场家族、来源质量、流动性和结算表现重新筛选。",
+                "copyTradingStatus": copy_review.get("status", ""),
+                "copyTradingSummary": copy_review.get("summary", ""),
+                "walletWriteAllowed": False,
+                "orderSendAllowed": False,
+            })
         code_queue.append({
             "type": "POLYMARKET_RETUNE_RULES",
             "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "PROPOSE_CODE_OR_CONFIG_PATCH",
@@ -1191,8 +1270,8 @@ def build_completion_report(
         recommendations.append({
             "priority": "high",
             "scope": "Polymarket",
-            "title": "重建 sports/esports edge_filter",
-            "recommendation": "淘汰当前亏损 filter，按 retune planner 的 red/yellow 队列重建严格分数、流动性、价格带和题材分桶。",
+            "title": "重建低胜率 edge_filter",
+            "recommendation": "淘汰当前亏损 filter，按 retune planner 的 red/yellow 队列重建严格分数、流动性、价格带和市场家族分桶。",
             "reason": (
                 f"{worst_poly.get('experimentKey', '--')} PF={worst_poly.get('profitFactor', '--')}，"
                 f"win={worst_poly.get('winRatePct', '--')}%，net={worst_poly.get('realizedPnl', '--')} USDC。"
