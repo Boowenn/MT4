@@ -193,6 +193,23 @@ class DeepSeekMt5AdvisorTests(unittest.TestCase):
         result = advisor.analyze(self.sample_report())
         self.assertEqual(result["advice"]["entryZone"], "待复核；等待新鲜证据")
 
+    def test_non_json_deepseek_reply_becomes_observation_only(self) -> None:
+        payload = {"choices": [{"message": {"content": "技术面偏中性，建议继续观察，等待更清晰信号。"}}]}
+
+        def opener(request, timeout):
+            return FakeResponse(payload)
+
+        advisor = DeepSeekMt5Advisor(
+            DeepSeekAdvisorConfig(enabled=True, api_key="sk-test", model="deepseek-v4-flash"),
+            opener=opener,
+        )
+        result = advisor.analyze(self.sample_report())
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "ok_text_fallback")
+        self.assertEqual(result["advice"]["verdict"], "观望，不开新仓")
+        self.assertEqual(result["advice"]["entryZone"], "不生成")
+        self.assertIn("非结构化", result["advice"]["headline"])
+
     def test_gateway_url_helpers(self) -> None:
         self.assertTrue(uses_anthropic_gateway("https://api.deepseek.com/anthropic"))
         self.assertEqual(anthropic_messages_url("https://api.deepseek.com/anthropic"), "https://api.deepseek.com/anthropic/v1/messages")

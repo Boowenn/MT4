@@ -218,10 +218,15 @@ class DeepSeekMt5Advisor:
         payload = self._build_payload(user_content)
         data = self._post(payload)
         content = self._extract_content(data)
-        parsed = self._parse_json(content)
+        try:
+            parsed = self._parse_json(content)
+            status = "ok"
+        except DeepSeekAdvisorError:
+            parsed = non_json_observation_advice(content)
+            status = "ok_text_fallback"
         return {
             "ok": True,
-            "status": "ok",
+            "status": status,
             "provider": "deepseek",
             "model": self.config.model,
             "advice": normalize_advice(parsed),
@@ -366,4 +371,38 @@ def normalize_advice(raw: dict[str, Any]) -> dict[str, Any]:
         "watchPoints": list_text("watchPoints", 2, "等待新鲜运行证据"),
         "riskNotes": list_text("riskNotes", 2, "严格遵守只读与风控边界"),
         "executionBoundary": text("executionBoundary", "仅建议，不执行交易。"),
+    }
+
+
+def non_json_observation_advice(content: str) -> dict[str, Any]:
+    """Convert a non-JSON DeepSeek reply into a safe observation-only payload.
+
+    DeepSeek sometimes ignores JSON mode and returns prose.  We still want the
+    operator to see that analysis, but never as an actionable trade plan.
+    """
+    text = " ".join(str(content or "").replace("```", " ").split())
+    if not text:
+        text = "DeepSeek 返回了非结构化内容，未形成可执行交易计划。"
+    excerpt = text[:260]
+    return {
+        "headline": "DeepSeek 返回非结构化研判，已按观察摘要处理。",
+        "verdict": "观望，不开新仓",
+        "signalGrade": "观察级",
+        "confidencePct": "--",
+        "marketSummary": excerpt,
+        "technicalSummary": "模型没有返回结构化入场、止损、目标位，因此不生成交易计划。",
+        "bullCase": "等待结构化证据确认。",
+        "bearCase": "等待结构化证据确认。",
+        "newsRisk": "未从非结构化回复中生成可执行新闻结论。",
+        "sentimentPositioning": "仅作背景观察。",
+        "planStatus": "暂停，仅允许观察复核",
+        "entryZone": "不生成",
+        "targets": ["不生成", "不生成", "不生成"],
+        "defense": "不生成",
+        "riskReward": "未评估",
+        "positionAdvice": "不构成下单建议；仅允许人工观察复核",
+        "invalidation": "DeepSeek 未返回结构化 JSON，保持观望",
+        "watchPoints": ["等待下一次结构化 DeepSeek 输出", "继续检查实时快照、点差、新闻与熔断状态"],
+        "riskNotes": ["非结构化回复不允许生成入场建议", "Telegram 只推送，不接收交易命令"],
+        "executionBoundary": "text_fallback；advisory-only；Telegram push-only；不会下单、平仓、撤单或修改实盘参数。",
     }
