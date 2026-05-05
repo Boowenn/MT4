@@ -107,6 +107,15 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn('tradeStatus = "SYMBOL_TRADE_DISABLED";', text)
         self.assertIn('tradeStatus = "STARTUP_GUARD";', text)
 
+    def test_live_pilot_does_not_manage_manual_positions_by_default(self):
+        ea_text = EA_PATH.read_text(encoding="utf-8")
+        preset_text = LIVE_PRESET_PATH.read_text(encoding="utf-8")
+        self.assertIn("input bool   EnableManualSafetyGuard    = false;", ea_text)
+        self.assertIn("input bool   ManualSafetyCloseOnMaxLoss = false;", ea_text)
+        self.assertIn("EnableManualSafetyGuard=false", preset_text)
+        self.assertIn("ManualSafetyCloseOnMaxLoss=false", preset_text)
+        self.assertIn("if(IsPilotManagedPosition(comment, magic))", ea_text)
+
     def test_order_send_blocks_investor_mode_before_broker_rejection(self):
         text = EA_PATH.read_text(encoding="utf-8")
         self.assertIn("string permissionBlocker = LiveTradePermissionBlocker(symbol);", text)
