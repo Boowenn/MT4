@@ -195,13 +195,18 @@ def next_shadow_tests(family: str, scope: str, action: str) -> list[dict[str, st
     if family == "copy_archive":
         return [
             {
-                "name": "copy_archive_whitelist_pruned_v2",
-                "goal": "Replay only copied traders/signals with recent positive settled evidence across any market category, and skip stale/illiquid markets.",
+                "name": "copy_archive_all_market_whitelist_v2",
+                "goal": "Replay only copied traders/signals with recent positive settled evidence across sports, politics, macro, crypto, company, culture, and long-tail markets; skip stale/illiquid markets.",
                 "mode": "shadow-only",
             },
             {
                 "name": "copy_archive_market_family_split_v1",
-                "goal": "Split copy evidence by market family and source quality so one weak category cannot hide inside pooled stats.",
+                "goal": "Split copy evidence by market family, signal source, copied trader, and liquidity so one weak category cannot hide inside pooled stats.",
+                "mode": "shadow-only",
+            },
+            {
+                "name": "copy_archive_source_quality_fusion_v1",
+                "goal": "Fuse Telegram/source history, local radar score, probability band, liquidity, and settlement quality before admitting a copied signal.",
                 "mode": "shadow-only",
             },
         ]
@@ -327,6 +332,78 @@ def copy_source_toolkit() -> list[dict[str, str]]:
     ]
 
 
+def copy_iteration_plan(
+    best: dict[str, Any],
+    metrics: dict[str, Any],
+    capital_simulation: dict[str, Any],
+    needs_retune: bool,
+) -> dict[str, Any]:
+    experiment = str(best.get("experimentKey") or "copy_archive_shadow")
+    scope = str(best.get("marketScope") or "unknown")
+    blockers = list(capital_simulation.get("restoreLiveReviewBlockers") or [])
+    return {
+        "retuneRequired": bool(needs_retune),
+        "currentExperimentKey": experiment,
+        "currentMarketScope": scope,
+        "diagnosis": (
+            f"当前最佳跟单样本来自 {scope}，样本 {safe_int(metrics.get('closed'))}，"
+            f"PF {safe_number(metrics.get('profitFactor')):.4g}，胜率 {safe_number(metrics.get('winRatePct')):.2f}%，"
+            f"账本净值 {safe_number(metrics.get('realizedPnl')):.4g} USDC；"
+            + (
+                "还不能证明跟单策略有可恢复真钱的稳定 edge。"
+                if needs_retune else
+                "已达到观察门槛，但真钱恢复仍需人工确认钱包、限额和隔离边界。"
+            )
+        ),
+        "copyUniverse": [
+            "sports",
+            "esports",
+            "politics",
+            "macro",
+            "crypto",
+            "company_events",
+            "culture",
+            "long_tail",
+        ],
+        "candidateVariants": [
+            {
+                "key": "copy_archive_all_market_whitelist_v2",
+                "goal": "全市场跟单白名单：只保留近期结算为正、样本充足、流动性达标的来源。",
+            },
+            {
+                "key": "copy_archive_market_family_split_v1",
+                "goal": "按市场家族拆账，不允许 sports/esports/politics/crypto 等互相掩盖亏损。",
+            },
+            {
+                "key": "copy_archive_source_quality_fusion_v1",
+                "goal": "把 Telegram/公开强账户信号与本地雷达评分、概率区间、成交深度交叉验证。",
+            },
+            {
+                "key": "copy_archive_negative_source_blacklist_v1",
+                "goal": "近期负收益或连续错判来源进入冷却黑名单，只保留为隔离证据。",
+            },
+        ],
+        "acceptanceCriteria": [
+            "closed >= 200",
+            "profitFactor >= 1.10",
+            "winRatePct >= 52",
+            "cashScaledPnlUSDC > 0",
+            "no single market family contributes more than 45% of positive evidence",
+        ],
+        "capitalResult": {
+            "cashScaledPnlUSDC": capital_simulation.get("cashScaledPnlUSDC"),
+            "estimatedReturnPct": capital_simulation.get("estimatedReturnPct"),
+            "restoreLiveReviewEligible": capital_simulation.get("restoreLiveReviewEligible"),
+            "blockers": blockers,
+        },
+        "nextAction": (
+            "生成上述 shadow-only retune 批次；通过前禁止真钱下注、钱包写入或自动恢复执行。"
+            if needs_retune else
+            "保持 shadow watch；若连续批次仍通过，再进入人工恢复复核。"
+        ),
+    }
+
+
 def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str, Any]) -> dict[str, Any]:
     copy_rows = [row for row in recommendations if row.get("routeFamily") == "copy_archive"]
     copy_rows.sort(key=lambda row: (
@@ -350,16 +427,21 @@ def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str
     win_rate = safe_number(metrics.get("winRatePct"))
     needs_retune = best.get("primaryAction") != "KEEP_SHADOW_CANDIDATE_NO_LIVE" or pf < 1.1 or pnl <= 0
     capital_simulation = copy_capital_simulation(metrics, account)
+    iteration_plan = copy_iteration_plan(best, metrics, capital_simulation, needs_retune)
+    scope = str(best.get("marketScope") or "unknown")
     return {
         "status": "COPY_TRADING_RETUNE_REQUIRED" if needs_retune else "COPY_TRADING_SHADOW_WATCH",
+        "operatorStatusLabel": "需要重调跟单筛选" if needs_retune else "跟单模拟观察",
         "active": True,
         "summary": (
-            f"正在模拟跟单策略 {best.get('experimentKey')}："
-            f"样本 {closed}，PF {pf:.4g}，胜率 {win_rate:.2f}%，净值 {pnl:.4g} USDC。"
+            f"正在模拟跟单策略，当前最佳样本来自 {scope}："
+            f"样本 {closed}，PF {pf:.4g}，胜率 {win_rate:.2f}%，账本净值 {pnl:.4g} USDC；"
+            "下一轮会扩展到全市场模块并重新筛选来源。"
         ),
         "bestExperimentKey": best.get("experimentKey", ""),
         "bestMetrics": metrics,
         "capitalSimulation": capital_simulation,
+        "iterationPlan": iteration_plan,
         "sourceToolkit": copy_source_toolkit(),
         "primaryAction": best.get("primaryAction", ""),
         "shadowOnly": True,

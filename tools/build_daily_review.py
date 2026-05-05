@@ -1068,14 +1068,19 @@ def daily_iteration_review(
             "orderSendAllowed": False,
         })
         if copy_review.get("active"):
+            copy_iteration_plan = copy_review.get("iterationPlan") if isinstance(copy_review.get("iterationPlan"), dict) else {}
             strategy_queue.append({
                 "type": "POLYMARKET_COPY_TRADING_RETUNE",
-                "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "REQUIRED",
+                "status": "RETUNE_SPEC_READY_SHADOW_ONLY" if retune_applied_today else "REQUIRED",
+                "operatorStatusLabel": "跟单策略需要重调模拟",
                 "targetFamilies": [clean(item.get("experimentKey")) for item in copy_sources[:3] if isinstance(item, dict)] or [clean(copy_review.get("bestExperimentKey"))],
                 "safeMode": "shadow-only",
                 "recommendation": "跟单可覆盖任何市场模块；按 copied trader、市场家族、来源质量、流动性和结算表现重新筛选。",
                 "copyTradingStatus": copy_review.get("status", ""),
                 "copyTradingSummary": copy_review.get("summary", ""),
+                "iterationPlan": copy_iteration_plan,
+                "acceptanceCriteria": as_list(copy_iteration_plan.get("acceptanceCriteria")),
+                "candidateVariants": as_list(copy_iteration_plan.get("candidateVariants")),
                 "walletWriteAllowed": False,
                 "orderSendAllowed": False,
             })

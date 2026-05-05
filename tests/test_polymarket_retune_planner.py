@@ -37,6 +37,35 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
         self.assertGreater(simulation["cashScaledPnlUSDC"], 0)
         self.assertEqual(simulation["accountCashUSDC"], 7.1)
         self.assertIn("Telegram signals", [item["source"] for item in review["sourceToolkit"]])
+        self.assertFalse(review["iterationPlan"]["retuneRequired"])
+
+    def test_copy_trading_review_emits_all_market_retune_plan_when_weak(self):
+        recommendation = planner.build_recommendation({
+            "experimentKey": "sports_copy_archive_shadow_v1",
+            "marketScope": "sports",
+            "signalSource": "copy",
+            "closed": 179,
+            "wins": 89,
+            "losses": 90,
+            "grossWin": 232.0821,
+            "grossLoss": -236.3137,
+            "realizedPnl": -4.2316,
+            "profitFactor": 0.9821,
+            "winRatePct": 49.72,
+        })
+
+        review = planner.copy_trading_review([recommendation], {
+            "accountCash": 7.1,
+            "bankroll": 15.0,
+        })
+
+        plan = review["iterationPlan"]
+        self.assertEqual(review["status"], "COPY_TRADING_RETUNE_REQUIRED")
+        self.assertIn("全市场模块", review["summary"])
+        self.assertIn("politics", plan["copyUniverse"])
+        self.assertIn("crypto", plan["copyUniverse"])
+        self.assertTrue(any(item["key"] == "copy_archive_all_market_whitelist_v2" for item in plan["candidateVariants"]))
+        self.assertIn("cash_scaled_pnl_not_positive", plan["capitalResult"]["blockers"])
 
 
 if __name__ == "__main__":

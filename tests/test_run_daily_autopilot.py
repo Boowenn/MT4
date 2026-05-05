@@ -631,6 +631,7 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertEqual(iteration["codeIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
         self.assertEqual(iteration["strategyIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
         self.assertEqual(iteration["strategyIterationQueue"][1]["type"], "POLYMARKET_COPY_TRADING_RETUNE")
+        self.assertEqual(iteration["strategyIterationQueue"][1]["status"], "RETUNE_SPEC_READY_SHADOW_ONLY")
         self.assertIn("任何市场模块", iteration["strategyIterationQueue"][1]["recommendation"])
         self.assertTrue(codex["required"])
 
