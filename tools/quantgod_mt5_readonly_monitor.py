@@ -93,9 +93,12 @@ def is_mac_import_snapshot_dir(path: Path) -> bool:
 def resolve_runtime_dir(path: Path) -> Path:
     source_mode = os.environ.get("QG_MAC_RUNTIME_SOURCE", "auto").strip().lower()
     mt5_files = DEFAULT_MT5_ROOT / "MQL5/Files"
+    dashboard_missing = not (path / "QuantGod_Dashboard.json").exists()
+    mt5_dashboard_exists = (mt5_files / "QuantGod_Dashboard.json").exists()
     if mt5_files.exists() and (
         source_mode == "mt5"
         or (source_mode == "auto" and is_mac_import_snapshot_dir(path))
+        or (source_mode == "auto" and dashboard_missing and mt5_dashboard_exists)
     ):
         return mt5_files
     return path

@@ -85,6 +85,25 @@ class DailyAutopilotTests(unittest.TestCase):
 
             self.assertEqual(autopilot.resolve_hfm_root(root, runtime_dir, ""), runtime_dir.parent.parent)
 
+    def test_mac_autopilot_prefers_live_mt5_files_when_dashboard_default_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mac_files = root / "MetaTrader 5" / "MQL5" / "Files"
+            mac_files.mkdir(parents=True)
+            (mac_files / "QuantGod_Dashboard.json").write_text("{}", encoding="utf-8")
+            original = autopilot.mac_mt5_files_dir
+            old_mode = os.environ.get("QG_MAC_RUNTIME_SOURCE")
+            autopilot.mac_mt5_files_dir = lambda: mac_files
+            os.environ["QG_MAC_RUNTIME_SOURCE"] = "auto"
+            try:
+                self.assertEqual(autopilot.resolve_runtime_dir(root, ""), mac_files)
+            finally:
+                autopilot.mac_mt5_files_dir = original
+                if old_mode is None:
+                    os.environ.pop("QG_MAC_RUNTIME_SOURCE", None)
+                else:
+                    os.environ["QG_MAC_RUNTIME_SOURCE"] = old_mode
+
     def test_watcher_preserves_absolute_posix_report_path(self):
         repo_root = Path("/Users/bowen/Desktop/Quard/QuantGodBackend")
         raw = "/Users/bowen/Desktop/Quard/QuantGodBackend/archive/param-lab/runs/run/reports/EURUSDc/x.html"

@@ -72,7 +72,13 @@ def resolve_runtime_dir(repo_root: Path, configured: str) -> Path:
     mac_files = mac_mt5_files_dir()
     if os.uname().sysname == "Darwin" and mac_files.exists():
         normalized = str(candidate).replace("\\", "/")
-        if source_mode == "mt5" or (source_mode == "auto" and "/runtime/mac_import/mt5_files_snapshot" in normalized):
+        dashboard_missing = not (candidate / "QuantGod_Dashboard.json").exists()
+        mac_dashboard_exists = (mac_files / "QuantGod_Dashboard.json").exists()
+        if (
+            source_mode == "mt5"
+            or (source_mode == "auto" and "/runtime/mac_import/mt5_files_snapshot" in normalized)
+            or (source_mode == "auto" and dashboard_missing and mac_dashboard_exists)
+        ):
             return mac_files
     return candidate
 
@@ -221,6 +227,7 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
 
     pipeline = [
         ("mt5_research_stats", tool(args.python_bin, "build_mt5_research_stats.py", *common)),
+        ("mt5_entry_blockers", tool(args.python_bin, "build_mt5_entry_blockers.py", *common)),
         ("collect_paramlab_results", tool(args.python_bin, "collect_param_lab_results.py", *repo_common)),
         ("watch_paramlab_reports", tool(args.python_bin, "watch_param_lab_reports.py", *repo_common)),
         ("paramlab_run_recovery", tool(args.python_bin, "build_param_lab_run_recovery.py", *repo_common)),

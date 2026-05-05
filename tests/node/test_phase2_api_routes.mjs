@@ -45,6 +45,8 @@ test('phase2 path registry includes required API domains', () => {
   assert.equal(routes.isPhase2Path('/api/paramlab/status'), true);
   assert.equal(routes.isPhase2Path('/api/trades/journal'), true);
   assert.equal(routes.isPhase2Path('/api/research/stats'), true);
+  assert.equal(routes.isPhase2Path('/api/research/entry-blockers'), true);
+  assert.equal(routes.isPhase2Path('/api/research/entry-blockers-ledger'), true);
   assert.equal(routes.isPhase2Path('/api/shadow/signals'), true);
   assert.equal(routes.isPhase2Path('/api/notify/config'), true);
   assert.equal(routes.isPhase2Path('/api/notify/daily-digest'), true);
