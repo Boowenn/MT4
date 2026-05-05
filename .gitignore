@@ -26,3 +26,7 @@ archive/polymarket/history/
 # QuantGod local pilot safety env
 .env.pilot.local
 !.env.pilot.local.example
+
+# QuantGod auto execution policy local env
+.env.auto.local
+!.env.auto.local.example
