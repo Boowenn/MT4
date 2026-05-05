@@ -269,6 +269,8 @@ def translate_common_text(value: Any) -> str:
         "overbought": "超买",
         "oversold": "超卖",
         "not_evaluated_fallback": "回退模式未评估",
+        "action_hold": "本地与模型结论为观望，不生成入场建议。",
+        "fusion_hold": "融合门禁保持观望，不生成入场建议。",
     }
     if text in exact:
         return exact[text]
@@ -605,6 +607,77 @@ def advisory_push_gate(report: dict[str, Any], *, min_confidence_pct: float = DE
     return True, "passed"
 
 
+def observation_push_gate(report: dict[str, Any]) -> tuple[bool, str]:
+    """Return whether a non-trade AI observation summary can be pushed.
+
+    This is intentionally weaker than ``advisory_push_gate`` but still blocks
+    fake, stale, unsafe, or non-validated evidence. It is used when the final
+    answer is HOLD so the operator still receives a Chinese analysis summary
+    without making it look like a live entry signal.
+    """
+    source = summarize_source(report)
+    if bool(source.get("fallback")):
+        return False, "fallback_evidence"
+    if not bool(source.get("runtimeFresh")):
+        return False, "runtime_not_fresh"
+
+    deepseek = report.get("deepseek_advice") if isinstance(report.get("deepseek_advice"), dict) else {}
+    validation = deepseek.get("validation") if isinstance(deepseek.get("validation"), dict) else {}
+    if not deepseek.get("ok"):
+        return False, "deepseek_not_available"
+    if validation.get("status") != "pass":
+        return False, f"deepseek_validation_{validation.get('status') or 'unknown'}"
+    return True, "observation_passed"
+
+
+def build_observation_message(report: dict[str, Any], *, gate_reason: str) -> str:
+    """Render a Chinese HOLD/blocked observation summary for Telegram."""
+    decision = decision_summary(report)
+    source = summarize_source(report)
+    symbol = str(report.get("symbol") or "UNKNOWN")
+    timeframes = report.get("timeframes") if isinstance(report.get("timeframes"), list) else []
+    advice, deepseek_payload = deepseek_advice(report)
+    advice = advice or {}
+    fusion = report.get("advisory_fusion") if isinstance(report.get("advisory_fusion"), dict) else {}
+    confidence = advice.get("confidencePct") or f"{_confidence_to_pct(decision.get('confidence')):.0f}%"
+    verdict = advice.get("verdict") or chinese_action(decision.get("action"))
+    headline = advice.get("headline") or decision.get("reasoning") or "AI 已完成只读观察。"
+    watch_points = advice.get("watchPoints") if isinstance(advice.get("watchPoints"), list) else []
+    risk_notes = advice.get("riskNotes") if isinstance(advice.get("riskNotes"), list) else []
+    model = deepseek_payload.get("model") or advice.get("model") or "deepseek-v4-flash"
+    fusion_label = fusion.get("finalAction") or fusion.get("agreement") or "HOLD"
+    lines = [
+        f"🤖 AI 观察摘要 — {symbol}",
+        f"周期：{', '.join(timeframes) or 'M15,H1,H4,D1'}",
+        f"结论：{verdict}｜置信度 {confidence}",
+        f"推送类型：观察摘要，不是入场建议",
+        "",
+        "【核心判断】",
+        str(headline)[:220],
+        "",
+        "【为什么没有发实盘建议】",
+        f"门禁结果：{translate_common_text(gate_reason)}",
+        f"AI 共识：{fusion_label}",
+        f"风险状态：{chinese_risk(source.get('riskLevel'))}",
+        "",
+        "【下一步观察】",
+    ]
+    points = [str(item) for item in watch_points[:4] if str(item).strip()]
+    if not points:
+        points = [str(item) for item in risk_notes[:4] if str(item).strip()]
+    if not points:
+        points = ["继续等待新鲜快照、风控门禁和多周期信号一致。"]
+    lines.extend(f"{index}. {translate_common_text(point)[:180]}" for index, point in enumerate(points, start=1))
+    lines.extend(
+        [
+            "",
+            "安全边界：只读分析、Telegram 只推送；不下单、不平仓、不撤单、不修改实盘参数。",
+            f"模型：{model}｜东京时间 {format_report_time(report.get('generatedAt'))}",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def update_state(state: dict[str, Any], *, symbol: str, signature: str, status: str, reason: str, report: dict[str, Any], now_iso: str) -> dict[str, Any]:
     out = dict(state)
     out["mode"] = MODE
@@ -849,6 +922,22 @@ async def scan_once(args: argparse.Namespace) -> dict[str, Any]:
             if not gate_ok:
                 status = "skipped_hold" if gate_reason == "action_hold" else "skipped_gate"
                 delivery = {"ok": True, "status": status, "reason": gate_reason}
+                if bool(getattr(args, "push_hold_summary", False)) and bool(args.send):
+                    observation_ok, observation_reason = observation_push_gate(report)
+                    if observation_ok:
+                        message = build_observation_message(report, gate_reason=gate_reason)
+                        delivery = send_or_record(
+                            args,
+                            message=message,
+                            event_type="MT5_AI_OBSERVATION",
+                            dry_run=False,
+                        )
+                        status = str(delivery.get("status") or "sent_observation")
+                        delivery["observation"] = True
+                        delivery["gateReason"] = gate_reason
+                        notifications += 1
+                    else:
+                        delivery["observationReason"] = observation_reason
                 items.append(
                     {
                         "symbol": symbol,
@@ -964,6 +1053,7 @@ def add_common_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--disable-notification", action="store_true", help="Send silently when --send is used")
     parser.add_argument("--no-record", action="store_true", help="Do not write notification evidence to SQLite")
     parser.add_argument("--disable-journal", action="store_true", help="Do not write AI advisory outcome journal records")
+    parser.add_argument("--push-hold-summary", action="store_true", help="When --send is used, push a non-trade Chinese observation summary for validated HOLD reports")
     parser.add_argument("--repo-root", type=Path, default=None, help="Backend repo root for Telegram config")
     parser.add_argument("--env-file", type=Path, default=None, help="Local .env.telegram.local path")
     parser.add_argument("--deepseek-env-file", type=Path, default=None, help="Local .env.deepseek.local path")

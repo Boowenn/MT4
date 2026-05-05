@@ -314,7 +314,7 @@ async function handle(req, res, ctx = {}) {
         '--min-confidence-pct',
         String(minConfidence),
       ];
-      if (sendTelegram) args.push('--send');
+      if (sendTelegram) args.push('--send', '--push-hold-summary');
       if (force) args.push('--force');
       if (noDeepseek) args.push('--no-deepseek');
       const payload = await runPythonJson(repoRoot, args, runtimeEnv(ctx), 120000);

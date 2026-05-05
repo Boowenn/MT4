@@ -265,6 +265,30 @@ class Mt5AiTelegramMonitorTests(unittest.TestCase):
         self.assertEqual(payload["decision"]["stopLoss"], "1.0980")
         self.assertEqual(payload["decision"]["riskReward"], "1:2.0")
 
+    def test_validated_hold_can_render_observation_summary(self) -> None:
+        report = sample_report("USDJPYc")
+        report["decision"]["action"] = "HOLD"
+        report["deepseek_advice"] = {
+            "ok": True,
+            "status": "ok",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "validation": {"status": "pass"},
+            "advice": {
+                "verdict": "观望，不开新仓",
+                "headline": "多空证据未共振，等待更清晰的入场条件。",
+                "confidencePct": "62%",
+                "watchPoints": ["等待 M15/H1 同向", "确认点差和新闻过滤正常"],
+            },
+        }
+        report["advisory_fusion"] = {"finalAction": "HOLD", "agreement": "local_and_deepseek_hold"}
+        ok, reason = monitor.observation_push_gate(report)
+        self.assertTrue(ok, reason)
+        message = monitor.build_observation_message(report, gate_reason="action_hold")
+        self.assertIn("AI 观察摘要", message)
+        self.assertIn("不是入场建议", message)
+        self.assertIn("不下单、不平仓、不撤单", message)
+
     def test_build_render_payload_extracts_decision_fields(self) -> None:
         """_build_render_payload correctly maps report fields to renderer payload."""
         report = sample_report()
