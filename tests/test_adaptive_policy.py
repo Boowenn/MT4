@@ -69,6 +69,31 @@ class AdaptivePolicyTests(unittest.TestCase):
         self.assertFalse(spread_check["passed"])
         self.assertIn("历史中位点差", spread_check["reason"])
 
+    def test_entry_gate_blocks_degraded_fastlane_quality(self):
+        runtime = self._runtime()
+        quality_dir = runtime / "quality"
+        quality_dir.mkdir(parents=True, exist_ok=True)
+        (quality_dir / "QuantGod_MT5FastLaneQuality.json").write_text(json.dumps({
+            "schema": "quantgod.mt5.fast_lane_quality.v1",
+            "heartbeatFresh": True,
+            "heartbeatAgeSeconds": 1,
+            "symbols": [{
+                "symbol": "USDJPYc",
+                "quality": "DEGRADED",
+                "tickAgeSeconds": 20,
+                "indicatorAgeSeconds": 30,
+                "spreadPoints": 2.0,
+            }],
+            "safety": {"readOnlyDataPlane": True, "orderSendAllowed": False},
+        }), encoding="utf-8")
+
+        policy = build_adaptive_policy(runtime, symbols=["USDJPYc"], write=False)
+        fastlane_check = [item for item in policy["entryGates"][0]["checks"] if item["name"] == "快通道"][0]
+
+        self.assertFalse(fastlane_check["passed"])
+        self.assertFalse(policy["entryGates"][0]["passed"])
+        self.assertIn("快通道降级", fastlane_check["reason"])
+
     def test_telegram_text_is_chinese_and_read_only(self):
         runtime = self._runtime()
         policy = build_adaptive_policy(runtime, symbols=["USDJPYc"], write=False)

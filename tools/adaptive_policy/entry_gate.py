@@ -83,6 +83,31 @@ def _indicator_valid(evidence: RuntimeEvidence, symbol: str | None, thresholds: 
         reasons.append("指标有效")
     return ok, reasons
 
+def _fastlane_gate(evidence: RuntimeEvidence, symbol: str | None) -> tuple[bool, str]:
+    report = evidence.fastlane_quality
+    if not report:
+        return True, "快通道未启用，沿用普通运行证据"
+    if not report.get("heartbeatFresh"):
+        return False, f"快通道心跳异常；年龄={report.get('heartbeatAgeSeconds')}秒"
+    symbols = report.get("symbols")
+    if not isinstance(symbols, list):
+        return False, "快通道质量报告缺少品种明细"
+    wanted = (symbol or "").upper()
+    matched = [
+        item for item in symbols
+        if isinstance(item, dict) and (not wanted or str(item.get("symbol", "")).upper() == wanted)
+    ]
+    if not matched:
+        return False, f"快通道未覆盖 {symbol or '当前品种'}"
+    degraded = [item for item in matched if item.get("quality") != "FAST"]
+    if degraded:
+        first = degraded[0]
+        return False, (
+            f"快通道降级；tick年龄={first.get('tickAgeSeconds')}秒；"
+            f"指标年龄={first.get('indicatorAgeSeconds')}秒；点差={first.get('spreadPoints')}"
+        )
+    return True, "快通道快速，新鲜 tick/指标证据可用"
+
 def evaluate_entry_gate(
     evidence: RuntimeEvidence,
     scored_route: dict[str, Any] | None,
@@ -98,12 +123,14 @@ def evaluate_entry_gate(
     spread_ok, spread_reason = _spread_gate(evidence, symbol, spread, thresholds)
 
     indicator_ok, indicator_reasons = _indicator_valid(evidence, symbol, thresholds)
+    fastlane_ok, fastlane_reason = _fastlane_gate(evidence, symbol)
     route_ok = bool(scored_route and scored_route.get("state") in {"ACTIVE_SHADOW_OK", "WATCH_ONLY"})
     paused = bool(scored_route and scored_route.get("state") == "PAUSED")
 
     checks = [
         {"name": "运行快照", "passed": bool(snapshot) and runtime_fresh and not fallback, "reason": f"来源={source}；新鲜={runtime_fresh}；回退={fallback}；年龄={age}秒"},
         {"name": "点差", "passed": spread_ok, "reason": spread_reason},
+        {"name": "快通道", "passed": fastlane_ok, "reason": fastlane_reason},
         {"name": "指标", "passed": indicator_ok, "reason": "；".join(indicator_reasons)},
         {"name": "历史方向", "passed": route_ok and not paused, "reason": (scored_route or {}).get("reason", "未找到有效历史方向")},
     ]

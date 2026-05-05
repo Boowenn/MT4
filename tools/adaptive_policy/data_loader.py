@@ -31,6 +31,10 @@ JOURNAL_NAMES = (
     "QuantGod_AIAdvisoryJournal.jsonl",
     "QuantGod_AIAdvisoryOutcomes.jsonl",
 )
+FASTLANE_QUALITY_NAMES = (
+    "quality/QuantGod_MT5FastLaneQuality.json",
+    "QuantGod_MT5FastLaneQuality.json",
+)
 
 @dataclass
 class RuntimeEvidence:
@@ -41,6 +45,7 @@ class RuntimeEvidence:
     close_history_rows: list[dict[str, Any]]
     strategy_eval_rows: list[dict[str, Any]]
     journal_rows: list[dict[str, Any]]
+    fastlane_quality: dict[str, Any] | None
 
     @property
     def symbols(self) -> list[str]:
@@ -141,6 +146,14 @@ def load_runtime_evidence(runtime_dir: str | Path, max_records: int = 500) -> Ru
         direct2 = root / name
         journal_rows.extend(read_jsonl(direct2, limit=max_records))
 
+    fastlane_quality = None
+    for name in FASTLANE_QUALITY_NAMES:
+        candidate = root / name
+        fastlane_quality = read_json(candidate)
+        if fastlane_quality:
+            fastlane_quality.setdefault("_path", str(candidate))
+            break
+
     return RuntimeEvidence(
         runtime_dir=root,
         snapshots=snapshots[-max_records:],
@@ -149,6 +162,7 @@ def load_runtime_evidence(runtime_dir: str | Path, max_records: int = 500) -> Ru
         close_history_rows=close_history_rows[-max_records:],
         strategy_eval_rows=strategy_eval_rows[-max_records:],
         journal_rows=journal_rows[-max_records:],
+        fastlane_quality=fastlane_quality,
     )
 
 def first_value(row: dict[str, Any], *keys: str, default: Any = None) -> Any:

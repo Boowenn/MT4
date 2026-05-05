@@ -47,6 +47,8 @@ def build_adaptive_policy(
             "closeHistoryRows": len(evidence.close_history_rows),
             "strategyEvalRows": len(evidence.strategy_eval_rows),
             "journalRows": len(evidence.journal_rows),
+            "fastlaneQualityFound": evidence.fastlane_quality is not None,
+            "fastlaneHeartbeatFresh": bool((evidence.fastlane_quality or {}).get("heartbeatFresh")),
             "observationCount": len(observations),
         },
         "thresholds": thresholds.__dict__,
