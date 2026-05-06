@@ -36,6 +36,18 @@ STRATEGY_DISPLAY_NAMES = {
 }
 DIRECTIONS = ("LONG", "SHORT")
 
+STRATEGY_ALIASES = {
+    "RSI_REVERSAL_SHADOW": "RSI_Reversal",
+    "USDJPY_RSI_H1_LIVE_CANDIDATE": "RSI_Reversal",
+    "QG_RSI_REV_MT5": "RSI_Reversal",
+    "BB_TRIPLE_SHADOW": "BB_Triple",
+    "BB_TRIPLE_H1_LEGACY_CANDIDATE": "BB_Triple",
+    "MACD_DIVERGENCE_H1_LEGACY_CANDIDATE": "MACD_Divergence",
+    "MACD_DIVERGENCE_SHADOW": "MACD_Divergence",
+    "SR_BREAKOUT_SHADOW": "SR_Breakout",
+    "SR_BREAKOUT_H1_LEGACY_CANDIDATE": "SR_Breakout",
+}
+
 STATUS_RUNNABLE = "RUNNABLE"
 STATUS_WATCH_ONLY = "WATCH_ONLY"
 STATUS_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
@@ -99,6 +111,19 @@ def normalize_symbol(symbol: Any) -> str:
     text = str(symbol or "").strip()
     if text in FOCUS_SYMBOL_ALIASES or text.upper().startswith("USDJPY"):
         return FOCUS_SYMBOL
+    return text
+
+
+def normalize_strategy_name(strategy: Any) -> str:
+    text = str(strategy or "").strip()
+    if not text:
+        return "UNKNOWN_STRATEGY"
+    upper = text.upper()
+    if upper in STRATEGY_ALIASES:
+        return STRATEGY_ALIASES[upper]
+    for known in DEFAULT_STRATEGIES:
+        if upper == known.upper():
+            return known
     return text
 
 

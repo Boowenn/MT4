@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from .schema import DEFAULT_STRATEGIES, FOCUS_SYMBOL, is_focus_symbol, normalize_symbol
+from .schema import DEFAULT_STRATEGIES, FOCUS_SYMBOL, is_focus_symbol, normalize_strategy_name, normalize_symbol
 
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
@@ -68,6 +68,39 @@ def first_json(runtime_dir: Path, *names: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _dashboard_fastlane_fallback(runtime_dir: Path) -> Optional[Dict[str, Any]]:
+    dashboard = focus_runtime_snapshot(runtime_dir)
+    if not dashboard:
+        return None
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    age = to_float(dashboard.get("runtimeAgeSeconds"), 9999.0)
+    tick_age = to_float(runtime.get("tickAgeSeconds"), 9999.0)
+    if not (bool(dashboard.get("runtimeFresh")) or age <= 30 or tick_age <= 30):
+        return None
+    return {
+        "found": True,
+        "quality": "EA_DASHBOARD_OK",
+        "focusSymbolFound": True,
+        "source": "QuantGod_Dashboard.json",
+        "payload": {
+            "quality": "EA_DASHBOARD_OK",
+            "runtimeAgeSeconds": dashboard.get("runtimeAgeSeconds"),
+            "tickAgeSeconds": runtime.get("tickAgeSeconds"),
+            "tradeStatus": runtime.get("tradeStatus"),
+            "executionEnabled": runtime.get("executionEnabled"),
+            "note": "独立快通道未给出可用心跳，已使用 HFM EA Dashboard 新鲜快照作为降级证据。",
+        },
+    }
+
+
+def _empty_fastlane_exporter(payload: Dict[str, Any], focus: Optional[Dict[str, Any]]) -> bool:
+    if payload.get("heartbeatFound") is not False:
+        return False
+    row = focus if isinstance(focus, dict) else {}
+    tick_rows = to_float(row.get("tickRows"), 0.0)
+    return tick_rows <= 0 and row.get("tickAgeSeconds") in (None, "", "null") and row.get("indicatorAgeSeconds") in (None, "", "null")
+
+
 def read_all_csv(runtime_dir: Path, *names: str) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for path in _candidate_paths(runtime_dir, *names):
@@ -108,8 +141,7 @@ def to_direction(value: Any) -> str:
 
 
 def normalize_strategy(value: Any) -> str:
-    text = str(value or "").strip()
-    return text or "UNKNOWN_STRATEGY"
+    return normalize_strategy_name(value)
 
 
 def focus_runtime_snapshot(runtime_dir: Path, symbol: str = FOCUS_SYMBOL) -> Optional[Dict[str, Any]]:
@@ -151,37 +183,40 @@ def fastlane_quality(runtime_dir: Path) -> Dict[str, Any]:
             if isinstance(item, dict) and is_focus_symbol(item.get("symbol")):
                 focus = item
                 break
+    elif isinstance(symbols, dict):
+        for row_symbol, item in symbols.items():
+            if isinstance(item, dict) and is_focus_symbol(row_symbol):
+                focus = dict(item)
+                focus.setdefault("symbol", row_symbol)
+                break
     if focus:
         quality = str(focus.get("quality") or focus.get("status") or quality).upper()
     if not payload:
-        dashboard = focus_runtime_snapshot(runtime_dir)
-        if dashboard and float(dashboard.get("runtimeAgeSeconds", 9999)) <= 30:
-            return {
-                "found": True,
-                "quality": "EA_DASHBOARD_OK",
-                "focusSymbolFound": True,
-                "source": "QuantGod_Dashboard.json",
-                "payload": {
-                    "quality": "EA_DASHBOARD_OK",
-                    "runtimeAgeSeconds": dashboard.get("runtimeAgeSeconds"),
-                    "tickAgeSeconds": (dashboard.get("runtime") or {}).get("tickAgeSeconds") if isinstance(dashboard.get("runtime"), dict) else None,
-                    "note": "未发现独立快通道质量文件，已使用 HFM EA Dashboard 新鲜快照作为降级证据。",
-                },
-            }
+        fallback = _dashboard_fastlane_fallback(runtime_dir)
+        if fallback:
+            return fallback
+    elif _empty_fastlane_exporter(payload, focus):
+        fallback = _dashboard_fastlane_fallback(runtime_dir)
+        if fallback:
+            return fallback
     return {
         "found": bool(payload),
         "quality": quality,
-        "focusSymbolFound": bool(focus) or not isinstance(symbols, list),
+        "focusSymbolFound": bool(focus) or not isinstance(symbols, (list, dict)),
         "payload": payload,
     }
 
 
 def dynamic_sltp(runtime_dir: Path) -> Dict[str, Any]:
-    return first_json(
-        runtime_dir,
-        "QuantGod_DynamicSLTPCalibration.json",
-        "QuantGod_DynamicSLTPPlan.json",
-    ) or {}
+    calibration = first_json(runtime_dir, "QuantGod_DynamicSLTPCalibration.json") or {}
+    direction_plan = first_json(runtime_dir, "QuantGod_DynamicSLTPPlan.json") or {}
+    if calibration and direction_plan:
+        merged = dict(calibration)
+        if "dynamicSltpPlans" in direction_plan:
+            merged["dynamicSltpPlans"] = direction_plan.get("dynamicSltpPlans") or []
+        merged.setdefault("directionPlan", direction_plan)
+        return merged
+    return calibration or direction_plan or {}
 
 
 def entry_trigger_plan(runtime_dir: Path) -> Dict[str, Any]:
@@ -211,7 +246,7 @@ def load_evidence_rows(runtime_dir: Path) -> List[Dict[str, Any]]:
         symbol = normalize_symbol(_get(row, "symbol", "Symbol", "SYMBOL", default=FOCUS_SYMBOL))
         if not is_focus_symbol(symbol):
             continue
-        direction = to_direction(_get(row, "direction", "side", "orderType", "cmd", "signalDirection", "CandidateDirection", "SignalDirection", default="UNKNOWN"))
+        direction = to_direction(_get(row, "direction", "side", "Side", "Type", "orderType", "cmd", "signalDirection", "CandidateDirection", "SignalDirection", default="UNKNOWN"))
         strategy = normalize_strategy(_get(row, "strategy", "strategyName", "route", "name", "magicName", "CandidateRoute", "Strategy", default="UNKNOWN_STRATEGY"))
         regime = str(_get(row, "regime", "marketRegime", "state", "Regime", default="UNKNOWN") or "UNKNOWN").strip() or "UNKNOWN"
         timeframe = str(_get(row, "timeframe", "tf", "horizon", "Timeframe", default="UNKNOWN") or "UNKNOWN").strip() or "UNKNOWN"

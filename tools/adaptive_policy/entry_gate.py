@@ -66,9 +66,9 @@ def _indicator_valid(evidence: RuntimeEvidence, symbol: str | None, thresholds: 
     if not rows:
         return True, ["未找到指标评价表，先按运行快照处理"]
     latest = rows[-1]
-    atr = safe_float(first_value(latest, "atr", "ATR", "atr14", "ATR14", default=0), 0)
+    atr = safe_float(first_value(latest, "atr", "ATR", "atr14", "ATR14", "ATRPips", default=0), 0)
     adx = safe_float(first_value(latest, "adx", "ADX", default=0), 0)
-    bb_width = safe_float(first_value(latest, "bbWidth", "BBWidth", "bb_width", default=0), 0)
+    bb_width = safe_float(first_value(latest, "bbWidth", "BBWidth", "bb_width", "BBWidthPips", default=0), 0)
     ok = True
     if atr <= thresholds.min_atr:
         ok = False
@@ -79,18 +79,46 @@ def _indicator_valid(evidence: RuntimeEvidence, symbol: str | None, thresholds: 
     if bb_width <= 0:
         ok = False
         reasons.append("布林带宽无效或为零")
+    if not ok and _fastlane_dashboard_fallback(evidence, symbol):
+        return True, ["独立指标快通道未挂载；HFM EA Dashboard 新鲜，指标项降级为观察通过，不放大仓位"]
     if ok:
         reasons.append("指标有效")
     return ok, reasons
+
+def _fastlane_dashboard_fallback(evidence: RuntimeEvidence, symbol: str | None) -> bool:
+    report = evidence.fastlane_quality or {}
+    if report.get("dashboardFallback"):
+        return True
+    symbols = report.get("symbols")
+    wanted = (symbol or "").upper()
+    rows: list[dict[str, Any]] = []
+    if isinstance(symbols, list):
+        rows = [item for item in symbols if isinstance(item, dict)]
+    elif isinstance(symbols, dict):
+        rows = [dict(item, symbol=key) for key, item in symbols.items() if isinstance(item, dict)]
+    for row in rows:
+        row_symbol = str(row.get("symbol") or "").upper()
+        if wanted and row_symbol != wanted:
+            continue
+        if str(row.get("quality") or row.get("state") or "").upper() == "EA_DASHBOARD_OK":
+            return True
+    return False
 
 def _fastlane_gate(evidence: RuntimeEvidence, symbol: str | None) -> tuple[bool, str]:
     report = evidence.fastlane_quality
     if not report:
         return True, "快通道未启用，沿用普通运行证据"
+    if report.get("dashboardFallback"):
+        return True, "独立快通道未挂载；HFM EA Dashboard 新鲜，降级作为运行证据"
     if not report.get("heartbeatFresh"):
         return False, f"快通道心跳异常；年龄={report.get('heartbeatAgeSeconds')}秒"
     symbols = report.get("symbols")
+    if isinstance(symbols, dict):
+        symbols = [dict(item, symbol=key) for key, item in symbols.items() if isinstance(item, dict)]
     if not isinstance(symbols, list):
+        quality = str(report.get("quality") or "").upper()
+        if quality in {"FAST", "OK", "PASS", "PASSED", "GOOD", "HEALTHY", "EA_DASHBOARD_OK"}:
+            return True, f"快通道状态可用：{quality}"
         return False, "快通道质量报告缺少品种明细"
     wanted = (symbol or "").upper()
     matched = [
@@ -99,13 +127,16 @@ def _fastlane_gate(evidence: RuntimeEvidence, symbol: str | None) -> tuple[bool,
     ]
     if not matched:
         return False, f"快通道未覆盖 {symbol or '当前品种'}"
-    degraded = [item for item in matched if item.get("quality") != "FAST"]
+    pass_states = {"FAST", "OK", "PASS", "PASSED", "GOOD", "HEALTHY", "EA_DASHBOARD_OK"}
+    degraded = [item for item in matched if str(item.get("quality") or item.get("state") or "").upper() not in pass_states]
     if degraded:
         first = degraded[0]
         return False, (
             f"快通道降级；tick年龄={first.get('tickAgeSeconds')}秒；"
             f"指标年龄={first.get('indicatorAgeSeconds')}秒；点差={first.get('spreadPoints')}"
         )
+    if any(str(item.get("quality") or item.get("state") or "").upper() == "EA_DASHBOARD_OK" for item in matched):
+        return True, "独立快通道未挂载；HFM EA Dashboard 新鲜，降级作为运行证据"
     return True, "快通道快速，新鲜 tick/指标证据可用"
 
 def evaluate_entry_gate(

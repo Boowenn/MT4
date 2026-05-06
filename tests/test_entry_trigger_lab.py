@@ -1,4 +1,4 @@
-import json, tempfile, unittest
+import csv, json, tempfile, unittest
 from pathlib import Path
 from tools.entry_trigger_lab.data_loader import sample_runtime
 from tools.entry_trigger_lab.trigger_engine import build_trigger_plan
@@ -34,6 +34,54 @@ class EntryTriggerLabTests(unittest.TestCase):
             self.assertTrue(decision["confirmations"]["快通道质量存在"])
             self.assertTrue(decision["confirmations"]["快通道质量通过"])
             self.assertNotIn("缺少 MT5 快通道质量证据", "；".join(decision["reasons"]))
+    def test_hfm_dashboard_and_empty_fastlane_exporter_are_usable_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime=Path(tmp); runtime.mkdir(parents=True, exist_ok=True)
+            (runtime/"quality").mkdir(parents=True, exist_ok=True); (runtime/"adaptive").mkdir(parents=True, exist_ok=True)
+            (runtime/"QuantGod_Dashboard.json").write_text(json.dumps({
+                "watchlist":"USDJPYc",
+                "runtime":{"tradeStatus":"READY","executionEnabled":True,"readOnlyMode":False,"tickAgeSeconds":0},
+                "market":{"bid":155.92,"ask":155.95,"spread":3.0},
+            }), encoding="utf-8")
+            (runtime/"quality"/"QuantGod_MT5FastLaneQuality.json").write_text(json.dumps({
+                "schema":"quantgod.mt5.fastlane.quality.v1",
+                "heartbeatFound":False,
+                "quality":"DEGRADED",
+                "symbols":[{"symbol":"USDJPYc","quality":"DEGRADED","tickRows":0,"tickAgeSeconds":None,"indicatorAgeSeconds":None}],
+            }), encoding="utf-8")
+            (runtime/"adaptive"/"QuantGod_DynamicEntryGate.json").write_text(json.dumps({
+                "entryGates":[{"symbol":"USDJPYc","direction":"LONG","passed":True,"state":"PASS"}],
+            }), encoding="utf-8")
+            (runtime/"ShadowCandidateOutcomeLedger.csv").write_text(
+                "symbol,direction,scoreR,pips\n"
+                "USDJPYc,LONG,0.42,4.2\n"
+                "USDJPYc,LONG,0.27,2.7\n"
+                "USDJPYc,LONG,0.13,1.3\n",
+                encoding="utf-8",
+            )
+            plan=build_trigger_plan(runtime,["USDJPYc"],directions=["LONG"]); decision=plan["decisions"][0]
+            self.assertTrue(decision["confirmations"]["运行快照新鲜"])
+            self.assertTrue(decision["confirmations"]["快通道质量通过"])
+            self.assertEqual(decision["state"],"WAIT_TRIGGER_CONFIRMATION")
+
+    def test_candidate_outcome_ledger_fields_count_as_shadow_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime=Path(tmp); runtime.mkdir(parents=True, exist_ok=True)
+            (runtime/"quality").mkdir(parents=True, exist_ok=True); (runtime/"adaptive").mkdir(parents=True, exist_ok=True)
+            (runtime/"QuantGod_MT5RuntimeSnapshot_USDJPYc.json").write_text(json.dumps({"symbol":"USDJPYc","runtimeFresh":True,"fallback":False}), encoding="utf-8")
+            (runtime/"quality"/"QuantGod_MT5FastLaneQuality.json").write_text(json.dumps({"symbols":[{"symbol":"USDJPYc","quality":"FAST","tickRows":3}]}), encoding="utf-8")
+            (runtime/"adaptive"/"QuantGod_DynamicEntryGate.json").write_text(json.dumps({"entryGates":[{"symbol":"USDJPYc","passed":True}]}), encoding="utf-8")
+            with (runtime/"QuantGod_ShadowCandidateOutcomeLedger.csv").open("w", encoding="utf-8", newline="") as fh:
+                writer=csv.DictWriter(fh, fieldnames=["Symbol","CandidateDirection","LongClosePips","ShortClosePips"])
+                writer.writeheader()
+                writer.writerows([
+                    {"Symbol":"USDJPYc","CandidateDirection":"BUY","LongClosePips":"2.1","ShortClosePips":"-2.1"},
+                    {"Symbol":"USDJPYc","CandidateDirection":"BUY","LongClosePips":"1.3","ShortClosePips":"-1.3"},
+                    {"Symbol":"USDJPYc","CandidateDirection":"BUY","LongClosePips":"0.8","ShortClosePips":"-0.8"},
+                ])
+            plan=build_trigger_plan(runtime,["USDJPYc"],directions=["LONG"]); decision=plan["decisions"][0]
+            self.assertTrue(decision["confirmations"]["影子样本未显示负期望"])
+            self.assertEqual(decision["state"],"WAIT_TRIGGER_CONFIRMATION")
     def test_fastlane_symbol_dict_without_usdjpy_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime=Path(tmp); sample_runtime(runtime,["USDJPYc"],overwrite=True)

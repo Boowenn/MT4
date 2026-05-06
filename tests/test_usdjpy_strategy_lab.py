@@ -165,6 +165,92 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertTrue(policy["evidence"]["fastlaneOk"])
             self.assertTrue(any("快通道质量降级可用" in "；".join(item["reasons"]) for item in policy["strategies"]))
 
+    def test_empty_fastlane_exporter_falls_back_to_fresh_dashboard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "QuantGod_Dashboard.json").write_text(
+                json.dumps({
+                    "watchlist": FOCUS_SYMBOL,
+                    "runtime": {"tradeStatus": "READY", "executionEnabled": True, "readOnlyMode": False, "tickAgeSeconds": 0},
+                    "market": {"bid": 155.92, "ask": 155.95, "spread": 3.0},
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            quality_path = runtime / "quality" / "QuantGod_MT5FastLaneQuality.json"
+            quality_path.write_text(
+                json.dumps({
+                    "schema": "quantgod.mt5.fastlane.quality.v1",
+                    "heartbeatFound": False,
+                    "quality": "DEGRADED",
+                    "symbols": [{"symbol": FOCUS_SYMBOL, "quality": "DEGRADED", "tickRows": 0, "tickAgeSeconds": None, "indicatorAgeSeconds": None}],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            policy = build_usdjpy_policy(runtime)
+            self.assertTrue(policy["evidence"]["fastlaneOk"])
+            self.assertTrue(any("HFM EA Dashboard 新鲜快照" in "；".join(item["reasons"]) for item in policy["strategies"]))
+
+    def test_entry_trigger_decisions_shape_is_accepted_by_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            trigger_path = runtime / "adaptive" / "QuantGod_EntryTriggerPlan.json"
+            trigger_path.write_text(
+                json.dumps({
+                    "schema": "quantgod.entry_trigger_lab.v1",
+                    "decisions": [
+                        {"symbol": FOCUS_SYMBOL, "direction": "LONG", "state": "WAIT_TRIGGER_CONFIRMATION", "score": 0.88, "reasons": []},
+                        {"symbol": FOCUS_SYMBOL, "direction": "SHORT", "state": "BLOCKED", "score": 0.2, "reasons": ["方向近期负期望"]},
+                    ],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            policy = build_usdjpy_policy(runtime)
+            rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+            self.assertNotIn("缺少 USDJPY 入场触发计划", "；".join(rsi_long["reasons"]))
+            self.assertIn(rsi_long["entryMode"], {ENTRY_STANDARD, ENTRY_OPPORTUNITY})
+
+    def test_live_rsi_buy_uses_direction_sltp_when_shadow_pool_blocks_trigger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "adaptive" / "QuantGod_DynamicSLTPCalibration.json").unlink()
+            (runtime / "adaptive" / "QuantGod_DynamicSLTPPlan.json").write_text(
+                json.dumps({
+                    "schema": "quantgod.adaptive_policy.v1",
+                    "dynamicSltpPlans": [{
+                        "symbol": FOCUS_SYMBOL,
+                        "direction": "LONG",
+                        "riskMode": "保守",
+                        "initialStop": {"value": 3.2},
+                        "targets": [{"value": 4.8}, {"value": 6.1}],
+                        "trailing": {"breakevenAtR": 0.9, "protectAtR": 1.4},
+                        "timeStop": {"m15Bars": 6},
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (runtime / "adaptive" / "QuantGod_EntryTriggerPlan.json").write_text(
+                json.dumps({
+                    "schema": "quantgod.entry_trigger_lab.v1",
+                    "decisions": [{
+                        "symbol": FOCUS_SYMBOL,
+                        "direction": "LONG",
+                        "state": "BLOCKED",
+                        "score": 0.88,
+                        "reasons": ["影子样本不足或近期表现弱，样本数=105"],
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            policy = build_usdjpy_policy(runtime)
+            self.assertIsNotNone(policy["topLiveEligiblePolicy"])
+            self.assertEqual(policy["topLiveEligiblePolicy"]["strategy"], "RSI_Reversal")
+            self.assertEqual(policy["topLiveEligiblePolicy"]["direction"], "LONG")
+            self.assertIn(policy["topLiveEligiblePolicy"]["entryMode"], {ENTRY_STANDARD, ENTRY_OPPORTUNITY})
+            self.assertTrue(any("方向级计划可用" in reason for reason in policy["topLiveEligiblePolicy"]["reasons"]))
+
     def test_shadow_top_policy_cannot_override_rsi_buy_live_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp)

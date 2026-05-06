@@ -94,6 +94,37 @@ class AdaptivePolicyTests(unittest.TestCase):
         self.assertFalse(policy["entryGates"][0]["passed"])
         self.assertIn("快通道降级", fastlane_check["reason"])
 
+    def test_empty_fastlane_uses_fresh_hfm_dashboard_fallback(self):
+        runtime = self._runtime()
+        (runtime / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json").unlink()
+        (runtime / "QuantGod_StrategyEvaluationReport.csv").write_text(
+            "ReportTimeLocal,Symbol,Strategy,ATRPips,ADX,BBWidthPips,TickAgeSeconds,SpreadPips\n"
+            "2026.05.06 14:00:00,USDJPYc,RSI_Reversal,0,0,0,0,2.6\n",
+            encoding="utf-8",
+        )
+        (runtime / "QuantGod_Dashboard.json").write_text(json.dumps({
+            "watchlist": "USDJPYc",
+            "runtime": {"tradeStatus": "READY", "executionEnabled": True, "readOnlyMode": False, "tickAgeSeconds": 0},
+            "market": {"symbol": "USDJPYc", "bid": 155.71, "ask": 155.74, "spread": 0.02},
+        }), encoding="utf-8")
+        quality_dir = runtime / "quality"
+        quality_dir.mkdir(parents=True, exist_ok=True)
+        (quality_dir / "QuantGod_MT5FastLaneQuality.json").write_text(json.dumps({
+            "schema": "quantgod.mt5.fastlane.quality.v1",
+            "heartbeatFound": False,
+            "heartbeatFresh": False,
+            "symbols": [{"symbol": "USDJPYc", "quality": "DEGRADED", "tickRows": 0, "tickAgeSeconds": None, "indicatorAgeSeconds": None}],
+        }), encoding="utf-8")
+
+        policy = build_adaptive_policy(runtime, symbols=["USDJPYc"], write=False)
+        gate = policy["entryGates"][0]
+        checks = {item["name"]: item for item in gate["checks"]}
+
+        self.assertTrue(gate["passed"])
+        self.assertEqual(gate["snapshotSource"], "hfm_ea_dashboard")
+        self.assertIn("Dashboard", checks["快通道"]["reason"])
+        self.assertIn("降级", checks["指标"]["reason"])
+
     def test_telegram_text_is_chinese_and_read_only(self):
         runtime = self._runtime()
         policy = build_adaptive_policy(runtime, symbols=["USDJPYc"], write=False)

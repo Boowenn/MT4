@@ -56,6 +56,28 @@ class DynamicSltpTests(unittest.TestCase):
         self.assertFalse(safety["orderSendAllowed"])
         self.assertFalse(safety["orderModifyAllowed"])
 
+    def test_candidate_outcome_fields_are_calibrated_by_route_and_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            (runtime / "QuantGod_ShadowCandidateOutcomeLedger.csv").write_text(
+                "EventId,Symbol,CandidateRoute,Timeframe,CandidateDirection,Regime,LongClosePips,ShortClosePips,LongMFEPips,LongMAEPips,ShortMFEPips,ShortMAEPips\n"
+                "A1,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,2.0,-2.0,4.0,1.0,1.0,4.0\n"
+                "A2,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,2.4,-2.4,4.4,1.2,1.2,4.4\n"
+                "A3,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,1.8,-1.8,3.8,1.0,1.0,3.8\n"
+                "A4,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,2.1,-2.1,4.1,1.1,1.1,4.1\n"
+                "A5,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,2.3,-2.3,4.3,1.2,1.2,4.3\n"
+                "A6,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,1.9,-1.9,3.9,1.0,1.0,3.9\n"
+                "A7,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,2.2,-2.2,4.2,1.1,1.1,4.2\n"
+                "A8,USDJPYc,RSI_REVERSAL_SHADOW,M15,BUY,RANGE,2.5,-2.5,4.5,1.2,1.2,4.5\n",
+                encoding="utf-8",
+            )
+            payload = build_calibration(runtime, symbols=["USDJPYc"], write=False)
+            plan = select_plan(payload, "USDJPYc", strategy="RSI_Reversal", direction="LONG")
+            self.assertIsNotNone(plan)
+            self.assertEqual(plan["state"], "CALIBRATED")
+            self.assertGreater(plan["initialStop"], 0.0)
+            self.assertNotEqual(plan["strategy"], "UNKNOWN")
+
 
 if __name__ == "__main__":
     unittest.main()

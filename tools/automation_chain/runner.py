@@ -119,6 +119,32 @@ class AutomationChainRunner:
     def _live_loop_file(self) -> Optional[Dict[str, Any]]:
         return self._read_json("live", "QuantGod_USDJPYLiveLoopStatus.json")
 
+    def _dashboard_snapshot_covers_symbol(self, symbol: str) -> bool:
+        path = self.runtime_dir / "QuantGod_Dashboard.json"
+        if not path.exists():
+            return False
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return False
+        age_seconds = time.time() - path.stat().st_mtime
+        runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+        tick_age = runtime.get("tickAgeSeconds")
+        fresh = age_seconds <= self.max_age_seconds
+        if isinstance(tick_age, (int, float)):
+            fresh = fresh and float(tick_age) <= self.max_age_seconds
+        if not fresh:
+            return False
+        wanted = str(symbol or "").upper()
+        candidates = [
+            payload.get("watchlist"),
+            payload.get("symbol"),
+            payload.get("focusSymbol"),
+            runtime.get("symbol"),
+            runtime.get("focusSymbol"),
+        ]
+        return any(str(candidate or "").upper() == wanted for candidate in candidates)
+
     def _collect_missing_evidence(self) -> List[str]:
         checks = [
             (self.runtime_dir / "quality" / "QuantGod_MT5FastLaneQuality.json", "缺少 P3-7 快通道质量证据"),
@@ -131,7 +157,8 @@ class AutomationChainRunner:
         ]
         missing = [label for path, label in checks if not path.exists()]
         for symbol in self.symbols:
-            if not (self.runtime_dir / f"QuantGod_MT5RuntimeSnapshot_{symbol}.json").exists():
+            snapshot_path = self.runtime_dir / f"QuantGod_MT5RuntimeSnapshot_{symbol}.json"
+            if not snapshot_path.exists() and not self._dashboard_snapshot_covers_symbol(symbol):
                 missing.append(f"缺少 {symbol} 运行快照")
         return missing
 
@@ -215,6 +242,11 @@ class AutomationChainRunner:
             return "READY_WITH_USDJPY_OPPORTUNITIES", "发现 USDJPY 可复核机会"
         return "BLOCKED_BY_USDJPY_POLICY", "阻断：USDJPY 策略政策未放行"
 
+    def _top_level_blocked_reasons(self, state: str, blockers: List[str]) -> List[str]:
+        if str(state or "").startswith("BLOCKED"):
+            return blockers
+        return []
+
     def build_status(self) -> Dict[str, Any]:
         if not latest_path(self.runtime_dir).exists():
             return build_empty_status(self.runtime_dir, self.symbols)
@@ -240,6 +272,7 @@ class AutomationChainRunner:
         blocked_reasons.extend([item.get("reason", "") for item in policy_summary.get("blocked", [])[:6] if item.get("reason")])
         blocked_reasons = self._actionable_blockers(blocked_reasons)
         state, state_zh = self._status_from_live_loop(live_loop, policy_summary, failed_required, missing)
+        top_level_blocked_reasons = self._top_level_blocked_reasons(state, blocked_reasons)
         report = {
             "schema": "quantgod.automation_chain.v1",
             "generatedAt": now_iso(),
@@ -255,7 +288,8 @@ class AutomationChainRunner:
             "stateZh": state_zh,
             "steps": steps,
             "missingEvidence": sorted(set(missing)),
-            "blockedReasons": [x for x in blocked_reasons if x],
+            "blockedReasons": [x for x in top_level_blocked_reasons if x],
+            "shadowBlockedReasons": [x for x in blocked_reasons if x],
             "policySummary": policy_summary,
             "topLiveEligiblePolicy": (live_loop or {}).get("topLiveEligiblePolicy") or (policy or {}).get("topLiveEligiblePolicy"),
             "topShadowPolicy": (live_loop or {}).get("topShadowPolicy") or (policy or {}).get("topShadowPolicy"),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 import csv, json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -7,7 +9,13 @@ def read_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
         if not path.exists():
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            mtime = path.stat().st_mtime
+            payload.setdefault("_filePath", str(path))
+            payload.setdefault("_fileMtimeIso", datetime.fromtimestamp(mtime, timezone.utc).isoformat())
+            payload.setdefault("_fileAgeSeconds", max(0.0, time.time() - mtime))
+        return payload
     except Exception:
         return None
 
@@ -30,8 +38,61 @@ def discover_runtime_snapshot(runtime_dir: Path, symbol: str) -> Optional[Dict[s
     for candidate in [runtime_dir / f"QuantGod_MT5RuntimeSnapshot_{symbol}.json", runtime_dir / f"QuantGod_RuntimeSnapshot_{symbol}.json", runtime_dir / "QuantGod_Dashboard.json"]:
         payload = read_json(candidate)
         if payload:
+            if candidate.name == "QuantGod_Dashboard.json":
+                runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+                market = payload.get("market") if isinstance(payload.get("market"), dict) else {}
+                payload = dict(payload)
+                payload.setdefault("symbol", payload.get("watchlist") or symbol)
+                payload.setdefault("fallback", False)
+                payload.setdefault("runtimeAgeSeconds", payload.get("_fileAgeSeconds", 9999))
+                tick_age = runtime.get("tickAgeSeconds")
+                try:
+                    tick_fresh = tick_age is not None and float(tick_age) <= 30
+                except Exception:
+                    tick_fresh = False
+                payload.setdefault("runtimeFresh", float(payload.get("runtimeAgeSeconds", 9999)) <= 300 or tick_fresh)
+                payload.setdefault("current_price", {"bid": market.get("bid"), "ask": market.get("ask"), "spread": market.get("spread")})
+                payload.setdefault("tradeStatus", runtime.get("tradeStatus"))
+                payload.setdefault("executionEnabled", runtime.get("executionEnabled"))
+                payload.setdefault("readOnlyMode", runtime.get("readOnlyMode"))
             return payload
     return None
+
+def _fresh_dashboard_fallback(runtime_dir: Path, symbol: str) -> Dict[str, Any]:
+    dashboard = discover_runtime_snapshot(runtime_dir, symbol) or {}
+    if not dashboard:
+        return {}
+    runtime = dashboard.get("runtime") if isinstance(dashboard.get("runtime"), dict) else {}
+    age = dashboard.get("runtimeAgeSeconds", dashboard.get("_fileAgeSeconds", 9999))
+    try:
+        age_ok = float(age) <= 300
+    except Exception:
+        age_ok = False
+    try:
+        tick_ok = runtime.get("tickAgeSeconds") is not None and float(runtime.get("tickAgeSeconds")) <= 30
+    except Exception:
+        tick_ok = False
+    if not (dashboard.get("runtimeFresh") is True or age_ok or tick_ok):
+        return {}
+    return {
+        "found": True,
+        "focusSymbolFound": True,
+        "symbol": symbol,
+        "quality": "EA_DASHBOARD_OK",
+        "state": "EA_DASHBOARD_OK",
+        "source": "QuantGod_Dashboard.json",
+        "note": "独立快通道未给出可用心跳，使用 HFM EA Dashboard 新鲜快照作为降级证据。",
+    }
+
+def _empty_fastlane_exporter(payload: Dict[str, Any], item: Optional[Dict[str, Any]]) -> bool:
+    if payload.get("heartbeatFound") is not False:
+        return False
+    row = item if isinstance(item, dict) else {}
+    try:
+        tick_rows = float(row.get("tickRows") or 0)
+    except Exception:
+        tick_rows = 0.0
+    return tick_rows <= 0 and row.get("tickAgeSeconds") in (None, "", "null") and row.get("indicatorAgeSeconds") in (None, "", "null")
 
 def discover_fastlane_quality(runtime_dir: Path, symbol: str) -> Dict[str, Any]:
     for candidate in [runtime_dir / "quality" / "QuantGod_MT5FastLaneQuality.json", runtime_dir / "QuantGod_MT5FastLaneQuality.json"]:
@@ -49,6 +110,10 @@ def discover_fastlane_quality(runtime_dir: Path, symbol: str) -> Dict[str, Any]:
                     item.setdefault("symbol", key or symbol)
                     item.setdefault("found", True)
                     item.setdefault("focusSymbolFound", True)
+                    if _empty_fastlane_exporter(payload, item):
+                        fallback = _fresh_dashboard_fallback(runtime_dir, symbol)
+                        if fallback:
+                            return fallback
                     return item
             return {}
         if isinstance(symbols, list):
@@ -61,8 +126,16 @@ def discover_fastlane_quality(runtime_dir: Path, symbol: str) -> Dict[str, Any]:
                     result.setdefault("found", True)
                     result.setdefault("focusSymbolFound", True)
                     result.setdefault("sourceQuality", payload.get("quality"))
+                    if _empty_fastlane_exporter(payload, result):
+                        fallback = _fresh_dashboard_fallback(runtime_dir, symbol)
+                        if fallback:
+                            return fallback
                     return result
             return {}
+        if _empty_fastlane_exporter(payload, None):
+            fallback = _fresh_dashboard_fallback(runtime_dir, symbol)
+            if fallback:
+                return fallback
         return payload
     return {}
 
@@ -82,7 +155,7 @@ def discover_adaptive_gate(runtime_dir: Path, symbol: str) -> Dict[str, Any]:
 
 def load_shadow_rows(runtime_dir: Path) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
-    for candidate in [runtime_dir / "ShadowCandidateOutcomeLedger.csv", runtime_dir / "adaptive" / "QuantGod_AdaptivePolicyLedger.csv", runtime_dir / "QuantGod_AdaptivePolicyLedger.csv"]:
+    for candidate in [runtime_dir / "ShadowCandidateOutcomeLedger.csv", runtime_dir / "QuantGod_ShadowCandidateOutcomeLedger.csv", runtime_dir / "adaptive" / "QuantGod_AdaptivePolicyLedger.csv", runtime_dir / "QuantGod_AdaptivePolicyLedger.csv"]:
         rows.extend(read_csv_rows(candidate))
     return rows
 

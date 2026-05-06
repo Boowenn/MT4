@@ -84,7 +84,7 @@ def _is_live_eligible(item: PolicyItem) -> bool:
 
 
 def _trigger_state(plan: Dict[str, Any], direction: str) -> tuple[str, List[str], float]:
-    items = plan.get("plans") or plan.get("triggers") or plan.get("items") or []
+    items = plan.get("plans") or plan.get("triggers") or plan.get("items") or plan.get("decisions") or []
     if isinstance(items, dict):
         items = list(items.values())
     best = None
@@ -96,7 +96,7 @@ def _trigger_state(plan: Dict[str, Any], direction: str) -> tuple[str, List[str]
             break
     if not best:
         return "MISSING", ["缺少 USDJPY 入场触发计划"], 0.0
-    status = str(best.get("status") or best.get("entryMode") or "UNKNOWN").upper()
+    status = str(best.get("status") or best.get("state") or best.get("entryMode") or "UNKNOWN").upper()
     score = best.get("triggerScore") or best.get("score") or 0.0
     try:
         score = float(score)
@@ -107,10 +107,14 @@ def _trigger_state(plan: Dict[str, Any], direction: str) -> tuple[str, List[str]
     missing = best.get("missingConfirmations") or best.get("missing") or []
     if isinstance(missing, str):
         missing = [missing]
-    if status in {"READY_FOR_CONFIRMATION", "STANDARD_ENTRY", "PASS", "READY", "OPPORTUNITY_ENTRY"}:
+    if status in {"READY_FOR_CONFIRMATION", "WAIT_TRIGGER_CONFIRMATION", "STANDARD_ENTRY", "PASS", "READY", "OPPORTUNITY_ENTRY"}:
         if len(missing) <= 1:
             return "TACTICAL_OK", ["入场触发允许：核心项通过，战术确认最多缺一项"], score
-    return "BLOCKED", ["入场触发阻断" if not missing else "入场触发阻断：" + "、".join(missing[:3])], score
+    reasons = best.get("reasons") or []
+    if isinstance(reasons, str):
+        reasons = [reasons]
+    blocked_detail = missing or reasons
+    return "BLOCKED", ["入场触发阻断" if not blocked_detail else "入场触发阻断：" + "、".join([str(item) for item in blocked_detail[:3]])], score
 
 
 def _sltp_available(plan: Dict[str, Any], strategy: str, direction: str) -> tuple[bool, List[str], Dict[str, Any]]:
@@ -126,9 +130,35 @@ def _sltp_available(plan: Dict[str, Any], strategy: str, direction: str) -> tupl
         status = str(item.get("status") or "").upper()
         if sym.startswith("USDJPY") and item_strategy == strategy and item_direction == direction and status not in {"PAUSED", "BLOCKED", "INSUFFICIENT_DATA"}:
             return True, ["动态止盈止损可用"], item
+    direction_plans = plan.get("dynamicSltpPlans") or []
+    if isinstance(direction_plans, dict):
+        direction_plans = list(direction_plans.values())
+    for item in direction_plans if isinstance(direction_plans, list) else []:
+        if not isinstance(item, dict):
+            continue
+        sym = str(item.get("symbol") or "").upper()
+        item_direction = str(item.get("direction") or "").upper()
+        risk_mode = str(item.get("riskMode") or "").upper()
+        if sym.startswith("USDJPY") and item_direction == direction and risk_mode != "暂停":
+            return True, ["动态止盈止损方向级计划可用"], item
     if plan:
         return False, ["动态止盈止损未匹配当前策略方向"], {}
     return False, ["缺少动态止盈止损计划"], {}
+
+
+def _soften_live_route_trigger(status: str, strategy: str, direction: str, trigger_status: str, trigger_reasons: List[str]) -> tuple[str, List[str]]:
+    if status != STATUS_RUNNABLE:
+        return trigger_status, trigger_reasons
+    if strategy != LIVE_ELIGIBLE_STRATEGY or str(direction).upper() != LIVE_ELIGIBLE_DIRECTION:
+        return trigger_status, trigger_reasons
+    if trigger_status != "BLOCKED":
+        return trigger_status, trigger_reasons
+    text = "；".join(str(item) for item in trigger_reasons)
+    if "影子样本" not in text:
+        return trigger_status, trigger_reasons
+    return "TACTICAL_OK", [
+        "RSI 实盘买入 forward 为正；影子方向池偏弱不阻断现有 EA 路线，仍由 EA 的 RSI、新闻、session、spread 风控二次确认。"
+    ]
 
 
 def _recommended_lot(score: float, entry_mode: str, *, max_lot: float, min_lot: float, step: float) -> float:
@@ -171,6 +201,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
         reasons.extend(runtime_reasons)
         reasons.extend(fast_reasons)
         trigger_status, trigger_reasons, trigger_score = _trigger_state(trigger, direction)
+        trigger_status, trigger_reasons = _soften_live_route_trigger(status, strategy, direction, trigger_status, trigger_reasons)
         sltp_ok, sltp_reasons, sltp_item = _sltp_available(sltp, strategy, direction)
         reasons.extend(trigger_reasons)
         reasons.extend(sltp_reasons)

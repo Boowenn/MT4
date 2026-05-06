@@ -34,6 +34,12 @@ def _runtime_is_fresh(snapshot: Dict[str, Any], max_age_seconds: int = 300) -> b
     for key in ("runtimeFresh", "fresh", "isFresh"):
         if key in snapshot:
             return _as_bool(snapshot.get(key), False)
+    for key in ("runtimeAgeSeconds", "_fileAgeSeconds"):
+        if key in snapshot:
+            return _as_float(snapshot.get(key), max_age_seconds + 1) <= max_age_seconds
+    runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
+    if runtime.get("tickAgeSeconds") is not None:
+        return _as_float(runtime.get("tickAgeSeconds"), max_age_seconds + 1) <= 30
     ts = _parse_iso(snapshot.get("generatedAt") or snapshot.get("generatedAtIso") or snapshot.get("timeIso"))
     if ts is None and isinstance(snapshot.get("current_price"), dict):
         ts = _parse_iso(snapshot["current_price"].get("timeIso"))
@@ -49,15 +55,25 @@ def _rows_for(rows: Sequence[Dict[str, str]], symbol: str, direction: str) -> Li
     out=[]
     for row in rows:
         row_symbol = row.get("symbol") or row.get("Symbol") or row.get("sym") or ""
-        row_dir = (row.get("direction") or row.get("Direction") or row.get("side") or "").upper()
+        row_dir = (row.get("direction") or row.get("Direction") or row.get("CandidateDirection") or row.get("side") or "").upper()
         if row_symbol == symbol and (not row_dir or row_dir in allowed): out.append(row)
     return out
 
-def _shadow_score(rows: Sequence[Dict[str, str]]) -> Dict[str, Any]:
+def _shadow_value(row: Dict[str, str], direction: str) -> float:
+    direct = row.get("scoreR") or row.get("r") or row.get("pips") or row.get("movePips")
+    if direct not in ("", None):
+        return _as_float(direct, 0.0)
+    if direction.upper() == "LONG":
+        return _as_float(row.get("LongClosePips") or row.get("LongPips") or row.get("LongOutcomePips"), 0.0)
+    if direction.upper() == "SHORT":
+        return _as_float(row.get("ShortClosePips") or row.get("ShortPips") or row.get("ShortOutcomePips"), 0.0)
+    return 0.0
+
+def _shadow_score(rows: Sequence[Dict[str, str]], direction: str) -> Dict[str, Any]:
     if not rows: return {"sampleCount":0,"hitRate":None,"avgR":None,"ok":False}
     values=[]; wins=0
     for row in rows:
-        val = _as_float(row.get("scoreR") or row.get("r") or row.get("pips") or row.get("movePips"), 0.0)
+        val = _shadow_value(row, direction)
         values.append(val); wins += 1 if val > 0 else 0
     avg = mean(values) if values else 0.0
     hit = wins / len(values) if values else 0.0
@@ -78,7 +94,7 @@ def build_trigger_plan(runtime_dir: Path, symbols: Iterable[str], directions: It
         fastlane_ok = fastlane_found and fastlane_quality not in {"DEGRADED","FAIL","FAILED","BAD","STALE","MISSING",""}
         adaptive_gate_ok = gate_found and _as_bool(gate.get("passed", gate.get("entryGatePassed", False)), False)
         for direction in directions:
-            score = _shadow_score(_rows_for(rows, symbol, direction))
+            score = _shadow_score(_rows_for(rows, symbol, direction), direction)
             confirmations = {"运行快照存在": snapshot_found, "运行快照新鲜": bool(runtime_fresh), "没有回退数据": snapshot_found and not bool(fallback), "快通道质量存在": fastlane_found, "快通道质量通过": bool(fastlane_ok), "自适应入场闸门存在": gate_found, "自适应入场闸门通过": bool(adaptive_gate_ok), "影子样本未显示负期望": bool(score["ok"])}
             reasons=[]
             if not snapshot_found: reasons.append("缺少运行快照，暂停方向触发")
