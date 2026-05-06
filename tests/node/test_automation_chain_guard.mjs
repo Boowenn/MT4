@@ -43,3 +43,16 @@ test('automation chain defaults to USDJPY scope only', () => {
   assert.doesNotMatch(combined, /EURUSDc/);
   assert.doesNotMatch(combined, /XAUUSDc/);
 });
+
+test('automation chain uses USDJPY live loop as source of truth', () => {
+  const runner = read('tools/automation_chain/runner.py');
+  const text = read('tools/automation_chain/telegram_text.py');
+  assert.match(runner, /run_usdjpy_strategy_lab\.py/);
+  assert.match(runner, /run_usdjpy_live_loop\.py/);
+  assert.match(runner, /QuantGod_USDJPYAutoExecutionPolicy\.json/);
+  assert.match(runner, /QuantGod_USDJPYEADryRunDecision\.json/);
+  assert.match(runner, /QuantGod_USDJPYLiveLoopStatus\.json/);
+  assert.match(runner, /singleSourceOfTruth/);
+  assert.doesNotMatch(runner, /run_auto_execution_policy\.py/);
+  assert.match(text, /USDJPY Strategy Lab \+ Live Loop/);
+});
