@@ -55,6 +55,12 @@ def _is_usdjpy_row(row: Dict[str, Any]) -> bool:
 def _sample_from_csv(row: Dict[str, Any], source: str) -> Dict[str, Any]:
     direction = to_direction(_pick(row, "direction", "side", "type", "orderType", "方向"))
     profit = to_float(_pick(row, "profit", "netUSC", "pnl", "profitUSC", "NetUSC", "净值"), 0.0)
+    profit_r = to_float(_pick(row, "profitR", "rMultiple", "r", "signedR", "ProfitR"), None)
+    risk_pips = to_float(_pick(row, "riskPips", "initialRiskPips", "slPips", "RiskPips"), None)
+    mfe_r = to_float(_pick(row, "mfeR", "MFER", "mfe", "maxFavorableR"), None)
+    mae_r = to_float(_pick(row, "maeR", "MAER", "mae", "maxAdverseR"), None)
+    mfe_pips = to_float(_pick(row, "mfePips", "maxFavorablePips", "MfePips"), None)
+    mae_pips = to_float(_pick(row, "maePips", "maxAdversePips", "MaePips"), None)
     blocker = str(_pick(row, "blocker", "blockReason", "reason", "status", "event", "label", "说明", default="")).strip()
     entered = str(_pick(row, "didEnter", "entered", "event", "type", default="")).upper() in {"1", "TRUE", "ENTRY", "OPEN"}
     if source == "close_history":
@@ -71,8 +77,24 @@ def _sample_from_csv(row: Dict[str, Any], source: str) -> Dict[str, Any]:
         "didEnter": bool(entered),
         "wouldEnter": bool(ready or "WOULD" in blocker.upper()),
         "profitUSC": profit,
-        "mfeR": to_float(_pick(row, "mfeR", "MFER", "mfe", "maxFavorableR"), 0.0),
-        "maeR": to_float(_pick(row, "maeR", "MAER", "mae", "maxAdverseR"), 0.0),
+        "profitR": profit_r,
+        "riskPips": risk_pips,
+        "mfeR": mfe_r,
+        "maeR": mae_r,
+        "mfePips": mfe_pips,
+        "maePips": mae_pips,
+        "posteriorPips": {
+            "15m": to_float(_pick(row, "pipsAfter15", "futurePips15", "posteriorPips15", "post15Pips"), None),
+            "30m": to_float(_pick(row, "pipsAfter30", "futurePips30", "posteriorPips30", "post30Pips"), None),
+            "60m": to_float(_pick(row, "pipsAfter60", "futurePips60", "posteriorPips60", "post60Pips"), None),
+            "120m": to_float(_pick(row, "pipsAfter120", "futurePips120", "posteriorPips120", "post120Pips"), None),
+        },
+        "posteriorR": {
+            "15m": to_float(_pick(row, "rAfter15", "futureR15", "posteriorR15", "post15R"), None),
+            "30m": to_float(_pick(row, "rAfter30", "futureR30", "posteriorR30", "post30R"), None),
+            "60m": to_float(_pick(row, "rAfter60", "futureR60", "posteriorR60", "post60R"), None),
+            "120m": to_float(_pick(row, "rAfter120", "futureR120", "posteriorR120", "post120R"), None),
+        },
         "exitReason": _pick(row, "exitReason", "closeReason", "reason"),
         "raw": row,
     }

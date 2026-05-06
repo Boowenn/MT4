@@ -12,11 +12,15 @@ function read(rel) {
 test('USDJPY evolution core remains read-only and focus-only', () => {
   const cli = read('tools/run_usdjpy_runtime_dataset.py');
   const schema = read('tools/usdjpy_runtime_dataset/schema.py');
+  const replay = read('tools/usdjpy_runtime_dataset/replay.py');
   assert.match(cli, /USDJPY\/USDJPYc/);
   assert.doesNotMatch(cli, /USDJPYc,EURUSDc,XAUUSDc/);
   assert.match(schema, /"orderSendAllowed": False/);
   assert.match(schema, /"livePresetMutationAllowed": False/);
   assert.match(schema, /"autoApplyAllowed": False/);
+  assert.match(replay, /unitPolicy/);
+  assert.match(replay, /scenarioComparisons/);
+  assert.doesNotMatch(replay, /profit_r\s*[*/+-]\s*profit_usc|profit_usc\s*[*/+-]\s*mfe_r|profit\s*\*\s*1\.8/);
 });
 
 test('USDJPY evolution API routes are exposed through strategy lab only', () => {
@@ -25,4 +29,3 @@ test('USDJPY evolution API routes are exposed through strategy lab only', () => 
   assert.match(routes, /run_usdjpy_runtime_dataset\.py/);
   assert.doesNotMatch(routes, /\/api\/trade|OrderSend|writesMt5OrderRequest: true/);
 });
-

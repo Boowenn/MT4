@@ -51,6 +51,8 @@ def _candidate_paths(runtime_dir: Path, *names: str) -> List[Path]:
         runtime_dir / "journal",
         runtime_dir / "reports",
         runtime_dir / "history",
+        runtime_dir / "datasets" / "usdjpy",
+        runtime_dir / "replay" / "usdjpy",
     ]
     paths: List[Path] = []
     for base in bases:

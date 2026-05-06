@@ -12,6 +12,15 @@ from .param_tuner import build_param_tuning_report
 from .schema import FOCUS_SYMBOL, READ_ONLY_SAFETY, SCHEMA_PROPOSAL, utc_now_iso
 
 
+def _impact_summary(items: list[Dict[str, Any]], key: str) -> list[str]:
+    values = []
+    for item in items:
+        value = item.get(key)
+        if value not in (None, ""):
+            values.append(str(value))
+    return values[:6]
+
+
 def build_live_config_proposal(runtime_dir: Path, write: bool = False) -> Dict[str, Any]:
     runtime_dir = Path(runtime_dir)
     tuning = first_json(runtime_dir, "QuantGod_USDJPYParamTuningReport.json") or build_param_tuning_report(runtime_dir, write=False)
@@ -28,6 +37,8 @@ def build_live_config_proposal(runtime_dir: Path, write: bool = False) -> Dict[s
         "status": "PROPOSAL_READY_FOR_REVIEW" if actionable else "NO_CONFIG_CHANGE_REQUIRED",
         "statusZh": "已生成待人工复核的实盘参数提案" if actionable else "暂无足够证据修改实盘参数",
         "changeCount": len(actionable),
+        "expectedImpact": _impact_summary(actionable, "expectedImpact"),
+        "riskDelta": _impact_summary(actionable, "riskDelta"),
         "changes": [
             {
                 "param": item.get("param"),
@@ -35,6 +46,10 @@ def build_live_config_proposal(runtime_dir: Path, write: bool = False) -> Dict[s
                 "to": item.get("proposed"),
                 "reason": item.get("reason"),
                 "evidence": item.get("evidence"),
+                "expectedImpact": item.get("expectedImpact"),
+                "riskDelta": item.get("riskDelta"),
+                "replayVariant": item.get("replayVariant"),
+                "evidenceQuality": item.get("evidenceQuality"),
             }
             for item in actionable
         ],
