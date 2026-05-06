@@ -10,14 +10,29 @@ def _fmt(value: Any, fallback: str = "—") -> str:
 def autonomous_agent_to_chinese_text(payload: Dict[str, Any]) -> str:
     decision = payload.get("promotionDecision") if isinstance(payload.get("promotionDecision"), dict) else {}
     patch = payload.get("currentPatch") if isinstance(payload.get("currentPatch"), dict) else {}
+    limits = patch.get("limits") if isinstance(patch.get("limits"), dict) else {}
     rollback = patch.get("rollback") if isinstance(patch.get("rollback"), dict) else {}
     candidates = decision.get("candidates") if isinstance(decision.get("candidates"), list) else []
+    cent = payload.get("centAccount") if isinstance(payload.get("centAccount"), dict) else {}
+    lanes = payload.get("lanes") if isinstance(payload.get("lanes"), dict) else {}
+    mt5_shadow = lanes.get("mt5Shadow") if isinstance(lanes.get("mt5Shadow"), dict) else {}
+    poly_shadow = lanes.get("polymarketShadow") if isinstance(lanes.get("polymarketShadow"), dict) else {}
+    mt5_summary = mt5_shadow.get("summary") if isinstance(mt5_shadow.get("summary"), dict) else {}
+    poly_summary = poly_shadow.get("summary") if isinstance(poly_shadow.get("summary"), dict) else {}
+    patch_writable = bool(payload.get("patchWritable") or payload.get("patchAllowed"))
     lines = [
-        "【USDJPY 自主治理 Agent】",
+        "【QuantGod USDJPY 美分账户自主 Agent】",
         "",
         f"当前阶段：{_fmt(payload.get('stageZh') or payload.get('stage'))}",
-        f"自动 patch：{'允许写入受控 patch' if payload.get('patchAllowed') else '未放行'}",
+        f"受控 patch：{'允许写入' if patch_writable else '未放行'}；实盘 preset 修改：禁止。",
+        f"账户模式：{_fmt(cent.get('accountMode'), 'cent')} / {_fmt(cent.get('accountCurrencyUnit'), 'USC')}；美分加速：{'开启' if cent.get('centAccountAcceleration') else '关闭'}。",
+        f"阶段仓位上限：{_fmt(limits.get('stageMaxLot'), '0')} / 系统上限 {_fmt(limits.get('maxLot'), '2.0')}；2.0 只是上限，不是固定仓位。",
         "审批模式：无需人工审批；必须通过机器硬风控与自动回滚。",
+        "",
+        "三车道：",
+        "- Live：USDJPYc / RSI_Reversal / LONG；只允许 MICRO_LIVE 或 LIVE_LIMITED。",
+        f"- MT5 模拟：{_fmt(mt5_summary.get('routeCount'), '0')} 条路线；快速模拟 {_fmt(mt5_summary.get('fastShadow'), '0')}；测试器 {_fmt(mt5_summary.get('testerOnly'), '0')}。",
+        f"- Polymarket：{_fmt(poly_shadow.get('stageZh') or poly_shadow.get('stage'), '模拟观察')}；模拟 PF {_fmt(poly_summary.get('shadowProfitFactor'), '0')}；不连接真实钱包。",
         "",
         "候选参数：",
     ]

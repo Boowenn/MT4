@@ -23,8 +23,13 @@ test('autonomous agent keeps hard safety boundaries', () => {
   assert.match(schema, /"requiresManualReview": False/);
   assert.match(schema, /"requiresAutonomousGovernance": True/);
   assert.match(schema, /"autoApplyAllowed": "stage_gated"/);
+  assert.match(schema, /"patchWritable": True/);
+  assert.match(schema, /"liveMutationAllowed": False/);
   assert.match(schema, /"deepSeekCanApproveLive": False/);
   assert.match(schema, /"polymarketRealMoneyAllowed": False/);
+  assert.match(patch, /patchWritable/);
+  assert.match(patch, /executionStage/);
+  assert.match(patch, /liveMutationAllowed/);
   assert.match(patch, /stageMaxLot/);
   assert.match(rollback, /consecutiveLosses/);
   assert.match(rollback, /dailyLossR/);
@@ -37,6 +42,8 @@ test('strategy lab exposes walk-forward and autonomous endpoints only', () => {
     '/api/usdjpy-strategy-lab/walk-forward/build',
     '/api/usdjpy-strategy-lab/autonomous-agent/state',
     '/api/usdjpy-strategy-lab/autonomous-agent/run',
+    '/api/usdjpy-strategy-lab/autonomous-agent/lifecycle',
+    '/api/usdjpy-strategy-lab/autonomous-agent/lanes',
     'run_usdjpy_walk_forward.py',
     'run_usdjpy_autonomous_agent.py',
   ]) {

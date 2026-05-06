@@ -368,11 +368,66 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/lifecycle') {
+    const args = [...baseArgs, '--repo-root', ctx.repoRoot, 'lifecycle'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/lanes') {
+    const args = [...baseArgs, '--repo-root', ctx.repoRoot, 'lanes'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/mt5-shadow') {
+    const args = [...baseArgs, 'mt5-shadow'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/polymarket-shadow') {
+    const args = [...baseArgs, 'polymarket-shadow'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/ea-repro') {
+    const args = [...baseArgs, '--repo-root', ctx.repoRoot, 'ea-repro'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/telegram-text') {
     const args = [...baseArgs, 'telegram-text'];
     if (url.searchParams.get('refresh') === '1') args.push('--refresh');
     if (url.searchParams.get('send') === '1') args.push('--send');
     const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2' || pathname === '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2/status')) {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'status'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2/run') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'build', '--write'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }

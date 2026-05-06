@@ -19,13 +19,10 @@ from .schema import (
     utc_now_iso,
 )
 
-
-def _stage_max_lot(stage: str) -> float:
-    if stage == STAGE_MICRO_LIVE:
-        return 0.03
-    if stage == STAGE_LIVE_LIMITED:
-        return 2.0
-    return 0.0
+try:
+    from tools.autonomous_lifecycle.cent_account_rules import cent_account_config, stage_max_lot
+except ModuleNotFoundError:  # pragma: no cover
+    from autonomous_lifecycle.cent_account_rules import cent_account_config, stage_max_lot
 
 
 def _changes_for_variant(variant: str) -> Dict[str, Any]:
@@ -40,11 +37,13 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
     runtime_dir = Path(runtime_dir)
     decision = build_promotion_decision(runtime_dir, write=write)
     stage = decision.get("stage", STAGE_REJECTED)
+    cent = cent_account_config()
     allowed = stage in {STAGE_SHADOW_ONLY, STAGE_TESTER_ONLY, STAGE_PAPER_LIVE_SIM, STAGE_MICRO_LIVE, STAGE_LIVE_LIMITED}
     changes: Dict[str, Any] = {}
     for item in decision.get("candidates") or []:
         if item.get("autonomousStage") in {STAGE_TESTER_ONLY, STAGE_PAPER_LIVE_SIM, STAGE_MICRO_LIVE, STAGE_LIVE_LIMITED}:
             changes.update(_changes_for_variant(str(item.get("variant") or "")))
+    patch_writable = bool(allowed and changes and stage != ROLLBACK_PAUSED)
     payload = {
         "ok": True,
         "schema": SCHEMA_PATCH,
@@ -53,12 +52,22 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
         "strategy": "RSI_Reversal",
         "direction": "LONG",
         "stage": stage,
+        "executionStage": stage,
         "stageZh": decision.get("stageZh"),
-        "patchAllowed": bool(allowed and changes and stage != ROLLBACK_PAUSED),
+        "patchWritable": patch_writable,
+        "patchAllowed": patch_writable,
+        "liveMutationAllowed": False,
+        "requiresManualReview": False,
+        "requiresAutonomousGovernance": True,
+        "autoApplyAllowed": "stage_gated",
+        "centAccount": cent,
         "changes": changes if allowed else {},
         "limits": {
-            "maxLot": 2.0,
-            "stageMaxLot": _stage_max_lot(str(stage)),
+            "maxLot": cent.get("maxLot", 2.0),
+            "stageMaxLot": stage_max_lot(str(stage), cent),
+            "microLiveLot": cent.get("microLiveLot", 0.05),
+            "opportunityLot": cent.get("opportunityLot", 0.10),
+            "standardLot": cent.get("standardLot", 0.35),
             "maxDailyTrades": 2,
             "maxDailyLossR": 1.0,
             "maxConsecutiveLosses": 2,
@@ -76,4 +85,3 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
         out.mkdir(parents=True, exist_ok=True)
         (out / "QuantGod_AutonomousConfigPatch.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
-

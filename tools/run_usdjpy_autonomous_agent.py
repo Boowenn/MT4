@@ -15,6 +15,11 @@ from usdjpy_autonomous_agent.config_patch import build_config_patch
 from usdjpy_autonomous_agent.promotion_gate import build_promotion_decision
 from usdjpy_autonomous_agent.schema import FOCUS_SYMBOL, HARD_SAFETY
 from usdjpy_autonomous_agent.telegram_text import autonomous_agent_to_chinese_text
+from autonomous_lifecycle.cent_account_rules import cent_account_config
+from autonomous_lifecycle.ea_reproducibility import build_ea_reproducibility
+from autonomous_lifecycle.lifecycle import build_autonomous_lifecycle
+from autonomous_lifecycle.mt5_shadow_lane import build_mt5_shadow_lane
+from autonomous_lifecycle.polymarket_shadow_lane import build_polymarket_shadow_lane
 from usdjpy_walk_forward.selector import sample_walk_forward_runtime
 
 
@@ -62,6 +67,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="QuantGod P3-20 USDJPY autonomous walk-forward promotion gate")
     parser.add_argument("--runtime-dir", default=os.environ.get("QG_RUNTIME_DIR", str(root / "runtime")))
     parser.add_argument("--symbol", default=FOCUS_SYMBOL)
+    parser.add_argument("--repo-root", default=str(root))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("config")
     sample = sub.add_parser("sample")
@@ -74,6 +80,16 @@ def main(argv=None) -> int:
     state.add_argument("--write", action="store_true")
     build = sub.add_parser("build")
     build.add_argument("--write", action="store_true")
+    lifecycle = sub.add_parser("lifecycle")
+    lifecycle.add_argument("--write", action="store_true")
+    lanes = sub.add_parser("lanes")
+    lanes.add_argument("--write", action="store_true")
+    mt5_shadow = sub.add_parser("mt5-shadow")
+    mt5_shadow.add_argument("--write", action="store_true")
+    polymarket_shadow = sub.add_parser("polymarket-shadow")
+    polymarket_shadow.add_argument("--write", action="store_true")
+    repro = sub.add_parser("ea-repro")
+    repro.add_argument("--write", action="store_true")
     text = sub.add_parser("telegram-text")
     text.add_argument("--refresh", action="store_true")
     text.add_argument("--write", action="store_true")
@@ -83,7 +99,13 @@ def main(argv=None) -> int:
     if args.symbol.upper() not in {"USDJPY", "USDJPYC"}:
         return emit({"ok": False, "error": "P3-20 只允许 USDJPY/USDJPYc", "symbol": args.symbol})
     if args.command == "config":
-        return emit({"ok": True, "focusSymbol": FOCUS_SYMBOL, "runtimeDir": str(runtime_dir), "safety": HARD_SAFETY})
+        return emit({
+            "ok": True,
+            "focusSymbol": FOCUS_SYMBOL,
+            "runtimeDir": str(runtime_dir),
+            "centAccount": cent_account_config(),
+            "safety": HARD_SAFETY,
+        })
     if args.command == "sample":
         return emit(sample_walk_forward_runtime(runtime_dir, overwrite=args.overwrite))
     if args.command == "decision":
@@ -92,6 +114,17 @@ def main(argv=None) -> int:
         return emit(build_config_patch(runtime_dir, write=args.write))
     if args.command in {"state", "build"}:
         return emit(build_agent_state(runtime_dir, write=args.write))
+    if args.command == "lifecycle":
+        return emit(build_autonomous_lifecycle(runtime_dir, repo_root=Path(args.repo_root), write=args.write))
+    if args.command == "lanes":
+        lifecycle_payload = build_autonomous_lifecycle(runtime_dir, repo_root=Path(args.repo_root), write=args.write)
+        return emit({"ok": True, "lanes": lifecycle_payload.get("lanes"), "centAccount": lifecycle_payload.get("centAccount")})
+    if args.command == "mt5-shadow":
+        return emit(build_mt5_shadow_lane(runtime_dir, write=args.write))
+    if args.command == "polymarket-shadow":
+        return emit(build_polymarket_shadow_lane(runtime_dir, write=args.write))
+    if args.command == "ea-repro":
+        return emit(build_ea_reproducibility(runtime_dir, repo_root=Path(args.repo_root), write=args.write))
     if args.command == "telegram-text":
         payload = build_agent_state(runtime_dir, write=args.write or args.refresh)
         content = autonomous_agent_to_chinese_text(payload)
@@ -105,4 +138,3 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
-
