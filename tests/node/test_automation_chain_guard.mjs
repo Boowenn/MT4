@@ -53,6 +53,7 @@ test('automation chain uses USDJPY live loop as source of truth', () => {
   assert.match(runner, /QuantGod_USDJPYEADryRunDecision\.json/);
   assert.match(runner, /QuantGod_USDJPYLiveLoopStatus\.json/);
   assert.match(runner, /singleSourceOfTruth/);
+  assert.doesNotMatch(runner, /QuantGod_AutoExecutionPolicy\.json/);
   assert.doesNotMatch(runner, /run_auto_execution_policy\.py/);
   assert.match(text, /USDJPY Strategy Lab \+ Live Loop/);
 });

@@ -61,6 +61,7 @@ test('USDJPY policy separates shadow winner from live-eligible route', () => {
   assert.match(policy, /FASTLANE_PASS_STATES/);
   assert.match(policy, /"FAST"/);
   assert.match(policy, /"EA_DASHBOARD_OK"/);
+  assert.doesNotMatch(policy, /QuantGod_AutoExecutionPolicy\.json/);
   assert.match(policy, /topShadowPolicy/);
   assert.match(policy, /topLiveEligiblePolicy/);
   assert.match(policy, /LIVE_ELIGIBLE_STRATEGY\s*=\s*["']RSI_Reversal["']/);

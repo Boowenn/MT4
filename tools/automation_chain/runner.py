@@ -111,7 +111,7 @@ class AutomationChainRunner:
             return None
 
     def _policy_file(self) -> Optional[Dict[str, Any]]:
-        return self._read_json("adaptive", "QuantGod_USDJPYAutoExecutionPolicy.json") or self._read_json("adaptive", "QuantGod_AutoExecutionPolicy.json")
+        return self._read_json("adaptive", "QuantGod_USDJPYAutoExecutionPolicy.json")
 
     def _dry_run_file(self) -> Optional[Dict[str, Any]]:
         return self._read_json("adaptive", "QuantGod_USDJPYEADryRunDecision.json")

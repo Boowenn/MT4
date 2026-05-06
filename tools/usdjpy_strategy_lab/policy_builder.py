@@ -298,8 +298,6 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
         adaptive_dir.mkdir(parents=True, exist_ok=True)
         policy_path = adaptive_dir / "QuantGod_USDJPYAutoExecutionPolicy.json"
         policy_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        generic_policy_path = adaptive_dir / "QuantGod_AutoExecutionPolicy.json"
-        generic_policy_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         ledger_path = adaptive_dir / "QuantGod_USDJPYAutoExecutionPolicyLedger.csv"
         is_new = not ledger_path.exists()
         with ledger_path.open("a", encoding="utf-8", newline="") as handle:

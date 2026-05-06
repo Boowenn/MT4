@@ -32,6 +32,7 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertGreaterEqual(policy["evidence"]["candidateSignalCount"], 1)
             output = runtime / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json"
             self.assertTrue(output.exists())
+            self.assertFalse((runtime / "adaptive" / "QuantGod_AutoExecutionPolicy.json").exists())
             saved = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(saved["symbol"], FOCUS_SYMBOL)
             regimes = {item["regime"] for item in policy["strategies"]}
