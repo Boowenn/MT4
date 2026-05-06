@@ -19,6 +19,9 @@ def _num(value: Any, digits: int = 2) -> str:
 def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
     morning = payload.get("morningPlan") if isinstance(payload.get("morningPlan"), dict) else {}
     evening = payload.get("eveningReview") if isinstance(payload.get("eveningReview"), dict) else {}
+    daily_todo = payload.get("dailyTodo") if isinstance(payload.get("dailyTodo"), dict) else {}
+    daily_review = payload.get("dailyReview") if isinstance(payload.get("dailyReview"), dict) else {}
+    review_metrics = daily_review.get("metrics") if isinstance(daily_review.get("metrics"), dict) else {}
     live = morning.get("liveLane") if isinstance(morning.get("liveLane"), dict) else {}
     mt5 = morning.get("mt5ShadowLane") if isinstance(morning.get("mt5ShadowLane"), dict) else {}
     mt5_summary = mt5.get("summary") if isinstance(mt5.get("summary"), dict) else {}
@@ -49,13 +52,19 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         lines.append(f"- {item}")
     lines.extend([
         "",
+        "Agent 今日待办：",
+        f"- 状态：{_fmt(daily_todo.get('status'), 'COMPLETED_BY_AGENT')}；无需人工回灌。",
+        f"- 自动推动：{'是' if daily_todo.get('autoAppliedByAgent') else '否'}；回滚：{'是' if daily_todo.get('rollbackTriggered') else '否'}。",
+        "",
         "【QuantGod 今日自动复盘】",
+        f"Agent 版本：{_fmt(payload.get('agentVersion'), 'v2.4')}",
         f"Live 阶段：{_fmt(evening_live.get('stageZh') or evening_live.get('stage'))}",
         f"是否触发回滚：{'是' if evening_live.get('rollbackTriggered') else '否'}",
+        f"净 R：{_fmt(review_metrics.get('netR'), '0')}；最大不利 R：{_fmt(review_metrics.get('maxAdverseR'))}；利润捕获：{_fmt(review_metrics.get('profitCaptureRatio'))}",
+        f"错失机会：{_fmt(review_metrics.get('missedOpportunity'), '0')}；早出场改善：{_fmt(review_metrics.get('earlyExit'), '0')}",
         f"MT5 模拟：晋级/强化 {evening_mt5.get('promotedCount', 0)}，暂停 {evening_mt5.get('pausedCount', 0)}，淘汰 {evening_mt5.get('rejectedCount', 0)}",
         f"明日阶段：{_fmt(evening.get('tomorrowStageZh'))}",
         "",
-        "安全边界：不会下单、不会平仓、不会撤单、不会修改订单或 live preset；DeepSeek 只解释，不批准越权。",
+        "安全边界：不会下单、不会平仓、不会撤单、不会修改订单或 live preset；DeepSeek 只解释，不批准越权；机器硬风控和自动回滚不可被取消。",
     ])
     return "\n".join(lines)
-

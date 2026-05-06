@@ -95,8 +95,9 @@ def _candidate_summary(name: str, label: str, group: str, segments: Dict[str, Di
         },
         "reasonZh": _reason_zh(conclusion, total_delta, segments),
         "autoApplyAllowed": "stage_gated",
-        "requiresManualReview": False,
         "requiresAutonomousGovernance": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": conclusion == CONCLUSION_LIVE_CONFIG_ELIGIBLE,
         "posteriorUsedForScoringOnly": True,
     }
 
@@ -173,8 +174,9 @@ def build_parameter_selection(runtime_dir: Path, write: bool = False) -> Dict[st
             "summary": item.get("summary"),
             "segments": item.get("segments"),
             "autoApplyAllowed": "stage_gated",
-            "requiresManualReview": False,
             "requiresAutonomousGovernance": True,
+            "completedByAgent": True,
+            "autoAppliedByAgent": item.get("conclusion") == CONCLUSION_LIVE_CONFIG_ELIGIBLE,
         })
     payload = {
         "ok": True,
@@ -209,8 +211,9 @@ def build_live_config_proposal(runtime_dir: Path, write: bool = False) -> Dict[s
         "eligibleChanges": eligible,
         "testerOnlyChanges": tester,
         "autoApplyAllowed": "stage_gated",
-        "requiresManualReview": False,
         "requiresAutonomousGovernance": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": bool(eligible),
         "requiresTesterOnlyValidation": True,
         "requiresShadowValidation": True,
         "safety": READ_ONLY_SAFETY,

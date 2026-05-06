@@ -19,7 +19,7 @@ def autonomous_agent_to_chinese_text(payload: Dict[str, Any]) -> str:
     poly_shadow = lanes.get("polymarketShadow") if isinstance(lanes.get("polymarketShadow"), dict) else {}
     mt5_summary = mt5_shadow.get("summary") if isinstance(mt5_shadow.get("summary"), dict) else {}
     poly_summary = poly_shadow.get("summary") if isinstance(poly_shadow.get("summary"), dict) else {}
-    patch_writable = bool(payload.get("patchWritable") or payload.get("patchAllowed"))
+    patch_writable = bool(payload.get("patchWritable"))
     lines = [
         "【QuantGod USDJPY 美分账户自主 Agent】",
         "",

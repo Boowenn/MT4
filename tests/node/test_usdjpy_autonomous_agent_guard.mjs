@@ -20,7 +20,6 @@ test('autonomous agent keeps hard safety boundaries', () => {
     assert.doesNotMatch(text, /telegramCommandExecutionAllowed["']?\s*:\s*True/);
     assert.doesNotMatch(text, /livePresetMutationAllowed["']?\s*:\s*True/);
   }
-  assert.match(schema, /"requiresManualReview": False/);
   assert.match(schema, /"requiresAutonomousGovernance": True/);
   assert.match(schema, /"autoApplyAllowed": "stage_gated"/);
   assert.match(schema, /"patchWritable": True/);
@@ -28,6 +27,7 @@ test('autonomous agent keeps hard safety boundaries', () => {
   assert.match(schema, /"deepSeekCanApproveLive": False/);
   assert.match(schema, /"polymarketRealMoneyAllowed": False/);
   assert.match(patch, /patchWritable/);
+  assert.doesNotMatch(patch, /patchAllowed/);
   assert.match(patch, /executionStage/);
   assert.match(patch, /liveMutationAllowed/);
   assert.match(patch, /stageMaxLot/);

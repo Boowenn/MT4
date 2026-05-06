@@ -35,8 +35,9 @@ def _candidate(
         "evidenceQuality": evidence_quality,
         "scope": "autonomous governance / tester / shadow validation",
         "autoApplyAllowed": "stage_gated",
-        "requiresManualReview": False,
         "requiresAutonomousGovernance": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": False,
     }
 
 

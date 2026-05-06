@@ -50,7 +50,6 @@ def build_autonomous_lifecycle(
         },
         "eaReproducibility": ea_repro,
         "safety": {
-            "requiresManualReview": False,
             "requiresAutonomousGovernance": True,
             "autoApplyAllowed": "stage_gated",
             "patchWritable": True,

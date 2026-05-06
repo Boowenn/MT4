@@ -38,8 +38,8 @@ test('strategy policy no longer uses manual promotion language', () => {
   const state = read('tools/usdjpy_autonomous_agent/agent_state.py');
 
   assert.doesNotMatch(policy, /manualPromotionRequired["']?\s*:\s*True/);
-  assert.match(policy, /"requiresManualReview": False/);
   assert.match(patch, /patchWritable/);
+  assert.doesNotMatch(patch, /patchAllowed/);
   assert.match(patch, /liveMutationAllowed/);
   assert.match(state, /executionStage/);
 });
@@ -55,6 +55,12 @@ test('API exposes lifecycle and lane endpoints', () => {
     '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2',
     '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2/run',
     '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2/telegram-text',
+    '/api/usdjpy-strategy-lab/daily-todo',
+    '/api/usdjpy-strategy-lab/daily-todo/run',
+    '/api/usdjpy-strategy-lab/daily-todo/telegram-text',
+    '/api/usdjpy-strategy-lab/daily-review',
+    '/api/usdjpy-strategy-lab/daily-review/run',
+    '/api/usdjpy-strategy-lab/daily-review/telegram-text',
   ]) {
     assert.match(routes, new RegExp(endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -68,6 +74,29 @@ test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety
   for (const marker of ['今日自动作战计划', '今日自动复盘', 'MT5 模拟车道', 'Polymarket 模拟车道', '不会下单']) {
     assert.match(report + text, new RegExp(marker));
   }
+  for (const marker of ['dailyTodo', 'dailyReview', 'completedByAgent', 'autoAppliedByAgent', 'requiresAutonomousGovernance']) {
+    assert.match(report, new RegExp(marker));
+  }
+  assert.doesNotMatch(report, /requiresManualReview|manualReview|readyForReview/);
   assert.match(runner, /QG_TELEGRAM_COMMANDS_ALLOWED/);
   assert.doesNotMatch(runner + report + text, /privateKeyAllowed\s*["']?\s*:\s*true|polymarketRealMoneyAllowed\s*["']?\s*:\s*true/);
+});
+
+test('autonomous lifecycle Python sources are not compressed into one-line files', () => {
+  const files = [
+    'tools/autonomous_lifecycle/lifecycle.py',
+    'tools/autonomous_lifecycle/cent_account_rules.py',
+    'tools/autonomous_lifecycle/mt5_shadow_lane.py',
+    'tools/autonomous_lifecycle/polymarket_shadow_lane.py',
+    'tools/usdjpy_autonomous_agent/config_patch.py',
+    'tools/usdjpy_autonomous_agent/promotion_gate.py',
+    'tools/daily_autopilot_v2/report.py',
+  ];
+  for (const file of files) {
+    const source = read(file);
+    const lines = source.split(/\r?\n/);
+    assert.ok(lines.length >= 20, `${file} should stay readable and multi-line`);
+    assert.ok(lines[0].length < 160, `${file} first line should not contain compressed source`);
+    assert.doesNotMatch(lines[0], /def |class |import .*def /, `${file} first line looks compressed`);
+  }
 });

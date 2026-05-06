@@ -36,8 +36,19 @@ def _stage_for_candidate(item: Dict[str, Any]) -> str:
     summary = item.get("summary") if isinstance(item.get("summary"), dict) else {}
     delta = float(summary.get("netRDelta") or 0.0)
     samples = int(summary.get("sampleCount") or 0)
+    cfg = cent_account_config()
     if conclusion == "LIVE_CONFIG_PROPOSAL_ELIGIBLE":
-        base_stage = STAGE_MICRO_LIVE if samples >= 60 and delta >= 2.0 else STAGE_PAPER_LIVE_SIM
+        validation_delta = float(summary.get("validationNetRDelta") or 0.0)
+        forward_delta = float(summary.get("forwardNetRDelta") or 0.0)
+        min_samples = int(cfg.get("microLiveMinSamples") or 10)
+        can_micro_live = (
+            cfg.get("centFastPromotion")
+            and samples >= min_samples
+            and delta > 0
+            and validation_delta > 0
+            and forward_delta > 0
+        )
+        base_stage = STAGE_MICRO_LIVE if can_micro_live else STAGE_PAPER_LIVE_SIM
         accelerated = cent_accelerated_stage(base_stage, sample_count=samples, net_r_delta=delta)
         return str(accelerated.get("stage") or base_stage)
     if conclusion == "TESTER_ONLY":
@@ -87,8 +98,9 @@ def build_promotion_decision(runtime_dir: Path, *, write: bool = False) -> Dict[
         "executionStage": best_stage,
         "stageZh": STAGE_ZH.get(best_stage, best_stage),
         "status": "AUTONOMOUS_PROMOTION_READY" if best_stage not in {STAGE_REJECTED, ROLLBACK_PAUSED} else best_stage,
-        "requiresManualReview": False,
         "requiresAutonomousGovernance": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": best_stage not in {STAGE_REJECTED, ROLLBACK_PAUSED},
         "autoApplyAllowed": "stage_gated",
         "centAccount": cent,
         "demotionDecision": demotion,

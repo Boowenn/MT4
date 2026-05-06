@@ -44,6 +44,7 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
         if item.get("autonomousStage") in {STAGE_TESTER_ONLY, STAGE_PAPER_LIVE_SIM, STAGE_MICRO_LIVE, STAGE_LIVE_LIMITED}:
             changes.update(_changes_for_variant(str(item.get("variant") or "")))
     patch_writable = bool(allowed and changes and stage != ROLLBACK_PAUSED)
+    auto_applied = bool(patch_writable and stage in {STAGE_TESTER_ONLY, STAGE_PAPER_LIVE_SIM, STAGE_MICRO_LIVE, STAGE_LIVE_LIMITED})
     payload = {
         "ok": True,
         "schema": SCHEMA_PATCH,
@@ -55,10 +56,10 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
         "executionStage": stage,
         "stageZh": decision.get("stageZh"),
         "patchWritable": patch_writable,
-        "patchAllowed": patch_writable,
         "liveMutationAllowed": False,
-        "requiresManualReview": False,
         "requiresAutonomousGovernance": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": auto_applied,
         "autoApplyAllowed": "stage_gated",
         "centAccount": cent,
         "changes": changes if allowed else {},
@@ -69,8 +70,8 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
             "opportunityLot": cent.get("opportunityLot", 0.10),
             "standardLot": cent.get("standardLot", 0.35),
             "maxDailyTrades": 2,
-            "maxDailyLossR": 1.0,
-            "maxConsecutiveLosses": 2,
+            "maxDailyLossR": cent.get("maxDailyLossR", 1.0),
+            "maxConsecutiveLosses": cent.get("maxConsecutiveLosses", 2),
         },
         "rollback": {
             "enabled": True,

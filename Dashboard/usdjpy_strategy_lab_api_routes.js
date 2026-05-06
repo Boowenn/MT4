@@ -431,6 +431,46 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/daily-todo' || pathname === '/api/usdjpy-strategy-lab/daily-todo/status')) {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-todo'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/daily-todo/run') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-todo', '--write'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/daily-todo/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-todo-telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/daily-review' || pathname === '/api/usdjpy-strategy-lab/daily-review/status')) {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-review'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/daily-review/run') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-review', '--write'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/daily-review/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-review-telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/telegram-text') {
     const args = [...baseArgs, 'telegram-text'];
     if (url.searchParams.get('refresh') === '1') args.push('--refresh');

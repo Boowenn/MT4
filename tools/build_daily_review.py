@@ -968,8 +968,9 @@ def usdjpy_evolution_summary(runtime_dir: Path) -> dict[str, Any]:
         "needsIteration": needs_iteration,
         "codexFollowupRequired": needs_iteration,
         "autoApplyAllowed": auto_apply_mode,
-        "requiresManualReview": bool(proposal.get("requiresManualReview", False)),
         "requiresAutonomousGovernance": bool(proposal.get("requiresAutonomousGovernance", False)),
+        "completedByAgent": True,
+        "autoAppliedByAgent": bool(proposal_ready),
         "summaryZh": (
             "已生成待自主治理门评估的 USDJPY 参数提案；通过机器硬风控后只写受控 patch，不改源码或 live preset。"
             if proposal_ready else

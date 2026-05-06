@@ -54,8 +54,9 @@ def build_live_config_proposal(runtime_dir: Path, write: bool = False) -> Dict[s
             for item in actionable
         ],
         "autoApplyAllowed": "stage_gated",
-        "requiresManualReview": False,
         "requiresAutonomousGovernance": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": bool(actionable),
         "requiresReplayEvidence": True,
         "requiresShadowValidation": True,
         "safety": READ_ONLY_SAFETY,

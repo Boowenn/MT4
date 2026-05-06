@@ -31,6 +31,45 @@ def emit(payload) -> int:
     return 0
 
 
+def todo_text(payload: Dict[str, object]) -> str:
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    lines = [
+        "【QuantGod Agent 今日待办】",
+        "",
+        f"状态：{payload.get('status', 'COMPLETED_BY_AGENT')}",
+        f"Agent 版本：{payload.get('agentVersion', 'v2.4')}",
+        "无需人工回灌；每项由 Agent 自动检查、完成、晋级或回滚。",
+        "",
+    ]
+    for item in items[:8]:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"- {item.get('laneZh') or item.get('lane')}｜{item.get('status')}｜"
+            f"{item.get('summaryZh', '')}"
+        )
+    return "\n".join(lines)
+
+
+def review_text(payload: Dict[str, object]) -> str:
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+    live = payload.get("liveLane") if isinstance(payload.get("liveLane"), dict) else {}
+    mt5 = payload.get("mt5ShadowLane") if isinstance(payload.get("mt5ShadowLane"), dict) else {}
+    poly = payload.get("polymarketShadowLane") if isinstance(payload.get("polymarketShadowLane"), dict) else {}
+    lines = [
+        "【QuantGod Agent 每日复盘】",
+        "",
+        f"阶段：{live.get('stageZh') or live.get('stage') or payload.get('promotionDecision', 'SHADOW')}",
+        f"回滚：{'是' if payload.get('rollbackTriggered') else '否'}",
+        f"净 R：{metrics.get('netR', 0)}｜最大不利 R：{metrics.get('maxAdverseR', '—')}｜利润捕获：{metrics.get('profitCaptureRatio', '—')}",
+        f"错失机会：{metrics.get('missedOpportunity', 0)}｜早出场改善：{metrics.get('earlyExit', 0)}",
+        f"MT5 模拟路线：{(mt5.get('summary') or {}).get('routeCount', 0)}｜Polymarket：{poly.get('stageZh') or poly.get('stage', '模拟观察')}",
+        "",
+        "复盘已由 Agent 自动完成；不等待人工确认，不修改 live preset，不连接 Polymarket 钱包。",
+    ]
+    return "\n".join(lines)
+
+
 def send_telegram(text: str) -> Dict[str, object]:
     root = Path(__file__).resolve().parents[1]
     load_env(root / ".env.telegram.local")
@@ -62,10 +101,22 @@ def main(argv=None) -> int:
     sub.add_parser("status")
     build = sub.add_parser("build")
     build.add_argument("--write", action="store_true")
+    todo = sub.add_parser("daily-todo")
+    todo.add_argument("--write", action="store_true")
+    review = sub.add_parser("daily-review")
+    review.add_argument("--write", action="store_true")
     text = sub.add_parser("telegram-text")
     text.add_argument("--refresh", action="store_true")
     text.add_argument("--write", action="store_true")
     text.add_argument("--send", action="store_true")
+    todo_text_parser = sub.add_parser("daily-todo-telegram-text")
+    todo_text_parser.add_argument("--refresh", action="store_true")
+    todo_text_parser.add_argument("--write", action="store_true")
+    todo_text_parser.add_argument("--send", action="store_true")
+    review_text_parser = sub.add_parser("daily-review-telegram-text")
+    review_text_parser.add_argument("--refresh", action="store_true")
+    review_text_parser.add_argument("--write", action="store_true")
+    review_text_parser.add_argument("--send", action="store_true")
     args = parser.parse_args(argv)
     runtime_dir = Path(args.runtime_dir)
     repo_root = Path(args.repo_root)
@@ -73,10 +124,32 @@ def main(argv=None) -> int:
         return emit(build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=False))
     if args.command == "build":
         return emit(build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write))
+    if args.command == "daily-todo":
+        payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write)
+        return emit(payload.get("dailyTodo") or {"ok": False, "error": "daily_todo_missing"})
+    if args.command == "daily-review":
+        payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write)
+        return emit(payload.get("dailyReview") or {"ok": False, "error": "daily_review_missing"})
     if args.command == "telegram-text":
         payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write or args.refresh)
         content = daily_autopilot_v2_to_chinese_text(payload)
         result = {"ok": True, "text": content, "dailyAutopilotV2": payload}
+        if args.send:
+            result["telegram"] = send_telegram(content)
+        return emit(result)
+    if args.command == "daily-todo-telegram-text":
+        payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write or args.refresh)
+        daily_todo = payload.get("dailyTodo") if isinstance(payload.get("dailyTodo"), dict) else {}
+        content = todo_text(daily_todo)
+        result = {"ok": True, "text": content, "dailyTodo": daily_todo}
+        if args.send:
+            result["telegram"] = send_telegram(content)
+        return emit(result)
+    if args.command == "daily-review-telegram-text":
+        payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write or args.refresh)
+        daily_review = payload.get("dailyReview") if isinstance(payload.get("dailyReview"), dict) else {}
+        content = review_text(daily_review)
+        result = {"ok": True, "text": content, "dailyReview": daily_review}
         if args.send:
             result["telegram"] = send_telegram(content)
         return emit(result)
@@ -86,4 +159,3 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
-

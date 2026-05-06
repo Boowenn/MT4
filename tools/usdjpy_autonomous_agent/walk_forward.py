@@ -20,5 +20,4 @@ def build_autonomous_walk_forward(runtime_dir: Path, *, write: bool = False) -> 
         "causalReplayRequired": True,
         "posteriorUsedForScoringOnly": True,
         "requiresAutonomousGovernance": True,
-        "requiresManualReview": False,
     }

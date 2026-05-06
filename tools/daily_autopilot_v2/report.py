@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 REPORT_NAME = "QuantGod_DailyAutopilotV2.json"
+AGENT_VERSION = "v2.4"
 
 
 def _safe_list(value: Any) -> List[Any]:
@@ -23,6 +24,57 @@ def _safe_list(value: Any) -> List[Any]:
 
 def _safe_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _load_json(path: Path) -> Dict[str, Any]:
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _walk_forward_summary(agent: Dict[str, Any]) -> Dict[str, Any]:
+    decision = _safe_dict(agent.get("promotionDecision"))
+    selected = _safe_list(_safe_dict(decision.get("parameterSelection")).get("selected"))
+    candidates = _safe_list(decision.get("candidates"))
+    rows = [row for row in [*selected, *candidates] if isinstance(row, dict)]
+    for row in rows:
+        summary = _safe_dict(row.get("summary"))
+        if summary:
+            return summary
+    return {}
+
+
+def _runtime_metrics(runtime_dir: Path, agent: Dict[str, Any]) -> Dict[str, Any]:
+    summary = _walk_forward_summary(agent)
+    bar_replay = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
+    replay_summary = _safe_dict(bar_replay.get("summary"))
+    entry = _safe_dict(bar_replay.get("entryComparison"))
+    exit_cmp = _safe_dict(bar_replay.get("exitComparison"))
+    entry_variants = _safe_list(entry.get("variants"))
+    exit_variants = _safe_list(exit_cmp.get("variants"))
+    current_entry = _safe_dict(entry_variants[0].get("metrics")) if len(entry_variants) > 0 and isinstance(entry_variants[0], dict) else {}
+    relaxed_entry = _safe_dict(entry_variants[1].get("metrics")) if len(entry_variants) > 1 and isinstance(entry_variants[1], dict) else {}
+    current_exit = _safe_dict(exit_variants[0].get("metrics")) if len(exit_variants) > 0 and isinstance(exit_variants[0], dict) else {}
+    let_run_exit = _safe_dict(exit_variants[1].get("metrics")) if len(exit_variants) > 1 and isinstance(exit_variants[1], dict) else {}
+    return {
+        "unitPolicy": "R_PRIMARY_PIPS_SECONDARY_USC_REFERENCE",
+        "sampleCount": summary.get("sampleCount") or replay_summary.get("sampleCount") or 0,
+        "netR": summary.get("netRDelta") or replay_summary.get("relaxedNetRDelta") or 0,
+        "validationNetRDelta": summary.get("validationNetRDelta"),
+        "forwardNetRDelta": summary.get("forwardNetRDelta"),
+        "maxAdverseR": relaxed_entry.get("maxAdverseR") or current_entry.get("maxAdverseR"),
+        "profitCaptureRatio": let_run_exit.get("profitCaptureRatio") or current_exit.get("profitCaptureRatio"),
+        "missedOpportunity": replay_summary.get("entryCountDelta") or relaxed_entry.get("missedOpportunityReduction") or 0,
+        "earlyExit": replay_summary.get("letProfitRunNetRDelta") or 0,
+        "entryCountDelta": relaxed_entry.get("entryCountDelta") or replay_summary.get("entryCountDelta") or 0,
+        "falseEntryCount": relaxed_entry.get("falseEntryCount") or 0,
+        "winRate": relaxed_entry.get("winRate") or current_entry.get("winRate"),
+        "evidenceQuality": relaxed_entry.get("evidenceQuality") or current_entry.get("evidenceQuality") or "AGENT_SUMMARY",
+    }
 
 
 def _stage_text(route: Dict[str, Any]) -> str:
@@ -107,6 +159,7 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> D
             "rollbackTriggered": bool(blockers),
             "rollbackReasons": blockers,
             "patchWritable": bool(agent.get("patchWritable")),
+            "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
             "liveMutationAllowed": False,
         },
         "mt5ShadowLane": {
@@ -126,6 +179,126 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> D
     }
 
 
+def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
+    lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
+    mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
+    polymarket = _safe_dict(lanes.get("polymarketShadow"))
+    patch = _safe_dict(agent.get("currentPatch"))
+    rollback = _safe_dict(patch.get("rollback"))
+    rollback_triggered = bool(_safe_list(rollback.get("hardBlockers")))
+    live_stage = str(agent.get("executionStage") or agent.get("stage") or "SHADOW")
+    auto_applied = bool(agent.get("autoAppliedByAgent"))
+    return [
+        {
+            "id": "live_lane_governance",
+            "lane": "LIVE",
+            "laneZh": "实盘车道",
+            "status": "ROLLBACK" if rollback_triggered else ("MICRO_LIVE" if live_stage == "MICRO_LIVE" else "COMPLETED_BY_AGENT"),
+            "completedByAgent": True,
+            "autoAppliedByAgent": auto_applied,
+            "requiresAutonomousGovernance": True,
+            "promotionDecision": live_stage,
+            "rollbackTriggered": rollback_triggered,
+            "metrics": metrics,
+            "summaryZh": "Agent 已检查 USDJPY RSI LONG 实盘车道；硬风控未通过则自动回滚，未触发则等待 EA 自身守门。",
+        },
+        {
+            "id": "mt5_shadow_lane_iteration",
+            "lane": "MT5_SHADOW",
+            "laneZh": "MT5 模拟车道",
+            "status": "PROMOTED" if int(_safe_dict(mt5_shadow.get("summary")).get("fastShadow") or 0) else "COMPLETED_BY_AGENT",
+            "completedByAgent": True,
+            "autoAppliedByAgent": False,
+            "requiresAutonomousGovernance": True,
+            "promotionDecision": "FAST_SHADOW_OR_TESTER_ONLY",
+            "rollbackTriggered": False,
+            "metrics": _safe_dict(mt5_shadow.get("summary")),
+            "summaryZh": "Agent 已复盘多策略 shadow 排名；强策略可进入 fast-shadow/tester-only，不能抢实盘 RSI LONG 路线。",
+        },
+        {
+            "id": "polymarket_shadow_lane_iteration",
+            "lane": "POLYMARKET_SHADOW",
+            "laneZh": "Polymarket 模拟车道",
+            "status": "COMPLETED_BY_AGENT",
+            "completedByAgent": True,
+            "autoAppliedByAgent": False,
+            "requiresAutonomousGovernance": True,
+            "promotionDecision": polymarket.get("stage", "SHADOW"),
+            "rollbackTriggered": False,
+            "metrics": _safe_dict(polymarket.get("summary")),
+            "summaryZh": "Agent 已复盘预测市场模拟账本；只做 shadow 和事件风险，不连接真钱钱包。",
+        },
+    ]
+
+
+def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
+    items = _agent_todo_items(agent, lifecycle, metrics)
+    rollback_triggered = any(bool(item.get("rollbackTriggered")) for item in items)
+    auto_applied = any(bool(item.get("autoAppliedByAgent")) for item in items)
+    return {
+        "ok": True,
+        "schema": "quantgod.daily_todo_agent.v2_4",
+        "agentVersion": AGENT_VERSION,
+        "generatedAtIso": generated_at,
+        "timestamp": generated_at,
+        "symbol": FOCUS_SYMBOL,
+        "status": "ROLLBACK" if rollback_triggered else "COMPLETED_BY_AGENT",
+        "completed": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": auto_applied,
+        "requiresAutonomousGovernance": True,
+        "lane": "MULTI_LANE",
+        "promotionDecision": agent.get("executionStage") or agent.get("stage"),
+        "rollbackTriggered": rollback_triggered,
+        "metrics": metrics,
+        "items": items,
+        "summaryZh": "今日待办已由 Agent 自动检查、生成和闭环；无需人工回灌。",
+    }
+
+
+def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
+    lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
+    mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
+    polymarket = _safe_dict(lanes.get("polymarketShadow"))
+    patch = _safe_dict(agent.get("currentPatch"))
+    rollback = _safe_dict(patch.get("rollback"))
+    rollback_triggered = bool(_safe_list(rollback.get("hardBlockers")))
+    return {
+        "ok": True,
+        "schema": "quantgod.daily_review_agent.v2_4",
+        "agentVersion": AGENT_VERSION,
+        "generatedAtIso": generated_at,
+        "timestamp": generated_at,
+        "symbol": FOCUS_SYMBOL,
+        "lane": "MULTI_LANE",
+        "completed": True,
+        "completedByAgent": True,
+        "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
+        "requiresAutonomousGovernance": True,
+        "promotionDecision": agent.get("executionStage") or agent.get("stage"),
+        "rollbackTriggered": rollback_triggered,
+        "metrics": metrics,
+        "liveLane": {
+            "stage": agent.get("executionStage") or agent.get("stage"),
+            "stageZh": agent.get("stageZh"),
+            "strategy": "RSI_Reversal",
+            "direction": "LONG",
+            "rollbackReasons": _safe_list(rollback.get("hardBlockers")),
+        },
+        "mt5ShadowLane": {
+            "summary": _safe_dict(mt5_shadow.get("summary")),
+            "topRoutes": _top_mt5_routes(mt5_shadow),
+        },
+        "polymarketShadowLane": {
+            "stage": polymarket.get("stage", "SHADOW"),
+            "stageZh": polymarket.get("stageZh", "模拟观察"),
+            "summary": _safe_dict(polymarket.get("summary")),
+            "riskContextOnly": True,
+        },
+        "summaryZh": "每日复盘已由 Agent 自动完成：收集三车道样本、计算指标、更新升降级/回滚状态，不等待人工确认。",
+    }
+
+
 def build_daily_autopilot_v2(
     runtime_dir: Path,
     *,
@@ -135,20 +308,32 @@ def build_daily_autopilot_v2(
     runtime_dir = Path(runtime_dir)
     lifecycle = build_autonomous_lifecycle(runtime_dir, repo_root=repo_root, write=write)
     agent = build_agent_state(runtime_dir, write=write)
+    generated_at = utc_now_iso()
+    metrics = _runtime_metrics(runtime_dir, agent)
+    daily_todo = _build_daily_todo(agent, lifecycle, metrics, generated_at)
+    daily_review = _build_daily_review(agent, lifecycle, metrics, generated_at)
     payload: Dict[str, Any] = {
         "ok": True,
         "schema": "quantgod.daily_autopilot_v2.v1",
-        "generatedAtIso": utc_now_iso(),
+        "agentVersion": AGENT_VERSION,
+        "generatedAtIso": generated_at,
+        "timestamp": generated_at,
         "symbol": FOCUS_SYMBOL,
         "titleZh": "USDJPY 美分账户三车道自动日报",
         "sloganZh": "实盘要窄，模拟要宽，升降级要快，回滚要硬。",
         "morningPlan": _build_morning_plan(agent, lifecycle),
         "eveningReview": _build_evening_review(agent, lifecycle),
+        "dailyTodo": daily_todo,
+        "dailyReview": daily_review,
+        "completedByAgent": True,
+        "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
+        "requiresAutonomousGovernance": True,
         "autonomousAgent": {
             "stage": agent.get("executionStage") or agent.get("stage"),
             "stageZh": agent.get("stageZh"),
             "patchWritable": bool(agent.get("patchWritable")),
-            "requiresManualReview": False,
+            "completedByAgent": True,
+            "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
             "requiresAutonomousGovernance": True,
             "autoApplyAllowed": "stage_gated",
         },
@@ -171,4 +356,3 @@ def build_daily_autopilot_v2(
         out.mkdir(parents=True, exist_ok=True)
         (out / REPORT_NAME).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
-

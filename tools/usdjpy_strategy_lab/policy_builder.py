@@ -265,7 +265,6 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "newStrategiesShadowOnly": True,
             "requiresBacktestBeforeLive": True,
             "requiresGovernanceBeforeLive": True,
-            "requiresManualReview": False,
             "requiresAutonomousGovernance": True,
             "autoApplyAllowed": "stage_gated",
             "patchWritable": True,

@@ -22,7 +22,6 @@ class USDJPYAutonomousAgentTests(unittest.TestCase):
             state = build_agent_state(runtime, write=True)
 
             self.assertEqual(decision["symbol"], "USDJPYc")
-            self.assertFalse(decision["requiresManualReview"])
             self.assertTrue(decision["requiresAutonomousGovernance"])
             self.assertEqual(decision["safety"]["autoApplyAllowed"], "stage_gated")
             self.assertFalse(decision["safety"]["orderSendAllowed"])
@@ -30,16 +29,19 @@ class USDJPYAutonomousAgentTests(unittest.TestCase):
 
             self.assertEqual(patch["schema"], "quantgod.autonomous_config_patch.v1")
             self.assertIn("patchWritable", patch)
+            self.assertNotIn("patchAllowed", patch)
             self.assertEqual(patch["executionStage"], patch["stage"])
             self.assertFalse(patch["liveMutationAllowed"])
+            self.assertTrue(patch["completedByAgent"])
             self.assertFalse(patch["safety"]["agentMayMutateSource"])
             self.assertFalse(patch["safety"]["agentMayMutateLivePreset"])
             self.assertFalse(patch["safety"]["agentMaySendOrder"])
             self.assertLessEqual(patch["limits"]["maxLot"], 2.0)
 
             self.assertEqual(state["schema"], "quantgod.autonomous_agent_state.v1")
-            self.assertFalse(state["requiresManualReview"])
             self.assertTrue(state["requiresAutonomousGovernance"])
+            self.assertTrue(state["completedByAgent"])
+            self.assertNotIn("patchAllowed", state)
             self.assertIn("lanes", state)
             self.assertIn("mt5Shadow", state["lanes"])
             self.assertIn("polymarketShadow", state["lanes"])

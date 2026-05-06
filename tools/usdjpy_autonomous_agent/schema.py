@@ -45,7 +45,6 @@ HARD_SAFETY = {
     "focusOnly": True,
     "focusSymbol": FOCUS_SYMBOL,
     "requiresAutonomousGovernance": True,
-    "requiresManualReview": False,
     "autoApplyAllowed": "stage_gated",
     "agentMayWriteConfigPatch": True,
     "patchWritable": True,
