@@ -314,6 +314,43 @@ class Mt5ReadOnlyBridgeTests(unittest.TestCase):
         self.assertEqual(payload["symbols"]["items"][0]["tradeMode"], "FULL")
         self.assertFalse(payload["safety"]["orderSendAllowed"])
 
+    def test_ea_snapshot_fallback_merges_standalone_usdjpy_rsi_diagnostics(self):
+        dashboard = {
+            "watchlist": "USDJPYc",
+            "account": {"number": 186054398, "server": "HFMarketsGlobal-Live12", "currency": "USC"},
+            "runtime": {"terminalConnected": True, "terminalTradeAllowed": True, "programTradeAllowed": True},
+            "market": {"symbol": "USDJPYc", "bid": 156.24, "ask": 156.25, "tradeMode": "FULL"},
+        }
+        diagnostics = {
+            "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+            "symbol": "USDJPYc",
+            "state": "READY_BUY_SIGNAL",
+            "stateZh": "RSI 买入信号已触发，等待 EA 守门执行",
+        }
+
+        old_runtime = os.environ.get("QG_RUNTIME_DIR")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            Path(tmp_dir, "QuantGod_Dashboard.json").write_text(json.dumps(dashboard), encoding="utf-8")
+            Path(tmp_dir, "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps(diagnostics),
+                encoding="utf-8",
+            )
+            os.environ["QG_RUNTIME_DIR"] = tmp_dir
+            try:
+                args = bridge.parse_args(["--endpoint", "snapshot", "--symbol", "USDJPYc"])
+                payload = bridge.build_ea_snapshot_fallback(args)
+            finally:
+                if old_runtime is None:
+                    os.environ.pop("QG_RUNTIME_DIR", None)
+                else:
+                    os.environ["QG_RUNTIME_DIR"] = old_runtime
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["usdJpyRsiEntryDiagnostics"]["state"], "READY_BUY_SIGNAL")
+        self.assertEqual(payload["usdJpyRsiEntryDiagnostics"]["symbol"], "USDJPYc")
+        self.assertEqual(payload["usdJpyRsiEntryDiagnosticsSource"]["type"], "standalone_file")
+
 
 if __name__ == "__main__":
     unittest.main()

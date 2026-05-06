@@ -156,6 +156,57 @@ def read_ea_dashboard_snapshot() -> tuple[dict[str, Any] | None, Path | None, di
     return None, None, None
 
 
+def read_usdjpy_rsi_entry_diagnostics() -> tuple[dict[str, Any] | None, Path | None, dict[str, Any] | None]:
+    found: list[tuple[float, Path, dict[str, Any]]] = []
+    parse_errors: list[dict[str, str]] = []
+    for directory in runtime_dir_candidates():
+        file_path = directory / "QuantGod_USDJPYRsiEntryDiagnostics.json"
+        if not file_path.exists():
+            continue
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8").lstrip("\ufeff"))
+            stat = file_path.stat()
+            found.append((stat.st_mtime, file_path, payload))
+        except Exception as exc:
+            parse_errors.append({"path": str(file_path), "error": str(exc)})
+    if found:
+        _, file_path, payload = sorted(found, key=lambda item: item[0], reverse=True)[0]
+        return payload, file_path, None
+    if parse_errors:
+        return None, None, {"parseErrors": parse_errors}
+    return None, None, None
+
+
+def merge_usdjpy_rsi_entry_diagnostics(
+    payload: dict[str, Any],
+    dashboard: dict[str, Any] | None = None,
+) -> None:
+    diagnostics, file_path, read_error = read_usdjpy_rsi_entry_diagnostics()
+    source_type = "standalone_file"
+    if not diagnostics and isinstance(dashboard, dict):
+        embedded = dashboard.get("usdJpyRsiEntryDiagnostics")
+        if isinstance(embedded, dict) and embedded:
+            diagnostics = embedded
+            file_path = None
+            source_type = "dashboard_embedded"
+    if diagnostics:
+        payload["usdJpyRsiEntryDiagnostics"] = diagnostics
+        source: dict[str, Any] = {"type": source_type}
+        if file_path:
+            stat = file_path.stat()
+            source.update(
+                {
+                    "file": str(file_path),
+                    "mtimeIso": datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                }
+            )
+        payload["usdJpyRsiEntryDiagnosticsSource"] = source
+    elif read_error:
+        payload["usdJpyRsiEntryDiagnosticsSource"] = {"type": "read_error", "readError": read_error}
+
+
 def to_float(value: Any, default: float = 0.0) -> float:
     try:
         if value in (None, ""):
@@ -437,6 +488,7 @@ def build_ea_snapshot_fallback(args: argparse.Namespace) -> dict[str, Any] | Non
         payload["orders"] = ea_orders_payload(dashboard, args.symbol)
         payload["symbols"] = ea_symbols_payload(dashboard, args.group, args.query, args.symbols_limit)
         payload["quote"] = ea_quote_payload(dashboard, args.symbol) if args.symbol else None
+        merge_usdjpy_rsi_entry_diagnostics(payload, dashboard)
         return payload
     return payload
 
@@ -714,6 +766,7 @@ def build_endpoint_payload(mt5: Any, args: argparse.Namespace) -> dict[str, Any]
         payload["orders"] = get_orders(mt5, args.symbol)
         payload["symbols"] = get_symbols(mt5, args.group, args.query, args.symbols_limit)
         payload["quote"] = get_quote(mt5, args.symbol) if args.symbol else None
+        merge_usdjpy_rsi_entry_diagnostics(payload)
         payload["status"] = "CONNECTED" if payload.get("account") else payload.get("status", "INITIALIZED")
         return payload
     raise ValueError(f"unsupported endpoint: {endpoint}")

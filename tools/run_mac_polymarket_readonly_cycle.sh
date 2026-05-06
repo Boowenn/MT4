@@ -45,6 +45,9 @@ RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
 MAC_MT5_FILES="$(mac_mt5_files_dir)"
 
 if [[ "$(uname -s)" == "Darwin" && -d "$MAC_MT5_FILES" ]]; then
+  if [[ -z "${QG_RUNTIME_DIR+x}" && -z "${QG_MT5_FILES_DIR+x}" ]]; then
+    RUNTIME_DIR="$MAC_MT5_FILES"
+  fi
   RUNTIME_IS_IMPORT=0
   if is_import_snapshot_dir "$RUNTIME_DIR"; then
     RUNTIME_IS_IMPORT=1

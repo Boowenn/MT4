@@ -531,9 +531,12 @@ class DailyAutopilotTests(unittest.TestCase):
             tester_tasks,
         )
 
-        self.assertEqual(iteration["status"], "ITERATION_REQUIRED")
+        self.assertEqual(iteration["status"], "REVIEW_COMPLETE_NO_CODE_CHANGE")
         self.assertEqual(iteration["findings"][-1]["code"], "PARAMLAB_NO_TRADE_TESTER_WINDOWS")
+        self.assertTrue(iteration["findings"][-1]["iterationApplied"])
         self.assertEqual(iteration["strategyIterationQueue"][-1]["type"], "PARAMLAB_NO_TRADE_RETUNE")
+        self.assertEqual(iteration["strategyIterationQueue"][-1]["status"], "RETUNE_PLAN_READY_TESTER_ONLY")
+        self.assertTrue(iteration["strategyIterationQueue"][-1]["routePlans"])
         self.assertFalse(iteration["strategyIterationQueue"][-1]["livePresetMutationAllowed"])
 
     def test_daily_iteration_flags_polymarket_loss_quarantine_for_codex(self):

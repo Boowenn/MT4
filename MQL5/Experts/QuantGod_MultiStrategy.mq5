@@ -10,7 +10,7 @@
 #include <Trade/Trade.mqh>
 
 input string DashboardBuild      = "QuantGod-v3.17-mt5-startup-entry-guard";
-input string Watchlist           = "EURUSD,USDJPY";
+input string Watchlist           = "USDJPY";
 input string PreferredSymbolSuffix = "AUTO";
 input bool   ShadowMode          = true;
 input bool   ReadOnlyMode        = true;
@@ -6394,8 +6394,6 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    if(StringLen(symbol) <= 0)
       symbol = "USDJPYc";
 
-   InitializePilotTelemetryIfNeeded();
-
    MqlTick tick;
    ZeroMemory(tick);
    bool tickOk = SymbolInfoTick(symbol, tick);
@@ -6423,8 +6421,8 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
 
    double rsi1 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 1);
    double rsi2 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 2);
-   double lowerBand = BollingerBand(symbol, PilotRsiTimeframe, PilotBBPeriod, PilotBBDeviation, 1, 2);
-   double upperBand = BollingerBand(symbol, PilotRsiTimeframe, PilotBBPeriod, PilotBBDeviation, 1, 1);
+   double lowerBand = BandsValue(symbol, PilotRsiTimeframe, PilotBBPeriod, PilotBBDeviation, 2, 1);
+   double upperBand = BandsValue(symbol, PilotRsiTimeframe, PilotBBPeriod, PilotBBDeviation, 1, 1);
    double close1 = iClose(symbol, PilotRsiTimeframe, 1);
    double atr1 = ATRValue(symbol, PilotRsiTimeframe, 14, 1);
    bool indicatorReady = (rsi1 > 0.0 && rsi2 > 0.0 && lowerBand > 0.0 && upperBand > 0.0 && close1 > 0.0);
@@ -6463,7 +6461,7 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    string evalReason = "";
    string trigger = "";
    int evalCode = PILOT_EVAL_NONE;
-   bool hasSignal = EvaluatePilotRsiH1Signal(symbol, direction, signalScore, stopLoss, takeProfit, evalReason, trigger, evalCode);
+   bool hasSignal = EvaluatePilotRsiH1Signal(symbol, direction, signalScore, evalReason, stopLoss, takeProfit, evalCode, trigger);
    bool sellSideDemoted = (PilotRsiSellLiveBlocked && !(bool)MQLInfoInteger(MQL_TESTER));
 
    string state = "WAITING_RSI_SIGNAL";

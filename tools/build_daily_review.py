@@ -987,24 +987,37 @@ def daily_iteration_review(
     no_trade_tasks = [item for item in tester_tasks if as_int(item.get("closedTrades"), -1) == 0]
     if tester_tasks and len(no_trade_tasks) == len(tester_tasks):
         route_counts = Counter(clean(item.get("routeKey")) or "UNKNOWN" for item in no_trade_tasks)
+        route_plans = no_trade_retune_plan(route_counts)
+        retune_plan_ready = bool(route_plans)
         route_detail = ", ".join(f"{route}:{count}" for route, count in route_counts.most_common(5))
         findings.append({
             "code": "PARAMLAB_NO_TRADE_TESTER_WINDOWS",
-            "severity": "high",
+            "severity": "watch" if retune_plan_ready else "high",
             "target": "strategy",
             "title": "ParamLab 全部无成交",
             "detail": f"parsed={len(tester_tasks)} noTrade={len(no_trade_tasks)} routes={route_detail}",
             "rootCause": "候选策略过严或测试窗口过短；虽然 tester 账户上下文已打通，但没有成交样本就无法学习或升实盘。",
-            "nextStep": "下一轮只在 isolated tester 扩大 lookback，并为 BB/MACD/SR/MA 调宽触发阈值或增加候选变体；不改 live preset。",
+            "nextStep": (
+                "已生成下一轮 tester-only 调参方案；等待测试窗口执行并回灌报告，不改 live preset。"
+                if retune_plan_ready else
+                "下一轮只在 isolated tester 扩大 lookback，并为 BB/MACD/SR/MA 调宽触发阈值或增加候选变体；不改 live preset。"
+            ),
             "requiresCodeChange": False,
-            "requiresStrategyIteration": True,
+            "requiresStrategyIteration": not retune_plan_ready,
+            "iterationApplied": retune_plan_ready,
         })
         strategy_queue.append({
             "type": "PARAMLAB_NO_TRADE_RETUNE",
-            "status": "REQUIRED_TESTER_ONLY",
+            "status": "RETUNE_PLAN_READY_TESTER_ONLY" if retune_plan_ready else "REQUIRED_TESTER_ONLY",
             "targetRoutes": [route for route, _count in route_counts.most_common(5)],
-            "recommendation": "扩大 tester lookback，降低过严过滤器阈值，保留 0.01/单仓/人工升实盘门槛。",
-            "routePlans": no_trade_retune_plan(route_counts),
+            "recommendation": (
+                "已生成下一轮 tester-only 调参方案；等待测试窗口执行并回灌报告，保留 0.01/单仓/人工升实盘门槛。"
+                if retune_plan_ready else
+                "扩大 tester lookback，降低过严过滤器阈值，保留 0.01/单仓/人工升实盘门槛。"
+            ),
+            "routePlans": route_plans,
+            "iterationApplied": retune_plan_ready,
+            "completionEvidence": "route_plans_generated_from_no_trade_tester_windows" if retune_plan_ready else "",
             "safeMode": "tester-only",
             "livePresetMutationAllowed": False,
             "orderSendAllowed": False,
