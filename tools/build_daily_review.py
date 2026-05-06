@@ -950,16 +950,36 @@ def daily_iteration_review(
 
     if as_int(daily_pnl.get("closedTrades")) > 0:
         net = as_float(daily_pnl.get("netUSC"))
+        loss_rows = as_list(daily_pnl.get("lossByStrategySide"))
+        manual_loss_only = bool(loss_rows) and all(
+            clean(row.get("strategy")).lower() in {"manual/other", "manual", "other", ""}
+            for row in loss_rows
+            if isinstance(row, dict)
+        )
+        loss_resolved = bool(daily_pnl.get("resolvedByCurrentPolicy")) or manual_loss_only
         findings.append({
             "code": "MT5_DAILY_PNL_POSITIVE" if net >= 0 else "MT5_DAILY_PNL_NEGATIVE",
-            "severity": "info" if net >= 0 else "high",
+            "severity": "info" if net >= 0 or loss_resolved else "high",
             "target": "strategy",
             "title": "MT5 昨日平仓复盘",
             "detail": f"{daily_pnl.get('date')} closed={daily_pnl.get('closedTrades')} net={net:.2f} USC",
-            "rootCause": "RSI BUY closed positive; no immediate code change required." if net >= 0 else "Daily realized P&L is negative and needs route attribution.",
-            "nextStep": "继续观察 RSI buy/sell 分侧表现。" if net >= 0 else "按 strategy/side/regime 拆亏损来源，必要时降级或收紧 gate。",
+            "rootCause": (
+                "RSI BUY closed positive; no immediate code change required."
+                if net >= 0 else
+                "昨日亏损来自 Manual/Other，不归因到 EA 自动策略；无需因此改策略。"
+                if manual_loss_only else
+                "Daily realized P&L is negative and needs route attribution."
+            ),
+            "nextStep": (
+                "继续观察 RSI buy/sell 分侧表现。"
+                if net >= 0 else
+                "保持 RSI BUY 恢复路线；人工/非 EA 亏损只记录，不触发自动策略迭代。"
+                if manual_loss_only else
+                "按 strategy/side/regime 拆亏损来源，必要时降级或收紧 gate。"
+            ),
             "requiresCodeChange": False,
-            "requiresStrategyIteration": net < 0,
+            "requiresStrategyIteration": net < 0 and not loss_resolved,
+            "iterationApplied": loss_resolved,
         })
 
     if deferred_action_queue:
@@ -1064,7 +1084,7 @@ def daily_iteration_review(
                 "保持钱包锁定；淘汰/重建低胜率 edge_filter，并按市场家族分桶，下一轮只进 shadow-only retune。"
             ),
             "requiresCodeChange": not retune_applied_today,
-            "requiresStrategyIteration": True,
+            "requiresStrategyIteration": not retune_applied_today,
             "iterationApplied": retune_applied_today,
         })
         strategy_queue.append({

@@ -539,6 +539,31 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertTrue(iteration["strategyIterationQueue"][-1]["routePlans"])
         self.assertFalse(iteration["strategyIterationQueue"][-1]["livePresetMutationAllowed"])
 
+    def test_daily_iteration_does_not_require_strategy_iteration_for_manual_mt5_loss(self):
+        iteration = daily_review.daily_iteration_review(
+            {
+                "date": "2026-05-05",
+                "closedTrades": 1,
+                "netUSC": -1.62,
+                "lossByStrategySide": [{
+                    "strategy": "Manual/Other",
+                    "side": "BUY",
+                    "trades": 1,
+                    "netUSC": -1.62,
+                }],
+            },
+            [],
+            {"dailyReview": {"summary": {"lossQuarantine": False}}},
+            {"requiresCodexReview": False},
+            5,
+        )
+
+        self.assertEqual(iteration["status"], "REVIEW_COMPLETE_NO_CODE_CHANGE")
+        self.assertFalse(iteration["codexFollowupRequired"])
+        self.assertEqual(iteration["findings"][0]["code"], "MT5_DAILY_PNL_NEGATIVE")
+        self.assertTrue(iteration["findings"][0]["iterationApplied"])
+        self.assertFalse(iteration["findings"][0]["requiresStrategyIteration"])
+
     def test_daily_iteration_flags_polymarket_loss_quarantine_for_codex(self):
         poly = {
             "dailyReview": {
@@ -648,14 +673,14 @@ class DailyAutopilotTests(unittest.TestCase):
             iteration,
         )
 
-        self.assertEqual(iteration["status"], "ITERATION_REQUIRED")
-        self.assertTrue(iteration["codexFollowupRequired"])
+        self.assertEqual(iteration["status"], "REVIEW_COMPLETE_NO_CODE_CHANGE")
+        self.assertFalse(iteration["codexFollowupRequired"])
         self.assertEqual(iteration["codeIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
         self.assertEqual(iteration["strategyIterationQueue"][0]["status"], "APPLIED_SHADOW_ONLY")
         self.assertEqual(iteration["strategyIterationQueue"][1]["type"], "POLYMARKET_COPY_TRADING_RETUNE")
         self.assertEqual(iteration["strategyIterationQueue"][1]["status"], "RETUNE_SPEC_READY_SHADOW_ONLY")
         self.assertIn("任何市场模块", iteration["strategyIterationQueue"][1]["recommendation"])
-        self.assertTrue(codex["required"])
+        self.assertFalse(codex["required"])
 
     def test_completion_report_explains_finished_todos_and_recommendations(self):
         poly = {
