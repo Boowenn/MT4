@@ -274,6 +274,40 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/bar-replay' || pathname === '/api/usdjpy-strategy-lab/bar-replay/status')) {
+    const args = [...baseArgs, 'status'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_bar_replay.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/bar-replay/build') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'build', '--write'], 120000, 'run_usdjpy_bar_replay.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/bar-replay/entry') {
+    const args = [...baseArgs, 'entry'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_bar_replay.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/bar-replay/exit') {
+    const args = [...baseArgs, 'exit'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_bar_replay.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/bar-replay/telegram-text') {
+    const args = [...baseArgs, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_bar_replay.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/telegram-text') {
     const args = [...baseArgs, 'telegram-text'];
     if (url.searchParams.get('refresh') === '1') args.push('--refresh');
