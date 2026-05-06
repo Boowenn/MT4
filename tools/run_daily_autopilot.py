@@ -324,10 +324,18 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
     steps.append(run_step("usd_jpy_strategy_policy", tool(args.python_bin, "run_usdjpy_strategy_lab.py", "--runtime-dir", str(runtime_dir), "build", "--write"), repo_root))
     steps.append(run_step("usd_jpy_ea_dry_run", tool(args.python_bin, "run_usdjpy_strategy_lab.py", "--runtime-dir", str(runtime_dir), "dry-run", "--write"), repo_root))
     steps.append(run_step("usd_jpy_live_loop", tool(args.python_bin, "run_usdjpy_live_loop.py", "--repo-root", str(repo_root), "--runtime-dir", str(runtime_dir), "once", "--write"), repo_root))
+    steps.append(run_step("usd_jpy_runtime_dataset", tool(args.python_bin, "run_usdjpy_runtime_dataset.py", "--runtime-dir", str(runtime_dir), "build", "--write"), repo_root))
+    steps.append(run_step("usd_jpy_replay_report", tool(args.python_bin, "run_usdjpy_runtime_dataset.py", "--runtime-dir", str(runtime_dir), "replay", "--write"), repo_root))
+    steps.append(run_step("usd_jpy_param_tuning", tool(args.python_bin, "run_usdjpy_runtime_dataset.py", "--runtime-dir", str(runtime_dir), "tune", "--write"), repo_root))
+    steps.append(run_step("usd_jpy_config_proposal", tool(args.python_bin, "run_usdjpy_runtime_dataset.py", "--runtime-dir", str(runtime_dir), "proposal", "--write"), repo_root))
 
     steps.append(run_step("daily_review", tool(args.python_bin, "build_daily_review.py", *common, "--max-actions", str(max(args.max_tasks, 1))), repo_root))
     daily_review = read_json(runtime_dir / "QuantGod_DailyReview.json")
     usdjpy_live_loop = read_json(runtime_dir / "live" / "QuantGod_USDJPYLiveLoopStatus.json")
+    usdjpy_dataset = read_json(runtime_dir / "datasets" / "usdjpy" / "QuantGod_USDJPYRuntimeDataset.json")
+    usdjpy_replay = read_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYReplayReport.json")
+    usdjpy_tuning = read_json(runtime_dir / "adaptive" / "QuantGod_USDJPYParamTuningReport.json")
+    usdjpy_proposal = read_json(runtime_dir / "adaptive" / "QuantGod_USDJPYLiveConfigProposal.json")
 
     status = "OK" if all(step["status"] == "OK" for step in steps) else "PARTIAL"
     payload = {
@@ -367,6 +375,17 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "whyNoEntry": usdjpy_live_loop.get("whyNoEntry", []),
             "nextActions": usdjpy_live_loop.get("nextActions", []),
         },
+        "usdJpyEvolutionSummary": {
+            "datasetSamples": usdjpy_dataset.get("summary", {}).get("sampleCount", 0),
+            "readySignalCount": usdjpy_dataset.get("summary", {}).get("readySignalCount", 0),
+            "actualEntryCount": usdjpy_dataset.get("summary", {}).get("actualEntryCount", 0),
+            "missedOpportunityCount": usdjpy_replay.get("summary", {}).get("missedOpportunityCount", 0),
+            "earlyExitCount": usdjpy_replay.get("summary", {}).get("earlyExitCount", 0),
+            "paramCandidateCount": usdjpy_tuning.get("summary", {}).get("candidateCount", 0),
+            "proposalStatus": usdjpy_proposal.get("status", ""),
+            "proposalStatusZh": usdjpy_proposal.get("statusZh", ""),
+            "autoApplyAllowed": bool(usdjpy_proposal.get("autoApplyAllowed", False)),
+        },
         "codexReview": daily_review.get("codexReview", {}),
         "promotionRecommendations": daily_review.get("promotionRecommendations", []),
         "nextActions": daily_review.get("nextActions", []),
@@ -397,6 +416,10 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "UsdJpyPolicyReady": str(bool(usdjpy_live_loop.get("policyReady"))).lower(),
             "UsdJpyPresetReady": str(bool(usdjpy_live_loop.get("presetReady"))).lower(),
             "UsdJpyRuntimeReady": str(bool(usdjpy_live_loop.get("runtimeReady"))).lower(),
+            "UsdJpyDatasetSamples": usdjpy_dataset.get("summary", {}).get("sampleCount", ""),
+            "UsdJpyMissedOpportunities": usdjpy_replay.get("summary", {}).get("missedOpportunityCount", ""),
+            "UsdJpyParamCandidateCount": usdjpy_tuning.get("summary", {}).get("candidateCount", ""),
+            "UsdJpyConfigProposalStatus": usdjpy_proposal.get("status", ""),
         },
         [
             "GeneratedAtIso",
@@ -419,6 +442,10 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "UsdJpyPolicyReady",
             "UsdJpyPresetReady",
             "UsdJpyRuntimeReady",
+            "UsdJpyDatasetSamples",
+            "UsdJpyMissedOpportunities",
+            "UsdJpyParamCandidateCount",
+            "UsdJpyConfigProposalStatus",
         ],
     )
     print(

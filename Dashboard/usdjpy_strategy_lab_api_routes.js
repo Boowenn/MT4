@@ -220,6 +220,60 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/evolution' || pathname === '/api/usdjpy-strategy-lab/evolution/status')) {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'status'], 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/evolution/build') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'status', '--write'], 120000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evolution/replay') {
+    const args = [...baseArgs, 'replay'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/evolution/replay') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'replay', '--write'], 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evolution/tune') {
+    const args = [...baseArgs, 'tune'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/evolution/tune') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'tune', '--write'], 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evolution/proposal') {
+    const args = [...baseArgs, 'proposal'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/evolution/proposal') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'proposal', '--write'], 90000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evolution/telegram-text') {
+    const args = [...baseArgs, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_runtime_dataset.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/telegram-text') {
     const args = [...baseArgs, 'telegram-text'];
     if (url.searchParams.get('refresh') === '1') args.push('--refresh');

@@ -935,6 +935,45 @@ def codex_review_queue(
     }
 
 
+def usdjpy_evolution_summary(runtime_dir: Path) -> dict[str, Any]:
+    dataset = read_json(runtime_dir / "datasets" / "usdjpy" / "QuantGod_USDJPYRuntimeDataset.json")
+    replay = read_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYReplayReport.json")
+    tuning = read_json(runtime_dir / "adaptive" / "QuantGod_USDJPYParamTuningReport.json")
+    proposal = read_json(runtime_dir / "adaptive" / "QuantGod_USDJPYLiveConfigProposal.json")
+    dataset_summary = dataset.get("summary") if isinstance(dataset.get("summary"), dict) else {}
+    replay_summary = replay.get("summary") if isinstance(replay.get("summary"), dict) else {}
+    tuning_summary = tuning.get("summary") if isinstance(tuning.get("summary"), dict) else {}
+    proposal_status = clean(proposal.get("status"))
+    candidate_count = as_int(tuning_summary.get("candidateCount"), 0)
+    missed = as_int(replay_summary.get("missedOpportunityCount"), 0)
+    early = as_int(replay_summary.get("earlyExitCount"), 0)
+    proposal_ready = proposal_status == "PROPOSAL_READY_FOR_REVIEW"
+    needs_iteration = bool((missed or early) and not proposal_ready and candidate_count <= 0)
+    return {
+        "status": "CONFIG_PROPOSAL_READY" if proposal_ready else "RETUNE_READY" if candidate_count > 0 else "NEEDS_REPLAY_TUNE" if needs_iteration else "OK_OR_COLLECTING",
+        "datasetSamples": as_int(dataset_summary.get("sampleCount"), 0),
+        "readySignalCount": as_int(dataset_summary.get("readySignalCount"), 0),
+        "actualEntryCount": as_int(dataset_summary.get("actualEntryCount"), 0),
+        "missedOpportunityCount": missed,
+        "earlyExitCount": early,
+        "paramCandidateCount": candidate_count,
+        "proposalStatus": proposal_status,
+        "proposalReady": proposal_ready,
+        "needsIteration": needs_iteration,
+        "codexFollowupRequired": needs_iteration,
+        "autoApplyAllowed": bool(proposal.get("autoApplyAllowed", False)),
+        "summaryZh": (
+            "已生成待人工复核的 USDJPY 参数提案，不自动改实盘 preset。"
+            if proposal_ready else
+            "已生成 USDJPY tester-only 调参候选，等待回放和 shadow 验证。"
+            if candidate_count > 0 else
+            "发现错失机会或过早出场，但还未生成调参候选。"
+            if needs_iteration else
+            "USDJPY 自学习闭环暂无必须迭代项，继续采集样本。"
+        ),
+    }
+
+
 def daily_iteration_review(
     daily_pnl: dict[str, Any],
     deferred_action_queue: list[dict[str, Any]],
@@ -942,6 +981,7 @@ def daily_iteration_review(
     mt5_risk: dict[str, Any],
     max_actions: int,
     tester_tasks: list[dict[str, Any]] | None = None,
+    usdjpy_evolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     code_queue: list[dict[str, Any]] = []
@@ -1049,6 +1089,39 @@ def daily_iteration_review(
             "reason": "all parsed tester windows produced zero closed trades",
             "safeAction": "generate wider-window tester-only candidates before any promotion review",
         })
+
+    usdjpy_evolution = usdjpy_evolution or {}
+    if usdjpy_evolution:
+        if usdjpy_evolution.get("proposalReady") or as_int(usdjpy_evolution.get("paramCandidateCount"), 0) > 0:
+            findings.append({
+                "code": "USDJPY_REPLAY_RETUNE_READY",
+                "severity": "info",
+                "target": "strategy",
+                "title": "USDJPY 回放调参已生成",
+                "detail": (
+                    f"samples={usdjpy_evolution.get('datasetSamples')} "
+                    f"missed={usdjpy_evolution.get('missedOpportunityCount')} "
+                    f"earlyExit={usdjpy_evolution.get('earlyExitCount')} "
+                    f"candidates={usdjpy_evolution.get('paramCandidateCount')}"
+                ),
+                "rootCause": "每日复盘已自动生成 tester-only 参数候选或 live config proposal。",
+                "nextStep": "等待回放/shadow/人工复核；不自动修改实盘 preset。",
+                "requiresCodeChange": False,
+                "requiresStrategyIteration": False,
+                "iterationApplied": True,
+            })
+        elif usdjpy_evolution.get("needsIteration"):
+            findings.append({
+                "code": "USDJPY_REPLAY_RETUNE_MISSING",
+                "severity": "high",
+                "target": "strategy",
+                "title": "USDJPY 复盘发现未闭合迭代",
+                "detail": usdjpy_evolution.get("summaryZh", ""),
+                "rootCause": "回放发现错失机会或过早出场，但参数候选尚未生成。",
+                "nextStep": "运行 USDJPY runtime dataset / replay / tune / proposal 链路。",
+                "requiresCodeChange": False,
+                "requiresStrategyIteration": True,
+            })
 
     poly_daily = poly.get("dailyReview") if isinstance(poly.get("dailyReview"), dict) else {}
     poly_summary = poly_daily.get("summary") if isinstance(poly_daily.get("summary"), dict) else {}
@@ -1406,6 +1479,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     promotions = promotion_recommendations(version_gate, governance)
     poly = polymarket_summary(runtime_dir)
     mt5_risk = mt5_terminal_risk(runtime_dir, now)
+    usdjpy_evolution = usdjpy_evolution_summary(runtime_dir)
     tester_summary = auto_tester.get("summary", {}) if isinstance(auto_tester.get("summary"), dict) else {}
     tester_tasks = completed_tester_report_tasks(param_status, param_results)
     daily_iteration = daily_iteration_review(
@@ -1415,6 +1489,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         mt5_risk,
         max_actions,
         tester_tasks,
+        usdjpy_evolution,
     )
     completion_report = build_completion_report(
         review_day,
@@ -1508,6 +1583,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "polymarketShadowPF": poly["dailyReview"]["summary"]["shadowProfitFactor"],
             "dailyIterationStatus": daily_iteration["status"],
             "dailyIterationRequired": daily_iteration["iterationRequired"],
+            "usdJpyEvolutionStatus": usdjpy_evolution["status"],
+            "usdJpyEvolutionNeedsIteration": usdjpy_evolution["needsIteration"],
             "completionReportStatus": completion_report["status"],
             "completionRecommendationCount": completion_report["summary"]["recommendationCount"],
             "codexReviewRequired": codex_review["required"],
@@ -1520,6 +1597,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
         "strategyActions": strategy_actions,
         "promotionRecommendations": promotions,
         "polymarket": poly,
+        "usdJpyEvolution": usdjpy_evolution,
         "dailyIteration": daily_iteration,
         "completionReport": completion_report,
         "mt5TerminalRisk": mt5_risk,
@@ -1561,6 +1639,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "Mt5TradeDisabledCount": mt5_risk["tradeDisabledCount"],
             "PolymarketWorkerStatus": payload["polymarket"]["workerStatus"],
             "PolymarketQueue": payload["polymarket"]["candidateQueueSize"],
+            "UsdJpyEvolutionStatus": usdjpy_evolution["status"],
+            "UsdJpyParamCandidateCount": usdjpy_evolution["paramCandidateCount"],
             "CodexReviewRequired": str(codex_review["required"]).lower(),
         },
         [
@@ -1580,6 +1660,8 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "Mt5TradeDisabledCount",
             "PolymarketWorkerStatus",
             "PolymarketQueue",
+            "UsdJpyEvolutionStatus",
+            "UsdJpyParamCandidateCount",
             "CodexReviewRequired",
         ],
     )
