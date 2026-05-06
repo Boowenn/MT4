@@ -74,8 +74,11 @@ test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety
   for (const marker of ['今日自动作战计划', '今日自动复盘', 'MT5 模拟车道', 'Polymarket 模拟车道', '不会下单']) {
     assert.match(report + text, new RegExp(marker));
   }
-  for (const marker of ['dailyTodo', 'dailyReview', 'completedByAgent', 'autoAppliedByAgent', 'requiresAutonomousGovernance']) {
+  for (const marker of ['dailyTodo', 'dailyReview', 'completedByAgent', 'autoAppliedByAgent', 'requiresAutonomousGovernance', 'strategyJsonTodo', 'gaEvolutionTodo', 'telegramGatewayTodo', 'WAITING_NEXT_PHASE']) {
     assert.match(report, new RegExp(marker));
+  }
+  for (const marker of ['Strategy JSON', 'GA Evolution', 'Telegram Gateway', '下一阶段任务']) {
+    assert.match(report + text, new RegExp(marker));
   }
   assert.doesNotMatch(report, /requiresManualReview|manualReview|readyForReview/);
   assert.match(runner, /QG_TELEGRAM_COMMANDS_ALLOWED/);

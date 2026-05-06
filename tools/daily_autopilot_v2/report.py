@@ -15,7 +15,46 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 REPORT_NAME = "QuantGod_DailyAutopilotV2.json"
-AGENT_VERSION = "v2.4"
+AGENT_VERSION = "v2.5"
+
+NEXT_PHASE_TODOS: List[Dict[str, Any]] = [
+    {
+        "id": "strategyJsonTodo",
+        "lane": "SYSTEM",
+        "laneZh": "策略契约",
+        "titleZh": "Strategy JSON DSL",
+        "status": "WAITING_NEXT_PHASE",
+        "stage": "NEXT_PHASE",
+        "completedByAgent": False,
+        "autoAppliedByAgent": False,
+        "requiresAutonomousGovernance": True,
+        "summaryZh": "等待下一阶段建立 Strategy JSON 全链路策略契约；当前不会假装已经完成。",
+    },
+    {
+        "id": "gaEvolutionTodo",
+        "lane": "MT5_SHADOW",
+        "laneZh": "MT5 模拟车道",
+        "titleZh": "GA Evolution Engine",
+        "status": "WAITING_NEXT_PHASE",
+        "stage": "NEXT_PHASE",
+        "completedByAgent": False,
+        "autoAppliedByAgent": False,
+        "requiresAutonomousGovernance": True,
+        "summaryZh": "等待下一阶段接入 GA population、mutation、crossover 和 fitness；当前仍使用 replay / walk-forward / shadow ranking。",
+    },
+    {
+        "id": "telegramGatewayTodo",
+        "lane": "NOTIFICATION",
+        "laneZh": "Telegram 推送",
+        "titleZh": "Telegram Gateway",
+        "status": "WAITING_NEXT_PHASE",
+        "stage": "NEXT_PHASE",
+        "completedByAgent": False,
+        "autoAppliedByAgent": False,
+        "requiresAutonomousGovernance": True,
+        "summaryZh": "等待下一阶段拆出独立 Telegram Gateway；当前 Telegram 仍只做中文 push-only，不接交易命令。",
+    },
+]
 
 
 def _safe_list(value: Any) -> List[Any]:
@@ -96,6 +135,21 @@ def _top_mt5_routes(mt5_shadow: Dict[str, Any], limit: int = 6) -> List[Dict[str
             "reasonZh": row.get("reasonZh", ""),
         })
     return items
+
+
+def _next_phase_todos() -> Dict[str, Any]:
+    todos = [dict(item) for item in NEXT_PHASE_TODOS]
+    return {
+        "status": "WAITING_NEXT_PHASE",
+        "completedByAgent": False,
+        "autoAppliedByAgent": False,
+        "requiresAutonomousGovernance": True,
+        "summaryZh": "Strategy JSON、GA Evolution 和独立 Telegram Gateway 是 v2.5 自动生成的下一阶段任务；当前不假装完成。",
+        "items": todos,
+        "strategyJsonTodo": todos[0],
+        "gaEvolutionTodo": todos[1],
+        "telegramGatewayTodo": todos[2],
+    }
 
 
 def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,11 +287,12 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
 
 def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
     items = _agent_todo_items(agent, lifecycle, metrics)
+    next_phase = _next_phase_todos()
     rollback_triggered = any(bool(item.get("rollbackTriggered")) for item in items)
     auto_applied = any(bool(item.get("autoAppliedByAgent")) for item in items)
     return {
         "ok": True,
-        "schema": "quantgod.daily_todo_agent.v2_4",
+        "schema": "quantgod.daily_todo_agent.v2_5",
         "agentVersion": AGENT_VERSION,
         "generatedAtIso": generated_at,
         "timestamp": generated_at,
@@ -252,6 +307,10 @@ def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
         "rollbackTriggered": rollback_triggered,
         "metrics": metrics,
         "items": items,
+        "nextPhaseTodos": next_phase,
+        "strategyJsonTodo": next_phase["strategyJsonTodo"],
+        "gaEvolutionTodo": next_phase["gaEvolutionTodo"],
+        "telegramGatewayTodo": next_phase["telegramGatewayTodo"],
         "summaryZh": "今日待办已由 Agent 自动检查、生成和闭环；无需人工回灌。",
     }
 
@@ -265,7 +324,7 @@ def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metric
     rollback_triggered = bool(_safe_list(rollback.get("hardBlockers")))
     return {
         "ok": True,
-        "schema": "quantgod.daily_review_agent.v2_4",
+        "schema": "quantgod.daily_review_agent.v2_5",
         "agentVersion": AGENT_VERSION,
         "generatedAtIso": generated_at,
         "timestamp": generated_at,
@@ -295,6 +354,7 @@ def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metric
             "summary": _safe_dict(polymarket.get("summary")),
             "riskContextOnly": True,
         },
+        "nextPhaseTodos": _next_phase_todos(),
         "summaryZh": "每日复盘已由 Agent 自动完成：收集三车道样本、计算指标、更新升降级/回滚状态，不等待人工确认。",
     }
 
@@ -325,6 +385,7 @@ def build_daily_autopilot_v2(
         "eveningReview": _build_evening_review(agent, lifecycle),
         "dailyTodo": daily_todo,
         "dailyReview": daily_review,
+        "nextPhaseTodos": _next_phase_todos(),
         "completedByAgent": True,
         "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
         "requiresAutonomousGovernance": True,

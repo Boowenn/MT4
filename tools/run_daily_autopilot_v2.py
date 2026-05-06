@@ -37,7 +37,7 @@ def todo_text(payload: Dict[str, object]) -> str:
         "【QuantGod Agent 今日待办】",
         "",
         f"状态：{payload.get('status', 'COMPLETED_BY_AGENT')}",
-        f"Agent 版本：{payload.get('agentVersion', 'v2.4')}",
+        f"Agent 版本：{payload.get('agentVersion', 'v2.5')}",
         "无需人工回灌；每项由 Agent 自动检查、完成、晋级或回滚。",
         "",
     ]
