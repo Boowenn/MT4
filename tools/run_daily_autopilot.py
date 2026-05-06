@@ -314,8 +314,20 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         steps.append(run_step("version_promotion_gate_after_run", tool(args.python_bin, "build_version_promotion_gate.py", *common), repo_root))
         steps.append(run_step("governance_advisor_after_run", tool(args.python_bin, "build_governance_advisor.py", *common), repo_root))
 
+    steps.append(run_step(
+        "usd_jpy_automation_chain",
+        tool(args.python_bin, "run_automation_chain.py", "--runtime-dir", str(runtime_dir), "--symbols", "USDJPYc", "once"),
+        repo_root,
+        timeout=1200,
+        env_overrides={"QG_AUTOMATION_SYMBOLS": "USDJPYc"},
+    ))
+    steps.append(run_step("usd_jpy_strategy_policy", tool(args.python_bin, "run_usdjpy_strategy_lab.py", "--runtime-dir", str(runtime_dir), "build", "--write"), repo_root))
+    steps.append(run_step("usd_jpy_ea_dry_run", tool(args.python_bin, "run_usdjpy_strategy_lab.py", "--runtime-dir", str(runtime_dir), "dry-run", "--write"), repo_root))
+    steps.append(run_step("usd_jpy_live_loop", tool(args.python_bin, "run_usdjpy_live_loop.py", "--repo-root", str(repo_root), "--runtime-dir", str(runtime_dir), "once", "--write"), repo_root))
+
     steps.append(run_step("daily_review", tool(args.python_bin, "build_daily_review.py", *common, "--max-actions", str(max(args.max_tasks, 1))), repo_root))
     daily_review = read_json(runtime_dir / "QuantGod_DailyReview.json")
+    usdjpy_live_loop = read_json(runtime_dir / "live" / "QuantGod_USDJPYLiveLoopStatus.json")
 
     status = "OK" if all(step["status"] == "OK" for step in steps) else "PARTIAL"
     payload = {
@@ -345,6 +357,16 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         },
         "steps": steps,
         "dailyReviewSummary": daily_review.get("summary", {}),
+        "usdJpyLiveLoopSummary": {
+            "state": usdjpy_live_loop.get("state", ""),
+            "stateZh": usdjpy_live_loop.get("stateZh", ""),
+            "policyReady": usdjpy_live_loop.get("policyReady", False),
+            "presetReady": usdjpy_live_loop.get("presetReady", False),
+            "runtimeReady": usdjpy_live_loop.get("runtimeReady", False),
+            "allowedLiveRoute": (usdjpy_live_loop.get("intent") or {}).get("allowedLiveRoute", "RSI_Reversal BUY"),
+            "whyNoEntry": usdjpy_live_loop.get("whyNoEntry", []),
+            "nextActions": usdjpy_live_loop.get("nextActions", []),
+        },
         "codexReview": daily_review.get("codexReview", {}),
         "promotionRecommendations": daily_review.get("promotionRecommendations", []),
         "nextActions": daily_review.get("nextActions", []),
@@ -371,6 +393,10 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "NextTesterWindowLabel": daily_review.get("summary", {}).get("nextTesterWindowLabel", ""),
             "PromotionReviewCount": daily_review.get("summary", {}).get("promotionReviewCount", ""),
             "CodexReviewRequired": str(bool(daily_review.get("codexReview", {}).get("required"))).lower(),
+            "UsdJpyLiveLoopState": usdjpy_live_loop.get("state", ""),
+            "UsdJpyPolicyReady": str(bool(usdjpy_live_loop.get("policyReady"))).lower(),
+            "UsdJpyPresetReady": str(bool(usdjpy_live_loop.get("presetReady"))).lower(),
+            "UsdJpyRuntimeReady": str(bool(usdjpy_live_loop.get("runtimeReady"))).lower(),
         },
         [
             "GeneratedAtIso",
@@ -389,6 +415,10 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "NextTesterWindowLabel",
             "PromotionReviewCount",
             "CodexReviewRequired",
+            "UsdJpyLiveLoopState",
+            "UsdJpyPolicyReady",
+            "UsdJpyPresetReady",
+            "UsdJpyRuntimeReady",
         ],
     )
     print(

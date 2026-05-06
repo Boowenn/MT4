@@ -52,5 +52,6 @@ test('USDJPY API route exposes only /api/usdjpy-strategy-lab', () => {
   assert.match(route, /\/api\/usdjpy-strategy-lab\/import-backtest/);
   assert.match(route, /\/api\/usdjpy-strategy-lab\/risk-check/);
   assert.match(route, /\/api\/usdjpy-strategy-lab\/telegram-text/);
+  assert.match(route, /\/api\/usdjpy-strategy-lab\/live-loop/);
   assert.match(route, /\/api\/usdjpy-strategy-lab\/run/);
 });

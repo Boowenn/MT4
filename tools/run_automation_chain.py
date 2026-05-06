@@ -71,7 +71,7 @@ def cmd_loop(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="QuantGod P3-12 automation chain runner")
     parser.add_argument("--runtime-dir", default=os.environ.get("QG_RUNTIME_DIR", "runtime"))
-    parser.add_argument("--symbols", default=os.environ.get("QG_AUTOMATION_SYMBOLS", "USDJPYc,EURUSDc,XAUUSDc"))
+    parser.add_argument("--symbols", default=os.environ.get("QG_AUTOMATION_SYMBOLS", "USDJPYc"))
     parser.add_argument("--max-age-seconds", type=int, default=int(os.environ.get("QG_AUTOMATION_MAX_AGE_SECONDS", "180")))
     sub = parser.add_subparsers(dest="command", required=True)
     status = sub.add_parser("status")

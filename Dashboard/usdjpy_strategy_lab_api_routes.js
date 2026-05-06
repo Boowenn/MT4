@@ -35,10 +35,10 @@ function isUSDJPYStrategyLabPath(requestUrl) {
   return pathname === '/api/usdjpy-strategy-lab' || pathname.startsWith('/api/usdjpy-strategy-lab/');
 }
 
-function runPythonJson(repoRoot, args, timeoutMs = 45000) {
+function runPythonJson(repoRoot, args, timeoutMs = 45000, scriptName = 'run_usdjpy_strategy_lab.py') {
   return new Promise((resolve) => {
     const pythonBin = process.env.QG_PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
-    const script = path.join(repoRoot, 'tools', 'run_usdjpy_strategy_lab.py');
+    const script = path.join(repoRoot, 'tools', scriptName);
     if (!fs.existsSync(script)) {
       resolve({ ok: false, skipped: true, reason: 'script_not_found', script });
       return;
@@ -197,6 +197,26 @@ async function handle(req, res, ctx) {
   }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/dry-run') {
     const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'dry-run', '--write']);
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/live-loop') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'status'];
+    if (url.searchParams.get('write') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 45000, 'run_usdjpy_live_loop.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/live-loop/run') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'once', '--write'], 90000, 'run_usdjpy_live_loop.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/live-loop/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_live_loop.py');
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }

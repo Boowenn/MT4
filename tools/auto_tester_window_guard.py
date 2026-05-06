@@ -476,11 +476,11 @@ def validate_preset(path: Path) -> dict[str, Any]:
     if lot is not None and lot > 0.01:
         blockers.append("preset_lot_size_gt_0_01")
     max_total = as_float(values.get("PilotMaxTotalPositions"))
-    if max_total is not None and max_total > 1:
-        blockers.append("preset_max_total_positions_gt_1")
+    if max_total is not None and max_total > 2:
+        blockers.append("preset_max_total_positions_gt_2")
     max_symbol = as_float(values.get("PilotMaxPositionsPerSymbol"))
-    if max_symbol is not None and max_symbol > 1:
-        blockers.append("preset_max_positions_per_symbol_gt_1")
+    if max_symbol is not None and max_symbol > 2:
+        blockers.append("preset_max_positions_per_symbol_gt_2")
     return {
         "path": str(path),
         "status": "ready" if not blockers else "blocked",
