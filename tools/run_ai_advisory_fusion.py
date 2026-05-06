@@ -26,7 +26,7 @@ from ai_analysis.analysis_service_v2 import AnalysisServiceV2, phase3_ai_safety 
 from ai_analysis.deepseek_mt5_advisor import DeepSeekAdvisorError, DeepSeekMt5Advisor, load_deepseek_config  # noqa: E402
 
 MODE = "QUANTGOD_AI_ADVISORY_FUSION_V1"
-DEFAULT_SYMBOLS = "USDJPYc,EURUSDc,XAUUSDc"
+DEFAULT_SYMBOLS = "USDJPYc"
 DEFAULT_TIMEFRAMES = "M15,H1,H4,D1"
 
 

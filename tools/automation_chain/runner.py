@@ -25,7 +25,8 @@ class AutomationChainRunner:
     def __init__(self, repo_root: str | Path, runtime_dir: str | Path, symbols: List[str], python_bin: str | None = None, max_age_seconds: int = 180):
         self.repo_root = Path(repo_root).resolve()
         self.runtime_dir = Path(runtime_dir)
-        self.symbols = [s.strip() for s in symbols if s.strip()]
+        focus_symbols = [s.strip() for s in symbols if s.strip() and s.strip().upper().startswith("USDJPY")]
+        self.symbols = focus_symbols or ["USDJPYc"]
         self.python_bin = python_bin or sys.executable
         self.max_age_seconds = max_age_seconds
 

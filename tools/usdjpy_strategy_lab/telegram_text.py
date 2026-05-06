@@ -32,9 +32,9 @@ def policy_to_chinese_text(policy: Dict[str, Any]) -> str:
     lines.append(f"- 阻断策略方向：{policy.get('blockedCount', 0)}")
     lines.append(f"- 最高允许仓位：{_num(policy.get('maxLot', 2.0))}")
     lines.append("")
-    top = policy.get("topPolicy") or {}
+    top = policy.get("topLiveEligiblePolicy") or policy.get("liveRecoveryCandidate") or policy.get("topPolicy") or {}
     if top:
-        lines.append("当前优先策略：")
+        lines.append("当前实盘恢复路线：")
         lines.append(f"- 策略：{top.get('strategy', 'UNKNOWN')}")
         lines.append(f"- 方向：{direction_cn(top.get('direction'))}")
         lines.append(f"- 状态：{status_cn(top.get('entryMode'))}")
@@ -43,6 +43,12 @@ def policy_to_chinese_text(policy: Dict[str, Any]) -> str:
         reasons = top.get("reasons") or []
         if reasons:
             lines.append("- 原因：" + "；".join(str(r) for r in reasons[:4]))
+        lines.append("")
+    shadow = policy.get("topShadowPolicy") or {}
+    if shadow and shadow != top:
+        lines.append("影子研究第一名：")
+        lines.append(f"- {shadow.get('strategy', 'UNKNOWN')}｜{direction_cn(shadow.get('direction'))}｜{status_cn(shadow.get('entryMode'))}｜评分 {_num(shadow.get('score', 0.0), 1)}")
+        lines.append("- 说明：影子第一名不会自动抢占实盘 RSI 买入恢复路线。")
         lines.append("")
     lines.append("策略排名：")
     strategies = policy.get("strategies") or []

@@ -39,8 +39,30 @@ def discover_fastlane_quality(runtime_dir: Path, symbol: str) -> Dict[str, Any]:
         if not payload:
             continue
         symbols = payload.get("symbols")
-        if isinstance(symbols, dict) and symbol in symbols and isinstance(symbols[symbol], dict):
-            return symbols[symbol]
+        if isinstance(symbols, dict):
+            for row_symbol, row_payload in symbols.items():
+                if not isinstance(row_payload, dict):
+                    continue
+                key = str(row_symbol or "")
+                if key == symbol or key.upper().startswith("USDJPY"):
+                    item = dict(row_payload)
+                    item.setdefault("symbol", key or symbol)
+                    item.setdefault("found", True)
+                    item.setdefault("focusSymbolFound", True)
+                    return item
+            return {}
+        if isinstance(symbols, list):
+            for item in symbols:
+                if not isinstance(item, dict):
+                    continue
+                row_symbol = str(item.get("symbol") or "")
+                if row_symbol == symbol or row_symbol.upper().startswith("USDJPY"):
+                    result = dict(item)
+                    result.setdefault("found", True)
+                    result.setdefault("focusSymbolFound", True)
+                    result.setdefault("sourceQuality", payload.get("quality"))
+                    return result
+            return {}
         return payload
     return {}
 

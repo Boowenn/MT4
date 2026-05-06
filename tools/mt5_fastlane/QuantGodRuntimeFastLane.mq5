@@ -1,7 +1,7 @@
 #property strict
 #property description "QuantGod runtime fast lane exporter. Read-only evidence writer."
 
-input string QG_Symbols = "USDJPYc,EURUSDc,XAUUSDc";
+input string QG_Symbols = "USDJPYc";
 input int QG_TimerSeconds = 1;
 input int QG_TickFlushEvery = 1;
 input int QG_IndicatorPeriod = 14;

@@ -24,6 +24,10 @@ from .schema import (
 from .strategy_signals import build_candidate_signals
 from .strategy_scoreboard import build_strategy_scoreboard
 
+FASTLANE_PASS_STATES = {"OK", "PASS", "PASSED", "GOOD", "HEALTHY", "FAST", "EA_DASHBOARD_OK"}
+LIVE_ELIGIBLE_STRATEGY = "RSI_Reversal"
+LIVE_ELIGIBLE_DIRECTION = "LONG"
+
 
 def _env_float(name: str, default: float) -> float:
     try:
@@ -62,11 +66,21 @@ def _fastlane_ok(quality: Dict[str, Any]) -> tuple[bool, List[str]]:
     if not quality.get("found"):
         return False, ["缺少 USDJPY 快通道质量证据"]
     state = str(quality.get("quality") or "MISSING").upper()
-    if state not in {"OK", "PASS", "GOOD", "HEALTHY"}:
+    if state not in FASTLANE_PASS_STATES:
         return False, [f"快通道质量未通过：{state}"]
     if quality.get("focusSymbolFound") is False:
         return False, ["快通道质量文件未包含 USDJPY"]
+    if state == "EA_DASHBOARD_OK":
+        return True, ["快通道质量降级可用：使用 HFM EA Dashboard 新鲜快照"]
     return True, ["快通道质量通过"]
+
+
+def _is_live_route(item: PolicyItem) -> bool:
+    return item.strategy == LIVE_ELIGIBLE_STRATEGY and str(item.direction).upper() == LIVE_ELIGIBLE_DIRECTION
+
+
+def _is_live_eligible(item: PolicyItem) -> bool:
+    return _is_live_route(item) and item.entryMode in {ENTRY_STANDARD, ENTRY_OPPORTUNITY} and bool(item.allowed)
 
 
 def _trigger_state(plan: Dict[str, Any], direction: str) -> tuple[str, List[str], float]:
@@ -200,6 +214,12 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
         ))
 
     policies.sort(key=lambda item: (item.entryMode == ENTRY_BLOCKED, -item.score, -item.recommendedLot, item.strategy))
+    top_shadow_policy = policies[0].to_dict() if policies else None
+    live_route_candidates = [item for item in policies if _is_live_route(item)]
+    live_eligible_candidates = [item for item in policies if _is_live_eligible(item)]
+    top_live_policy = live_eligible_candidates[0].to_dict() if live_eligible_candidates else None
+    live_recovery_candidate = live_route_candidates[0].to_dict() if live_route_candidates else None
+    top_policy = top_live_policy or live_recovery_candidate or top_shadow_policy
     payload = {
         "schema": "quantgod.usdjpy_auto_execution_policy.v1",
         "generatedAt": utc_now_iso(),
@@ -221,7 +241,10 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
         "standardEntryCount": sum(1 for item in policies if item.entryMode == ENTRY_STANDARD),
         "opportunityEntryCount": sum(1 for item in policies if item.entryMode == ENTRY_OPPORTUNITY),
         "blockedCount": sum(1 for item in policies if item.entryMode == ENTRY_BLOCKED),
-        "topPolicy": policies[0].to_dict() if policies else None,
+        "topPolicy": top_policy,
+        "topShadowPolicy": top_shadow_policy,
+        "topLiveEligiblePolicy": top_live_policy,
+        "liveRecoveryCandidate": live_recovery_candidate,
         "strategies": [item.to_dict() for item in policies],
         "evidence": {
             "runtimeOk": runtime_ok,
@@ -231,6 +254,8 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "adaptivePolicyFound": bool(adaptive),
             "scoreboardRoutes": len(scoreboard.get("routes", [])),
             "candidateSignalCount": candidate_signals.get("count", 0),
+            "topLiveEligiblePolicyFound": bool(top_live_policy),
+            "topShadowPolicyStrategy": (top_shadow_policy or {}).get("strategy"),
         },
         "candidateSignals": candidate_signals.get("signals", []),
         "scoreboard": scoreboard,

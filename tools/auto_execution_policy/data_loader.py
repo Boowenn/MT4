@@ -197,7 +197,7 @@ class EvidenceLoader:
         else:
             symbol_data = data.get(symbol) or data
         quality = str(symbol_data.get("quality") or symbol_data.get("status") or data.get("quality") or "UNKNOWN").upper()
-        ok = quality in {"OK", "PASS", "PASSED", "GOOD", "HEALTHY"}
+        ok = quality in {"OK", "PASS", "PASSED", "GOOD", "HEALTHY", "FAST", "EA_DASHBOARD_OK"}
         reason = str(symbol_data.get("reason") or data.get("reason") or ("快通道质量通过" if ok else f"快通道质量为 {quality}"))
         return FastLaneQuality(quality, ok, reason)
 

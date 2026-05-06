@@ -18,7 +18,9 @@ from automation_chain.telegram_text import build_automation_telegram_text
 
 
 def parse_symbols(value: str) -> List[str]:
-    return [x.strip() for x in str(value or "").split(",") if x.strip()]
+    symbols = [x.strip() for x in str(value or "").split(",") if x.strip()]
+    focus = [symbol for symbol in symbols if symbol.upper().startswith("USDJPY")]
+    return focus or ["USDJPYc"]
 
 
 def build_runner(args: argparse.Namespace) -> AutomationChainRunner:

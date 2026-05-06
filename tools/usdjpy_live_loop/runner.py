@@ -39,7 +39,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _append_ledger(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    top = payload.get("topPolicy") or {}
+    top = payload.get("topLiveEligiblePolicy") or payload.get("topPolicy") or {}
     row = {
         "generatedAt": payload.get("generatedAt", ""),
         "state": payload.get("state", ""),
@@ -99,9 +99,11 @@ def _runtime_status(runtime_dir: Path) -> dict[str, Any]:
 
 
 def _policy_ready(policy: dict[str, Any]) -> tuple[bool, list[str]]:
-    top = policy.get("topPolicy") or {}
+    top = policy.get("topLiveEligiblePolicy") or {}
     if not top:
-        return False, ["没有 USDJPY 优先策略政策"]
+        fallback = policy.get("liveRecoveryCandidate") or {}
+        fallback_reasons = list(fallback.get("reasons") or [])
+        return False, ["没有可进入实盘复核的 RSI_Reversal 买入政策", *fallback_reasons[:3]]
     reasons = list(top.get("reasons") or [])
     strategy = str(top.get("strategy") or "")
     direction = str(top.get("direction") or "").upper()
@@ -149,7 +151,7 @@ def build_live_loop(repo_root: Path, runtime_dir: Path, *, write: bool = False, 
         state = STATE_POLICY_READY_PRESET_BLOCKED
     else:
         state = STATE_READY
-    top = policy.get("topPolicy") or {}
+    top = policy.get("topLiveEligiblePolicy") or policy.get("liveRecoveryCandidate") or policy.get("topPolicy") or {}
     intent = {
         "schema": SCHEMA_INTENT,
         "generatedAt": utc_now_iso(),
@@ -162,6 +164,8 @@ def build_live_loop(repo_root: Path, runtime_dir: Path, *, write: bool = False, 
         "manualPositionsIgnoredByPolicy": True,
         "maxEaPositions": preset.get("maxEaPositions", 2),
         "topPolicy": top,
+        "topLiveEligiblePolicy": policy.get("topLiveEligiblePolicy"),
+        "topShadowPolicy": policy.get("topShadowPolicy"),
         "recommendedLot": top.get("recommendedLot", 0.0),
         "entryMode": top.get("entryMode", "BLOCKED"),
         "strategy": top.get("strategy", "UNKNOWN"),
@@ -183,6 +187,8 @@ def build_live_loop(repo_root: Path, runtime_dir: Path, *, write: bool = False, 
         "manualPositionsIgnoredByPolicy": True,
         "maxEaPositions": preset.get("maxEaPositions", 2),
         "topPolicy": top,
+        "topLiveEligiblePolicy": policy.get("topLiveEligiblePolicy"),
+        "topShadowPolicy": policy.get("topShadowPolicy"),
         "policy": policy,
         "dryRun": dry_run,
         "preset": preset,

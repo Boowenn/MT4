@@ -11,7 +11,7 @@ from .schema import ENTRY_BLOCKED, ENTRY_OPPORTUNITY, ENTRY_STANDARD, FOCUS_SYMB
 
 def build_dry_run_decision(runtime_dir: Path, *, write: bool = False) -> Dict[str, Any]:
     policy = build_usdjpy_policy(runtime_dir, write=write)
-    top = policy.get("topPolicy") or {}
+    top = policy.get("topLiveEligiblePolicy") or policy.get("liveRecoveryCandidate") or {}
     mode = top.get("entryMode") or ENTRY_BLOCKED
     decision = "阻断"
     if mode == ENTRY_STANDARD:
@@ -31,6 +31,8 @@ def build_dry_run_decision(runtime_dir: Path, *, write: bool = False) -> Dict[st
         "maxLot": top.get("maxLot", policy.get("maxLot", 2.0)),
         "reasons": top.get("reasons", []) or ["没有可用 USDJPY 策略政策"],
         "policy": top,
+        "topShadowPolicy": policy.get("topShadowPolicy"),
+        "topLiveEligiblePolicy": policy.get("topLiveEligiblePolicy"),
         "safety": dict(READ_ONLY_SAFETY),
     }
     assert_no_secret_or_execution_flags(payload)

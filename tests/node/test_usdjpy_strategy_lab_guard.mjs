@@ -55,3 +55,14 @@ test('USDJPY API route exposes only /api/usdjpy-strategy-lab', () => {
   assert.match(route, /\/api\/usdjpy-strategy-lab\/live-loop/);
   assert.match(route, /\/api\/usdjpy-strategy-lab\/run/);
 });
+
+test('USDJPY policy separates shadow winner from live-eligible route', () => {
+  const policy = fs.readFileSync(path.join(repoRoot, 'tools/usdjpy_strategy_lab/policy_builder.py'), 'utf8');
+  assert.match(policy, /FASTLANE_PASS_STATES/);
+  assert.match(policy, /"FAST"/);
+  assert.match(policy, /"EA_DASHBOARD_OK"/);
+  assert.match(policy, /topShadowPolicy/);
+  assert.match(policy, /topLiveEligiblePolicy/);
+  assert.match(policy, /LIVE_ELIGIBLE_STRATEGY\s*=\s*["']RSI_Reversal["']/);
+  assert.match(policy, /LIVE_ELIGIBLE_DIRECTION\s*=\s*["']LONG["']/);
+});

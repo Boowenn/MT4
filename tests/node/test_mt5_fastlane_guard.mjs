@@ -44,6 +44,12 @@ test('MQL5 exporter throttles tick writes using QG_TickFlushEvery', () => {
   assert.match(source, /return;\s*for\(int i = 0; i < ArraySize\(symbols\); i\+\+\)/s);
 });
 
+test('MQL5 exporter default scope is USDJPY only', () => {
+  const source = readFileSync(join(ROOT, 'tools', 'mt5_fastlane', 'QuantGodRuntimeFastLane.mq5'), 'utf8');
+  assert.match(source, /QG_Symbols\s*=\s*"USDJPYc"/);
+  assert.doesNotMatch(source, /EURUSDc|XAUUSDc/);
+});
+
 test('telegram-facing text is Chinese-first', () => {
   const source = readFileSync(join(ROOT, 'tools', 'mt5_fastlane', 'quality.py'), 'utf8');
   assert.match(source, /快通道质量审查/);

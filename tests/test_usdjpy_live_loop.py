@@ -71,7 +71,33 @@ class USDJPYLiveLoopTests(unittest.TestCase):
             self.assertIn("买入", daily["topDirectionZh"])
             self.assertFalse(daily["safety"]["orderSendAllowedByTool"])
 
+    def test_shadow_top_strategy_does_not_block_live_rsi_buy_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            runtime = Path(tmp) / "runtime"
+            write_ready_preset(root)
+            sample_runtime(runtime, overwrite=True)
+            ledger = runtime / "ShadowCandidateOutcomeLedger.csv"
+            with ledger.open("a", encoding="utf-8") as handle:
+                for idx in range(8):
+                    handle.write(f"USDJPYc,MA_Cross,LONG,TREND_EXP_UP,M15,{8 + idx * 0.1:.1f},10.0,1.0\n")
+            sltp_path = runtime / "adaptive" / "QuantGod_DynamicSLTPCalibration.json"
+            sltp = json.loads(sltp_path.read_text(encoding="utf-8"))
+            sltp["plans"].append({
+                "symbol": "USDJPYc",
+                "strategy": "MA_Cross",
+                "direction": "LONG",
+                "status": "CALIBRATED",
+                "initialStopPips": 3.0,
+                "target1Pips": 5.0,
+            })
+            sltp_path.write_text(json.dumps(sltp, ensure_ascii=False), encoding="utf-8")
+            payload = build_live_loop(root, runtime, write=True)
+            self.assertEqual(payload["state"], STATE_READY)
+            self.assertEqual(payload["topShadowPolicy"]["strategy"], "MA_Cross")
+            self.assertEqual(payload["topLiveEligiblePolicy"]["strategy"], "RSI_Reversal")
+            self.assertEqual(payload["intent"]["strategy"], "RSI_Reversal")
+
 
 if __name__ == "__main__":
     unittest.main()
-

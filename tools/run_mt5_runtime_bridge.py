@@ -17,7 +17,7 @@ from mt5_runtime_bridge.reader import RuntimeBridgeReader  # noqa: E402
 from mt5_runtime_bridge.schema import ALLOWED_TIMEFRAMES, bridge_safety_payload  # noqa: E402
 
 DEFAULT_RUNTIME_DIR = r"C:\Program Files\HFM Metatrader 5\MQL5\Files"
-DEFAULT_SYMBOLS = "USDJPYc,EURUSDc,XAUUSDc"
+DEFAULT_SYMBOLS = "USDJPYc"
 
 
 def runtime_dir_from_args(args: argparse.Namespace) -> Path:

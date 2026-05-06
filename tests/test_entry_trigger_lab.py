@@ -22,6 +22,28 @@ class EntryTriggerLabTests(unittest.TestCase):
             plan=build_trigger_plan(runtime,["USDJPYc"],directions=["LONG"]); decision=plan["decisions"][0]
             self.assertEqual(decision["state"],"BLOCKED")
             self.assertFalse(decision["confirmations"]["快通道质量通过"])
+    def test_fastlane_symbol_list_shape_is_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime=Path(tmp); sample_runtime(runtime,["USDJPYc"],overwrite=True)
+            quality=runtime/"quality"/"QuantGod_MT5FastLaneQuality.json"
+            payload=json.loads(quality.read_text(encoding="utf-8"))
+            payload["quality"]="FAST"
+            payload["symbols"]=[{"symbol":"USDJPYc","quality":"FAST","heartbeatFresh":True,"tickFresh":True,"indicatorFresh":True,"spreadOk":True}]
+            quality.write_text(json.dumps(payload), encoding="utf-8")
+            plan=build_trigger_plan(runtime,["USDJPYc"],directions=["LONG"]); decision=plan["decisions"][0]
+            self.assertTrue(decision["confirmations"]["快通道质量存在"])
+            self.assertTrue(decision["confirmations"]["快通道质量通过"])
+            self.assertNotIn("缺少 MT5 快通道质量证据", "；".join(decision["reasons"]))
+    def test_fastlane_symbol_dict_without_usdjpy_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime=Path(tmp); sample_runtime(runtime,["USDJPYc"],overwrite=True)
+            quality=runtime/"quality"/"QuantGod_MT5FastLaneQuality.json"
+            payload={"quality":"FAST","symbols":{"EURUSDc":{"symbol":"EURUSDc","quality":"FAST"}}}
+            quality.write_text(json.dumps(payload), encoding="utf-8")
+            plan=build_trigger_plan(runtime,["USDJPYc"],directions=["LONG"]); decision=plan["decisions"][0]
+            self.assertEqual(decision["state"],"BLOCKED")
+            self.assertFalse(decision["confirmations"]["快通道质量存在"])
+            self.assertIn("缺少 MT5 快通道质量证据", "；".join(decision["reasons"]))
     def test_missing_runtime_evidence_blocks_trigger(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime=Path(tmp)

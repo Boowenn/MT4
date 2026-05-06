@@ -51,7 +51,7 @@ def build_parser():
     parser=argparse.ArgumentParser(description="QuantGod P3-9 Entry Trigger Lab"); parser.add_argument("--runtime-dir", default="runtime"); sub=parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status").set_defaults(func=cmd_status)
     p=sub.add_parser("sample"); p.add_argument("--symbols", default="USDJPYc"); p.add_argument("--overwrite", action="store_true"); p.set_defaults(func=cmd_sample)
-    p=sub.add_parser("build"); p.add_argument("--symbols", default="USDJPYc,EURUSDc,XAUUSDc"); p.add_argument("--directions", default="LONG,SHORT"); p.add_argument("--timeframe", default="M1/M5"); p.set_defaults(func=cmd_build)
+    p=sub.add_parser("build"); p.add_argument("--symbols", default="USDJPYc"); p.add_argument("--directions", default="LONG,SHORT"); p.add_argument("--timeframe", default="M1/M5"); p.set_defaults(func=cmd_build)
     p=sub.add_parser("plan"); p.add_argument("--symbol"); p.set_defaults(func=cmd_plan)
     p=sub.add_parser("telegram-text"); p.add_argument("--symbol"); p.add_argument("--send", action="store_true"); p.set_defaults(func=cmd_telegram_text)
     return parser

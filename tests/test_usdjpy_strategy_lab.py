@@ -143,6 +143,53 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             risk = build_risk_check(runtime)
             self.assertEqual(risk["status"], "PASS")
 
+    def test_fastlane_fast_state_is_accepted_by_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            quality_path = runtime / "quality" / "QuantGod_MT5FastLaneQuality.json"
+            quality = json.loads(quality_path.read_text(encoding="utf-8"))
+            quality["quality"] = "FAST"
+            quality["symbols"][0]["quality"] = "FAST"
+            quality_path.write_text(json.dumps(quality, ensure_ascii=False), encoding="utf-8")
+            policy = build_usdjpy_policy(runtime)
+            self.assertTrue(policy["evidence"]["fastlaneOk"])
+            self.assertFalse(any("快通道质量未通过：FAST" in "；".join(item["reasons"]) for item in policy["strategies"]))
+
+    def test_dashboard_fastlane_fallback_is_degraded_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "quality" / "QuantGod_MT5FastLaneQuality.json").unlink()
+            policy = build_usdjpy_policy(runtime)
+            self.assertTrue(policy["evidence"]["fastlaneOk"])
+            self.assertTrue(any("快通道质量降级可用" in "；".join(item["reasons"]) for item in policy["strategies"]))
+
+    def test_shadow_top_policy_cannot_override_rsi_buy_live_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            ledger = runtime / "ShadowCandidateOutcomeLedger.csv"
+            with ledger.open("a", encoding="utf-8") as handle:
+                for idx in range(8):
+                    handle.write(f"USDJPYc,MA_Cross,LONG,TREND_EXP_UP,M15,{8 + idx * 0.1:.1f},10.0,1.0\n")
+            sltp_path = runtime / "adaptive" / "QuantGod_DynamicSLTPCalibration.json"
+            sltp = json.loads(sltp_path.read_text(encoding="utf-8"))
+            sltp["plans"].append({
+                "symbol": FOCUS_SYMBOL,
+                "strategy": "MA_Cross",
+                "direction": "LONG",
+                "status": "CALIBRATED",
+                "initialStopPips": 3.0,
+                "target1Pips": 5.0,
+            })
+            sltp_path.write_text(json.dumps(sltp, ensure_ascii=False), encoding="utf-8")
+            policy = build_usdjpy_policy(runtime)
+            self.assertEqual(policy["topShadowPolicy"]["strategy"], "MA_Cross")
+            self.assertEqual(policy["topLiveEligiblePolicy"]["strategy"], "RSI_Reversal")
+            self.assertEqual(policy["topLiveEligiblePolicy"]["direction"], "LONG")
+            self.assertEqual(policy["topPolicy"], policy["topLiveEligiblePolicy"])
+
     def test_import_backtest_results_are_usdjpy_only_and_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp)

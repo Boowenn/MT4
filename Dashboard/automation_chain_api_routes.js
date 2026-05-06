@@ -40,6 +40,17 @@ function pythonBin() {
   return process.env.QG_PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
 }
 
+const DEFAULT_SYMBOLS = 'USDJPYc';
+
+function normalizeSymbols(raw) {
+  const items = String(raw || DEFAULT_SYMBOLS)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const focus = items.filter((item) => item.toUpperCase().startsWith('USDJPY'));
+  return (focus.length ? focus : [DEFAULT_SYMBOLS]).join(',');
+}
+
 function runPython(ctx, args, timeoutMs = 180000) {
   return new Promise((resolve) => {
     const script = scriptPath(ctx);
@@ -82,7 +93,7 @@ async function handle(req, res, ctx) {
   const pathname = String(req.url || '').split('?')[0];
   const params = parseQuery(req.url || '/');
   const runtimeDir = params.get('runtimeDir') || ctx.defaultRuntimeDir;
-  const symbols = params.get('symbols') || process.env.QG_AUTOMATION_SYMBOLS || 'USDJPYc,EURUSDc,XAUUSDc';
+  const symbols = normalizeSymbols(params.get('symbols') || process.env.QG_AUTOMATION_SYMBOLS || DEFAULT_SYMBOLS);
 
   if (req.method === 'GET' && (pathname === '/api/automation-chain' || pathname === '/api/automation-chain/status')) {
     const latest = path.join(runtimeDir, 'automation', 'QuantGod_AutomationChainLatest.json');

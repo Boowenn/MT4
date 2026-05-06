@@ -6,7 +6,8 @@ from .schema import bool_zh, direction_zh, entry_mode_zh
 
 
 def live_loop_to_chinese_text(payload: dict[str, Any]) -> str:
-    top = payload.get("topPolicy") or {}
+    top = payload.get("topLiveEligiblePolicy") or payload.get("topPolicy") or {}
+    shadow = payload.get("topShadowPolicy") or {}
     preset = payload.get("preset") or {}
     runtime = payload.get("runtime") or {}
     lines = [
@@ -27,6 +28,13 @@ def live_loop_to_chinese_text(payload: dict[str, Any]) -> str:
         f"- RSI 买入路线：{'已恢复' if preset.get('rsiBuyRoutePreserved') else '未确认'}",
         f"- EA 自动仓位上限：{payload.get('maxEaPositions', 2)}；人工仓位不计入政策判断",
     ]
+    if shadow and shadow != top:
+        lines.extend([
+            "",
+            "影子研究第一名：",
+            f"- {shadow.get('strategy', 'UNKNOWN')}｜{direction_zh(shadow.get('direction'))}｜{entry_mode_zh(shadow.get('entryMode'))}",
+            "- 影子第一名只用于研究，不会抢占实盘 RSI 买入路线。",
+        ])
     why = payload.get("whyNoEntry") or []
     if why:
         lines.extend(["", "为什么没有入场："])
@@ -42,4 +50,3 @@ def live_loop_to_chinese_text(payload: dict[str, Any]) -> str:
         "- 工具不会下单、不会平仓、不会撤单、不会修改 preset。",
     ])
     return "\n".join(lines)
-

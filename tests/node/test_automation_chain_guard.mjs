@@ -34,3 +34,12 @@ test('dashboard route stays under api automation chain namespace', () => {
   assert.doesNotMatch(route, /\/api\/mt5\/order/);
   assert.doesNotMatch(route, /quick-trade/);
 });
+
+test('automation chain defaults to USDJPY scope only', () => {
+  const combined = files.map((file) => read(file)).join('\n');
+  assert.match(read('tools/run_automation_chain.py'), /USDJPYc/);
+  assert.match(read('Dashboard/automation_chain_api_routes.js'), /DEFAULT_SYMBOLS\s*=\s*'USDJPYc'/);
+  assert.doesNotMatch(combined, /USDJPYc,EURUSDc,XAUUSDc/);
+  assert.doesNotMatch(combined, /EURUSDc/);
+  assert.doesNotMatch(combined, /XAUUSDc/);
+});
