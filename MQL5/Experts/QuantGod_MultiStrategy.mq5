@@ -1897,6 +1897,56 @@ double CalcSpreadPips(string symbol, double bid, double ask)
    return spreadPoints;
 }
 
+void AppendEntryDiagnosticReason(string &items, string code, string label, string detail)
+{
+   if(StringLen(items) > 0)
+      items += ", ";
+   items += "{\"code\": \"" + JsonEscape(code) + "\", ";
+   items += "\"label\": \"" + JsonEscape(label) + "\", ";
+   items += "\"detail\": \"" + JsonEscape(detail) + "\"}";
+}
+
+string EntryDiagnosticStateZh(string state)
+{
+   if(state == "READY_BUY_SIGNAL")
+      return "RSI 买入信号已触发，等待 EA 守门执行";
+   if(state == "WAITING_RSI_SIGNAL")
+      return "RSI 买入路线已恢复，等待 H1 信号";
+   if(state == "WAITING_NEXT_BAR")
+      return "等待下一根已收盘 K 线确认";
+   if(state == "SELL_SIDE_DEMOTED")
+      return "RSI 卖出侧已降级，只等待买入";
+   if(state == "ROUTE_DISABLED")
+      return "RSI 路线未启用";
+   if(state == "ROUTE_NOT_LIVE")
+      return "RSI 路线未恢复实盘观察";
+   if(state == "PERMISSION_BLOCKED")
+      return "交易权限未通过";
+   if(state == "KILL_SWITCH")
+      return "熔断保护中";
+   if(state == "PORTFOLIO_FULL")
+      return "EA 仓位容量已满";
+   if(state == "SYMBOL_POSITION_FULL")
+      return "USDJPY EA 单品种仓位已满";
+   if(state == "MANUAL_POSITION_BLOCK")
+      return "人工持仓占用该品种";
+   if(state == "LOSS_COOLDOWN")
+      return "亏损冷却中";
+   if(state == "NEWS_BLOCK")
+      return "新闻过滤阻断中";
+   if(state == "STARTUP_GUARD")
+      return "启动保护中";
+   if(state == "SESSION_CLOSED")
+      return "当前不在 EA 入场时段";
+   if(state == "SPREAD_BLOCK")
+      return "点差超过 EA 入场限制";
+   if(state == "SYMBOL_MISSING")
+      return "USDJPY 品种未登记";
+   if(state == "BUY_SIGNAL_READY")
+      return "买入信号已就绪";
+   return "等待 EA 自身信号";
+}
+
 bool IsPilotManagedPosition(string comment, long magic)
 {
    if(IsPilotStrategyComment(comment))
@@ -6324,6 +6374,292 @@ string BuildDiagnosticsJson()
    return json;
 }
 
+string BuildUsdJpyRsiEntryDiagnosticsJson()
+{
+   string symbol = g_focusSymbol;
+   int symbolIndex = FindSymbolIndex(symbol);
+   if(symbolIndex < 0 || !IsUsdJpySymbol(symbol))
+   {
+      symbolIndex = -1;
+      for(int i = 0; i < ArraySize(g_symbols); i++)
+      {
+         if(IsUsdJpySymbol(g_symbols[i]))
+         {
+            symbol = g_symbols[i];
+            symbolIndex = i;
+            break;
+         }
+      }
+   }
+   if(StringLen(symbol) <= 0)
+      symbol = "USDJPYc";
+
+   InitializePilotTelemetryIfNeeded();
+
+   MqlTick tick;
+   ZeroMemory(tick);
+   bool tickOk = SymbolInfoTick(symbol, tick);
+   double bid = tickOk ? tick.bid : 0.0;
+   double ask = tickOk ? tick.ask : 0.0;
+   double spreadPips = tickOk ? CalcSpreadPips(symbol, bid, ask) : 0.0;
+   bool spreadAllowed = (tickOk && spreadPips <= PilotMaxSpreadPips);
+
+   bool candidateEnabled = IsLegacyPilotRouteCandidateEnabled("RSI_Reversal");
+   bool liveEnabled = IsLegacyPilotRouteLiveEnabled("RSI_Reversal");
+   bool inScope = (symbolIndex >= 0 && LegacyPilotRouteInScope("RSI_Reversal", symbol));
+   bool liveMode = IsPilotLiveMode();
+   string permissionBlocker = LiveTradePermissionBlocker(symbol);
+   bool permissionOk = (StringLen(permissionBlocker) == 0);
+   bool sessionOpen = IsPilotSessionOpen();
+   string newsReason = "";
+   bool newsBlocked = PilotNewsBlocksSymbol(symbol, newsReason);
+   string cooldownReason = "";
+   bool cooldownActive = PilotLossCooldownActive(symbol, cooldownReason);
+   string startupReason = "";
+   bool startupGuardActive = PilotStartupEntryGuardBlocks(symbol, startupReason);
+   bool manualBlock = (PilotBlockManualPerSymbol && HasManualPositionOnSymbol(symbol));
+   int portfolioPositions = CountPilotPositions();
+   int symbolPositions = CountPilotPositions(symbol);
+
+   double rsi1 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 1);
+   double rsi2 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 2);
+   double lowerBand = BollingerBand(symbol, PilotRsiTimeframe, PilotBBPeriod, PilotBBDeviation, 1, 2);
+   double upperBand = BollingerBand(symbol, PilotRsiTimeframe, PilotBBPeriod, PilotBBDeviation, 1, 1);
+   double close1 = iClose(symbol, PilotRsiTimeframe, 1);
+   double atr1 = ATRValue(symbol, PilotRsiTimeframe, 14, 1);
+   bool indicatorReady = (rsi1 > 0.0 && rsi2 > 0.0 && lowerBand > 0.0 && upperBand > 0.0 && close1 > 0.0);
+   double tolerance = MathMax(0.0, PilotRsiBandTolerancePct);
+   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold);
+   bool buyReversal = (rsi1 <= PilotRsiOversold || exactBuyReversal);
+   bool buyBand = (indicatorReady && close1 <= lowerBand * (1.0 + tolerance));
+   double buyScore = 0.0;
+   if(indicatorReady)
+   {
+      buyScore = MathMax(0.0, PilotRsiOversold - rsi1) * 2.0;
+      if(exactBuyReversal)
+         buyScore += 25.0;
+      if(buyBand)
+         buyScore += 35.0;
+      buyScore = MathMin(100.0, buyScore);
+   }
+   bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought);
+   bool sellReversal = (rsi1 >= PilotRsiOverbought || exactSellReversal);
+   bool sellBand = (indicatorReady && close1 >= upperBand * (1.0 - tolerance));
+   double sellScore = 0.0;
+   if(indicatorReady)
+   {
+      sellScore = MathMax(0.0, rsi1 - PilotRsiOverbought) * 2.0;
+      if(exactSellReversal)
+         sellScore += 25.0;
+      if(sellBand)
+         sellScore += 35.0;
+      sellScore = MathMin(100.0, sellScore);
+   }
+
+   int direction = 0;
+   double signalScore = 0.0;
+   double stopLoss = 0.0;
+   double takeProfit = 0.0;
+   string evalReason = "";
+   string trigger = "";
+   int evalCode = PILOT_EVAL_NONE;
+   bool hasSignal = EvaluatePilotRsiH1Signal(symbol, direction, signalScore, stopLoss, takeProfit, evalReason, trigger, evalCode);
+   bool sellSideDemoted = (PilotRsiSellLiveBlocked && !(bool)MQLInfoInteger(MQL_TESTER));
+
+   string state = "WAITING_RSI_SIGNAL";
+   string summary = "RSI 买入路线已恢复，等待 H1 RSI 与布林带同时触发。";
+   string whyItems = "";
+
+   if(symbolIndex < 0)
+   {
+      state = "SYMBOL_MISSING";
+      summary = "没有在 watchlist 中找到 USDJPYc，EA 无法评估 RSI 买入路线。";
+      AppendEntryDiagnosticReason(whyItems, "SYMBOL_MISSING", "USDJPY 品种未登记", "请确认 Watchlist 包含 USDJPYc。");
+   }
+   else if(!candidateEnabled)
+   {
+      state = "ROUTE_DISABLED";
+      summary = "RSI 路线没有开启候选/模拟，EA 不会评估买入。";
+      AppendEntryDiagnosticReason(whyItems, "ROUTE_DISABLED", "RSI 路线未启用", "EnablePilotRsiH1Live 或候选状态未开启。");
+   }
+   else if(!inScope)
+   {
+      state = "ROUTE_DISABLED";
+      summary = "RSI 路线只允许 USDJPY，当前品种不在范围内。";
+      AppendEntryDiagnosticReason(whyItems, "ROUTE_SCOPE", "品种不在 RSI 路线范围", symbol);
+   }
+   else if(!liveEnabled)
+   {
+      state = "ROUTE_NOT_LIVE";
+      summary = "RSI 路线只在模拟/候选层，尚未恢复实盘观察。";
+      AppendEntryDiagnosticReason(whyItems, "ROUTE_NOT_LIVE", "RSI 未恢复实盘观察", "当前路线不会触发 EA 实盘入场。");
+   }
+   else if(!liveMode || !permissionOk)
+   {
+      state = "PERMISSION_BLOCKED";
+      summary = "MT5 交易权限没有完全通过，EA 不会入场。";
+      AppendEntryDiagnosticReason(whyItems, "TRADE_PERMISSION", "交易权限未通过", StringLen(permissionBlocker) > 0 ? permissionBlocker : "EnablePilotAutoTrading/ReadOnlyMode 未满足。");
+   }
+   else if(g_pilotKillSwitch)
+   {
+      state = "KILL_SWITCH";
+      summary = "EA 熔断保护打开，禁止新入场。";
+      AppendEntryDiagnosticReason(whyItems, "KILL_SWITCH", "熔断保护中", g_pilotKillReason);
+   }
+   else if(portfolioPositions >= PilotMaxTotalPositions)
+   {
+      state = "PORTFOLIO_FULL";
+      summary = "EA 已达到自动仓位上限，等待释放容量。";
+      AppendEntryDiagnosticReason(whyItems, "PORTFOLIO_FULL", "EA 总仓位已满", IntegerToString(portfolioPositions) + "/" + IntegerToString(PilotMaxTotalPositions));
+   }
+   else if(symbolPositions >= PilotMaxPositionsPerSymbol)
+   {
+      state = "SYMBOL_POSITION_FULL";
+      summary = "USDJPY EA 仓位已满，不会再开同品种新单。";
+      AppendEntryDiagnosticReason(whyItems, "SYMBOL_POSITION_FULL", "USDJPY EA 仓位已满", IntegerToString(symbolPositions) + "/" + IntegerToString(PilotMaxPositionsPerSymbol));
+   }
+   else if(manualBlock)
+   {
+      state = "MANUAL_POSITION_BLOCK";
+      summary = "人工 USDJPY 持仓占用该品种，EA 按设置不叠加。";
+      AppendEntryDiagnosticReason(whyItems, "MANUAL_POSITION", "人工持仓占用", "PilotBlockManualPerSymbol=true。");
+   }
+   else if(cooldownActive)
+   {
+      state = "LOSS_COOLDOWN";
+      summary = "亏损冷却仍在生效，EA 暂停新入场。";
+      AppendEntryDiagnosticReason(whyItems, "LOSS_COOLDOWN", "亏损冷却中", cooldownReason);
+   }
+   else if(newsBlocked)
+   {
+      state = "NEWS_BLOCK";
+      summary = "USDJPY 高影响新闻过滤正在阻断新入场。";
+      AppendEntryDiagnosticReason(whyItems, "NEWS_BLOCK", "新闻过滤阻断", newsReason);
+   }
+   else if(startupGuardActive)
+   {
+      state = "STARTUP_GUARD";
+      summary = "启动保护正在等待最小时间或下一根 H1 K 线。";
+      AppendEntryDiagnosticReason(whyItems, "STARTUP_GUARD", "启动保护中", startupReason);
+   }
+   else if(!sessionOpen)
+   {
+      state = "SESSION_CLOSED";
+      summary = "当前不在 EA 允许入场时段。";
+      AppendEntryDiagnosticReason(whyItems, "SESSION_CLOSED", "交易时段未开放", "允许 UTC " + IntegerToString(PilotSessionStartHour) + "-" + IntegerToString(PilotSessionEndHour) + "。");
+   }
+   else if(!spreadAllowed)
+   {
+      state = "SPREAD_BLOCK";
+      summary = "点差超过 EA 入场限制，等待点差回落。";
+      AppendEntryDiagnosticReason(whyItems, "SPREAD_BLOCK", "点差过高", FormatNumber(spreadPips, 1) + " / " + FormatNumber(PilotMaxSpreadPips, 1) + " pips");
+   }
+   else if(hasSignal && direction > 0)
+   {
+      state = "READY_BUY_SIGNAL";
+      summary = "RSI 买入信号已触发；EA 守门通过后可按自身逻辑入场。";
+      AppendEntryDiagnosticReason(whyItems, "BUY_SIGNAL_READY", "买入信号已触发", evalReason);
+   }
+   else if(hasSignal && direction < 0 && sellSideDemoted)
+   {
+      state = "SELL_SIDE_DEMOTED";
+      summary = "当前看到 RSI 卖出信号，但卖出侧已降级，实盘只等待买入。";
+      AppendEntryDiagnosticReason(whyItems, "SELL_SIDE_DEMOTED", "卖出侧已降级", evalReason);
+   }
+   else if(symbolIndex >= 0 && symbolIndex < ArraySize(g_pilotTelemetry) && g_pilotTelemetry[symbolIndex].lastStatus == "WAIT_BAR")
+   {
+      state = "WAITING_NEXT_BAR";
+      summary = "EA 已完成守门，正在等待新的已收盘 H1 K 线。";
+      AppendEntryDiagnosticReason(whyItems, "WAIT_BAR", "等待新 K 线", g_pilotTelemetry[symbolIndex].lastReason);
+   }
+   else
+   {
+      AppendEntryDiagnosticReason(whyItems, "RSI_SIGNAL_NOT_READY", "RSI 买入条件未同时触发", evalReason);
+   }
+
+   PilotTelemetrySnapshot telemetry;
+   ZeroMemory(telemetry);
+   bool hasTelemetry = (symbolIndex >= 0 && symbolIndex < ArraySize(g_pilotTelemetry));
+   if(hasTelemetry)
+      telemetry = g_pilotTelemetry[symbolIndex];
+
+   string json = "{";
+   json += "\"schema\": \"quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1\", ";
+   json += "\"generatedAtLocal\": \"" + JsonEscape(FormatDateTime(TimeLocal(), true)) + "\", ";
+   json += "\"generatedAtServer\": \"" + JsonEscape(FormatDateTime(CurrentServerTime(), true)) + "\", ";
+   json += "\"symbol\": \"" + JsonEscape(symbol) + "\", ";
+   json += "\"strategy\": \"RSI_Reversal\", ";
+   json += "\"direction\": \"LONG\", ";
+   json += "\"state\": \"" + JsonEscape(state) + "\", ";
+   json += "\"stateZh\": \"" + JsonEscape(EntryDiagnosticStateZh(state)) + "\", ";
+   json += "\"summary\": \"" + JsonEscape(summary) + "\", ";
+   json += "\"route\": {";
+   json += "\"candidateEnabled\": " + JsonBool(candidateEnabled) + ", ";
+   json += "\"liveEnabled\": " + JsonBool(liveEnabled) + ", ";
+   json += "\"inScope\": " + JsonBool(inScope) + ", ";
+   json += "\"timeframe\": \"" + JsonEscape(TimeframeLabel(PilotRsiTimeframe)) + "\", ";
+   json += "\"lastStatus\": \"" + JsonEscape(hasTelemetry ? telemetry.lastStatus : "") + "\", ";
+   json += "\"lastReason\": \"" + JsonEscape(hasTelemetry ? telemetry.lastReason : "") + "\", ";
+   json += "\"lastEvalTime\": \"" + JsonEscape(hasTelemetry ? FormatDateTime(telemetry.lastEvalTime, true) : "") + "\", ";
+   json += "\"lastSignalTime\": \"" + JsonEscape(hasTelemetry ? FormatDateTime(telemetry.lastSignalTime, true) : "") + "\", ";
+   json += "\"lastDirection\": \"" + JsonEscape(hasTelemetry ? PilotDirectionLabel(telemetry.lastDirection) : "NONE") + "\"}, ";
+   json += "\"permissions\": {";
+   json += "\"liveMode\": " + JsonBool(liveMode) + ", ";
+   json += "\"tradeAllowed\": " + JsonBool(permissionOk) + ", ";
+   json += "\"blocker\": \"" + JsonEscape(permissionBlocker) + "\", ";
+   json += "\"readOnlyMode\": " + JsonBool(ReadOnlyMode) + ", ";
+   json += "\"terminalTradeAllowed\": " + JsonBool((bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) + ", ";
+   json += "\"programTradeAllowed\": " + JsonBool((bool)MQLInfoInteger(MQL_TRADE_ALLOWED)) + ", ";
+   json += "\"accountTradeAllowed\": " + JsonBool((bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) + ", ";
+   json += "\"accountExpertTradeAllowed\": " + JsonBool((bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) + ", ";
+   json += "\"symbolTradeMode\": \"" + JsonEscape(SymbolTradeModeLabel(SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE))) + "\"}, ";
+   json += "\"guards\": {";
+   json += "\"killSwitch\": " + JsonBool(g_pilotKillSwitch) + ", ";
+   json += "\"killReason\": \"" + JsonEscape(g_pilotKillReason) + "\", ";
+   json += "\"sessionOpen\": " + JsonBool(sessionOpen) + ", ";
+   json += "\"sessionWindowUtc\": \"" + IntegerToString(PilotSessionStartHour) + "-" + IntegerToString(PilotSessionEndHour) + "\", ";
+   json += "\"spreadAllowed\": " + JsonBool(spreadAllowed) + ", ";
+   json += "\"spreadPips\": " + FormatNumber(spreadPips, 1) + ", ";
+   json += "\"maxSpreadPips\": " + FormatNumber(PilotMaxSpreadPips, 1) + ", ";
+   json += "\"newsBlocked\": " + JsonBool(newsBlocked) + ", ";
+   json += "\"newsReason\": \"" + JsonEscape(newsReason) + "\", ";
+   json += "\"cooldownActive\": " + JsonBool(cooldownActive) + ", ";
+   json += "\"cooldownReason\": \"" + JsonEscape(cooldownReason) + "\", ";
+   json += "\"startupGuardActive\": " + JsonBool(startupGuardActive) + ", ";
+   json += "\"startupGuardReason\": \"" + JsonEscape(startupReason) + "\", ";
+   json += "\"manualPositionBlock\": " + JsonBool(manualBlock) + ", ";
+   json += "\"portfolioPositions\": " + IntegerToString(portfolioPositions) + ", ";
+   json += "\"maxTotalPositions\": " + IntegerToString(PilotMaxTotalPositions) + ", ";
+   json += "\"symbolPositions\": " + IntegerToString(symbolPositions) + ", ";
+   json += "\"maxPositionsPerSymbol\": " + IntegerToString(PilotMaxPositionsPerSymbol) + "}, ";
+   json += "\"rsi\": {";
+   json += "\"indicatorReady\": " + JsonBool(indicatorReady) + ", ";
+   json += "\"period\": " + IntegerToString(PilotRsiPeriod) + ", ";
+   json += "\"oversold\": " + FormatNumber(PilotRsiOversold, 2) + ", ";
+   json += "\"overbought\": " + FormatNumber(PilotRsiOverbought, 2) + ", ";
+   json += "\"rsiClosed1\": " + FormatNumber(rsi1, 2) + ", ";
+   json += "\"rsiClosed2\": " + FormatNumber(rsi2, 2) + ", ";
+   json += "\"lowerBand\": " + FormatNumber(lowerBand, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ", ";
+   json += "\"upperBand\": " + FormatNumber(upperBand, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ", ";
+   json += "\"closeClosed1\": " + FormatNumber(close1, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ", ";
+   json += "\"atrClosed1\": " + FormatNumber(atr1, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ", ";
+   json += "\"buyReversal\": " + JsonBool(buyReversal) + ", ";
+   json += "\"buyBand\": " + JsonBool(buyBand) + ", ";
+   json += "\"buyScore\": " + FormatNumber(buyScore, 1) + ", ";
+   json += "\"sellReversal\": " + JsonBool(sellReversal) + ", ";
+   json += "\"sellBand\": " + JsonBool(sellBand) + ", ";
+   json += "\"sellScore\": " + FormatNumber(sellScore, 1) + ", ";
+   json += "\"signalReady\": " + JsonBool(hasSignal) + ", ";
+   json += "\"signalDirection\": \"" + JsonEscape(PilotDirectionLabel(direction)) + "\", ";
+   json += "\"signalScore\": " + FormatNumber(signalScore, 1) + ", ";
+   json += "\"evalCode\": \"" + JsonEscape(PilotEvalCodeLabel(evalCode)) + "\", ";
+   json += "\"evalReason\": \"" + JsonEscape(evalReason) + "\", ";
+   json += "\"trigger\": \"" + JsonEscape(trigger) + "\"}, ";
+   json += "\"whyNoEntry\": [" + whyItems + "]";
+   json += "}";
+   return json;
+}
+
 void ExportDashboard(bool runExecutionLoop)
 {
    if(ArraySize(g_symbols) == 0)
@@ -6405,6 +6741,8 @@ void ExportDashboard(bool runExecutionLoop)
    int focusTickAge = 0;
    if(connected && focusTick.time > 0)
       focusTickAge = (int)MathMax(0, (long)(serverClock - (datetime)focusTick.time));
+
+   string usdJpyRsiEntryDiagnosticsJson = BuildUsdJpyRsiEntryDiagnosticsJson();
 
    string json = "{\r\n";
    json += "  \"timestamp\": \"" + FormatDateTime(TimeLocal(), true) + "\",\r\n";
@@ -6509,6 +6847,7 @@ void ExportDashboard(bool runExecutionLoop)
    json += "  \"closedTrades\": " + closedTradesJson + ",\r\n";
    json += "  \"strategies\": " + BuildRootStrategiesJson() + ",\r\n";
    json += "  \"diagnostics\": " + BuildDiagnosticsJson() + ",\r\n";
+   json += "  \"usdJpyRsiEntryDiagnostics\": " + usdJpyRsiEntryDiagnosticsJson + ",\r\n";
    json += "  \"market\": {\r\n";
    json += "    \"symbol\": \"" + JsonEscape(g_focusSymbol) + "\",\r\n";
    json += "    \"bid\": " + FormatNumber(focusBid, (int)SymbolInfoInteger(g_focusSymbol, SYMBOL_DIGITS)) + ",\r\n";
@@ -6575,6 +6914,7 @@ void ExportDashboard(bool runExecutionLoop)
    statusFile += "closedTrades=" + IntegerToString(ArraySize(closedTrades)) + "\r\n";
    statusFile += "localTime=" + FormatDateTime(TimeLocal(), true) + "\r\n";
    WriteTextFile("QuantGod_MT5_ShadowStatus.txt", statusFile);
+   WriteTextFile("QuantGod_USDJPYRsiEntryDiagnostics.json", usdJpyRsiEntryDiagnosticsJson);
    WriteTextFile("QuantGod_Dashboard.json", json);
    ExportShadowCsvs(snapshots, journal, closedTrades);
    UpdateShadowChartComment(tradeStatus, connected, accountLogin);
