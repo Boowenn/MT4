@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+
+const repo = process.cwd();
+
+function read(rel) {
+  return fs.readFileSync(path.join(repo, rel), 'utf8');
+}
+
+test('autonomous agent keeps hard safety boundaries', () => {
+  const schema = read('tools/usdjpy_autonomous_agent/schema.py');
+  const patch = read('tools/usdjpy_autonomous_agent/config_patch.py');
+  const rollback = read('tools/usdjpy_autonomous_agent/rollback.py');
+  const cli = read('tools/run_usdjpy_autonomous_agent.py');
+
+  for (const text of [schema, patch, rollback, cli]) {
+    assert.doesNotMatch(text, /OrderSend|TRADE_ACTION_DEAL|PositionClose|OrderSendAsync|CTrade/);
+    assert.doesNotMatch(text, /telegramCommandExecutionAllowed["']?\s*:\s*True/);
+    assert.doesNotMatch(text, /livePresetMutationAllowed["']?\s*:\s*True/);
+  }
+  assert.match(schema, /"requiresManualReview": False/);
+  assert.match(schema, /"requiresAutonomousGovernance": True/);
+  assert.match(schema, /"autoApplyAllowed": "stage_gated"/);
+  assert.match(schema, /"deepSeekCanApproveLive": False/);
+  assert.match(schema, /"polymarketRealMoneyAllowed": False/);
+  assert.match(patch, /stageMaxLot/);
+  assert.match(rollback, /consecutiveLosses/);
+  assert.match(rollback, /dailyLossR/);
+});
+
+test('strategy lab exposes walk-forward and autonomous endpoints only', () => {
+  const routes = read('Dashboard/usdjpy_strategy_lab_api_routes.js');
+  for (const marker of [
+    '/api/usdjpy-strategy-lab/walk-forward/status',
+    '/api/usdjpy-strategy-lab/walk-forward/build',
+    '/api/usdjpy-strategy-lab/autonomous-agent/state',
+    '/api/usdjpy-strategy-lab/autonomous-agent/run',
+    'run_usdjpy_walk_forward.py',
+    'run_usdjpy_autonomous_agent.py',
+  ]) {
+    assert.match(routes, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.doesNotMatch(routes, /\/api\/trade|writesMt5OrderRequest:\s*true|OrderSend/);
+});

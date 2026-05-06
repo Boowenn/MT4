@@ -33,9 +33,10 @@ def _candidate(
         "riskDelta": risk_delta,
         "replayVariant": replay_variant,
         "evidenceQuality": evidence_quality,
-        "scope": "tester-only / shadow validation",
-        "autoApplyAllowed": False,
-        "requiresManualReview": True,
+        "scope": "autonomous governance / tester / shadow validation",
+        "autoApplyAllowed": "stage_gated",
+        "requiresManualReview": False,
+        "requiresAutonomousGovernance": True,
     }
 
 
@@ -124,7 +125,8 @@ def build_param_tuning_report(runtime_dir: Path, write: bool = False) -> Dict[st
             "sampleCount": samples,
             "missedOpportunityCount": missed,
             "earlyExitCount": early,
-            "autoApplyAllowed": False,
+            "autoApplyAllowed": "stage_gated",
+            "requiresAutonomousGovernance": True,
         },
         "candidates": candidates,
         "safety": READ_ONLY_SAFETY,

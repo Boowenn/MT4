@@ -1,23 +1,36 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+
 
 FOCUS_SYMBOL = "USDJPYc"
-SCHEMA_DATASET = "quantgod.usdjpy_runtime_dataset.v1"
-SCHEMA_REPLAY = "quantgod.usdjpy_replay_report.v1"
-SCHEMA_TUNING = "quantgod.usdjpy_param_tuning.v1"
-SCHEMA_PROPOSAL = "quantgod.usdjpy_live_config_proposal.v1"
+SCHEMA_WALK_FORWARD = "quantgod.usdjpy_walk_forward_report.v1"
+SCHEMA_SELECTION = "quantgod.usdjpy_parameter_selection.v1"
+SCHEMA_PROPOSAL = "quantgod.usdjpy_walk_forward_live_config_proposal.v1"
+
+CONCLUSION_REJECTED = "REJECTED"
+CONCLUSION_SHADOW_ONLY = "SHADOW_ONLY"
+CONCLUSION_TESTER_ONLY = "TESTER_ONLY"
+CONCLUSION_LIVE_CONFIG_ELIGIBLE = "LIVE_CONFIG_PROPOSAL_ELIGIBLE"
+
+SEGMENTS = ("train", "validation", "forward")
 
 READ_ONLY_SAFETY = {
     "localOnly": True,
     "focusOnly": True,
     "focusSymbol": FOCUS_SYMBOL,
+    "walkForward": True,
+    "trainValidationForward": True,
+    "causalReplayInputRequired": True,
+    "posteriorMayAffectTrigger": False,
+    "posteriorUsedForScoringOnly": True,
     "readOnlyDataPlane": True,
     "advisoryOnly": True,
     "autoApplyAllowed": "stage_gated",
     "requiresManualReview": False,
     "requiresAutonomousGovernance": True,
+    "requiresTesterOnlyValidation": True,
+    "requiresShadowValidation": True,
     "orderSendAllowed": False,
     "closeAllowed": False,
     "cancelAllowed": False,
@@ -33,10 +46,3 @@ READ_ONLY_SAFETY = {
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def truthy(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    text = str(value or "").strip().lower()
-    return text in {"1", "true", "yes", "y", "pass", "passed", "ok", "ready"}

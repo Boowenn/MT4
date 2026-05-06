@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from tools.usdjpy_autonomous_agent.agent_state import build_agent_state
+from tools.usdjpy_autonomous_agent.config_patch import build_config_patch
+from tools.usdjpy_autonomous_agent.promotion_gate import build_promotion_decision
+from tools.usdjpy_autonomous_agent.rollback import evaluate_hard_rollback
+from tools.usdjpy_walk_forward.selector import sample_walk_forward_runtime
+
+
+class USDJPYAutonomousAgentTests(unittest.TestCase):
+    def test_builds_stage_gated_agent_files_without_execution_rights(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Path(temp)
+            sample_walk_forward_runtime(runtime, overwrite=True)
+
+            decision = build_promotion_decision(runtime, write=True)
+            patch = build_config_patch(runtime, write=True)
+            state = build_agent_state(runtime, write=True)
+
+            self.assertEqual(decision["symbol"], "USDJPYc")
+            self.assertFalse(decision["requiresManualReview"])
+            self.assertTrue(decision["requiresAutonomousGovernance"])
+            self.assertEqual(decision["safety"]["autoApplyAllowed"], "stage_gated")
+            self.assertFalse(decision["safety"]["orderSendAllowed"])
+            self.assertFalse(decision["safety"]["livePresetMutationAllowed"])
+
+            self.assertEqual(patch["schema"], "quantgod.autonomous_config_patch.v1")
+            self.assertFalse(patch["safety"]["agentMayMutateSource"])
+            self.assertFalse(patch["safety"]["agentMayMutateLivePreset"])
+            self.assertFalse(patch["safety"]["agentMaySendOrder"])
+            self.assertLessEqual(patch["limits"]["maxLot"], 2.0)
+
+            self.assertEqual(state["schema"], "quantgod.autonomous_agent_state.v1")
+            self.assertFalse(state["requiresManualReview"])
+            self.assertTrue(state["requiresAutonomousGovernance"])
+            self.assertTrue((runtime / "agent" / "QuantGod_AutonomousPromotionDecision.json").exists())
+            self.assertTrue((runtime / "agent" / "QuantGod_AutonomousConfigPatch.json").exists())
+            self.assertTrue((runtime / "agent" / "QuantGod_AutonomousAgentState.json").exists())
+
+    def test_hard_rollback_fails_closed_without_runtime_quality(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Path(temp)
+            sample_walk_forward_runtime(runtime, overwrite=True)
+
+            rollback = evaluate_hard_rollback(runtime)
+
+            self.assertFalse(rollback["ok"])
+            self.assertTrue(any("运行快照" in item or "快通道" in item for item in rollback["hardBlockers"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

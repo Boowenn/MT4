@@ -34,7 +34,7 @@ def _strategy_item(key: str) -> Dict[str, Any]:
             "coreIdea": "低波动夜盘触碰布林带后记录均值回归机会，只允许机会级观察。",
             "entryLogic": "ADX<20、RANGE/RANGE_TIGHT、触碰布林带并配合 RSI 极值。",
             "riskNotes": ["政策大 K 禁用", "趋势行情禁用", "只做 opportunity 候选，不直接进实盘"],
-            "promotionPath": ["Shadow outcome", "walk-forward backtest", "manual review"],
+            "promotionPath": ["Shadow outcome", "walk-forward backtest", "autonomous governance gate"],
         }
     else:
         item = {

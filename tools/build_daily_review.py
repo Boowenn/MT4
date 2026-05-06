@@ -922,14 +922,14 @@ def codex_review_queue(
             "fix code/frontend/evidence pipeline",
             "run tests",
             "commit and push safe fixes",
-            "write human-approved live promotion recommendation",
+            "write machine-governed live promotion evidence",
         ],
         "forbiddenActions": [
             "send orders",
             "close positions",
             "cancel orders",
             "mutate live preset",
-            "auto-apply live promotion",
+            "bypass autonomous hard gates",
             "loosen risk gates",
         ],
     }
@@ -947,7 +947,13 @@ def usdjpy_evolution_summary(runtime_dir: Path) -> dict[str, Any]:
     candidate_count = as_int(tuning_summary.get("candidateCount"), 0)
     missed = as_int(replay_summary.get("missedOpportunityCount"), 0)
     early = as_int(replay_summary.get("earlyExitCount"), 0)
-    proposal_ready = proposal_status == "PROPOSAL_READY_FOR_REVIEW"
+    proposal_ready = proposal_status in {
+        "PROPOSAL_READY_FOR_REVIEW",
+        "PROPOSAL_READY_FOR_AUTONOMOUS_GOVERNANCE",
+        "LIVE_CONFIG_PROPOSAL_READY",
+        "TESTER_ONLY_READY",
+    }
+    auto_apply_mode = proposal.get("autoApplyAllowed", False)
     needs_iteration = bool((missed or early) and not proposal_ready and candidate_count <= 0)
     return {
         "status": "CONFIG_PROPOSAL_READY" if proposal_ready else "RETUNE_READY" if candidate_count > 0 else "NEEDS_REPLAY_TUNE" if needs_iteration else "OK_OR_COLLECTING",
@@ -961,9 +967,11 @@ def usdjpy_evolution_summary(runtime_dir: Path) -> dict[str, Any]:
         "proposalReady": proposal_ready,
         "needsIteration": needs_iteration,
         "codexFollowupRequired": needs_iteration,
-        "autoApplyAllowed": bool(proposal.get("autoApplyAllowed", False)),
+        "autoApplyAllowed": auto_apply_mode,
+        "requiresManualReview": bool(proposal.get("requiresManualReview", False)),
+        "requiresAutonomousGovernance": bool(proposal.get("requiresAutonomousGovernance", False)),
         "summaryZh": (
-            "已生成待人工复核的 USDJPY 参数提案，不自动改实盘 preset。"
+            "已生成待自主治理门评估的 USDJPY 参数提案；通过机器硬风控后只写受控 patch，不改源码或 live preset。"
             if proposal_ready else
             "已生成 USDJPY tester-only 调参候选，等待回放和 shadow 验证。"
             if candidate_count > 0 else
@@ -1105,7 +1113,7 @@ def daily_iteration_review(
                     f"candidates={usdjpy_evolution.get('paramCandidateCount')}"
                 ),
                 "rootCause": "每日复盘已自动生成 tester-only 参数候选或 live config proposal。",
-                "nextStep": "等待回放/shadow/人工复核；不自动修改实盘 preset。",
+                "nextStep": "进入自主治理门：先 tester/shadow，再由机器硬风控决定是否写受控 patch；不自动修改 live preset。",
                 "requiresCodeChange": False,
                 "requiresStrategyIteration": False,
                 "iterationApplied": True,
@@ -1610,13 +1618,13 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
             "status": "READY_FOR_CODEX_DAILY_REVIEW",
             "localDeterministicReviewBuilt": True,
             "externalLlmMode": "off_by_default",
-            "note": "A Codex/app automation should triage codexReview.required=true items and may propose code or strategy changes. Live promotion remains human-approved.",
+            "note": "A Codex/app automation should triage codexReview.required=true items and may propose code or strategy changes. USDJPY live promotion now goes through the autonomous governance gate and machine rollback controls.",
         },
         "nextActions": [
             "Run due ParamLab tester-only tasks when AUTO_TESTER_WINDOW allows it.",
             "Parse reports and rebuild GovernanceAdvisor before any promotion review.",
             "If codexReview.required is true, ask Codex automation to judge code, strategy, or evidence fixes.",
-            "If promotionRecommendations is non-empty, require human approval before any live preset mutation.",
+            "If promotionRecommendations is non-empty, route USDJPY candidates through autonomous governance; live preset mutation remains forbidden.",
         ],
     }
     write_json(output, payload)

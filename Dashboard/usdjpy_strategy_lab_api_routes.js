@@ -308,6 +308,74 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/walk-forward' || pathname === '/api/usdjpy-strategy-lab/walk-forward/status')) {
+    const args = [...baseArgs, 'status'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_walk_forward.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/walk-forward/build') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'build', '--write'], 120000, 'run_usdjpy_walk_forward.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/walk-forward/selection') {
+    const args = [...baseArgs, 'selection'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_walk_forward.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/walk-forward/proposal') {
+    const args = [...baseArgs, 'proposal'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_walk_forward.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/walk-forward/telegram-text') {
+    const args = [...baseArgs, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_walk_forward.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/autonomous-agent' || pathname === '/api/usdjpy-strategy-lab/autonomous-agent/state')) {
+    const args = [...baseArgs, 'state'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/run') {
+    const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'build', '--write'], 120000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/decision') {
+    const args = [...baseArgs, 'decision'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/patch') {
+    const args = [...baseArgs, 'patch'];
+    if (url.searchParams.get('write') === '1' || url.searchParams.get('refresh') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 90000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/telegram-text') {
+    const args = [...baseArgs, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_autonomous_agent.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/telegram-text') {
     const args = [...baseArgs, 'telegram-text'];
     if (url.searchParams.get('refresh') === '1') args.push('--refresh');
