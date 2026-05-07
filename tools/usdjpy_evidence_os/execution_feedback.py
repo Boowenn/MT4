@@ -42,6 +42,9 @@ def build_execution_feedback(runtime_dir: Path, write: bool = True) -> Dict[str,
 
 def _collect_rows(runtime_dir: Path) -> List[Tuple[Dict[str, Any], str]]:
     rows: List[Tuple[Dict[str, Any], str]] = []
+    for name in ("QuantGod_LiveExecutionFeedback.jsonl", "QuantGod_LiveExecutionFeedbackHistory.jsonl"):
+        path = runtime_dir / name
+        rows.extend((row, path.name) for row in read_jsonl_tail(path, 1000))
     trade_events = runtime_dir / "QuantGod_RuntimeTradeEvents.jsonl"
     rows.extend((row, trade_events.name) for row in read_jsonl_tail(trade_events, 500))
     live_loop_ledger = runtime_dir / "live" / "QuantGod_USDJPYLiveLoopLedger.csv"
@@ -91,11 +94,13 @@ def _normalize_row(index: int, row: Dict[str, Any], source: str) -> Dict[str, An
         "feedbackId": feedback_id,
         "createdAt": utc_now_iso(),
         "symbol": symbol,
+        "eventType": _first(row, "eventType", "EventType"),
+        "side": _first(row, "side", "Side"),
         "policyId": _first(row, "policyId", "intentId", "status", "Status") or "USDJPY_LIVE_LOOP",
         "strategyId": _first(row, "strategyId", "strategy", "Strategy") or "RSI_Reversal",
-        "entrySignalTime": _first(row, "entrySignalTime", "createdAt", "timestamp", "time", "Time"),
-        "orderSendTime": _first(row, "orderSendTime", "generatedAt", "sendTime"),
-        "fillTime": _first(row, "fillTime", "CloseTime", "exitTime"),
+        "entrySignalTime": _first(row, "entrySignalTime", "createdAt", "generatedAtServer", "timestamp", "time", "Time"),
+        "orderSendTime": _first(row, "orderSendTime", "generatedAt", "generatedAtServer", "sendTime"),
+        "fillTime": _first(row, "fillTime", "eventTimeServer", "CloseTime", "exitTime"),
         "expectedPrice": expected_price,
         "fillPrice": fill_price,
         "slippagePips": slippage_pips,
@@ -116,7 +121,16 @@ def _normalize_row(index: int, row: Dict[str, Any], source: str) -> Dict[str, An
 def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     slippage = [abs(float(row["slippagePips"])) for row in rows if row.get("slippagePips")]
     rejects = [row for row in rows if row.get("rejectReason")]
-    fills = [row for row in rows if row.get("fillPrice") and not row.get("rejectReason")]
+    fill_event_types = {"ORDER_FILL", "ORDER_CLOSE"}
+    accepted_event_types = {"ORDER_ACCEPTED"}
+    fills = [
+        row
+        for row in rows
+        if str(row.get("eventType") or "").upper() in fill_event_types
+        and row.get("fillPrice")
+        and not row.get("rejectReason")
+    ]
+    accepted = [row for row in rows if str(row.get("eventType") or "").upper() in accepted_event_types]
     latency = [float(row["latencyMs"]) for row in rows if row.get("latencyMs")]
     profits = [float(row.get("profitR") or 0.0) for row in rows]
     wins = [value for value in profits if value > 0]
@@ -129,6 +143,7 @@ def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     ]
     return {
         "feedbackRows": len(rows),
+        "acceptedCount": len(accepted),
         "fillCount": len(fills),
         "rejectCount": len(rejects),
         "rejectRatePct": round((len(rejects) / len(rows) * 100.0), 2) if rows else 0.0,
@@ -203,6 +218,9 @@ def _reject_reason(row: Dict[str, Any], retcode: Any) -> str:
     explicit = _first(row, "rejectReason", "mainBlocker", "reason", "Reason")
     if explicit:
         return str(explicit)
+    event_type = str(_first(row, "eventType", "EventType") or "").upper()
+    if event_type in {"ORDER_REJECT", "ORDER_REJECTED"}:
+        return "ORDER_REJECTED"
     code = str(retcode or "").strip()
     if not code or code in {"0", "10009", "10008"}:
         return ""
@@ -210,6 +228,9 @@ def _reject_reason(row: Dict[str, Any], retcode: Any) -> str:
 
 
 def _feedback_id(index: int, row: Dict[str, Any], source: str) -> str:
+    explicit = _first(row, "feedbackId", "FeedbackId")
+    if explicit:
+        return str(explicit)
     raw = "|".join(
         str(_first(row, key) or "")
         for key in (

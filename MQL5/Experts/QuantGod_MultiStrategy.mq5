@@ -4182,6 +4182,17 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
    string comment = PilotTradeComment(strategyKey, direction);
    for(int attempt = 0; attempt < 3; attempt++)
    {
+      MqlTick sendTick;
+      ZeroMemory(sendTick);
+      SymbolInfoTick(symbol, sendTick);
+      double expectedPrice = 0.0;
+      if(direction > 0)
+         expectedPrice = sendTick.ask;
+      else if(direction < 0)
+         expectedPrice = sendTick.bid;
+      double spreadAtEntry = (sendTick.ask > 0.0 && sendTick.bid > 0.0) ? CalcSpreadPips(symbol, sendTick.bid, sendTick.ask) : 0.0;
+      uint startedMs = GetTickCount();
+      string intentId = "pilot-" + IntegerToString((long)CurrentServerTime()) + "-" + symbol + "-" + strategyKey + "-" + IntegerToString(direction) + "-" + IntegerToString(attempt + 1);
       bool ok = false;
       if(direction > 0)
          ok = g_trade.Buy(volume, symbol, 0.0, slPrice, tpPrice, comment);
@@ -4189,8 +4200,18 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
          ok = g_trade.Sell(volume, symbol, 0.0, slPrice, tpPrice, comment);
 
       uint retcode = g_trade.ResultRetcode();
+      int latencyMs = (int)(GetTickCount() - startedMs);
+      double fillPrice = g_trade.ResultPrice();
+      if(fillPrice <= 0.0)
+      {
+         if(direction > 0)
+            fillPrice = g_trade.ResultAsk();
+         else if(direction < 0)
+            fillPrice = g_trade.ResultBid();
+      }
       if(ok && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_PLACED))
       {
+         AppendPilotTradeResultFeedback(symbol, direction, strategyKey, intentId, attempt + 1, expectedPrice, fillPrice, spreadAtEntry, latencyMs, "ORDER_ACCEPTED");
          g_tradeRetryState.consecutiveFailures = 0;
          Print("QuantGod MT5 pilot order sent: strategy=", strategyKey,
                " symbol=", symbol,
@@ -4202,13 +4223,27 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
          return true;
       }
 
-      if(!ShouldRetryRetcode(retcode))
+      bool retryable = ShouldRetryRetcode(retcode);
+      bool finalAttempt = (!retryable || attempt >= 2);
+      AppendPilotTradeResultFeedback(symbol,
+                                     direction,
+                                     strategyKey,
+                                     intentId,
+                                     attempt + 1,
+                                     expectedPrice,
+                                     fillPrice,
+                                     spreadAtEntry,
+                                     latencyMs,
+                                     (retryable && !finalAttempt) ? "ORDER_RETRY" : "ORDER_REJECTED");
+
+      if(!retryable)
       {
          RegisterPilotOrderSendFailure(symbol, direction, retcode, g_trade.ResultComment(), false);
          return false;
       }
 
-      Sleep(500 * (attempt + 1));
+      if(!finalAttempt)
+         Sleep(500 * (attempt + 1));
    }
 
    RegisterPilotOrderSendFailure(symbol, direction, g_trade.ResultRetcode(), g_trade.ResultComment(), true);
@@ -5407,6 +5442,344 @@ void WriteTextFile(string fileName, string content)
    FileClose(handle);
 }
 
+void AppendTextFile(string fileName, string content)
+{
+   ResetLastError();
+   int handle = FileOpen(fileName,
+                         FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         0, CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("QuantGod MT5 skeleton failed to open file for append: ", fileName, " err=", GetLastError());
+      return;
+   }
+   FileSeek(handle, 0, SEEK_END);
+   FileWriteString(handle, content);
+   FileFlush(handle);
+   FileClose(handle);
+}
+
+int PriceDigitsForSymbol(string symbol)
+{
+   if(StringLen(symbol) <= 0)
+      return 5;
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(digits <= 0)
+      return 5;
+   return digits;
+}
+
+string TradeTransactionTypeLabel(long transactionType)
+{
+   if(transactionType == TRADE_TRANSACTION_DEAL_ADD)
+      return "DEAL_ADD";
+   if(transactionType == TRADE_TRANSACTION_ORDER_ADD)
+      return "ORDER_ADD";
+   if(transactionType == TRADE_TRANSACTION_ORDER_UPDATE)
+      return "ORDER_UPDATE";
+   if(transactionType == TRADE_TRANSACTION_ORDER_DELETE)
+      return "ORDER_DELETE";
+   if(transactionType == TRADE_TRANSACTION_HISTORY_ADD)
+      return "HISTORY_ADD";
+   if(transactionType == TRADE_TRANSACTION_REQUEST)
+      return "REQUEST";
+   if(transactionType == TRADE_TRANSACTION_POSITION)
+      return "POSITION";
+   return "OTHER";
+}
+
+string LiveExecutionEventTypeFromDealEntry(long entryType)
+{
+   if(IsEntryDeal(entryType))
+      return "ORDER_FILL";
+   if(IsExitDeal(entryType))
+      return "ORDER_CLOSE";
+   return "ORDER_UPDATE";
+}
+
+double SlippagePipsForSide(string symbol, string side, double expectedPrice, double fillPrice)
+{
+   double pip = PipSize(symbol);
+   if(pip <= 0.0 || expectedPrice <= 0.0 || fillPrice <= 0.0)
+      return 0.0;
+   if(side == "SELL")
+      return (expectedPrice - fillPrice) / pip;
+   return (fillPrice - expectedPrice) / pip;
+}
+
+double ProfitToR(double netProfit)
+{
+   double riskUnit = MathAbs(PilotMaxFloatingLossUSC);
+   if(riskUnit <= 0.0)
+      return 0.0;
+   return netProfit / riskUnit;
+}
+
+string BuildLiveExecutionFeedbackJsonLine(string feedbackId,
+                                          string eventType,
+                                          string source,
+                                          string symbol,
+                                          string side,
+                                          string strategyId,
+                                          string policyId,
+                                          string intentId,
+                                          ulong orderTicket,
+                                          ulong dealTicket,
+                                          ulong positionId,
+                                          double volume,
+                                          double expectedPrice,
+                                          double fillPrice,
+                                          double slippagePips,
+                                          double spreadAtEntry,
+                                          int latencyMs,
+                                          uint retcode,
+                                          int retcodeExternal,
+                                          string rejectReason,
+                                          string exitReason,
+                                          double profitR,
+                                          double profitUSC,
+                                          double mfeR,
+                                          double maeR,
+                                          datetime eventTimeServer,
+                                          string comment,
+                                          string transactionType)
+{
+   int digits = PriceDigitsForSymbol(symbol);
+   string line = "{";
+   line += "\"schema\":\"quantgod.live_execution_feedback.v1\",";
+   line += "\"feedbackId\":\"" + JsonEscape(feedbackId) + "\",";
+   line += "\"generatedAtLocal\":\"" + JsonEscape(FormatDateTime(TimeLocal(), true)) + "\",";
+   line += "\"generatedAtServer\":\"" + JsonEscape(FormatDateTime(CurrentServerTime(), true)) + "\",";
+   line += "\"eventTimeServer\":\"" + JsonEscape(FormatDateTime(eventTimeServer > 0 ? eventTimeServer : CurrentServerTime(), true)) + "\",";
+   line += "\"source\":\"" + JsonEscape(source) + "\",";
+   line += "\"eventType\":\"" + JsonEscape(eventType) + "\",";
+   line += "\"transactionType\":\"" + JsonEscape(transactionType) + "\",";
+   line += "\"symbol\":\"" + JsonEscape(symbol) + "\",";
+   line += "\"side\":\"" + JsonEscape(side) + "\",";
+   line += "\"strategyId\":\"" + JsonEscape(strategyId) + "\",";
+   line += "\"policyId\":\"" + JsonEscape(policyId) + "\",";
+   line += "\"intentId\":\"" + JsonEscape(intentId) + "\",";
+   line += "\"orderTicket\":" + IntegerToString((long)orderTicket) + ",";
+   line += "\"dealTicket\":" + IntegerToString((long)dealTicket) + ",";
+   line += "\"positionId\":" + IntegerToString((long)positionId) + ",";
+   line += "\"magic\":" + IntegerToString((long)PilotMagic) + ",";
+   line += "\"volume\":" + FormatNumber(volume, 2) + ",";
+   line += "\"expectedPrice\":" + FormatNumber(expectedPrice, digits) + ",";
+   line += "\"fillPrice\":" + FormatNumber(fillPrice, digits) + ",";
+   line += "\"slippagePips\":" + FormatNumber(slippagePips, 4) + ",";
+   line += "\"spreadAtEntry\":" + FormatNumber(spreadAtEntry, 2) + ",";
+   line += "\"latencyMs\":" + IntegerToString(latencyMs) + ",";
+   line += "\"retcode\":" + IntegerToString((long)retcode) + ",";
+   line += "\"retcodeExternal\":" + IntegerToString(retcodeExternal) + ",";
+   line += "\"rejectReason\":\"" + JsonEscape(rejectReason) + "\",";
+   line += "\"exitReason\":\"" + JsonEscape(exitReason) + "\",";
+   line += "\"profitR\":" + FormatNumber(profitR, 4) + ",";
+   line += "\"profitUSC\":" + FormatNumber(profitUSC, 2) + ",";
+   line += "\"mfeR\":" + FormatNumber(mfeR, 4) + ",";
+   line += "\"maeR\":" + FormatNumber(maeR, 4) + ",";
+   line += "\"comment\":\"" + JsonEscape(comment) + "\",";
+   line += "\"safety\":{\"eaOwnsExecution\":true,\"frontendCanTrade\":false,\"telegramCommandsAllowed\":false}";
+   line += "}";
+   return line;
+}
+
+void AppendLiveExecutionFeedback(string jsonLine)
+{
+   AppendTextFile("QuantGod_LiveExecutionFeedback.jsonl", jsonLine + "\r\n");
+}
+
+void AppendPilotTradeResultFeedback(string symbol,
+                                    int direction,
+                                    string strategyKey,
+                                    string intentId,
+                                    int attempt,
+                                    double expectedPrice,
+                                    double fillPrice,
+                                    double spreadAtEntry,
+                                    int latencyMs,
+                                    string eventType)
+{
+   string side = direction > 0 ? "BUY" : (direction < 0 ? "SELL" : "UNKNOWN");
+   uint retcode = g_trade.ResultRetcode();
+   string rejectReason = "";
+   if(eventType == "ORDER_REJECTED" || eventType == "ORDER_RETRY")
+      rejectReason = g_trade.ResultComment();
+   string feedbackId = "send-" + intentId + "-" + IntegerToString(attempt) + "-" + IntegerToString((long)retcode);
+   double slippagePips = SlippagePipsForSide(symbol, side, expectedPrice, fillPrice);
+   string line = BuildLiveExecutionFeedbackJsonLine(feedbackId,
+                                                    eventType,
+                                                    "QuantGod_MultiStrategy.mq5",
+                                                    symbol,
+                                                    side,
+                                                    strategyKey,
+                                                    "USDJPY_LIVE_LOOP",
+                                                    intentId,
+                                                    g_trade.ResultOrder(),
+                                                    g_trade.ResultDeal(),
+                                                    0,
+                                                    g_trade.ResultVolume(),
+                                                    expectedPrice,
+                                                    fillPrice,
+                                                    slippagePips,
+                                                    spreadAtEntry,
+                                                    latencyMs,
+                                                    retcode,
+                                                    0,
+                                                    rejectReason,
+                                                    "",
+                                                    0.0,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0,
+                                                    CurrentServerTime(),
+                                                    PilotTradeComment(strategyKey, direction),
+                                                    "ORDER_SEND_RESULT");
+   AppendLiveExecutionFeedback(line);
+}
+
+void AppendTradeTransactionFeedback(const MqlTradeTransaction& trans, const MqlTradeRequest& request, const MqlTradeResult& result)
+{
+   ulong dealTicket = trans.deal;
+   ulong orderTicket = trans.order;
+   ulong positionId = trans.position;
+   long magic = request.magic;
+   string symbol = trans.symbol;
+   string comment = request.comment;
+   long dealType = -1;
+   long entryType = -1;
+   double netProfit = 0.0;
+   double volume = trans.volume;
+   double fillPrice = trans.price;
+   datetime eventTime = CurrentServerTime();
+
+   if(dealTicket != 0 && HistoryDealSelect(dealTicket))
+   {
+      symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+      dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+      entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+      positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+      volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+      fillPrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+      netProfit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT)
+                + HistoryDealGetDouble(dealTicket, DEAL_COMMISSION)
+                + HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+      eventTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+      string dealComment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+      if(StringLen(TrimString(dealComment)) > 0)
+         comment = dealComment;
+   }
+
+   if(magic != PilotMagic && request.magic != PilotMagic)
+      return;
+   if(StringLen(symbol) <= 0)
+      symbol = request.symbol;
+
+   string side = "UNKNOWN";
+   if(dealType == DEAL_TYPE_BUY || request.type == ORDER_TYPE_BUY)
+      side = "BUY";
+   else if(dealType == DEAL_TYPE_SELL || request.type == ORDER_TYPE_SELL)
+      side = "SELL";
+
+   string eventType = LiveExecutionEventTypeFromDealEntry(entryType);
+   if(trans.type == TRADE_TRANSACTION_REQUEST && result.retcode != TRADE_RETCODE_DONE && result.retcode != TRADE_RETCODE_PLACED)
+      eventType = "ORDER_REJECTED";
+   string strategyId = InferStrategyFromComment(comment);
+   double expectedPrice = request.price;
+   if(expectedPrice <= 0.0)
+   {
+      if(side == "BUY")
+         expectedPrice = result.ask;
+      else if(side == "SELL")
+         expectedPrice = result.bid;
+   }
+   double spreadAtEntry = 0.0;
+   if(result.ask > 0.0 && result.bid > 0.0)
+      spreadAtEntry = CalcSpreadPips(symbol, result.bid, result.ask);
+   double slippagePips = SlippagePipsForSide(symbol, side, expectedPrice, fillPrice);
+   string intentId = "tx-" + IntegerToString((long)orderTicket) + "-" + IntegerToString((long)dealTicket);
+   string feedbackId = intentId + "-" + eventType + "-" + TradeTransactionTypeLabel(trans.type);
+   string rejectReason = "";
+   if(eventType == "ORDER_REJECTED")
+      rejectReason = result.comment;
+   string exitReason = IsExitDeal(entryType) ? "BROKER_DEAL_EXIT" : "";
+
+   string line = BuildLiveExecutionFeedbackJsonLine(feedbackId,
+                                                    eventType,
+                                                    "QuantGod_MultiStrategy.mq5",
+                                                    symbol,
+                                                    side,
+                                                    strategyId,
+                                                    "USDJPY_LIVE_LOOP",
+                                                    intentId,
+                                                    orderTicket,
+                                                    dealTicket,
+                                                    positionId,
+                                                    volume,
+                                                    expectedPrice,
+                                                    fillPrice,
+                                                    slippagePips,
+                                                    spreadAtEntry,
+                                                    0,
+                                                    result.retcode,
+                                                    result.retcode_external,
+                                                    rejectReason,
+                                                    exitReason,
+                                                    ProfitToR(netProfit),
+                                                    netProfit,
+                                                    0.0,
+                                                    0.0,
+                                                    eventTime,
+                                                    comment,
+                                                    TradeTransactionTypeLabel(trans.type));
+   AppendLiveExecutionFeedback(line);
+}
+
+string BuildLiveExecutionFeedbackHistoryJsonl(TradeJournalRecord &journal[])
+{
+   string jsonl = "";
+   for(int i = 0; i < ArraySize(journal); i++)
+   {
+      TradeJournalRecord record = journal[i];
+      if(record.source != "EA")
+         continue;
+      string eventType = (record.eventType == "EXIT") ? "ORDER_CLOSE" : "ORDER_FILL";
+      string feedbackId = "history-" + IntegerToString((long)record.dealTicket) + "-" + eventType;
+      string intentId = "history-" + IntegerToString((long)record.positionId);
+      string exitReason = (record.eventType == "EXIT") ? "HISTORY_EXIT" : "";
+      string line = BuildLiveExecutionFeedbackJsonLine(feedbackId,
+                                                       eventType,
+                                                       "QuantGod_MultiStrategy.history",
+                                                       record.symbol,
+                                                       record.side,
+                                                       record.strategy,
+                                                       "USDJPY_LIVE_LOOP",
+                                                       intentId,
+                                                       0,
+                                                       record.dealTicket,
+                                                       record.positionId,
+                                                       record.lots,
+                                                       0.0,
+                                                       record.price,
+                                                       0.0,
+                                                       0.0,
+                                                       0,
+                                                       TRADE_RETCODE_DONE,
+                                                       0,
+                                                       "",
+                                                       exitReason,
+                                                       ProfitToR(record.netProfit),
+                                                       record.netProfit,
+                                                       0.0,
+                                                       0.0,
+                                                       record.eventTime,
+                                                       record.comment,
+                                                       "HISTORY_DEAL");
+      jsonl += line + "\r\n";
+   }
+   return jsonl;
+}
+
 void UpdateShadowChartComment(string tradeStatus, bool connected, long accountLogin)
 {
    string message = IsPilotLiveMode() ? "QuantGod MT5 Live Pilot\r\n" : "QuantGod MT5 Shadow\r\n";
@@ -5950,6 +6323,7 @@ void ExportShadowCsvs(SymbolSnapshot &snapshots[], TradeJournalRecord &journal[]
    BuildAggregates(snapshots, closedTrades, strategyAggregates, regimeAggregates);
 
    WriteTextFile("QuantGod_TradeJournal.csv", BuildTradeJournalCsv(journal));
+   WriteTextFile("QuantGod_LiveExecutionFeedbackHistory.jsonl", BuildLiveExecutionFeedbackHistoryJsonl(journal));
    WriteTextFile("QuantGod_CloseHistory.csv", BuildCloseHistoryCsv(closedTrades));
    WriteTextFile("QuantGod_TradeOutcomeLabels.csv", BuildTradeOutcomeLabelsCsv(closedTrades));
    WriteTextFile("QuantGod_TradeEventLinks.csv", BuildTradeEventLinksCsv(closedTrades, journal));
@@ -7053,4 +7427,9 @@ void OnTick()
 void OnTimer()
 {
    ExportDashboard(true);
+}
+
+void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest& request, const MqlTradeResult& result)
+{
+   AppendTradeTransactionFeedback(trans, request, result);
 }

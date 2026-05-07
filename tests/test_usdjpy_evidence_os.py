@@ -54,13 +54,35 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (runtime_dir / "QuantGod_LiveExecutionFeedback.jsonl").write_text(
+                "\n".join(
+                    [
+                        '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"send-001","eventType":"ORDER_ACCEPTED","symbol":"USDJPYc","side":"BUY","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","intentId":"pilot-001","expectedPrice":155.23,"fillPrice":155.24,"slippagePips":0.1,"spreadAtEntry":0.3,"latencyMs":110,"retcode":10009}',
+                        '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"send-002","eventType":"ORDER_REJECTED","symbol":"USDJPYc","side":"BUY","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","intentId":"pilot-002","expectedPrice":155.40,"fillPrice":0,"slippagePips":0,"spreadAtEntry":0.4,"latencyMs":95,"retcode":10030}',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (runtime_dir / "QuantGod_LiveExecutionFeedbackHistory.jsonl").write_text(
+                "\n".join(
+                    [
+                        '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"history-001","eventType":"ORDER_FILL","symbol":"USDJPYc","side":"BUY","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","dealTicket":1,"fillPrice":155.24,"profitR":0.0}',
+                        '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"history-002","eventType":"ORDER_CLOSE","symbol":"USDJPYc","side":"SELL","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","dealTicket":2,"fillPrice":155.42,"profitR":0.45,"exitReason":"HISTORY_EXIT"}',
+                    ]
+                ),
+                encoding="utf-8",
+            )
             evidence = build_evidence_os(runtime_dir, write=True)
             self.assertTrue(evidence["ok"])
             self.assertIn("parity", evidence)
             self.assertIn("executionFeedback", evidence)
             self.assertIn("caseMemory", evidence)
-            self.assertEqual(evidence["executionFeedback"]["metrics"]["fillCount"], 1)
-            self.assertEqual(evidence["executionFeedback"]["metrics"]["rejectCount"], 1)
+            self.assertEqual(evidence["executionFeedback"]["metrics"]["acceptedCount"], 1)
+            self.assertEqual(evidence["executionFeedback"]["metrics"]["fillCount"], 3)
+            self.assertEqual(evidence["executionFeedback"]["metrics"]["rejectCount"], 2)
+            sources = {row["source"] for row in evidence["executionFeedback"]["recentFeedback"]}
+            self.assertIn("QuantGod_LiveExecutionFeedback.jsonl", sources)
+            self.assertIn("QuantGod_LiveExecutionFeedbackHistory.jsonl", sources)
             self.assertIn("qualityGates", evidence["executionFeedback"])
             self.assertFalse(evidence["safety"]["orderSendAllowed"])
             self.assertTrue((runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json").exists())

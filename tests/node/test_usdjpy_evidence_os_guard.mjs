@@ -50,3 +50,37 @@ test('evidence OS remains read-only and feeds GA scoring', () => {
   assert.doesNotMatch(source, /TRADE_ACTION_DEAL|OrderSendAsync|PositionClose|CTrade/);
   assert.doesNotMatch(source, /telegramCommandExecutionAllowed["']?\s*:\s*True/);
 });
+
+test('MT5 EA emits standardized live execution feedback for Evidence OS', () => {
+  const eaSource = read('MQL5/Experts/QuantGod_MultiStrategy.mq5');
+  for (const marker of [
+    'QuantGod_LiveExecutionFeedback.jsonl',
+    'QuantGod_LiveExecutionFeedbackHistory.jsonl',
+    'quantgod.live_execution_feedback.v1',
+    'OnTradeTransaction',
+    'AppendPilotTradeResultFeedback',
+    'AppendTradeTransactionFeedback',
+    'BuildLiveExecutionFeedbackHistoryJsonl',
+    'feedbackId',
+    'eventType',
+    'policyId',
+    'strategyId',
+    'intentId',
+    'expectedPrice',
+    'fillPrice',
+    'slippagePips',
+    'spreadAtEntry',
+    'latencyMs',
+    'profitR',
+    'mfeR',
+    'maeR',
+  ]) {
+    assert.match(eaSource, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(eaSource, /ORDER_ACCEPTED/);
+  assert.match(eaSource, /ORDER_REJECTED/);
+  assert.match(eaSource, /ORDER_FILL/);
+  assert.match(eaSource, /ORDER_CLOSE/);
+  assert.match(eaSource, /frontendCanTrade\\":false/);
+  assert.match(eaSource, /telegramCommandsAllowed\\":false/);
+});
