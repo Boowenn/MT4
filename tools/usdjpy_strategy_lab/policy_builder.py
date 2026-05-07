@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from tools.news_gate.classifier import classify_news_gate
+from tools.news_gate.policy import apply_news_gate_to_live_policy
 from .data_loader import adaptive_policy, dynamic_sltp, entry_trigger_plan, fastlane_quality, focus_runtime_snapshot
 from .schema import (
     ENTRY_BLOCKED,
@@ -187,6 +189,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
     trigger = entry_trigger_plan(runtime_dir)
     sltp = dynamic_sltp(runtime_dir)
     adaptive = adaptive_policy(runtime_dir)
+    news_gate = classify_news_gate(snapshot or {})
     runtime_ok, runtime_reasons = _runtime_ok(snapshot or {})
     fast_ok, fast_reasons = _fastlane_ok(quality)
     core_ok = runtime_ok and fast_ok
@@ -226,6 +229,20 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
         else:
             reasons.append("分数或触发状态不足，保持阻断")
         lot = _recommended_lot(score, entry_mode, max_lot=max_lot, min_lot=min_lot, step=step)
+        if strategy == LIVE_ELIGIBLE_STRATEGY and str(direction).upper() == LIVE_ELIGIBLE_DIRECTION:
+            entry_mode, allowed, lot, strictness, reasons = apply_news_gate_to_live_policy(
+                entry_mode=entry_mode,
+                allowed=allowed,
+                recommended_lot=lot,
+                strictness=strictness,
+                reasons=reasons,
+                news_gate=news_gate,
+                min_lot=min_lot,
+                max_lot=max_lot,
+                step=step,
+            )
+        else:
+            reasons.append("新闻风险只记录到 shadow / replay，不阻断 MT5 模拟策略。")
         policies.append(PolicyItem(
             symbol=FOCUS_SYMBOL,
             strategy=strategy,
@@ -242,6 +259,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             trailStartR=float(sltp_item.get("trailStartR", 1.4)) if sltp_item else 1.4,
             timeStopBars=int(float(sltp_item.get("timeStopBars", 6))) if sltp_item else 6,
             reasons=list(dict.fromkeys([str(r) for r in reasons if r])),
+            newsGate=dict(news_gate),
         ))
 
     policies.sort(key=lambda item: (item.entryMode == ENTRY_BLOCKED, -item.score, -item.recommendedLot, item.strategy))
@@ -270,7 +288,11 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "patchWritable": True,
             "liveMutationAllowed": False,
             "rsiLiveRoutePreserved": True,
+            "newsGateDefaultMode": news_gate.get("mode"),
+            "ordinaryNewsHardBlocksLive": False,
+            "highImpactNewsHardBlocksLive": True,
         },
+        "newsGate": news_gate,
         "maxLot": max_lot,
         "standardEntryCount": sum(1 for item in policies if item.entryMode == ENTRY_STANDARD),
         "opportunityEntryCount": sum(1 for item in policies if item.entryMode == ENTRY_OPPORTUNITY),
@@ -290,6 +312,9 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "candidateSignalCount": candidate_signals.get("count", 0),
             "topLiveEligiblePolicyFound": bool(top_live_policy),
             "topShadowPolicyStrategy": (top_shadow_policy or {}).get("strategy"),
+            "newsGateMode": news_gate.get("mode"),
+            "newsRiskLevel": news_gate.get("riskLevel"),
+            "newsHardBlock": bool(news_gate.get("hardBlock")),
         },
         "candidateSignals": candidate_signals.get("signals", []),
         "scoreboard": scoreboard,

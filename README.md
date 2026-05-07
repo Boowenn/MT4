@@ -144,7 +144,7 @@ The following boundaries are deliberate and should be treated as architectural c
 - Polymarket remains shadow-only and event-context-only.
 - Telegram is push-only; no Telegram command execution.
 - DeepSeek explains and summarizes; it does not approve execution.
-- Runtime stale, fastlane degraded, news block, abnormal spread, daily loss, and loss streak gates cannot be bypassed by Agent or AI.
+- Runtime stale, fastlane degraded, high-impact news windows, abnormal spread, daily loss, and loss streak gates cannot be bypassed by Agent or AI. Ordinary news is a soft risk modifier by default.
 - Agent may write controlled patch evidence; it must not mutate source code, live preset, private keys, or broker credentials.
 
 ## Documentation

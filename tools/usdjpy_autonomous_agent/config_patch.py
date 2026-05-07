@@ -75,7 +75,7 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
         },
         "rollback": {
             "enabled": True,
-            "trigger": "lossStreak>=2 OR dailyLossR<=-1.0 OR fastlane not in FAST/EA_DASHBOARD_OK OR runtime stale OR spread abnormal OR news block",
+            "trigger": "lossStreak>=2 OR dailyLossR<=-1.0 OR fastlane not in FAST/EA_DASHBOARD_OK OR runtime stale OR spread abnormal OR highImpactNews",
             "hardBlockers": (decision.get("hardRollback") or {}).get("hardBlockers", []),
         },
         "sourceDecision": decision,

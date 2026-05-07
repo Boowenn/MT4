@@ -6,10 +6,12 @@ from typing import Any, Dict, List
 
 try:
     from tools.autonomous_lifecycle.lifecycle import build_autonomous_lifecycle
+    from tools.news_gate.classifier import classify_news_gate
     from tools.usdjpy_autonomous_agent.agent_state import build_agent_state
     from tools.usdjpy_strategy_lab.schema import FOCUS_SYMBOL, utc_now_iso
 except ModuleNotFoundError:  # pragma: no cover
     from autonomous_lifecycle.lifecycle import build_autonomous_lifecycle
+    from news_gate.classifier import classify_news_gate
     from usdjpy_autonomous_agent.agent_state import build_agent_state
     from usdjpy_strategy_lab.schema import FOCUS_SYMBOL, utc_now_iso
 
@@ -116,6 +118,16 @@ def _runtime_metrics(runtime_dir: Path, agent: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
+def _news_gate_summary(runtime_dir: Path) -> Dict[str, Any]:
+    policy = _load_json(runtime_dir / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json")
+    news_gate = _safe_dict(policy.get("newsGate"))
+    if news_gate:
+        return news_gate
+    dashboard = _load_json(runtime_dir / "QuantGod_Dashboard.json")
+    snapshot = dashboard if dashboard else _load_json(runtime_dir / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json")
+    return classify_news_gate(snapshot)
+
+
 def _stage_text(route: Dict[str, Any]) -> str:
     return str(route.get("promotionStageZh") or route.get("promotionStage") or "模拟观察")
 
@@ -152,7 +164,7 @@ def _next_phase_todos() -> Dict[str, Any]:
     }
 
 
-def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> Dict[str, Any]:
+def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any]) -> Dict[str, Any]:
     cent = _safe_dict(lifecycle.get("centAccount") or agent.get("centAccount"))
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
     live = _safe_dict(lanes.get("live"))
@@ -185,19 +197,28 @@ def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> Dic
             "summary": polymarket.get("summary", {}),
             "reasonZh": polymarket.get("reasonZh", "继续模拟账本和事件风险，不触碰真实钱包。"),
         },
+        "newsGate": {
+            "mode": news_gate.get("mode", "SOFT"),
+            "riskLevel": news_gate.get("riskLevel", "UNKNOWN"),
+            "hardBlock": bool(news_gate.get("hardBlock")),
+            "lotMultiplier": news_gate.get("lotMultiplier", 1.0),
+            "stageDowngrade": bool(news_gate.get("stageDowngrade", False)),
+            "reasonZh": news_gate.get("reasonZh", "普通新闻不阻断，高冲击新闻硬阻断。"),
+            "highImpactEvent": news_gate.get("highImpactEvent"),
+        },
         "todayForbiddenZh": [
             "USDJPY SELL 实盘",
             "非 RSI 实盘",
             "非 USDJPY 实盘",
             "Polymarket 钱包交易",
-            "新闻阻断时入场",
+            "高冲击新闻窗口入场",
             "快通道或 runtime 陈旧时入场",
             "固定 2 手下单",
         ],
     }
 
 
-def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> Dict[str, Any]:
+def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any]) -> Dict[str, Any]:
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
@@ -228,6 +249,13 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any]) -> D
             "stageZh": polymarket.get("stageZh", "模拟观察"),
             "summary": polymarket.get("summary", {}),
             "riskContextOnly": True,
+        },
+        "newsGateReview": {
+            "mode": news_gate.get("mode", "SOFT"),
+            "riskLevel": news_gate.get("riskLevel", "UNKNOWN"),
+            "ordinaryNewsBlocksLive": False,
+            "highImpactNewsBlocksLive": True,
+            "reasonZh": news_gate.get("reasonZh", "普通新闻只降仓/降级，高冲击新闻硬阻断。"),
         },
         "tomorrowStageZh": agent.get("stageZh") or "继续自主治理门评估",
     }
@@ -370,6 +398,7 @@ def build_daily_autopilot_v2(
     agent = build_agent_state(runtime_dir, write=write)
     generated_at = utc_now_iso()
     metrics = _runtime_metrics(runtime_dir, agent)
+    news_gate = _news_gate_summary(runtime_dir)
     daily_todo = _build_daily_todo(agent, lifecycle, metrics, generated_at)
     daily_review = _build_daily_review(agent, lifecycle, metrics, generated_at)
     payload: Dict[str, Any] = {
@@ -381,8 +410,9 @@ def build_daily_autopilot_v2(
         "symbol": FOCUS_SYMBOL,
         "titleZh": "USDJPY 美分账户三车道自动日报",
         "sloganZh": "实盘要窄，模拟要宽，升降级要快，回滚要硬。",
-        "morningPlan": _build_morning_plan(agent, lifecycle),
-        "eveningReview": _build_evening_review(agent, lifecycle),
+        "morningPlan": _build_morning_plan(agent, lifecycle, news_gate),
+        "eveningReview": _build_evening_review(agent, lifecycle, news_gate),
+        "newsGate": news_gate,
         "dailyTodo": daily_todo,
         "dailyReview": daily_review,
         "nextPhaseTodos": _next_phase_todos(),

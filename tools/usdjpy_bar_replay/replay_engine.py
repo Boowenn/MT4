@@ -25,6 +25,7 @@ from .schema import (
     VARIANT_RELAXED_ENTRY,
     utc_now_iso,
 )
+from tools.news_gate.replay import build_news_gate_replay_report
 
 
 def _out_dir(runtime_dir: Path) -> Path:
@@ -46,7 +47,8 @@ def build_entry_comparison(runtime_dir: Path, write: bool = False) -> Dict[str, 
         "causalReplay": {
             "posteriorMayAffectTrigger": False,
             "posteriorUse": "15/30/60/120 分钟后验窗口只用于评分，不参与当时入场触发。",
-            "hardGatesNeverRelaxed": ["runtime", "fastlane", "news", "spread", "session", "cooldown", "startup", "capacity"],
+            "hardGatesNeverRelaxed": ["runtime", "fastlane", "highImpactNews", "spread", "session", "cooldown", "startup", "capacity"],
+            "ordinaryNewsBlocksLive": False,
         },
         "variants": [
             {"name": VARIANT_CURRENT, "labelZh": "当前规则", "metrics": current_metrics},
@@ -101,6 +103,7 @@ def build_bar_replay_report(runtime_dir: Path, write: bool = False) -> Dict[str,
     entry_relaxed = entry["variants"][1]["metrics"]
     exit_current = exit_cmp["variants"][0]["metrics"]
     exit_let_run = exit_cmp["variants"][1]["metrics"]
+    news_gate_replay = build_news_gate_replay_report(runtime_dir, entry, write=write)
     payload = {
         "ok": True,
         "schema": SCHEMA_REPORT,
@@ -131,9 +134,11 @@ def build_bar_replay_report(runtime_dir: Path, write: bool = False) -> Dict[str,
             "letProfitRunNetRDelta": exit_let_run.get("netRDelta", 0),
             "entryConclusion": entry_relaxed.get("conclusion"),
             "exitConclusion": exit_let_run.get("conclusion"),
+            "newsGateRecommendation": news_gate_replay.get("recommendationZh"),
         },
         "entryComparison": entry,
         "exitComparison": exit_cmp,
+        "newsGateReplay": news_gate_replay,
         "nextStepZh": _next_step(entry_relaxed, exit_let_run),
     }
     if write:
@@ -176,4 +181,3 @@ def _write_ledger(path: Path, payload: Dict[str, Any]) -> None:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()) if rows else ["generatedAtIso"])
         writer.writeheader()
         writer.writerows(rows)
-

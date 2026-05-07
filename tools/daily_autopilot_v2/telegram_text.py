@@ -29,6 +29,8 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
     mt5_summary = mt5.get("summary") if isinstance(mt5.get("summary"), dict) else {}
     polymarket = morning.get("polymarketShadowLane") if isinstance(morning.get("polymarketShadowLane"), dict) else {}
     poly_summary = polymarket.get("summary") if isinstance(polymarket.get("summary"), dict) else {}
+    news_gate = morning.get("newsGate") if isinstance(morning.get("newsGate"), dict) else {}
+    news_review = evening.get("newsGateReview") if isinstance(evening.get("newsGateReview"), dict) else {}
     evening_live = evening.get("liveLane") if isinstance(evening.get("liveLane"), dict) else {}
     evening_mt5 = evening.get("mt5ShadowLane") if isinstance(evening.get("mt5ShadowLane"), dict) else {}
     lines = [
@@ -48,6 +50,12 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         f"- 模拟 PF：{_fmt(poly_summary.get('shadowProfitFactor'), '0')}，模拟净值：{_fmt(poly_summary.get('shadowNetUSDC'), '0')} USDC",
         "- 只做模拟账本和事件风险，不连接真实钱包。",
         "",
+        "新闻门禁：",
+        f"- 模式：{_fmt(news_gate.get('mode'), 'SOFT')}；风险：{_fmt(news_gate.get('riskLevel'), 'UNKNOWN')}",
+        f"- 普通新闻：不阻断，只降仓/降级；仓位倍率 {_fmt(news_gate.get('lotMultiplier'), '1.0')}",
+        f"- 高冲击新闻：{'硬阻断' if news_gate.get('hardBlock') else '当前无高冲击硬阻断'}",
+        f"- 说明：{_fmt(news_gate.get('reasonZh'), '普通新闻不挡 RSI 买入，高冲击新闻才硬挡。')}",
+        "",
         "今日禁止：",
     ]
     for item in morning.get("todayForbiddenZh") or []:
@@ -65,6 +73,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         f"净 R：{_fmt(review_metrics.get('netR'), '0')}；最大不利 R：{_fmt(review_metrics.get('maxAdverseR'))}；利润捕获：{_fmt(review_metrics.get('profitCaptureRatio'))}",
         f"错失机会：{_fmt(review_metrics.get('missedOpportunity'), '0')}；早出场改善：{_fmt(review_metrics.get('earlyExit'), '0')}",
         f"MT5 模拟：晋级/强化 {evening_mt5.get('promotedCount', 0)}，暂停 {evening_mt5.get('pausedCount', 0)}，淘汰 {evening_mt5.get('rejectedCount', 0)}",
+        f"新闻风险复盘：{_fmt(news_review.get('mode'), 'SOFT')} / {_fmt(news_review.get('riskLevel'), 'UNKNOWN')}；普通新闻不硬阻断，高冲击新闻硬阻断。",
         f"明日阶段：{_fmt(evening.get('tomorrowStageZh'))}",
         "",
         "下一阶段任务：",
