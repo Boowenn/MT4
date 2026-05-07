@@ -2,11 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 load_env_file() {
   local env_file="$1"
   local line
+  [[ -f "$env_file" ]] || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line#$'\xef\xbb\xbf'}"
     line="${line#export }"
@@ -31,9 +33,33 @@ patch_ini_key() {
   fi
 }
 
-if [[ -f .env.local ]]; then
-  load_env_file .env.local
-fi
+start_screen() {
+  local name="$1"
+  local log_file="$2"
+  local command="$3"
+  mkdir -p "$(dirname "$log_file")"
+  : > "$log_file"
+  if command -v screen >/dev/null 2>&1; then
+    screen -S "$name" -X quit >/dev/null 2>&1 || true
+    screen -dmS "$name" /bin/zsh -lc "$command >> '$log_file' 2>&1"
+    echo "Started screen: $name"
+  else
+    /bin/zsh -lc "$command >> '$log_file' 2>&1" &
+    echo "Started background process for $name. Log: $log_file"
+  fi
+}
+
+quit_screen() {
+  local name="$1"
+  command -v screen >/dev/null 2>&1 || return 0
+  screen -S "$name" -X quit >/dev/null 2>&1 || true
+}
+
+load_env_file "$SCRIPT_DIR/.env.local"
+load_env_file "$SCRIPT_DIR/.env.usdjpy.local"
+load_env_file "$SCRIPT_DIR/.env.auto.local"
+load_env_file "$SCRIPT_DIR/.env.telegram.local"
+load_env_file "$SCRIPT_DIR/.env.deepseek.local"
 
 RUNTIME_CONFIGURED=0
 if [[ -n "${QG_RUNTIME_DIR:-}" || -n "${QG_MT5_FILES_DIR:-}" ]]; then
@@ -42,10 +68,22 @@ fi
 
 export QG_DASHBOARD_HOST="${QG_DASHBOARD_HOST:-127.0.0.1}"
 export QG_DASHBOARD_PORT="${QG_DASHBOARD_PORT:-8080}"
+export QG_FRONTEND_HOST="${QG_FRONTEND_HOST:-127.0.0.1}"
+export QG_FRONTEND_PORT="${QG_FRONTEND_PORT:-5173}"
 export QG_PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
 export QG_RUNTIME_DIR="${QG_RUNTIME_DIR:-./Dashboard}"
 export QG_MT5_FILES_DIR="${QG_MT5_FILES_DIR:-./Dashboard}"
+export QG_FOCUS_SYMBOL="${QG_FOCUS_SYMBOL:-USDJPYc}"
+export QG_ALLOWED_SYMBOLS="${QG_ALLOWED_SYMBOLS:-USDJPYc}"
+export QG_DISABLE_NON_FOCUS_SYMBOLS="${QG_DISABLE_NON_FOCUS_SYMBOLS:-1}"
+export QG_AUTOMATION_SYMBOLS="${QG_AUTOMATION_SYMBOLS:-USDJPYc}"
+export QG_MT5_AI_MONITOR_SYMBOLS="${QG_MT5_AI_MONITOR_SYMBOLS:-USDJPYc}"
+export QG_ACCOUNT_MODE="${QG_ACCOUNT_MODE:-cent}"
+export QG_ACCOUNT_CURRENCY_UNIT="${QG_ACCOUNT_CURRENCY_UNIT:-USC}"
+export QG_CENT_ACCOUNT_ACCELERATION="${QG_CENT_ACCOUNT_ACCELERATION:-1}"
+export QG_TELEGRAM_COMMANDS_ALLOWED="${QG_TELEGRAM_COMMANDS_ALLOWED:-0}"
 
+FRONTEND_DIR="${QG_FRONTEND_ROOT:-$WORKSPACE_ROOT/QuantGodFrontend}"
 MT5_APP_PATH="${QG_MT5_APP_PATH:-$HOME/Applications/MetaTrader 5.app}"
 MT5_PREFIX="${QG_MT5_WINE_PREFIX:-$HOME/Library/Application Support/net.metaquotes.wine.metatrader5}"
 MT5_ROOT="${QG_MT5_ROOT:-$MT5_PREFIX/drive_c/Program Files/MetaTrader 5}"
@@ -56,17 +94,27 @@ MT5_PRESETS="$MT5_MQL5/Presets"
 WINE64="$MT5_APP_PATH/Contents/SharedSupport/wine/bin/wine64"
 MT5_SHADOW_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_Shadow_mac.ini"
 MT5_LIVE_CONFIG="$MT5_PREFIX/drive_c/qg/QuantGod_MT5_HFM_LivePilot_mac.ini"
+
 export QG_PARAMLAB_HFM_ROOT="${QG_PARAMLAB_HFM_ROOT:-$SCRIPT_DIR/runtime/ParamLab_Tester_Sandbox/live_hfm_placeholder}"
 export QG_PARAMLAB_TESTER_ROOT="${QG_PARAMLAB_TESTER_ROOT:-$SCRIPT_DIR/runtime/HFM_MT5_Tester_Isolated}"
 export QG_MT5_TESTER_ROOT="${QG_MT5_TESTER_ROOT:-$QG_PARAMLAB_TESTER_ROOT}"
+
 MT5_SHADOW_SCREEN="${QG_MT5_SHADOW_SCREEN:-quantgod-mt5-shadow}"
 MT5_LIVE_SCREEN="${QG_MT5_LIVE_SCREEN:-quantgod-mt5-live}"
-DAILY_AUTOPILOT_SCREEN="${QG_DAILY_AUTOPILOT_SCREEN:-quantgod-daily-autopilot}"
+BACKEND_API_SCREEN="${QG_BACKEND_API_SCREEN:-quantgod-backend-api}"
+FRONTEND_SCREEN="${QG_FRONTEND_SCREEN:-quantgod-frontend-dev}"
+AGENT_V25_SCREEN="${QG_AGENT_V25_SCREEN:-quantgod-agent-v25}"
+LEGACY_DAILY_AUTOPILOT_SCREEN="${QG_DAILY_AUTOPILOT_SCREEN:-quantgod-daily-autopilot}"
+
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
-MT5_START_MODE="${QG_MT5_START_MODE:-shadow}"
-MT5_LIVE_LAUNCH_ALLOWED="${QG_MT5_LIVE_LAUNCH_ALLOWED:-0}"
+MT5_START_MODE="${QG_MT5_START_MODE:-live}"
+MT5_LIVE_LAUNCH_ALLOWED="${QG_MT5_LIVE_LAUNCH_ALLOWED:-1}"
 MT5_START_SYMBOL="${QG_MT5_START_SYMBOL:-USDJPYc}"
-DAILY_AUTOPILOT_ENABLED="${QG_DAILY_AUTOPILOT_ENABLED:-1}"
+BACKEND_API_ENABLED="${QG_BACKEND_API_ENABLED:-1}"
+FRONTEND_ENABLED="${QG_FRONTEND_ENABLED:-1}"
+AGENT_V25_ENABLED="${QG_AGENT_V25_ENABLED:-1}"
+LEGACY_DAILY_AUTOPILOT_ENABLED="${QG_LEGACY_DAILY_AUTOPILOT_ENABLED:-0}"
+
 RUNTIME_IS_IMPORT_SNAPSHOT=0
 if is_import_snapshot_dir "$QG_RUNTIME_DIR"; then
   RUNTIME_IS_IMPORT_SNAPSHOT=1
@@ -77,19 +125,21 @@ if [[ -d "$MT5_ROOT" && ( "$RUNTIME_SOURCE" == "mt5" || ( "$RUNTIME_SOURCE" == "
   export QG_MT5_FILES_DIR="$MT5_FILES"
 fi
 
-echo "QuantGod Mac launcher"
-echo "Repo: $SCRIPT_DIR"
+echo "QuantGod v2.5 Mac one-click launcher"
+echo "Backend: $SCRIPT_DIR"
+echo "Frontend: $FRONTEND_DIR"
 echo "Runtime: $QG_RUNTIME_DIR"
+echo "Focus symbol: $QG_FOCUS_SYMBOL"
 echo "MT5 start mode: $MT5_START_MODE"
 echo "MT5 start symbol: $MT5_START_SYMBOL"
 echo "MT5 live launch allowed: $MT5_LIVE_LAUNCH_ALLOWED"
-echo "Daily autopilot enabled: $DAILY_AUTOPILOT_ENABLED"
-echo "Dashboard: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
+echo "Frontend: http://$QG_FRONTEND_HOST:$QG_FRONTEND_PORT/vue/?workspace=mt5"
+echo "Backend API: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
 
 if [[ -d "$MT5_ROOT" ]]; then
   echo "Syncing QuantGod files into MT5..."
   mkdir -p "$MT5_FILES" "$MT5_EXPERTS" "$MT5_PRESETS" "$MT5_PREFIX/drive_c/qg"
-  rsync -a Dashboard/vue-dist/ "$MT5_FILES/vue-dist/"
+  rsync -a Dashboard/vue-dist/ "$MT5_FILES/vue-dist/" || true
   cp Dashboard/dashboard_server.js "$MT5_FILES/dashboard_server.js"
   rsync -a --include='QuantGod_*' --include='*/' --exclude='*' Dashboard/ "$MT5_FILES/"
   if [[ -d "$QG_MT5_FILES_DIR" ]]; then
@@ -143,42 +193,14 @@ if [[ -d "$MT5_ROOT" ]]; then
         echo "Live launch is locked. Set QG_MT5_LIVE_LAUNCH_ALLOWED=1 after checking live risk controls."
       else
         echo "Starting MT5 with the HFM LivePilot config..."
-        MT5_LIVE_LOG="$SCRIPT_DIR/runtime/mt5_hfm_livepilot_screen.log"
-        mkdir -p "$SCRIPT_DIR/runtime"
-        : > "$MT5_LIVE_LOG"
-        if command -v screen >/dev/null 2>&1; then
-          screen -S "$MT5_SHADOW_SCREEN" -X quit >/dev/null 2>&1 || true
-          screen -S "$MT5_LIVE_SCREEN" -X quit >/dev/null 2>&1 || true
-          screen -dmS "$MT5_LIVE_SCREEN" /bin/zsh -lc \
-            "cd '$MT5_ROOT' && exec env WINEPREFIX='$MT5_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\QuantGod_MT5_HFM_LivePilot_mac.ini' >> '$MT5_LIVE_LOG' 2>&1"
-          echo "MT5 LivePilot started in screen session: $MT5_LIVE_SCREEN"
-        else
-          (
-            cd "$MT5_ROOT"
-            WINEPREFIX="$MT5_PREFIX" "$WINE64" terminal64.exe /portable \
-              '/config:C:\qg\QuantGod_MT5_HFM_LivePilot_mac.ini' >> "$MT5_LIVE_LOG" 2>&1 &
-          )
-          echo "MT5 LivePilot started in background. Log: $MT5_LIVE_LOG"
-        fi
+        quit_screen "$MT5_SHADOW_SCREEN"
+        start_screen "$MT5_LIVE_SCREEN" "$SCRIPT_DIR/runtime/mt5_hfm_livepilot_screen.log" \
+          "cd '$MT5_ROOT' && exec env WINEPREFIX='$MT5_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\QuantGod_MT5_HFM_LivePilot_mac.ini'"
       fi
     else
       echo "Starting MT5 with the read-only HFM shadow config..."
-      MT5_SHADOW_LOG="$SCRIPT_DIR/runtime/mt5_hfm_shadow_screen.log"
-      mkdir -p "$SCRIPT_DIR/runtime"
-      : > "$MT5_SHADOW_LOG"
-      if command -v screen >/dev/null 2>&1; then
-        screen -S "$MT5_SHADOW_SCREEN" -X quit >/dev/null 2>&1 || true
-        screen -dmS "$MT5_SHADOW_SCREEN" /bin/zsh -lc \
-          "cd '$MT5_ROOT' && exec env WINEPREFIX='$MT5_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\QuantGod_MT5_HFM_Shadow_mac.ini' >> '$MT5_SHADOW_LOG' 2>&1"
-        echo "MT5 read-only shadow started in screen session: $MT5_SHADOW_SCREEN"
-      else
-        (
-          cd "$MT5_ROOT"
-          WINEPREFIX="$MT5_PREFIX" "$WINE64" terminal64.exe /portable \
-            '/config:C:\qg\QuantGod_MT5_HFM_Shadow_mac.ini' >> "$MT5_SHADOW_LOG" 2>&1 &
-        )
-        echo "MT5 read-only shadow started in background. Log: $MT5_SHADOW_LOG"
-      fi
+      start_screen "$MT5_SHADOW_SCREEN" "$SCRIPT_DIR/runtime/mt5_hfm_shadow_screen.log" \
+        "cd '$MT5_ROOT' && exec env WINEPREFIX='$MT5_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\QuantGod_MT5_HFM_Shadow_mac.ini'"
     fi
   fi
 else
@@ -190,20 +212,29 @@ if [[ -d "$MT5_APP_PATH" && ! -x "$WINE64" ]]; then
   open "$MT5_APP_PATH" || true
 fi
 
-if [[ "$DAILY_AUTOPILOT_ENABLED" == "1" ]]; then
-  DAILY_AUTOPILOT_LOG="$SCRIPT_DIR/runtime/daily_autopilot_screen.log"
-  mkdir -p "$SCRIPT_DIR/runtime"
-  : > "$DAILY_AUTOPILOT_LOG"
-  if command -v screen >/dev/null 2>&1; then
-    screen -S "$DAILY_AUTOPILOT_SCREEN" -X quit >/dev/null 2>&1 || true
-    screen -dmS "$DAILY_AUTOPILOT_SCREEN" /bin/zsh -lc \
-      "cd '$SCRIPT_DIR' && exec bash tools/run_mac_daily_autopilot.sh --loop >> '$DAILY_AUTOPILOT_LOG' 2>&1"
-    echo "Daily autopilot started in screen session: $DAILY_AUTOPILOT_SCREEN"
-  else
-    bash tools/run_mac_daily_autopilot.sh --loop >> "$DAILY_AUTOPILOT_LOG" 2>&1 &
-    echo "Daily autopilot started in background. Log: $DAILY_AUTOPILOT_LOG"
-  fi
+if [[ "$BACKEND_API_ENABLED" == "1" ]]; then
+  start_screen "$BACKEND_API_SCREEN" "$SCRIPT_DIR/runtime/backend_api_screen.log" \
+    "cd '$SCRIPT_DIR' && exec node Dashboard/dashboard_server.js"
 fi
 
-open "http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/" || true
-exec node Dashboard/dashboard_server.js
+if [[ "$FRONTEND_ENABLED" == "1" && -d "$FRONTEND_DIR" ]]; then
+  start_screen "$FRONTEND_SCREEN" "$SCRIPT_DIR/runtime/frontend_dev_screen.log" \
+    "cd '$FRONTEND_DIR' && exec npm run dev -- --host '$QG_FRONTEND_HOST' --port '$QG_FRONTEND_PORT'"
+fi
+
+if [[ "$AGENT_V25_ENABLED" == "1" ]]; then
+  quit_screen "$LEGACY_DAILY_AUTOPILOT_SCREEN"
+  start_screen "$AGENT_V25_SCREEN" "$SCRIPT_DIR/runtime/agent_v25_screen.log" \
+    "cd '$SCRIPT_DIR' && exec bash tools/run_mac_agent_v25_loop.sh --loop"
+fi
+
+if [[ "$LEGACY_DAILY_AUTOPILOT_ENABLED" == "1" ]]; then
+  start_screen "$LEGACY_DAILY_AUTOPILOT_SCREEN" "$SCRIPT_DIR/runtime/daily_autopilot_legacy_screen.log" \
+    "cd '$SCRIPT_DIR' && exec bash tools/run_mac_daily_autopilot.sh --loop"
+fi
+
+open "http://$QG_FRONTEND_HOST:$QG_FRONTEND_PORT/vue/?workspace=mt5" || \
+  open "http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/?workspace=mt5" || true
+
+echo "QuantGod v2.5 launcher complete."
+echo "Screens: $BACKEND_API_SCREEN, $FRONTEND_SCREEN, $AGENT_V25_SCREEN, $MT5_LIVE_SCREEN"

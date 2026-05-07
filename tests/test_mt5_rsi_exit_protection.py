@@ -220,7 +220,7 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
             self.assertIn("Symbol=USDJPYc", text)
             self.assertNotIn("Symbol=EURUSDc", text)
 
-    def test_mac_shadow_launcher_is_readonly_usdjpy_and_detached(self):
+    def test_mac_launcher_defaults_to_usdjpy_live_and_agent_v25(self):
         config_text = SHADOW_CONFIG_PATH.read_text(encoding="utf-8")
         self.assertIn("AllowLiveTrading=0", config_text)
         self.assertIn("Symbol=USDJPYc", config_text)
@@ -235,10 +235,22 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
             self.assertIn(switch, preset_text)
 
         launcher_text = MAC_LAUNCHER_PATH.read_text(encoding="utf-8")
+        self.assertIn('MT5_START_MODE="${QG_MT5_START_MODE:-live}"', launcher_text)
+        self.assertIn('MT5_LIVE_LAUNCH_ALLOWED="${QG_MT5_LIVE_LAUNCH_ALLOWED:-1}"', launcher_text)
+        self.assertIn("QG_FOCUS_SYMBOL", launcher_text)
+        self.assertIn("QG_AUTOMATION_SYMBOLS", launcher_text)
+        self.assertIn("QG_ACCOUNT_MODE", launcher_text)
+        self.assertIn("quantgod-backend-api", launcher_text)
+        self.assertIn("quantgod-frontend-dev", launcher_text)
+        self.assertIn("quantgod-agent-v25", launcher_text)
+        self.assertIn("tools/run_mac_agent_v25_loop.sh --loop", launcher_text)
         self.assertIn("MT5_SHADOW_SCREEN", launcher_text)
+        self.assertIn("MT5_LIVE_SCREEN", launcher_text)
         self.assertIn("terminal64.exe /portable", launcher_text)
         self.assertIn("QuantGod_MT5_HFM_Shadow_mac.ini", launcher_text)
+        self.assertIn("QuantGod_MT5_HFM_LivePilot_mac.ini", launcher_text)
         self.assertIn("AllowLiveTrading=0", launcher_text)
+        self.assertTrue(launcher_text.rstrip().endswith('echo "Screens: $BACKEND_API_SCREEN, $FRONTEND_SCREEN, $AGENT_V25_SCREEN, $MT5_LIVE_SCREEN"'))
 
     def test_live_and_usdjpy_backtest_presets_include_rsi_fast_exit(self):
         for path in (LIVE_PRESET_PATH, BACKTEST_USDJPY_PATH):

@@ -22,7 +22,6 @@ if [[ -f .env.local ]]; then
   load_env_file .env.local
 fi
 
-PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
 MODE="--once"
 if [[ "${1:-}" == "--loop" ]]; then
   MODE="--loop"
@@ -32,13 +31,17 @@ elif [[ "${1:-}" == "--once" ]]; then
   shift
 fi
 
-EXTRA_ARGS=()
-if [[ "${QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN:-0}" == "1" ]]; then
-  EXTRA_ARGS+=("--allow-tester-run")
+if [[ "${QG_LEGACY_DAILY_AUTOPILOT_ENABLED:-0}" == "1" ]]; then
+  PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
+  EXTRA_ARGS=()
+  if [[ "${QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN:-0}" == "1" ]]; then
+    EXTRA_ARGS+=("--allow-tester-run")
+  fi
+  if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+    exec "$PYTHON_BIN" tools/run_daily_autopilot.py "$MODE" "${EXTRA_ARGS[@]}" "$@"
+  else
+    exec "$PYTHON_BIN" tools/run_daily_autopilot.py "$MODE" "$@"
+  fi
 fi
 
-if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-  exec "$PYTHON_BIN" tools/run_daily_autopilot.py "$MODE" "${EXTRA_ARGS[@]}" "$@"
-else
-  exec "$PYTHON_BIN" tools/run_daily_autopilot.py "$MODE" "$@"
-fi
+exec bash tools/run_mac_agent_v25_loop.sh "$MODE" "$@"

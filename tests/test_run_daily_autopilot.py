@@ -250,7 +250,13 @@ class DailyAutopilotTests(unittest.TestCase):
         repo_root = MODULE_PATH.parents[1]
         env = {**os.environ, "QG_MAC_RUNTIME_SOURCE": "local"}
         result = subprocess.run(
-            ["bash", "-n", "tools/run_mac_daily_autopilot.sh", "tools/run_mac_polymarket_readonly_cycle.sh"],
+            [
+                "bash",
+                "-n",
+                "tools/run_mac_daily_autopilot.sh",
+                "tools/run_mac_agent_v25_loop.sh",
+                "tools/run_mac_polymarket_readonly_cycle.sh",
+            ],
             cwd=repo_root,
             text=True,
             capture_output=True,
@@ -259,6 +265,19 @@ class DailyAutopilotTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mac_daily_wrapper_defaults_to_agent_v25(self):
+        repo_root = MODULE_PATH.parents[1]
+        wrapper = (repo_root / "tools" / "run_mac_daily_autopilot.sh").read_text(encoding="utf-8")
+        self.assertIn("QG_LEGACY_DAILY_AUTOPILOT_ENABLED", wrapper)
+        self.assertIn("tools/run_mac_agent_v25_loop.sh", wrapper)
+        self.assertIn("tools/run_daily_autopilot.py", wrapper)
+
+        agent_loop = (repo_root / "tools" / "run_mac_agent_v25_loop.sh").read_text(encoding="utf-8")
+        self.assertIn("run_daily_autopilot_v2.py", agent_loop)
+        self.assertIn("--symbols USDJPYc", agent_loop)
+        self.assertIn("QG_AGENT_V25_INTERVAL_SECONDS", agent_loop)
+        self.assertIn("QG_TELEGRAM_COMMANDS_ALLOWED", agent_loop)
 
     def test_mt5_permission_log_is_not_triage_when_current_dashboard_recovered(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -33,6 +33,23 @@ http://localhost:8080/vue/
 
 开发前端时，不要在本仓库改 Vue 源码。请在 `QuantGodFrontend` 启动 Vite dev server，并通过 proxy 调用本后端的 `http://127.0.0.1:8080/api/*`。
 
+## macOS 一键启动
+
+当前主入口是：
+
+```bash
+./Start_QuantGod_mac.sh
+```
+
+它会按 v2.5 主线启动：
+
+- Backend API：`http://127.0.0.1:8080`
+- Frontend Vite：`http://127.0.0.1:5173/vue/?workspace=mt5`
+- MT5 HFM LivePilot preset：默认 `USDJPYc`
+- QuantGod Agent v2.5：USDJPY live-loop、策略政策、EA 干跑、今日待办和每日复盘循环
+
+旧 `run_daily_autopilot.py` 循环默认不再启动；如需临时回退，显式设置 `QG_LEGACY_DAILY_AUTOPILOT_ENABLED=1`。
+
 ## 前端 dist 同步
 
 本仓库不再拥有 Vue source。前端构建与同步流程如下：
@@ -51,4 +68,4 @@ python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json syn
 
 ## 安全边界
 
-任何自动化都不能绕过 `Kill Switch`、authorization lock、dry-run guard、live preset mutation guard、Telegram push-only 边界或 Vibe Coding research-only 边界。任何 live route 变化仍然必须经过 backtest evidence、ParamLab、Governance、Version Gate 和人工授权。
+任何自动化都不能绕过 `Kill Switch`、authorization lock、dry-run guard、live preset mutation guard、Telegram push-only 边界或 Vibe Coding research-only 边界。任何 live route 变化必须经过 replay / walk-forward / shadow evidence、Agent 自主治理门、机器硬风控和自动回滚；DeepSeek 只解释，不批准越权。
