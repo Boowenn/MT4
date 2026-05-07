@@ -41,8 +41,15 @@ jobs:
           import os
 
           log_path = Path(os.environ["RUNNER_TEMP"]) / "unittest.log"
-          tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-120:])
-          escaped = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+          summary_start = 0
+          for index, line in enumerate(lines):
+              if line.startswith("=" * 20):
+                  summary_start = index
+          summary = "\n".join(lines[summary_start:]) if summary_start else "\n".join(lines[-40:])
+          if len(summary) > 3500:
+              summary = summary[-3500:]
+          escaped = summary.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
           print(f"::error title=Backend unittest failure::{escaped}")
           PY
             exit "$status"
