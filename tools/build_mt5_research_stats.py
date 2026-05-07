@@ -37,7 +37,7 @@ OUTCOME_LABELS_NAME = "QuantGod_TradeOutcomeLabels.csv"
 EVENT_LINKS_NAME = "QuantGod_TradeEventLinks.csv"
 
 LIVE_UNIVERSE = ["USDJPYc"]
-SHADOW_RESEARCH_UNIVERSE = ["USDJPYc", "EURUSDc", "XAUUSDc"]
+SHADOW_RESEARCH_UNIVERSE = ["USDJPYc"]
 
 SAFETY = {
     "readOnly": True,
@@ -419,7 +419,7 @@ def build_stats(runtime_dir: Path, *, generated_at: str | None = None) -> dict[s
     canonical_summary = summarize_by_symbol(rows)
     source_symbols = sorted({symbol for row in rows for symbol in row.get("sourceSymbols", [])})
     broker_symbols = sorted({symbol for row in rows for symbol in row.get("brokerSymbols", [])})
-    shadow_research_universe = ordered_unique(SHADOW_RESEARCH_UNIVERSE, source_symbols, broker_symbols)
+    shadow_research_universe = ordered_unique(SHADOW_RESEARCH_UNIVERSE)
 
     return {
         "ok": True,
