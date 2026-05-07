@@ -4,9 +4,22 @@ import path from 'node:path';
 import test from 'node:test';
 
 const repo = process.cwd();
+const readableSourceRoots = [
+  'tools/daily_autopilot_v2',
+  'tools/autonomous_lifecycle',
+  'tools/usdjpy_autonomous_agent',
+  'tools/usdjpy_walk_forward',
+];
 
 function read(rel) {
   return fs.readFileSync(path.join(repo, rel), 'utf8');
+}
+
+function listPythonFiles(relDir) {
+  const dir = path.join(repo, relDir);
+  return fs.readdirSync(dir)
+    .filter((name) => name.endsWith('.py'))
+    .map((name) => path.join(relDir, name));
 }
 
 test('autonomous lifecycle keeps the three-lane safety model explicit', () => {
@@ -85,21 +98,20 @@ test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety
   assert.doesNotMatch(runner + report + text, /privateKeyAllowed\s*["']?\s*:\s*true|polymarketRealMoneyAllowed\s*["']?\s*:\s*true/);
 });
 
-test('autonomous lifecycle Python sources are not compressed into one-line files', () => {
-  const files = [
-    'tools/autonomous_lifecycle/lifecycle.py',
-    'tools/autonomous_lifecycle/cent_account_rules.py',
-    'tools/autonomous_lifecycle/mt5_shadow_lane.py',
-    'tools/autonomous_lifecycle/polymarket_shadow_lane.py',
-    'tools/usdjpy_autonomous_agent/config_patch.py',
-    'tools/usdjpy_autonomous_agent/promotion_gate.py',
-    'tools/daily_autopilot_v2/report.py',
-  ];
+test('autonomous lifecycle Python sources stay readable and multi-line', () => {
+  const files = readableSourceRoots.flatMap(listPythonFiles);
   for (const file of files) {
     const source = read(file);
     const lines = source.split(/\r?\n/);
-    assert.ok(lines.length >= 20, `${file} should stay readable and multi-line`);
-    assert.ok(lines[0].length < 160, `${file} first line should not contain compressed source`);
-    assert.doesNotMatch(lines[0], /def |class |import .*def /, `${file} first line looks compressed`);
+    const isInit = file.endsWith('__init__.py');
+    if (!isInit) {
+      assert.ok(lines.length >= 20, `${file} should stay readable and multi-line`);
+    }
+    lines.forEach((line, index) => {
+      assert.ok(line.length <= 160, `${file}:${index + 1} should not exceed 160 characters`);
+    });
+    assert.doesNotMatch(source, /^\s*from .* import .*def /m, `${file} looks compressed`);
+    assert.doesNotMatch(source, /^\s*import .*def /m, `${file} looks compressed`);
+    assert.doesNotMatch(source, /;\s*(def|class)\s+/m, `${file} contains compressed definitions`);
   }
 });

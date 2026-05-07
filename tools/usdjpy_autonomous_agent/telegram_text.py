@@ -25,14 +25,26 @@ def autonomous_agent_to_chinese_text(payload: Dict[str, Any]) -> str:
         "",
         f"当前阶段：{_fmt(payload.get('stageZh') or payload.get('stage'))}",
         f"受控 patch：{'允许写入' if patch_writable else '未放行'}；实盘 preset 修改：禁止。",
-        f"账户模式：{_fmt(cent.get('accountMode'), 'cent')} / {_fmt(cent.get('accountCurrencyUnit'), 'USC')}；美分加速：{'开启' if cent.get('centAccountAcceleration') else '关闭'}。",
+        (
+            f"账户模式：{_fmt(cent.get('accountMode'), 'cent')} / "
+            f"{_fmt(cent.get('accountCurrencyUnit'), 'USC')}；"
+            f"美分加速：{'开启' if cent.get('centAccountAcceleration') else '关闭'}。"
+        ),
         f"阶段仓位上限：{_fmt(limits.get('stageMaxLot'), '0')} / 系统上限 {_fmt(limits.get('maxLot'), '2.0')}；2.0 只是上限，不是固定仓位。",
         "审批模式：无需人工审批；必须通过机器硬风控与自动回滚。",
         "",
         "三车道：",
         "- Live：USDJPYc / RSI_Reversal / LONG；只允许 MICRO_LIVE 或 LIVE_LIMITED。",
-        f"- MT5 模拟：{_fmt(mt5_summary.get('routeCount'), '0')} 条路线；快速模拟 {_fmt(mt5_summary.get('fastShadow'), '0')}；测试器 {_fmt(mt5_summary.get('testerOnly'), '0')}。",
-        f"- Polymarket：{_fmt(poly_shadow.get('stageZh') or poly_shadow.get('stage'), '模拟观察')}；模拟 PF {_fmt(poly_summary.get('shadowProfitFactor'), '0')}；不连接真实钱包。",
+        (
+            f"- MT5 模拟：{_fmt(mt5_summary.get('routeCount'), '0')} 条路线；"
+            f"快速模拟 {_fmt(mt5_summary.get('fastShadow'), '0')}；"
+            f"测试器 {_fmt(mt5_summary.get('testerOnly'), '0')}。"
+        ),
+        (
+            f"- Polymarket：{_fmt(poly_shadow.get('stageZh') or poly_shadow.get('stage'), '模拟观察')}；"
+            f"模拟 PF {_fmt(poly_summary.get('shadowProfitFactor'), '0')}；"
+            "不连接真实钱包。"
+        ),
         "",
         "候选参数：",
     ]
