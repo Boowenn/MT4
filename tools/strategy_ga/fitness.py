@@ -34,19 +34,39 @@ def _variant_metrics(report: Dict[str, Any], group: str, index: int) -> Dict[str
 def evidence_metrics(runtime_dir: Path) -> Dict[str, Any]:
     replay = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
     walk_forward = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYWalkForwardReport.json")
+    strategy_backtest = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestReport.json")
     entry_relaxed = _variant_metrics(replay, "entryComparison", 1)
     exit_let_run = _variant_metrics(replay, "exitComparison", 1)
     summary = replay.get("summary") if isinstance(replay.get("summary"), dict) else {}
     wf_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
+    backtest_metrics = strategy_backtest.get("metrics") if isinstance(strategy_backtest.get("metrics"), dict) else {}
+    backtest_bonus = min(1.0, _num(backtest_metrics.get("netR"), 0) * 0.15)
+    backtest_penalty = min(1.0, _num(backtest_metrics.get("maxDrawdownR"), 0) * 0.2)
     return {
-        "sampleCount": int(_num(summary.get("sampleCount") or wf_summary.get("sampleCount"), 0)),
-        "netR": _num(entry_relaxed.get("netRDelta") or summary.get("relaxedNetRDelta") or wf_summary.get("netRDelta"), 0),
-        "maxAdverseR": _num(entry_relaxed.get("maxAdverseR") or summary.get("maxAdverseR"), 0),
-        "profitCaptureRatio": _num(exit_let_run.get("profitCaptureRatio") or summary.get("profitCaptureRatio"), 0),
+        "sampleCount": int(_num(summary.get("sampleCount") or wf_summary.get("sampleCount") or backtest_metrics.get("tradeCount"), 0)),
+        "netR": _num(entry_relaxed.get("netRDelta") or summary.get("relaxedNetRDelta") or wf_summary.get("netRDelta"), 0)
+        + backtest_bonus,
+        "maxAdverseR": _num(entry_relaxed.get("maxAdverseR") or summary.get("maxAdverseR"), 0)
+        - backtest_penalty,
+        "profitCaptureRatio": _num(
+            exit_let_run.get("profitCaptureRatio")
+            or summary.get("profitCaptureRatio")
+            or backtest_metrics.get("profitCaptureRatio"),
+            0,
+        ),
         "missedOpportunityReduction": _num(entry_relaxed.get("missedOpportunityReduction") or summary.get("entryCountDelta"), 0),
         "validationNetRDelta": _num(wf_summary.get("validationNetRDelta"), 0),
         "forwardNetRDelta": _num(wf_summary.get("forwardNetRDelta"), 0),
-        "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or "LOW",
+        "strategyBacktest": {
+            "present": bool(strategy_backtest),
+            "netR": _num(backtest_metrics.get("netR"), 0),
+            "profitFactor": _num(backtest_metrics.get("profitFactor"), 0),
+            "winRate": _num(backtest_metrics.get("winRate"), 0),
+            "maxDrawdownR": _num(backtest_metrics.get("maxDrawdownR"), 0),
+            "sharpe": _num(backtest_metrics.get("sharpe"), 0),
+            "tradeCount": int(_num(backtest_metrics.get("tradeCount"), 0)),
+        },
+        "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or strategy_backtest.get("evidenceQuality") or "LOW",
     }
 
 
@@ -87,5 +107,5 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "maxAdversePenalty": round(max_adverse_penalty, 4),
         "tradeFrequencyPenalty": round(trade_frequency_penalty, 4),
         "blockerCode": blocker,
+        "strategyBacktest": metrics.get("strategyBacktest", {}),
     }
-

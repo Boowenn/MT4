@@ -479,6 +479,31 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/strategy-backtest' || pathname === '/api/usdjpy-strategy-lab/strategy-backtest/status')) {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'status'], 120000, 'run_usdjpy_strategy_backtest.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/sample') {
+    const args = ['--runtime-dir', runtimeDir, 'sample'];
+    if (url.searchParams.get('overwrite') === '1') args.push('--overwrite');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_strategy_backtest.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/run') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'run', '--write'], 120000, 'run_usdjpy_strategy_backtest.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_strategy_backtest.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/ga' || pathname === '/api/usdjpy-strategy-lab/ga/status')) {
     const args = ['--runtime-dir', runtimeDir, 'status'];
     if (url.searchParams.get('write') === '1') args.push('--write');
