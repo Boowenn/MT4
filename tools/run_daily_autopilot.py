@@ -70,7 +70,7 @@ def resolve_runtime_dir(repo_root: Path, configured: str) -> Path:
         candidate = repo_root / candidate
     source_mode = os.environ.get("QG_MAC_RUNTIME_SOURCE", "auto").strip().lower()
     mac_files = mac_mt5_files_dir()
-    if os.uname().sysname == "Darwin" and mac_files.exists():
+    if mac_files.exists():
         normalized = str(candidate).replace("\\", "/")
         dashboard_missing = not (candidate / "QuantGod_Dashboard.json").exists()
         mac_dashboard_exists = (mac_files / "QuantGod_Dashboard.json").exists()
