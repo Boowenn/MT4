@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +21,7 @@ from .schema import (
     report_path,
     trades_path,
 )
-from .sqlite_store import connect, count_bars, ingest_runtime_snapshot, load_bars, latest_bar_time, write_sample_bars
+from .sqlite_store import connect, count_bars, ingest_runtime_snapshot, load_bars, latest_bar_time, write_sample_bars, write_strategy_run
 from .strategy_runner import run_strategy
 
 
@@ -66,16 +67,19 @@ def run_backtest(runtime_dir: Path, strategy_json: Dict[str, Any] | None = None,
     with connect(runtime_dir) as conn:
         if count_bars(conn, "H1") < 40:
             write_sample_bars(runtime_dir, overwrite=False)
-        bars = load_bars(conn, "H1", limit=5000)
+        bars_by_timeframe = {
+            timeframe: load_bars(conn, timeframe, limit=5000)
+            for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")
+        }
         multi_timeframe = {
             timeframe: {
                 "barCount": count_bars(conn, timeframe),
                 "latestBar": latest_bar_time(conn, timeframe),
             }
-            for timeframe in ("M15", "H1", "H4", "D1")
+            for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")
         }
-    result = run_strategy(seed, bars)
-    report = _report_payload(seed, result, bars, ingest_report, multi_timeframe)
+    result = run_strategy(seed, bars_by_timeframe)
+    report = _report_payload(seed, result, bars_by_timeframe, ingest_report, multi_timeframe)
     if write:
         write_outputs(runtime_dir, report, result.get("trades", []), result.get("equityCurve", []))
     return report
@@ -112,6 +116,8 @@ def write_outputs(runtime_dir: Path, report: Dict[str, Any], trades: List[Dict[s
         writer.writeheader()
         for index, value in enumerate(equity, start=1):
             writer.writerow({"index": index, "equityR": value})
+    with connect(runtime_dir) as conn:
+        write_strategy_run(conn, report)
 
 
 def ingest_klines(runtime_dir: Path) -> Dict[str, Any]:
@@ -121,31 +127,41 @@ def ingest_klines(runtime_dir: Path) -> Dict[str, Any]:
 def _report_payload(
     seed: Dict[str, Any],
     result: Dict[str, Any],
-    bars: List[Any],
+    bars_by_timeframe: Dict[str, List[Any]],
     ingest_report: Dict[str, Any],
     multi_timeframe: Dict[str, Any],
 ) -> Dict[str, Any]:
     strategy = result.get("strategyJson") if isinstance(result.get("strategyJson"), dict) else seed
     metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    engine = result.get("engine") if isinstance(result.get("engine"), dict) else {}
+    primary_timeframe = str(engine.get("primaryTimeframe") or "H1")
+    primary_bars = bars_by_timeframe.get(primary_timeframe, [])
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    run_id = _run_id(strategy, now)
     return {
         "ok": bool(result.get("ok")),
         "schema": "quantgod.strategy_backtest.report.v1",
         "agentVersion": AGENT_VERSION,
+        "runId": run_id,
         "createdAt": now,
         "symbol": FOCUS_SYMBOL,
-        "timeframe": "H1",
+        "timeframe": primary_timeframe,
         "strategyId": strategy.get("strategyId"),
         "seedId": strategy.get("seedId"),
         "strategyFamily": strategy.get("strategyFamily"),
         "direction": strategy.get("direction"),
-        "barCount": len(bars),
+        "barCount": len(primary_bars),
         "multiTimeframe": {
-            "primaryTimeframe": "H1",
-            "confirmationTimeframes": ["M15", "H4", "D1"],
+            "primaryTimeframe": primary_timeframe,
+            "confirmationTimeframes": [
+                item
+                for item in ("M1", "M5", "M15", "H1", "H4", "D1")
+                if item != primary_timeframe
+            ],
             "contexts": multi_timeframe,
-            "runnerZh": "当前回测以 H1 RSI 为主口径，并把 M15/H4/D1 真实快照入库作为多周期审计上下文。",
+            "runnerZh": "Strategy JSON runner 会读取 USDJPY 多周期 SQLite K线，并按策略族选择主执行周期。",
         },
+        "engine": engine,
         "klineIngest": ingest_report,
         "tradeCount": int(metrics.get("tradeCount", 0)),
         "metrics": metrics,
@@ -153,7 +169,7 @@ def _report_payload(
         "equityCurve": result.get("equityCurve", []),
         "validation": result.get("validation", {}),
         "reasonZh": result.get("reasonZh"),
-        "evidenceQuality": _evidence_quality(len(bars), int(metrics.get("tradeCount", 0))),
+        "evidenceQuality": _evidence_quality(len(primary_bars), int(metrics.get("tradeCount", 0))),
         "singleSourceOfTruth": "STRATEGY_JSON_USDJPY_SQLITE_BACKTEST",
         "safety": dict(SAFETY_BOUNDARY),
     }
@@ -165,6 +181,20 @@ def _evidence_quality(bar_count: int, trade_count: int) -> str:
     if bar_count >= 160 and trade_count >= 3:
         return "MEDIUM"
     return "LOW"
+
+
+def _run_id(strategy: Dict[str, Any], created_at: str) -> str:
+    raw = json.dumps(
+        {
+            "strategyId": strategy.get("strategyId"),
+            "seedId": strategy.get("seedId"),
+            "createdAt": created_at,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"BT-{digest}"
 
 
 def _load_json(path: Path) -> Dict[str, Any]:

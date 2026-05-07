@@ -31,6 +31,8 @@ BAR_TABLES = {
 }
 
 SNAPSHOT_KLINE_KEYS = {
+    "M1": "kline_m1",
+    "M5": "kline_m5",
     "M15": "kline_m15",
     "H1": "kline_h1",
     "H4": "kline_h4",
@@ -160,6 +162,60 @@ def latest_bar_time(conn: sqlite3.Connection, timeframe: str) -> str | None:
         (FOCUS_SYMBOL,),
     ).fetchone()
     return str(row["latest"]) if row and row["latest"] else None
+
+
+def write_strategy_run(conn: sqlite3.Connection, report: Dict[str, Any]) -> str:
+    """Persist the latest Strategy JSON backtest report into audit tables."""
+    run_id = str(report.get("runId") or f"{report.get('strategyId')}-{report.get('createdAt')}")
+    metrics = report.get("metrics") if isinstance(report.get("metrics"), dict) else {}
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO strategy_runs
+        (run_id, strategy_id, created_at, net_r, trade_count)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            str(report.get("strategyId") or ""),
+            str(report.get("createdAt") or datetime.now(timezone.utc).isoformat()),
+            float(metrics.get("netR") or 0.0),
+            int(metrics.get("tradeCount") or report.get("tradeCount") or 0),
+        ),
+    )
+    conn.execute("DELETE FROM strategy_trades WHERE run_id = ?", (run_id,))
+    conn.execute("DELETE FROM equity_curves WHERE run_id = ?", (run_id,))
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO strategy_trades
+        (run_id, trade_id, entry_time, exit_time, profit_r, profit_pips)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                run_id,
+                str(trade.get("tradeId") or f"T{index:04d}"),
+                str(trade.get("entryTime") or ""),
+                str(trade.get("exitTime") or ""),
+                float(trade.get("profitR") or 0.0),
+                float(trade.get("profitPips") or 0.0),
+            )
+            for index, trade in enumerate(report.get("trades") or [], start=1)
+            if isinstance(trade, dict)
+        ],
+    )
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO equity_curves
+        (run_id, index_no, equity_r)
+        VALUES (?, ?, ?)
+        """,
+        [
+            (run_id, index, float(value or 0.0))
+            for index, value in enumerate(report.get("equityCurve") or [], start=1)
+        ],
+    )
+    conn.commit()
+    return run_id
 
 
 def ingest_runtime_snapshot(runtime_dir: Path, snapshot_path: Path | None = None) -> Dict[str, Any]:

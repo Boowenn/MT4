@@ -17,6 +17,7 @@ def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]
         _check_equal("symbol", backtest.get("symbol"), FOCUS_SYMBOL, required=True),
         _check_equal("strategy_family", backtest.get("strategyFamily"), "RSI_Reversal", required=False),
         _check_equal("direction", backtest.get("direction"), "LONG", required=False),
+        _check_backtest_engine(backtest.get("engine")),
         _check_present("bar_replay_report", replay),
         _check_present("live_loop_status", live_loop),
         _check_present("ea_rsi_diagnostics", diagnostics),
@@ -70,6 +71,39 @@ def _check_present(name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _check_backtest_engine(engine: Any) -> Dict[str, Any]:
+    data = engine if isinstance(engine, dict) else {}
+    required_markers = {
+        "schema": "quantgod.strategy_backtest_engine.v2",
+        "coverage": "ALL_SUPPORTED_USDJPY_SHADOW_FAMILIES",
+    }
+    missing = [
+        key
+        for key, expected in required_markers.items()
+        if data.get(key) != expected
+    ]
+    if not isinstance(data.get("costModel"), dict):
+        missing.append("costModel")
+    if not isinstance(data.get("parityVector"), dict):
+        missing.append("parityVector")
+    status = "PASS" if not missing else "WARN"
+    return {
+        "name": "strategy_json_backtest_engine_v2",
+        "status": status,
+        "required": False,
+        "actual": {
+            "schema": data.get("schema"),
+            "coverage": data.get("coverage"),
+            "hasCostModel": isinstance(data.get("costModel"), dict),
+            "hasParityVector": isinstance(data.get("parityVector"), dict),
+        },
+        "expected": required_markers,
+        "reasonZh": "全策略 Strategy JSON runner 已接入 parity 审计"
+        if status == "PASS"
+        else f"Strategy JSON runner 证据不完整：{', '.join(missing)}",
+    }
+
+
 def _check_safety(name: str, safety: Any) -> Dict[str, Any]:
     data = safety if isinstance(safety, dict) else {}
     execution_allowed = any(bool(data.get(key)) for key in ("orderSendAllowed", "closeAllowed", "cancelAllowed", "livePresetMutationAllowed"))
@@ -87,4 +121,3 @@ def _reason_zh(status: str) -> str:
     if status == "PARITY_WARN":
         return "部分 EA 或回放证据尚未同步；不影响只读研究，但不能把该证据当完整 parity。"
     return "发现必需口径不一致，策略不能晋级。"
-

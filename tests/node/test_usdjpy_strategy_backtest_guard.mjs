@@ -30,6 +30,8 @@ test('USDJPY Strategy JSON backtest exposes USDJPY-scoped API endpoints', () => 
 test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report artifacts', () => {
   const schema = read('tools/usdjpy_strategy_backtest/schema.py');
   const report = read('tools/usdjpy_strategy_backtest/report.py');
+  const store = read('tools/usdjpy_strategy_backtest/sqlite_store.py');
+  const runnerSource = read('tools/usdjpy_strategy_backtest/strategy_runner.py');
   const runner = read('tools/run_usdjpy_strategy_backtest.py');
   for (const marker of [
     'usdjpy.sqlite',
@@ -37,10 +39,34 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
     'QuantGod_StrategyTrades.csv',
     'QuantGod_StrategyEquityCurve.csv',
     'STRATEGY_JSON_USDJPY_SQLITE_BACKTEST',
+    'strategy_runs',
+    'strategy_trades',
+    'equity_curves',
+    'write_strategy_run',
+    'ALL_SUPPORTED_USDJPY_SHADOW_FAMILIES',
+    'BacktestCostModel',
     'QG_TELEGRAM_COMMANDS_ALLOWED',
   ]) {
-    assert.match(schema + report + runner, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(schema + report + store + runnerSource + runner, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+test('USDJPY Strategy JSON backtest covers all USDJPY shadow strategy families', () => {
+  const source = read('tools/usdjpy_strategy_backtest/strategy_runner.py');
+  for (const family of [
+    'RSI_Reversal',
+    'MA_Cross',
+    'BB_Triple',
+    'MACD_Divergence',
+    'SR_Breakout',
+    'USDJPY_TOKYO_RANGE_BREAKOUT',
+    'USDJPY_NIGHT_REVERSION_SAFE',
+    'USDJPY_H4_TREND_PULLBACK',
+  ]) {
+    assert.match(source, new RegExp(family.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(source, /SUPPORTED_BACKTEST_FAMILIES/);
+  assert.doesNotMatch(source, /暂未接入高保真 runner[\s\S]*SUPPORTED_BACKTEST_FAMILIES/);
 });
 
 test('USDJPY Strategy JSON backtest does not introduce live execution or wallets', () => {
@@ -67,4 +93,3 @@ test('USDJPY Strategy JSON backtest Python sources stay readable and multi-line'
     });
   }
 });
-
