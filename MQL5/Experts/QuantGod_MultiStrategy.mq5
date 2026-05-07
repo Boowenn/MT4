@@ -5642,7 +5642,7 @@ void AppendTradeTransactionFeedback(const MqlTradeTransaction& trans, const MqlT
    ulong dealTicket = trans.deal;
    ulong orderTicket = trans.order;
    ulong positionId = trans.position;
-   long magic = request.magic;
+   ulong magic = request.magic;
    string symbol = trans.symbol;
    string comment = request.comment;
    long dealType = -1;
@@ -5657,7 +5657,7 @@ void AppendTradeTransactionFeedback(const MqlTradeTransaction& trans, const MqlT
       symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
       dealType = HistoryDealGetInteger(dealTicket, DEAL_TYPE);
       entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
-      magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+      magic = (ulong)HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
       positionId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
       volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
       fillPrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
