@@ -32,6 +32,19 @@ def append_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def append_jsonl_unique(path: Path, rows: Iterable[Dict[str, Any]], key: str) -> int:
+    existing = {str(row.get(key)) for row in read_jsonl_tail(path, 2000) if row.get(key)}
+    to_write: List[Dict[str, Any]] = []
+    for row in rows:
+        value = str(row.get(key) or "")
+        if not value or value in existing:
+            continue
+        existing.add(value)
+        to_write.append(row)
+    append_jsonl(path, to_write)
+    return len(to_write)
+
+
 def read_jsonl_tail(path: Path, limit: int = 200) -> List[Dict[str, Any]]:
     if not path.exists():
         return []
@@ -44,4 +57,3 @@ def read_jsonl_tail(path: Path, limit: int = 200) -> List[Dict[str, Any]]:
         except Exception:
             continue
     return rows
-

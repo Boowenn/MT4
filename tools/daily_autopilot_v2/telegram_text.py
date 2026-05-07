@@ -89,7 +89,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
             if isinstance(item, dict):
                 lines.append(f"- {_fmt(item.get('titleZh') or item.get('id'))}：{_fmt(item.get('status'), 'WAITING_NEXT_PHASE')}，{_fmt(item.get('summaryZh'))}")
     else:
-        lines.append("- Strategy JSON / GA Evolution / Telegram Gateway：等待下一阶段，不假装完成。")
+        lines.append("- Strategy JSON / GA Evolution / Telegram Gateway：已接入 Agent 证据链；下一阶段聚焦高保真样本和 parity 深化。")
     lines.extend([
         "",
         "安全边界：不会下单、不会平仓、不会撤单、不会修改订单或 live preset；DeepSeek 只解释，不批准越权；机器硬风控和自动回滚不可被取消。",

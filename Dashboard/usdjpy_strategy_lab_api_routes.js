@@ -542,6 +542,48 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/telegram-gateway' || pathname === '/api/usdjpy-strategy-lab/telegram-gateway/status')) {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'status'], 45000, 'run_telegram_gateway.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/telegram-gateway/test-event') {
+    const body = await readJsonBody(req);
+    if (body.__jsonError) {
+      sendJson(res, 400, { ok: false, error: 'INVALID_JSON_BODY', detail: body.__jsonError });
+      return;
+    }
+    const text = String(body.text || '【QuantGod Telegram Gateway 测试】独立 Gateway 已接入队列、去重、限频和投递账本；不会接收交易命令。');
+    const payload = await runPythonJson(
+      ctx.repoRoot,
+      [
+        '--runtime-dir',
+        runtimeDir,
+        'enqueue',
+        '--source',
+        'frontend_usdjpy_evolution',
+        '--topic',
+        'GATEWAY_TEST',
+        '--severity',
+        'INFO',
+        '--text',
+        text,
+      ],
+      45000,
+      'run_telegram_gateway.py',
+    );
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/telegram-gateway/dispatch') {
+    const args = ['--runtime-dir', runtimeDir, 'dispatch'];
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const limit = url.searchParams.get('limit');
+    if (limit) args.push('--limit', String(limit));
+    const payload = await runPythonJson(ctx.repoRoot, args, 45000, 'run_telegram_gateway.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/ga' || pathname === '/api/usdjpy-strategy-lab/ga/status')) {
     const args = ['--runtime-dir', runtimeDir, 'status'];
     if (url.searchParams.get('write') === '1') args.push('--write');

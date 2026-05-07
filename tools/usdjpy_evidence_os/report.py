@@ -8,7 +8,7 @@ from .execution_feedback import build_execution_feedback
 from .io_utils import utc_now_iso, write_json
 from .parity import build_parity_report
 from .schema import AGENT_VERSION, FOCUS_SYMBOL, SAFETY_BOUNDARY, os_status_path
-from .telegram_gateway import build_notification_event, dispatch_event
+from .telegram_gateway import build_notification_event, dispatch_event, gateway_status
 from .telegram_text import evidence_os_to_chinese_text
 
 
@@ -25,6 +25,7 @@ def build_evidence_os(runtime_dir: Path, write: bool = True, send: bool = False)
         "parity": parity,
         "executionFeedback": feedback,
         "caseMemory": cases,
+        "telegramGateway": gateway_status(runtime_dir),
         "nextActionZh": "把 Strategy JSON 回测、parity、执行反馈和 Case Memory 送入下一代 GA 评分。",
         "singleSourceOfTruth": "USDJPY_STRATEGY_JSON_BACKTEST_PARITY_FEEDBACK_CASE_MEMORY",
         "safety": dict(SAFETY_BOUNDARY),
@@ -58,4 +59,3 @@ def status(runtime_dir: Path) -> Dict[str, Any]:
         "reasonZh": "等待生成 Strategy JSON 回测、parity、执行反馈和 Case Memory 证据。",
         "safety": dict(SAFETY_BOUNDARY),
     }
-

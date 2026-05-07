@@ -59,3 +59,6 @@ def gateway_status_path(runtime_dir: Path) -> Path:
 def gateway_ledger_path(runtime_dir: Path) -> Path:
     return notification_dir(runtime_dir) / "QuantGod_TelegramGatewayLedger.jsonl"
 
+
+def gateway_queue_path(runtime_dir: Path) -> Path:
+    return notification_dir(runtime_dir) / "QuantGod_NotificationEventQueue.jsonl"

@@ -5,6 +5,7 @@ from pathlib import Path
 from tools.strategy_ga.fitness import score_seed
 from tools.strategy_json.schema import base_strategy_seed
 from tools.usdjpy_evidence_os.report import build_evidence_os
+from tools.usdjpy_evidence_os.telegram_gateway import build_notification_event, dispatch_pending, enqueue_event, gateway_status
 from tools.usdjpy_strategy_backtest.report import ingest_klines, run_backtest
 
 
@@ -44,13 +45,45 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertIn("multiTimeframe", backtest)
             self.assertEqual(backtest["multiTimeframe"]["contexts"]["H4"]["barCount"], 1)
 
+            (runtime_dir / "QuantGod_RuntimeTradeEvents.jsonl").write_text(
+                "\n".join(
+                    [
+                        '{"generatedAt":"2026-05-07T01:00:01Z","eventType":"ORDER_FILL","symbol":"USDJPYc","price":155.24,"volume":0.05,"retcode":10009,"policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","expectedPrice":155.23,"latencyMs":420,"profitR":0.2}',
+                        '{"generatedAt":"2026-05-07T02:00:01Z","eventType":"ORDER_REJECT","symbol":"USDJPYc","price":155.40,"volume":0.05,"retcode":10030,"policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal"}',
+                    ]
+                ),
+                encoding="utf-8",
+            )
             evidence = build_evidence_os(runtime_dir, write=True)
             self.assertTrue(evidence["ok"])
             self.assertIn("parity", evidence)
             self.assertIn("executionFeedback", evidence)
             self.assertIn("caseMemory", evidence)
+            self.assertEqual(evidence["executionFeedback"]["metrics"]["fillCount"], 1)
+            self.assertEqual(evidence["executionFeedback"]["metrics"]["rejectCount"], 1)
+            self.assertIn("qualityGates", evidence["executionFeedback"])
             self.assertFalse(evidence["safety"]["orderSendAllowed"])
             self.assertTrue((runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json").exists())
+
+    def test_independent_telegram_gateway_queues_dedupes_and_dispatches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            event = build_notification_event(
+                "unit_test",
+                "EVIDENCE_OS_TEST",
+                "INFO",
+                "【QuantGod 测试】Gateway 只做中文 push，不接收交易命令。",
+            )
+            first = enqueue_event(runtime_dir, event)
+            second = enqueue_event(runtime_dir, event)
+            self.assertEqual(first["queued"], 1)
+            self.assertEqual(second["queued"], 0)
+            dispatched = dispatch_pending(runtime_dir, send=False)
+            self.assertEqual(dispatched["dispatchedCount"], 1)
+            status = gateway_status(runtime_dir)
+            self.assertEqual(status["pendingCount"], 0)
+            self.assertFalse(status["commandsAllowed"])
+            self.assertTrue((runtime_dir / "notifications" / "QuantGod_TelegramGatewayLedger.jsonl").exists())
 
     def test_ga_fitness_consumes_parity_execution_and_case_memory(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -66,4 +99,3 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -49,12 +49,12 @@ NEXT_PHASE_TODOS: List[Dict[str, Any]] = [
         "lane": "NOTIFICATION",
         "laneZh": "Telegram 推送",
         "titleZh": "Telegram Gateway",
-        "status": "WAITING_NEXT_PHASE",
-        "stage": "NEXT_PHASE",
-        "completedByAgent": False,
-        "autoAppliedByAgent": False,
+        "status": "COMPLETED_BY_AGENT",
+        "stage": "V2_7_READY",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
-        "summaryZh": "等待下一阶段拆出独立 Telegram Gateway；当前 Telegram 仍只做中文 push-only，不接交易命令。",
+        "summaryZh": "独立 Telegram Gateway 已接入队列、去重、限频和投递 ledger；只做中文 push-only，不接交易命令。",
     },
 ]
 
@@ -152,11 +152,11 @@ def _top_mt5_routes(mt5_shadow: Dict[str, Any], limit: int = 6) -> List[Dict[str
 def _next_phase_todos() -> Dict[str, Any]:
     todos = [dict(item) for item in NEXT_PHASE_TODOS]
     return {
-        "status": "WAITING_NEXT_PHASE",
-        "completedByAgent": False,
-        "autoAppliedByAgent": False,
+        "status": "COMPLETED_BY_AGENT",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
-        "summaryZh": "Strategy JSON 和 GA Evolution 已进入 v2.6；独立 Telegram Gateway 仍等待下一阶段，不假装完成。",
+        "summaryZh": "Strategy JSON、GA Evolution 和独立 Telegram Gateway 已接入；下一阶段聚焦更高保真回测、真实执行样本和 parity 深化。",
         "items": todos,
         "strategyJsonTodo": todos[0],
         "gaEvolutionTodo": todos[1],
