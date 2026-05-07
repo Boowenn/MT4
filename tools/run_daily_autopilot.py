@@ -89,11 +89,11 @@ def resolve_hfm_root(repo_root: Path, runtime_dir: Path, configured: str) -> Pat
         if not candidate.is_absolute():
             candidate = repo_root / candidate
         return candidate
+    if runtime_dir.name == "Files" and runtime_dir.parent.name == "MQL5":
+        candidate = runtime_dir.parent.parent
+        if candidate.exists():
+            return candidate
     if os.uname().sysname == "Darwin":
-        if runtime_dir.name == "Files" and runtime_dir.parent.name == "MQL5":
-            candidate = runtime_dir.parent.parent
-            if candidate.exists():
-                return candidate
         mac_root = mac_mt5_root()
         if mac_root.exists():
             return mac_root
