@@ -1,71 +1,158 @@
 # QuantGodBackend
 
-QuantGod 的后端仓库，负责本地优先的 MT5/HFM 运行证据、研究闭环、AI 分析、治理判断和只读 API。
+QuantGodBackend is the local-first execution evidence, API, MT5, research, and autonomous governance repository for QuantGod.
 
-这个仓库只保留后端职责：
-
-- `MQL5/`：MT5 EA 源码、preset、tester 配置、live/shadow 守护资产。
-- `Dashboard/`：本地 Node API server。前端构建产物不进入 Git，只能由 Infra 在本机同步成 ignored 的 `Dashboard/vue-dist/` 运行目录。
-- `tools/`：Python 研究工具、Governance、ParamLab、AI Analysis、Vibe Coding、Telegram push、MT5 bridge、CI guard。
-- `tests/`：Python 单元测试与 Node API contract 测试。
-- `archive/`：本地 backtest、ParamLab、research 归档；运行生成数据默认不进入 Git。
-
-前端源码、Cloudflare/infra 自动化和完整文档已经拆到独立仓库：
-
-- Frontend：<https://github.com/Boowenn/QuantGodFrontend>
-- Infra：<https://github.com/Boowenn/QuantGodInfra>
-- Docs：<https://github.com/Boowenn/QuantGodDocs>
-
-## 本地开发
-
-```powershell
-python -m unittest discover tests -v
-python -m pytest tests -q --cov=tools --cov-report=term-missing
-node --test tests/node/*.mjs
-Dashboard\start_dashboard.bat
-```
-
-前端 dist 已同步后，本地工作台入口是：
+The current production direction is narrow by design:
 
 ```text
-http://localhost:8080/vue/
+Live lane: USDJPYc / RSI_Reversal / LONG / cent account
+Shadow lanes: MT5 multi-strategy simulation and Polymarket event research
+Agent: autonomous daily todo, daily review, promotion, demotion, and rollback
+Safety: machine hard guards remain mandatory
 ```
 
-开发前端时，不要在本仓库改 Vue 源码。请在 `QuantGodFrontend` 启动 Vite dev server，并通过 proxy 调用本后端的 `http://127.0.0.1:8080/api/*`。
+This repository owns the backend data plane and MT5 integration. It does not own Vue source, Cloudflare deployment code, or the documentation hub.
 
-## macOS 一键启动
+## Repository Role
 
-当前主入口是：
+| Area | Path | Responsibility |
+|---|---|---|
+| MT5 assets | `MQL5/` | EA source, presets, HFM live/shadow configuration, Strategy Tester assets |
+| Local API | `Dashboard/` | Node API server and static `/vue/` runtime host |
+| Research and governance | `tools/` | USDJPY replay, walk-forward, lifecycle Agent, Telegram push, AI explanation, ParamLab, guards |
+| Tests | `tests/` | Python unit tests, Node contract tests, safety guards |
+| Runtime output | `runtime/`, `Dashboard/QuantGod_*` | Local generated evidence; ignored unless explicitly documented |
+
+Related repositories:
+
+- Backend: this repository
+- Frontend: `../QuantGodFrontend`
+- Infra: `../QuantGodInfra`
+- Docs: `../QuantGodDocs`
+
+## Current System Model
+
+QuantGod v2.5 is organized as three lanes:
+
+| Lane | Scope | What it can do | What it cannot do |
+|---|---|---|---|
+| Live Lane | `USDJPYc / RSI_Reversal / LONG` | Cent-account micro live, limited live, autonomous rollback | USDJPY short, non-RSI live, non-USDJPY live |
+| MT5 Shadow Lane | USDJPY strategy pool | Multi-strategy shadow ranking, replay, tester-only validation | Steal the live route or mutate live preset directly |
+| Polymarket Shadow Lane | Prediction-market research | Shadow ledger and macro/event context | Real wallet, USDC orders, signing, redeeming |
+
+DeepSeek may explain evidence and produce Chinese summaries. It cannot approve live execution, override hard gates, raise lot limits, or cancel rollback.
+
+## macOS One-Click Startup
+
+Main entry point:
 
 ```bash
+cd /Users/bowen/Desktop/Quard/QuantGodBackend
 ./Start_QuantGod_mac.sh
 ```
 
-它会按 v2.5 主线启动：
+The launcher starts the current v2.5 stack:
 
-- Backend API：`http://127.0.0.1:8080`
-- Frontend Vite：`http://127.0.0.1:5173/vue/?workspace=mt5`
-- MT5 HFM LivePilot preset：默认 `USDJPYc`
-- QuantGod Agent v2.5：USDJPY live-loop、策略政策、EA 干跑、今日待办和每日复盘循环
+- MT5 HFM LivePilot preset focused on `USDJPYc`.
+- Backend API at `http://127.0.0.1:8080`.
+- Frontend Vite workbench at `http://127.0.0.1:5173/vue/?workspace=mt5`.
+- Agent v2.5 loop for USDJPY live-loop, policy generation, EA dry-run, daily todo, daily review, and rollback evidence.
 
-旧 `run_daily_autopilot.py` 循环默认不再启动；如需临时回退，显式设置 `QG_LEGACY_DAILY_AUTOPILOT_ENABLED=1`。
+The legacy daily autopilot loop is disabled by default. To deliberately use it for historical debugging only:
 
-## 前端 dist 同步
-
-本仓库不再拥有 Vue source。前端构建与同步流程如下：
-
-```powershell
-cd ..\QuantGodFrontend
-npm install
-npm run build
-cd ..\QuantGodInfra
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json sync-frontend-dist
+```bash
+export QG_LEGACY_DAILY_AUTOPILOT_ENABLED=1
 ```
 
-同步后，`QuantGodBackend/Dashboard/vue-dist` 会作为后端 server 的静态页面目录。
+## Agent v2.5 Loop
 
-注意：`Dashboard/vue-dist/` 是本机运行产物，已被 `.gitignore` 忽略；不要把它提交到 backend。前端源码、响应式检查脚本和 UI 测试都放在 `QuantGodFrontend`。
+Run one cycle without launching the whole desktop stack:
 
-## 安全边界
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodBackend
+QG_AGENT_V25_SEND_TELEGRAM=0 bash tools/run_mac_agent_v25_loop.sh --once
+```
 
-任何自动化都不能绕过 `Kill Switch`、authorization lock、dry-run guard、live preset mutation guard、Telegram push-only 边界或 Vibe Coding research-only 边界。任何 live route 变化必须经过 replay / walk-forward / shadow evidence、Agent 自主治理门、机器硬风控和自动回滚；DeepSeek 只解释，不批准越权。
+Run continuously:
+
+```bash
+QG_AGENT_V25_INTERVAL_SECONDS=300 \
+QG_AGENT_V25_SEND_TELEGRAM=0 \
+bash tools/run_mac_agent_v25_loop.sh --loop
+```
+
+Each cycle refreshes:
+
+1. USDJPY automation chain.
+2. USDJPY strategy policy and EA dry-run.
+3. USDJPY live-loop recovery status.
+4. Agent v2.5 daily todo and daily review.
+5. Optional Telegram push-only summary.
+
+## Local API
+
+Start only the backend API:
+
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodBackend
+node Dashboard/dashboard_server.js
+```
+
+The front-end calls backend data through `/api/*` only. Runtime files such as `QuantGod_*.json` and CSV ledgers are backend-owned evidence and should not be read directly by the Vue app.
+
+## Frontend Dist Sync
+
+Vue source lives in `QuantGodFrontend`. Build and sync it through Infra:
+
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodFrontend
+npm install
+npm run build
+
+cd /Users/bowen/Desktop/Quard/QuantGodInfra
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json sync-frontend-dist
+```
+
+`Dashboard/vue-dist/` is an ignored runtime artifact. Do not commit it.
+
+## Validation
+
+Common backend checks:
+
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodBackend
+python3 -m unittest discover tests -v
+node --test tests/node/*.mjs
+bash -n Start_QuantGod_mac.sh tools/run_mac_agent_v25_loop.sh tools/run_mac_daily_autopilot.sh
+```
+
+Focused Agent checks:
+
+```bash
+python3 -m unittest tests.test_run_daily_autopilot -v
+python3 -m unittest tests.test_mt5_rsi_exit_protection -v
+python3 -m py_compile tools/run_daily_autopilot_v2.py tools/run_usdjpy_live_loop.py
+```
+
+## Safety Boundaries
+
+The following boundaries are deliberate and should be treated as architectural constraints:
+
+- Live lane is limited to `USDJPYc / RSI_Reversal / LONG`.
+- `QG_AUTO_MAX_LOT=2.0` is a ceiling, not a fixed position size.
+- MT5 Shadow strategies may rank, replay, and graduate through non-live stages, but cannot become live unless explicitly allowed by the Live Lane contract.
+- Polymarket remains shadow-only and event-context-only.
+- Telegram is push-only; no Telegram command execution.
+- DeepSeek explains and summarizes; it does not approve execution.
+- Runtime stale, fastlane degraded, news block, abnormal spread, daily loss, and loss streak gates cannot be bypassed by Agent or AI.
+- Agent may write controlled patch evidence; it must not mutate source code, live preset, private keys, or broker credentials.
+
+## Documentation
+
+Primary documentation lives in `../QuantGodDocs`. Start with:
+
+- `docs/ops/usdjpy-cent-autonomous-multilane-agent.md`
+- `docs/ops/usdjpy-autonomous-agent.md`
+- `docs/ops/usdjpy-bar-replay-simulator.md`
+- `docs/backend/usdjpy-strategy-lab-api.md`
+- `docs/backend/safety-boundaries.md`
