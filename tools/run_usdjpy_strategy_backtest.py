@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict
 
-from usdjpy_strategy_backtest.report import build_sample, run_backtest, status
+from usdjpy_strategy_backtest.report import build_sample, ingest_klines, run_backtest, status
 from usdjpy_strategy_backtest.telegram_text import backtest_to_chinese_text
 
 
@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sample = sub.add_parser("sample")
     sample.add_argument("--overwrite", action="store_true")
+    sub.add_parser("sync-klines")
     run = sub.add_parser("run")
     run.add_argument("--write", action="store_true")
     sub.add_parser("status")
@@ -83,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sample":
         return emit(build_sample(runtime_dir, overwrite=args.overwrite))
+    if args.command == "sync-klines":
+        return emit(ingest_klines(runtime_dir))
     if args.command == "run":
         return emit(run_backtest(runtime_dir, load_strategy(args.strategy_json), write=True if args.write else True))
     if args.command == "status":
@@ -100,4 +103,3 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
-

@@ -11,6 +11,7 @@ BLOCKER_ZH = {
     "FITNESS_TOO_LOW": "综合 fitness 太低",
     "DUPLICATE_STRATEGY": "重复策略，已归档",
     "HARD_RISK_GATE_VIOLATION": "尝试绕过 runtime / fastlane / news / spread 硬门禁",
+    "PARITY_OR_EXECUTION_EVIDENCE_FAILED": "Strategy JSON / Python Replay / MQL5 EA 或执行反馈证据失败",
 }
 
 
@@ -18,4 +19,3 @@ def explain_blocker(code: str | None) -> str:
     if not code:
         return "通过 GA 评分"
     return BLOCKER_ZH.get(str(code), str(code))
-

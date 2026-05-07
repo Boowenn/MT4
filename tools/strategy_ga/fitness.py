@@ -35,13 +35,19 @@ def evidence_metrics(runtime_dir: Path) -> Dict[str, Any]:
     replay = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
     walk_forward = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYWalkForwardReport.json")
     strategy_backtest = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestReport.json")
+    parity = _load_json(runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json")
+    execution = _load_json(runtime_dir / "evidence_os" / "QuantGod_LiveExecutionQualityReport.json")
+    cases = _load_json(runtime_dir / "evidence_os" / "QuantGod_CaseMemorySummary.json")
     entry_relaxed = _variant_metrics(replay, "entryComparison", 1)
     exit_let_run = _variant_metrics(replay, "exitComparison", 1)
     summary = replay.get("summary") if isinstance(replay.get("summary"), dict) else {}
     wf_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
     backtest_metrics = strategy_backtest.get("metrics") if isinstance(strategy_backtest.get("metrics"), dict) else {}
+    execution_metrics = execution.get("metrics") if isinstance(execution.get("metrics"), dict) else {}
     backtest_bonus = min(1.0, _num(backtest_metrics.get("netR"), 0) * 0.15)
     backtest_penalty = min(1.0, _num(backtest_metrics.get("maxDrawdownR"), 0) * 0.2)
+    parity_penalty = 0.0 if parity.get("status") in {"PARITY_PASS", "PARITY_WARN", None, ""} else 1.0
+    execution_penalty = min(0.5, _num(execution_metrics.get("rejectCount"), 0) * 0.1)
     return {
         "sampleCount": int(_num(summary.get("sampleCount") or wf_summary.get("sampleCount") or backtest_metrics.get("tradeCount"), 0)),
         "netR": _num(entry_relaxed.get("netRDelta") or summary.get("relaxedNetRDelta") or wf_summary.get("netRDelta"), 0)
@@ -66,6 +72,24 @@ def evidence_metrics(runtime_dir: Path) -> Dict[str, Any]:
             "sharpe": _num(backtest_metrics.get("sharpe"), 0),
             "tradeCount": int(_num(backtest_metrics.get("tradeCount"), 0)),
         },
+        "parity": {
+            "present": bool(parity),
+            "status": parity.get("status") or "MISSING",
+            "penalty": parity_penalty,
+        },
+        "executionFeedback": {
+            "present": bool(execution),
+            "sampleCount": int(_num(execution.get("sampleCount"), 0)),
+            "rejectCount": int(_num(execution_metrics.get("rejectCount"), 0)),
+            "avgAbsSlippagePips": _num(execution_metrics.get("avgAbsSlippagePips"), 0),
+            "penalty": execution_penalty,
+        },
+        "caseMemory": {
+            "present": bool(cases),
+            "caseCount": int(_num(cases.get("caseCount"), 0)),
+            "queuedForGA": int(_num(cases.get("queuedForGA"), 0)),
+        },
+        "evidencePenalty": parity_penalty + execution_penalty,
         "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or strategy_backtest.get("evidenceQuality") or "LOW",
     }
 
@@ -80,6 +104,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
     max_adverse_penalty = max(0.0, abs(min(0.0, metrics["maxAdverseR"])) - 0.5)
     overfit_penalty = 0.25 if metrics["validationNetRDelta"] < 0 or metrics["forwardNetRDelta"] < 0 else 0.0
     trade_frequency_penalty = 0.15 if sample_count == 0 else 0.0
+    evidence_penalty = float(metrics.get("evidencePenalty", 0.0))
     fitness = (
         metrics["netR"]
         + metrics["profitCaptureRatio"] * 0.5
@@ -89,12 +114,15 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         - overfit_penalty
         - low_sample_penalty
         - trade_frequency_penalty
+        - evidence_penalty
     )
     blocker = None
     if sample_count < 5:
         blocker = "INSUFFICIENT_SAMPLES"
     elif overfit_penalty:
         blocker = "OVERFIT_RISK"
+    elif evidence_penalty >= 1.0:
+        blocker = "PARITY_OR_EXECUTION_EVIDENCE_FAILED"
     elif max_adverse_penalty > 0.5:
         blocker = "MAX_ADVERSE_TOO_HIGH"
     elif fitness < 0:
@@ -106,6 +134,10 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "lowSamplePenalty": round(low_sample_penalty, 4),
         "maxAdversePenalty": round(max_adverse_penalty, 4),
         "tradeFrequencyPenalty": round(trade_frequency_penalty, 4),
+        "evidencePenalty": round(evidence_penalty, 4),
         "blockerCode": blocker,
         "strategyBacktest": metrics.get("strategyBacktest", {}),
+        "parity": metrics.get("parity", {}),
+        "executionFeedback": metrics.get("executionFeedback", {}),
+        "caseMemory": metrics.get("caseMemory", {}),
     }

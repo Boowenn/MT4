@@ -9,6 +9,7 @@ DB_FILE = "usdjpy.sqlite"
 REPORT_FILE = "QuantGod_StrategyBacktestReport.json"
 TRADES_FILE = "QuantGod_StrategyTrades.csv"
 EQUITY_FILE = "QuantGod_StrategyEquityCurve.csv"
+INGEST_REPORT_FILE = "QuantGod_USDJPYKlineIngestReport.json"
 
 SAFETY_BOUNDARY: Dict[str, Any] = {
     "usdJpyOnly": True,
@@ -43,3 +44,6 @@ def trades_path(runtime_dir: Path) -> Path:
 def equity_path(runtime_dir: Path) -> Path:
     return backtest_dir(runtime_dir) / EQUITY_FILE
 
+
+def ingest_report_path(runtime_dir: Path) -> Path:
+    return backtest_dir(runtime_dir) / INGEST_REPORT_FILE

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import math
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, List
+from typing import Any, Dict, Iterable, List
 
-from .schema import FOCUS_SYMBOL, db_path
+from .schema import FOCUS_SYMBOL, db_path, ingest_report_path
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,15 @@ BAR_TABLES = {
     "M5": "bars_m5",
     "M15": "bars_m15",
     "H1": "bars_h1",
+    "H4": "bars_h4",
+    "D1": "bars_d1",
+}
+
+SNAPSHOT_KLINE_KEYS = {
+    "M15": "kline_m15",
+    "H1": "kline_h1",
+    "H4": "kline_h4",
+    "D1": "kline_d1",
 }
 
 
@@ -143,6 +153,86 @@ def count_bars(conn: sqlite3.Connection, timeframe: str) -> int:
     return int(row["count"] if row else 0)
 
 
+def latest_bar_time(conn: sqlite3.Connection, timeframe: str) -> str | None:
+    table = BAR_TABLES[timeframe]
+    row = conn.execute(
+        f"SELECT MAX(timestamp) AS latest FROM {table} WHERE symbol = ?",
+        (FOCUS_SYMBOL,),
+    ).fetchone()
+    return str(row["latest"]) if row and row["latest"] else None
+
+
+def ingest_runtime_snapshot(runtime_dir: Path, snapshot_path: Path | None = None) -> Dict[str, Any]:
+    """Incrementally ingest real USDJPY K-lines exported by the MT5 runtime snapshot."""
+    source = snapshot_path or runtime_dir / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json"
+    report: Dict[str, Any] = {
+        "ok": True,
+        "schema": "quantgod.usdjpy_kline_ingest_report.v1",
+        "symbol": FOCUS_SYMBOL,
+        "source": str(source),
+        "sourceFound": source.exists(),
+        "insertedOrUpdated": {},
+        "barCounts": {},
+        "latestBars": {},
+        "safety": {
+            "readOnlyDataPlane": True,
+            "orderSendAllowed": False,
+            "livePresetMutationAllowed": False,
+        },
+    }
+    if not source.exists():
+        ingest_report_path(runtime_dir).parent.mkdir(parents=True, exist_ok=True)
+        ingest_report_path(runtime_dir).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8", errors="ignore"))
+    except Exception as exc:
+        report.update({"ok": False, "error": f"snapshot_parse_failed: {exc}"})
+        ingest_report_path(runtime_dir).parent.mkdir(parents=True, exist_ok=True)
+        ingest_report_path(runtime_dir).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+
+    with connect(runtime_dir) as conn:
+        for timeframe, key in SNAPSHOT_KLINE_KEYS.items():
+            bars = bars_from_snapshot_rows(payload.get(key))
+            if bars:
+                upsert_bars(conn, timeframe, bars)
+            report["insertedOrUpdated"][timeframe] = len(bars)
+            report["barCounts"][timeframe] = count_bars(conn, timeframe)
+            report["latestBars"][timeframe] = latest_bar_time(conn, timeframe)
+
+    ingest_report_path(runtime_dir).parent.mkdir(parents=True, exist_ok=True)
+    ingest_report_path(runtime_dir).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return report
+
+
+def bars_from_snapshot_rows(rows: Any) -> List[Bar]:
+    if not isinstance(rows, list):
+        return []
+    bars: List[Bar] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        timestamp = str(row.get("timeIso") or row.get("timestamp") or "").strip()
+        if not timestamp:
+            continue
+        try:
+            bars.append(
+                Bar(
+                    timestamp=timestamp,
+                    open=float(row.get("open")),
+                    high=float(row.get("high")),
+                    low=float(row.get("low")),
+                    close=float(row.get("close")),
+                    volume=float(row.get("volume") or 0),
+                )
+            )
+        except Exception:
+            continue
+    return sorted(bars, key=lambda item: item.timestamp)
+
+
 def write_sample_bars(runtime_dir: Path, overwrite: bool = False) -> dict:
     with connect(runtime_dir) as conn:
         if overwrite:
@@ -181,4 +271,3 @@ def sample_h1_bars(count: int = 180) -> List[Bar]:
         )
         price = close
     return bars
-

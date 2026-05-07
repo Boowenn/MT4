@@ -504,6 +504,44 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/sync-klines') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'sync-klines'], 120000, 'run_usdjpy_strategy_backtest.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/evidence-os' || pathname === '/api/usdjpy-strategy-lab/evidence-os/status')) {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'status'], 120000, 'run_usdjpy_evidence_os.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/evidence-os/run') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'once', '--write'], 120000, 'run_usdjpy_evidence_os.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evidence-os/parity') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'parity'], 120000, 'run_usdjpy_evidence_os.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evidence-os/execution-feedback') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'execution-feedback'], 120000, 'run_usdjpy_evidence_os.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evidence-os/case-memory') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'case-memory'], 120000, 'run_usdjpy_evidence_os.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/evidence-os/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_usdjpy_evidence_os.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/ga' || pathname === '/api/usdjpy-strategy-lab/ga/status')) {
     const args = ['--runtime-dir', runtimeDir, 'status'];
     if (url.searchParams.get('write') === '1') args.push('--write');
