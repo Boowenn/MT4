@@ -6,8 +6,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from tools.news_gate.classifier import classify_news_gate
-from tools.news_gate.policy import apply_news_gate_to_live_policy
+try:
+    from tools.news_gate.classifier import classify_news_gate
+    from tools.news_gate.policy import apply_news_gate_to_live_policy
+except ModuleNotFoundError:  # CLI execution from tools/
+    from news_gate.classifier import classify_news_gate
+    from news_gate.policy import apply_news_gate_to_live_policy
+
 from .data_loader import adaptive_policy, dynamic_sltp, entry_trigger_plan, fastlane_quality, focus_runtime_snapshot
 from .schema import (
     ENTRY_BLOCKED,

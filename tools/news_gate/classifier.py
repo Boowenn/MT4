@@ -144,7 +144,12 @@ def classify_news_gate(snapshot: Dict[str, Any], config: Optional[NewsGateConfig
             sourceAvailable=False,
         ).to_dict()
 
-    blocked_events = [event for event in events if any(_truthy(event.get(key)) for key in ("blocked", "newsBlocked", "active", "preBlockActive", "blockActive"))]
+    blocked_keys = ("blocked", "newsBlocked", "active", "preBlockActive", "blockActive")
+    blocked_events = [
+        event
+        for event in events
+        if any(_truthy(event.get(key)) for key in blocked_keys)
+    ]
     high_event = next((event for event in events if _is_high_impact(event)), None)
     soft_event = next((event for event in events if _is_soft_risk(event)), None)
     blocked_by_source = bool(blocked_events)

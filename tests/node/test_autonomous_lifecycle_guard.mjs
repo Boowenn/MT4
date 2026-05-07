@@ -6,7 +6,9 @@ import test from 'node:test';
 const repo = process.cwd();
 const readableSourceRoots = [
   'tools/daily_autopilot_v2',
+  'tools/news_gate',
   'tools/autonomous_lifecycle',
+  'tools/usdjpy_bar_replay',
   'tools/usdjpy_autonomous_agent',
   'tools/usdjpy_walk_forward',
 ];

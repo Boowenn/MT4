@@ -25,7 +25,10 @@ from .schema import (
     VARIANT_RELAXED_ENTRY,
     utc_now_iso,
 )
-from tools.news_gate.replay import build_news_gate_replay_report
+try:
+    from tools.news_gate.replay import build_news_gate_replay_report
+except ModuleNotFoundError:  # CLI execution from tools/
+    from news_gate.replay import build_news_gate_replay_report
 
 
 def _out_dir(runtime_dir: Path) -> Path:
