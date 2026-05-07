@@ -11,6 +11,8 @@ const readableSourceRoots = [
   'tools/usdjpy_bar_replay',
   'tools/usdjpy_autonomous_agent',
   'tools/usdjpy_walk_forward',
+  'tools/strategy_json',
+  'tools/strategy_ga',
 ];
 
 function read(rel) {

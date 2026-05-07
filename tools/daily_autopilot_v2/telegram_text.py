@@ -23,6 +23,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
     daily_review = payload.get("dailyReview") if isinstance(payload.get("dailyReview"), dict) else {}
     next_phase = payload.get("nextPhaseTodos") if isinstance(payload.get("nextPhaseTodos"), dict) else {}
     next_phase_items = next_phase.get("items") if isinstance(next_phase.get("items"), list) else []
+    ga_review = payload.get("gaReview") if isinstance(payload.get("gaReview"), dict) else {}
     review_metrics = daily_review.get("metrics") if isinstance(daily_review.get("metrics"), dict) else {}
     live = morning.get("liveLane") if isinstance(morning.get("liveLane"), dict) else {}
     mt5 = morning.get("mt5ShadowLane") if isinstance(morning.get("mt5ShadowLane"), dict) else {}
@@ -74,6 +75,11 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         f"错失机会：{_fmt(review_metrics.get('missedOpportunity'), '0')}；早出场改善：{_fmt(review_metrics.get('earlyExit'), '0')}",
         f"MT5 模拟：晋级/强化 {evening_mt5.get('promotedCount', 0)}，暂停 {evening_mt5.get('pausedCount', 0)}，淘汰 {evening_mt5.get('rejectedCount', 0)}",
         f"新闻风险复盘：{_fmt(news_review.get('mode'), 'SOFT')} / {_fmt(news_review.get('riskLevel'), 'UNKNOWN')}；普通新闻不硬阻断，高冲击新闻硬阻断。",
+        "",
+        "GA 全过程：",
+        f"- 当前代数：第 {_fmt(ga_review.get('currentGeneration'), '0')} 代；最佳分数：{_fmt(ga_review.get('bestFitness'), '0')}",
+        f"- Elite：{_fmt(ga_review.get('eliteCount'), '0')}；阻断：{_fmt(ga_review.get('blockedCandidates'), '0')}",
+        f"- 下一步：{_fmt(ga_review.get('nextAction'), '运行下一代 Strategy JSON 评分')}",
         f"明日阶段：{_fmt(evening.get('tomorrowStageZh'))}",
         "",
         "下一阶段任务：",

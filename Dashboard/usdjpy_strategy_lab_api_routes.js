@@ -479,6 +479,52 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && (pathname === '/api/usdjpy-strategy-lab/ga' || pathname === '/api/usdjpy-strategy-lab/ga/status')) {
+    const args = ['--runtime-dir', runtimeDir, 'status'];
+    if (url.searchParams.get('write') === '1') args.push('--write');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/ga/run-generation') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'run-generation', '--write'], 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/ga/generations') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'generations'], 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/ga/candidates') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'candidates'], 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname.startsWith('/api/usdjpy-strategy-lab/ga/candidate/')) {
+    const seedId = decodeURIComponent(pathname.split('/').pop() || '');
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'candidate', '--seed-id', seedId], 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/ga/evolution-path') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'evolution-path'], 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/ga/blockers') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'blockers'], 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/ga/telegram-text') {
+    const args = ['--runtime-dir', runtimeDir, 'telegram-text'];
+    if (url.searchParams.get('refresh') === '1') args.push('--refresh');
+    if (url.searchParams.get('send') === '1') args.push('--send');
+    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_strategy_ga.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/run') {
     const payload = await runPythonJson(ctx.repoRoot, [...baseArgs, 'build', '--write']);
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);

@@ -17,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 REPORT_NAME = "QuantGod_DailyAutopilotV2.json"
-AGENT_VERSION = "v2.5"
+AGENT_VERSION = "v2.6"
 
 NEXT_PHASE_TODOS: List[Dict[str, Any]] = [
     {
@@ -25,24 +25,24 @@ NEXT_PHASE_TODOS: List[Dict[str, Any]] = [
         "lane": "SYSTEM",
         "laneZh": "策略契约",
         "titleZh": "Strategy JSON DSL",
-        "status": "WAITING_NEXT_PHASE",
-        "stage": "NEXT_PHASE",
-        "completedByAgent": False,
-        "autoAppliedByAgent": False,
+        "status": "COMPLETED_BY_AGENT",
+        "stage": "V2_6_READY",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
-        "summaryZh": "等待下一阶段建立 Strategy JSON 全链路策略契约；当前不会假装已经完成。",
+        "summaryZh": "Strategy JSON DSL 已进入 GA 全过程审计；种子必须通过 schema、safety 和 fingerprint 校验。",
     },
     {
         "id": "gaEvolutionTodo",
         "lane": "MT5_SHADOW",
         "laneZh": "MT5 模拟车道",
         "titleZh": "GA Evolution Engine",
-        "status": "WAITING_NEXT_PHASE",
-        "stage": "NEXT_PHASE",
-        "completedByAgent": False,
-        "autoAppliedByAgent": False,
+        "status": "COMPLETED_BY_AGENT",
+        "stage": "V2_6_READY",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
-        "summaryZh": "等待下一阶段接入 GA population、mutation、crossover 和 fitness；当前仍使用 replay / walk-forward / shadow ranking。",
+        "summaryZh": "GA Evolution Trace 已接入 generation、candidate、fitness、blocker、elite 和 evolution path。",
     },
     {
         "id": "telegramGatewayTodo",
@@ -156,11 +156,30 @@ def _next_phase_todos() -> Dict[str, Any]:
         "completedByAgent": False,
         "autoAppliedByAgent": False,
         "requiresAutonomousGovernance": True,
-        "summaryZh": "Strategy JSON、GA Evolution 和独立 Telegram Gateway 是 v2.5 自动生成的下一阶段任务；当前不假装完成。",
+        "summaryZh": "Strategy JSON 和 GA Evolution 已进入 v2.6；独立 Telegram Gateway 仍等待下一阶段，不假装完成。",
         "items": todos,
         "strategyJsonTodo": todos[0],
         "gaEvolutionTodo": todos[1],
         "telegramGatewayTodo": todos[2],
+    }
+
+
+def _ga_summary(runtime_dir: Path) -> Dict[str, Any]:
+    status = _load_json(runtime_dir / "ga" / "QuantGod_GAStatus.json")
+    generation = _load_json(runtime_dir / "ga" / "QuantGod_GAGenerationLatest.json")
+    blockers = _load_json(runtime_dir / "ga" / "QuantGod_GABlockerSummary.json")
+    blocker_rows = blockers.get("summary") if isinstance(blockers.get("summary"), list) else []
+    return {
+        "status": status.get("status") or "WAITING_FIRST_GENERATION",
+        "currentGeneration": status.get("currentGeneration", 0),
+        "populationSize": status.get("populationSize", 0),
+        "bestFitness": status.get("bestFitness", 0),
+        "bestSeedId": status.get("bestSeedId"),
+        "eliteCount": status.get("eliteCount", 0),
+        "blockedCandidates": status.get("blockedCandidates", 0),
+        "generationStatus": generation.get("status"),
+        "blockers": blocker_rows,
+        "nextAction": status.get("nextAction", "运行 Strategy JSON GA 一代并写入全过程 trace"),
     }
 
 
@@ -261,7 +280,52 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], news
     }
 
 
-def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _ga_todo_items(ga: Dict[str, Any]) -> List[Dict[str, Any]]:
+    ran = int(ga.get("currentGeneration") or 0) > 0
+    status = "COMPLETED_BY_AGENT" if ran else "PENDING"
+    return [
+        {
+            "id": "ga_generate_seeds",
+            "lane": "MT5_SHADOW",
+            "laneZh": "GA 全过程",
+            "action": "GENERATE_GA_SEEDS",
+            "status": status,
+            "completedByAgent": ran,
+            "autoAppliedByAgent": ran,
+            "requiresAutonomousGovernance": True,
+            "summaryZh": "Agent 生成 Strategy JSON 种子池；每个种子必须通过 schema 和安全校验。",
+        },
+        {
+            "id": "ga_run_generation",
+            "lane": "MT5_SHADOW",
+            "laneZh": "GA 全过程",
+            "action": "RUN_GA_GENERATION",
+            "status": status,
+            "completedByAgent": ran,
+            "autoAppliedByAgent": ran,
+            "requiresAutonomousGovernance": True,
+            "result": {
+                "generation": ga.get("currentGeneration", 0),
+                "eliteCount": ga.get("eliteCount", 0),
+                "blockedCandidates": ga.get("blockedCandidates", 0),
+            },
+            "summaryZh": "Agent 已运行 GA generation；输出 generation、candidate、elite、blocker 和 evolution path。",
+        },
+        {
+            "id": "ga_promote_elites_to_shadow",
+            "lane": "MT5_SHADOW",
+            "laneZh": "MT5 模拟车道",
+            "action": "PROMOTE_GA_ELITES_TO_SHADOW",
+            "status": status,
+            "completedByAgent": ran,
+            "autoAppliedByAgent": ran,
+            "requiresAutonomousGovernance": True,
+            "summaryZh": "Elite 只允许进入 shadow/tester/paper-live-sim；不会直接进入 MICRO_LIVE 或修改 live preset。",
+        },
+    ]
+
+
+def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], ga: Dict[str, Any]) -> List[Dict[str, Any]]:
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
@@ -310,11 +374,11 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
             "metrics": _safe_dict(polymarket.get("summary")),
             "summaryZh": "Agent 已复盘预测市场模拟账本；只做 shadow 和事件风险，不连接真钱钱包。",
         },
-    ]
+    ] + _ga_todo_items(ga)
 
 
-def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
-    items = _agent_todo_items(agent, lifecycle, metrics)
+def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], ga: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
+    items = _agent_todo_items(agent, lifecycle, metrics, ga)
     next_phase = _next_phase_todos()
     rollback_triggered = any(bool(item.get("rollbackTriggered")) for item in items)
     auto_applied = any(bool(item.get("autoAppliedByAgent")) for item in items)
@@ -336,6 +400,7 @@ def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
         "metrics": metrics,
         "items": items,
         "nextPhaseTodos": next_phase,
+        "gaReview": ga,
         "strategyJsonTodo": next_phase["strategyJsonTodo"],
         "gaEvolutionTodo": next_phase["gaEvolutionTodo"],
         "telegramGatewayTodo": next_phase["telegramGatewayTodo"],
@@ -343,7 +408,7 @@ def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
     }
 
 
-def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
+def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], ga: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
@@ -383,6 +448,15 @@ def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metric
             "riskContextOnly": True,
         },
         "nextPhaseTodos": _next_phase_todos(),
+        "gaReview": {
+            "generation": ga.get("currentGeneration", 0),
+            "bestFitness": ga.get("bestFitness", 0),
+            "bestStrategy": ga.get("bestSeedId"),
+            "promotedToShadow": ga.get("eliteCount", 0),
+            "rejected": ga.get("blockedCandidates", 0),
+            "nextGenerationPlanned": True,
+            "nextAction": ga.get("nextAction"),
+        },
         "summaryZh": "每日复盘已由 Agent 自动完成：收集三车道样本、计算指标、更新升降级/回滚状态，不等待人工确认。",
     }
 
@@ -399,8 +473,9 @@ def build_daily_autopilot_v2(
     generated_at = utc_now_iso()
     metrics = _runtime_metrics(runtime_dir, agent)
     news_gate = _news_gate_summary(runtime_dir)
-    daily_todo = _build_daily_todo(agent, lifecycle, metrics, generated_at)
-    daily_review = _build_daily_review(agent, lifecycle, metrics, generated_at)
+    ga = _ga_summary(runtime_dir)
+    daily_todo = _build_daily_todo(agent, lifecycle, metrics, ga, generated_at)
+    daily_review = _build_daily_review(agent, lifecycle, metrics, ga, generated_at)
     payload: Dict[str, Any] = {
         "ok": True,
         "schema": "quantgod.daily_autopilot_v2.v1",
@@ -415,6 +490,7 @@ def build_daily_autopilot_v2(
         "newsGate": news_gate,
         "dailyTodo": daily_todo,
         "dailyReview": daily_review,
+        "gaReview": ga,
         "nextPhaseTodos": _next_phase_todos(),
         "completedByAgent": True,
         "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
