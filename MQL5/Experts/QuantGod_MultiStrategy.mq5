@@ -112,9 +112,9 @@ input int    PilotMaxTotalPositions   = 2;
 input int    PilotMaxPositionsPerSymbol = 2;
 input bool   PilotRequireStrategyCommentForManagedPosition = true;
 input bool   PilotBlockManualPerSymbol  = false;
-input bool   PilotRestrictSession       = true;
-input int    PilotSessionStartHour      = 8;
-input int    PilotSessionEndHour        = 15;
+input bool   PilotRestrictSession       = false;
+input int    PilotSessionStartHour      = 0;
+input int    PilotSessionEndHour        = 23;
 input bool   EnablePilotNewsFilter      = true;
 input int    PilotNewsPreBlockMinutes   = 30;
 input int    PilotNewsHighImpactPreBlockMinutes = 60;
@@ -6463,6 +6463,9 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    int evalCode = PILOT_EVAL_NONE;
    bool hasSignal = EvaluatePilotRsiH1Signal(symbol, direction, signalScore, evalReason, stopLoss, takeProfit, evalCode, trigger);
    bool sellSideDemoted = (PilotRsiSellLiveBlocked && !(bool)MQLInfoInteger(MQL_TESTER));
+   string sessionWindowLabel = "全天";
+   if(PilotRestrictSession)
+      sessionWindowLabel = IntegerToString(PilotSessionStartHour) + "-" + IntegerToString(PilotSessionEndHour);
 
    string state = "WAITING_RSI_SIGNAL";
    string summary = "RSI 买入路线已恢复，等待 H1 RSI 与布林带同时触发。";
@@ -6544,7 +6547,7 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    {
       state = "SESSION_CLOSED";
       summary = "当前不在 EA 允许入场时段。";
-      AppendEntryDiagnosticReason(whyItems, "SESSION_CLOSED", "交易时段未开放", "允许 UTC " + IntegerToString(PilotSessionStartHour) + "-" + IntegerToString(PilotSessionEndHour) + "。");
+      AppendEntryDiagnosticReason(whyItems, "SESSION_CLOSED", "交易时段未开放", "允许 " + sessionWindowLabel + "。");
    }
    else if(!spreadAllowed)
    {
@@ -6615,7 +6618,7 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    json += "\"killSwitch\": " + JsonBool(g_pilotKillSwitch) + ", ";
    json += "\"killReason\": \"" + JsonEscape(g_pilotKillReason) + "\", ";
    json += "\"sessionOpen\": " + JsonBool(sessionOpen) + ", ";
-   json += "\"sessionWindowUtc\": \"" + IntegerToString(PilotSessionStartHour) + "-" + IntegerToString(PilotSessionEndHour) + "\", ";
+   json += "\"sessionWindowUtc\": \"" + JsonEscape(sessionWindowLabel) + "\", ";
    json += "\"spreadAllowed\": " + JsonBool(spreadAllowed) + ", ";
    json += "\"spreadPips\": " + FormatNumber(spreadPips, 1) + ", ";
    json += "\"maxSpreadPips\": " + FormatNumber(PilotMaxSpreadPips, 1) + ", ";
