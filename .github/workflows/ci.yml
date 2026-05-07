@@ -29,7 +29,22 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements-dev.txt
       - name: Run unittest suite
-        run: .venv/bin/python -m unittest discover tests -v
+        run: |
+          set -o pipefail
+          .venv/bin/python -m unittest discover tests -v 2>&1 | tee "$RUNNER_TEMP/unittest.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            .venv/bin/python - <<'PY'
+          from pathlib import Path
+          import os
+
+          log_path = Path(os.environ["RUNNER_TEMP"]) / "unittest.log"
+          tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-120:])
+          escaped = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Backend unittest failure::{escaped}")
+          PY
+            exit "$status"
+          fi
       - name: Coverage summary
         run: .venv/bin/python -m pytest tests -q --cov=tools --cov-report=term-missing
 
