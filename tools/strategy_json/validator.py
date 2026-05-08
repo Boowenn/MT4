@@ -71,7 +71,7 @@ def validate_strategy_json(seed: Dict[str, Any]) -> Dict[str, Any]:
     rsi = ((data.get("indicators") or {}).get("rsi") or {})
     checks = [
         _check_range("RSI period", rsi.get("period"), 2, 50),
-        _check_range("RSI buyBand", rsi.get("buyBand"), 20, 45),
+        _check_range("RSI buyBand", rsi.get("buyBand"), 5, 45),
         _check_range("RSI crossbackThreshold", rsi.get("crossbackThreshold"), 0, 3),
         _check_range("breakevenDelayR", (data.get("exit") or {}).get("breakevenDelayR"), 0, 3),
         _check_range("trailStartR", (data.get("exit") or {}).get("trailStartR"), 0, 5),

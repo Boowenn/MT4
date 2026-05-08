@@ -356,6 +356,88 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertIn("pythonReplay", parity["deepParity"])
             self.assertIn("mql5Ea", parity["deepParity"])
 
+    def test_parity_auto_syncs_strategy_json_and_python_replay_from_live_ea_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            live_dir = runtime_dir / "live"
+            live_dir.mkdir(parents=True)
+            (live_dir / "QuantGod_USDJPYLiveLoopStatus.json").write_text(
+                """
+                {
+                  "topLiveEligiblePolicy": {
+                    "strategy": "RSI_Reversal",
+                    "direction": "LONG",
+                    "entryMode": "OPPORTUNITY_ENTRY"
+                  },
+                  "safety": {
+                    "orderSendAllowed": false,
+                    "livePresetMutationAllowed": false
+                  }
+                }
+                """,
+                encoding="utf-8",
+            )
+            (runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                """
+                {
+                  "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                  "symbol": "USDJPYc",
+                  "strategy": "RSI_Reversal",
+                  "direction": "LONG",
+                  "state": "READY_BUY_SIGNAL",
+                  "inputs": {
+                    "PilotRsiTimeframe": "H1",
+                    "PilotRsiPeriod": 2,
+                    "PilotRsiOversold": 15,
+                    "PilotRsiOverbought": 85,
+                    "PilotRsiCrossbackThreshold": 0
+                  },
+                  "route": {
+                    "timeframe": "H1",
+                    "candidateEnabled": true,
+                    "liveEnabled": true,
+                    "inScope": true
+                  },
+                  "permissions": {
+                    "liveMode": true,
+                    "tradeAllowed": true,
+                    "readOnlyMode": false
+                  },
+                  "guards": {
+                    "sessionOpen": true,
+                    "spreadAllowed": true,
+                    "newsBlocked": false,
+                    "cooldownActive": false,
+                    "startupGuardActive": false,
+                    "symbolPositions": 0,
+                    "maxPositionsPerSymbol": 2
+                  },
+                  "rsi": {
+                    "period": 2,
+                    "oversold": 15,
+                    "buyBandLevel": 15,
+                    "crossbackThreshold": 0,
+                    "signalReady": true,
+                    "signalDirection": "BUY",
+                    "evalCode": "SIGNAL_BUY"
+                  }
+                }
+                """,
+                encoding="utf-8",
+            )
+
+            parity = build_parity_report(runtime_dir, write=True)
+            self.assertEqual(parity["status"], "PARITY_PASS", parity)
+            self.assertEqual(parity["promotionGate"]["status"], "PASS")
+            self.assertEqual(parity["evidenceSync"]["strategyJsonBacktest"], "WRITTEN")
+            self.assertEqual(parity["evidenceSync"]["pythonReplay"], "WRITTEN")
+            self.assertTrue((runtime_dir / "backtest" / "QuantGod_StrategyBacktestReport.json").exists())
+            self.assertTrue((runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json").exists())
+            self.assertEqual(parity["deepParity"]["strategyJson"]["rsi"]["period"], 2.0)
+            self.assertEqual(parity["deepParity"]["strategyJson"]["rsi"]["buyBand"], 15.0)
+            self.assertEqual(parity["deepParity"]["mql5Ea"]["rsi"]["signalDirection"], "BUY")
+            self.assertEqual(parity["deepParity"]["hardMismatches"], [])
+
     def test_independent_telegram_gateway_queues_dedupes_and_dispatches(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)

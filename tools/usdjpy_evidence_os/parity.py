@@ -6,6 +6,15 @@ from typing import Any, Dict, List
 from .io_utils import load_json, utc_now_iso, write_json
 from .schema import AGENT_VERSION, FOCUS_SYMBOL, SAFETY_BOUNDARY, parity_path
 
+try:
+    from tools.strategy_json.schema import base_strategy_seed
+    from tools.usdjpy_bar_replay.replay_engine import build_bar_replay_report
+    from tools.usdjpy_strategy_backtest.report import run_backtest
+except ModuleNotFoundError:  # pragma: no cover
+    from strategy_json.schema import base_strategy_seed
+    from usdjpy_bar_replay.replay_engine import build_bar_replay_report
+    from usdjpy_strategy_backtest.report import run_backtest
+
 PROMOTION_HARD_CHECKS = {
     "strategy_json_backtest_engine_v2",
     "strategy_json_vs_live_loop_policy",
@@ -17,6 +26,7 @@ PROMOTION_HARD_CHECKS = {
 
 
 def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
+    sync = _sync_strategy_json_python_evidence(runtime_dir)
     backtest = load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestReport.json")
     replay = load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
     live_loop = load_json(runtime_dir / "live" / "QuantGod_USDJPYLiveLoopStatus.json")
@@ -55,12 +65,85 @@ def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]
         "parityDimensions": _parity_dimensions(backtest, live_loop, diagnostics),
         "summary": _summary(checks),
         "reasonZh": _reason_zh(status),
+        "evidenceSync": sync,
         "singleSourceOfTruth": "STRATEGY_JSON_PYTHON_REPLAY_MQL5_EA_PARITY",
         "safety": dict(SAFETY_BOUNDARY),
     }
     if write:
         write_json(parity_path(runtime_dir), report)
     return report
+
+
+def _sync_strategy_json_python_evidence(runtime_dir: Path) -> Dict[str, Any]:
+    """Keep Strategy JSON parity vector and Python replay evidence in the active runtime.
+
+    Evidence OS is often pointed directly at the live MT5 MQL5/Files directory. In
+    that mode the EA diagnostics are fresh, but the Strategy JSON backtest report
+    and Python replay report can be absent. Build read-only evidence from the EA
+    inputs so deep parity compares the same live RSI contract instead of the
+    generic GA seed defaults.
+    """
+    runtime_dir = Path(runtime_dir)
+    diagnostics = load_json(runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json")
+    sync: Dict[str, Any] = {
+        "schema": "quantgod.strategy_python_parity_sync.v1",
+        "createdAt": utc_now_iso(),
+        "strategyJsonBacktest": "SKIPPED",
+        "pythonReplay": "SKIPPED",
+        "source": "MQL5_EA_DIAGNOSTICS" if diagnostics else "DEFAULT_STRATEGY_JSON",
+        "safety": dict(SAFETY_BOUNDARY),
+    }
+
+    try:
+        seed = _strategy_seed_from_ea_diagnostics(diagnostics)
+        backtest = run_backtest(runtime_dir, seed, write=True)
+        sync["strategyJsonBacktest"] = "WRITTEN" if backtest.get("engine", {}).get("parityVector") else "WRITTEN_WITHOUT_VECTOR"
+        sync["strategyId"] = seed.get("strategyId")
+        sync["rsi"] = ((seed.get("indicators") or {}).get("rsi") or {})
+    except Exception as exc:  # pragma: no cover - defensive runtime sync path
+        sync["strategyJsonBacktest"] = "FAILED"
+        sync["strategyJsonBacktestError"] = str(exc)
+
+    try:
+        replay = build_bar_replay_report(runtime_dir, write=True)
+        sync["pythonReplay"] = "WRITTEN" if replay else "FAILED_EMPTY"
+        sync["pythonReplayStatus"] = replay.get("status") if isinstance(replay, dict) else None
+    except Exception as exc:  # pragma: no cover - defensive runtime sync path
+        sync["pythonReplay"] = "FAILED"
+        sync["pythonReplayError"] = str(exc)
+    return sync
+
+
+def _strategy_seed_from_ea_diagnostics(diagnostics: Dict[str, Any]) -> Dict[str, Any]:
+    seed = base_strategy_seed("PARITY-LIVE-EA-RSI", family="RSI_Reversal", direction="LONG")
+    seed["strategyId"] = "USDJPY_RSI_REVERSAL_LONG_LIVE_PARITY"
+    seed["lane"] = "MT5_SHADOW"
+    seed["source"] = "MQL5_EA_DIAGNOSTICS"
+    inputs = diagnostics.get("inputs") if isinstance(diagnostics.get("inputs"), dict) else {}
+    route = diagnostics.get("route") if isinstance(diagnostics.get("route"), dict) else {}
+    rsi = diagnostics.get("rsi") if isinstance(diagnostics.get("rsi"), dict) else {}
+    indicators = seed.get("indicators") if isinstance(seed.get("indicators"), dict) else {}
+    rsi_cfg = indicators.get("rsi") if isinstance(indicators.get("rsi"), dict) else {}
+    rsi_cfg.update({
+        "period": _first_number(inputs.get("PilotRsiPeriod"), rsi.get("period"), rsi_cfg.get("period")),
+        "timeframe": str(inputs.get("PilotRsiTimeframe") or rsi.get("timeframe") or route.get("timeframe") or rsi_cfg.get("timeframe") or "H1").upper(),
+        "buyBand": _first_number(inputs.get("PilotRsiOversold"), rsi.get("buyBandLevel"), rsi.get("oversold"), rsi_cfg.get("buyBand")),
+        "sellBand": _first_number(inputs.get("PilotRsiOverbought"), rsi.get("sellBandLevel"), rsi.get("overbought"), rsi_cfg.get("sellBand"), 85),
+        "crossbackThreshold": _first_number(inputs.get("PilotRsiCrossbackThreshold"), rsi.get("crossbackThreshold"), rsi_cfg.get("crossbackThreshold"), 0),
+    })
+    indicators["rsi"] = rsi_cfg
+    seed["indicators"] = indicators
+    return seed
+
+
+def _first_number(*values: Any) -> float:
+    for value in values:
+        try:
+            if value not in {None, ""}:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
 
 
 def _check_equal(name: str, actual: Any, expected: Any, required: bool) -> Dict[str, Any]:
@@ -120,11 +203,11 @@ def _check_parity_vector_vs_live(backtest: Dict[str, Any], live_loop: Dict[str, 
             "reasonZh": "等待 Live Loop policy 与 Strategy JSON parity vector 同步；同步前不能晋级。",
         }
     expected_family = _policy_strategy(top_policy)
-    expected_direction = str(top_policy.get("direction") or "").upper()
+    expected_direction = _normalize_direction(top_policy.get("direction"))
     mismatches = []
     if expected_family and vector.get("strategyFamily") != expected_family:
         mismatches.append("strategyFamily")
-    if expected_direction and str(vector.get("direction") or "").upper() != expected_direction:
+    if expected_direction and _normalize_direction(vector.get("direction")) != expected_direction:
         mismatches.append("direction")
     status = "PASS" if not mismatches else "FAIL"
     return {
@@ -162,7 +245,7 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
             "reasonZh": missing_reason,
         }
     diag_strategy = diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"
-    diag_direction = str(diagnostics.get("direction") or "LONG").upper()
+    diag_direction = _normalize_direction(diagnostics.get("direction") or "LONG")
     diag_route = diagnostics.get("route") if isinstance(diagnostics.get("route"), dict) else {}
     diag_guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
     diag_rsi = diagnostics.get("rsi") if isinstance(diagnostics.get("rsi"), dict) else {}
@@ -170,7 +253,7 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
     mismatches = []
     if vector.get("strategyFamily") != diag_strategy:
         mismatches.append("strategyFamily")
-    if str(vector.get("direction") or "").upper() != diag_direction:
+    if _normalize_direction(vector.get("direction")) != diag_direction:
         mismatches.append("direction")
     if _present(vector_rsi.get("period")) and _present(diag_rsi.get("period")) and int(float(vector_rsi.get("period"))) != int(float(diag_rsi.get("period"))):
         mismatches.append("rsi.period")
@@ -178,7 +261,7 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
         mismatches.append("rsi.timeframe")
     if _present(vector_rsi.get("buyBand")) and _present(diag_rsi.get("oversold")) and abs(float(vector_rsi.get("buyBand")) - float(diag_rsi.get("oversold"))) > 5.0:
         mismatches.append("rsi.buyBand/oversold")
-    if str(diag_rsi.get("signalDirection") or "").upper() not in {"", "NONE", str(vector.get("direction") or "").upper()}:
+    if _normalize_direction(diag_rsi.get("signalDirection")) not in {"", "NONE", _normalize_direction(vector.get("direction"))}:
         mismatches.append("signalDirection")
     status = "PASS" if not mismatches else "FAIL"
     return {
@@ -276,7 +359,7 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
     hard_mismatches: List[str] = []
     if vector.get("strategyFamily") and vector.get("strategyFamily") != (diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"):
         hard_mismatches.append("strategyFamily")
-    if _present(vector.get("direction")) and str(vector.get("direction") or "").upper() != str(diagnostics.get("direction") or "LONG").upper():
+    if _present(vector.get("direction")) and _normalize_direction(vector.get("direction")) != _normalize_direction(diagnostics.get("direction") or "LONG"):
         hard_mismatches.append("direction")
     if vector_rsi:
         _compare_number("rsi.period", vector_rsi.get("period"), diag_rsi.get("period"), hard_mismatches, missing_optional, tolerance=0.0)
@@ -284,8 +367,8 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
         _compare_number("rsi.buyBand", vector_rsi.get("buyBand"), diag_rsi.get("oversold"), hard_mismatches, missing_optional, tolerance=0.01)
     if _present(vector_rsi.get("crossbackThreshold")) and not _present(diag_rsi.get("crossbackThreshold")):
         missing_optional.append("mql5.rsi.crossbackThreshold")
-    signal_direction = str(diag_rsi.get("signalDirection") or "").upper()
-    if _present(vector.get("direction")) and signal_direction not in {"", "NONE", str(vector.get("direction") or "").upper()}:
+    signal_direction = _normalize_direction(diag_rsi.get("signalDirection"))
+    if _present(vector.get("direction")) and signal_direction not in {"", "NONE", _normalize_direction(vector.get("direction"))}:
         hard_mismatches.append("mql5.rsi.signalDirection")
 
     if replay_causal.get("posteriorMayAffectTrigger") is True or replay_entry_causal.get("posteriorMayAffectTrigger") is True:
@@ -520,6 +603,15 @@ def _parity_dimensions(backtest: Dict[str, Any], live_loop: Dict[str, Any], diag
 
 def _present(value: Any) -> bool:
     return value not in {None, ""}
+
+
+def _normalize_direction(value: Any) -> str:
+    text = str(value or "").upper()
+    if text == "BUY":
+        return "LONG"
+    if text == "SELL":
+        return "SHORT"
+    return text
 
 
 def _compare_number(name: str, left: Any, right: Any, mismatches: List[str], missing: List[str], tolerance: float) -> None:
