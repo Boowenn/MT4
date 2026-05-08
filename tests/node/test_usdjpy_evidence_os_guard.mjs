@@ -84,3 +84,23 @@ test('MT5 EA emits standardized live execution feedback for Evidence OS', () => 
   assert.match(eaSource, /frontendCanTrade\\":false/);
   assert.match(eaSource, /telegramCommandsAllowed\\":false/);
 });
+
+test('USDJPY operator reports use Telegram Gateway instead of direct senders', () => {
+  const runners = [
+    'tools/run_daily_autopilot_v2.py',
+    'tools/run_usdjpy_autonomous_agent.py',
+    'tools/run_usdjpy_bar_replay.py',
+    'tools/run_usdjpy_live_loop.py',
+    'tools/run_usdjpy_runtime_dataset.py',
+    'tools/run_usdjpy_strategy_backtest.py',
+    'tools/run_usdjpy_strategy_lab.py',
+    'tools/run_usdjpy_walk_forward.py',
+    'tools/run_strategy_ga.py',
+  ];
+  for (const file of runners) {
+    const source = read(file);
+    assert.match(source, /dispatch_text/, `${file} should dispatch through the Telegram Gateway`);
+    assert.match(source, /telegramGateway/, `${file} should expose gateway delivery evidence`);
+    assert.doesNotMatch(source, /urllib\.request|urllib\.parse|urlopen|sendMessage/, `${file} should not directly call Telegram`);
+  }
+});

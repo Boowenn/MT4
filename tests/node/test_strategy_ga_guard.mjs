@@ -93,6 +93,7 @@ test('GA modules do not introduce live execution, wallets, or Telegram commands'
     ...listFiles('tools/strategy_json'),
     ...listFiles('tools/strategy_ga'),
     'tools/run_strategy_ga.py',
+    'tools/usdjpy_evidence_os/telegram_gateway.py',
   ];
   const source = files.map(read).join('\n');
 

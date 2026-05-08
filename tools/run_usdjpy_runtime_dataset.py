@@ -6,11 +6,10 @@ import json
 import os
 import sys
 import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Dict
 
+from usdjpy_evidence_os.telegram_gateway import dispatch_text
 from usdjpy_runtime_dataset.builder import build_runtime_dataset
 from usdjpy_runtime_dataset.config_proposal import build_live_config_proposal
 from usdjpy_runtime_dataset.param_tuner import build_param_tuning_report
@@ -36,25 +35,10 @@ def emit(payload) -> int:
     return 0
 
 
-def send_telegram(text: str) -> Dict[str, object]:
+def send_telegram(runtime_dir: Path, text: str) -> Dict[str, object]:
     root = Path(__file__).resolve().parents[1]
     load_env(root / ".env.telegram.local")
-    token = os.environ.get("QG_TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("QG_TELEGRAM_CHAT_ID", "").strip()
-    if os.environ.get("QG_TELEGRAM_PUSH_ALLOWED", "0").strip() != "1":
-        return {"ok": False, "skipped": True, "reason": "QG_TELEGRAM_PUSH_ALLOWED is not 1"}
-    if os.environ.get("QG_TELEGRAM_COMMANDS_ALLOWED", "0").strip() == "1":
-        return {"ok": False, "skipped": True, "reason": "Telegram command execution must stay disabled"}
-    if not token or not chat_id:
-        return {"ok": False, "skipped": True, "reason": "Telegram token/chat_id missing"}
-    url = f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/sendMessage"
-    body = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:3900]}).encode("utf-8")
-    try:
-        with urllib.request.urlopen(url, data=body, timeout=20) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-            return {"ok": bool(payload.get("ok")), "telegram": payload}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    return dispatch_text(runtime_dir, "usdjpy_runtime_evolution", "USDJPY_RUNTIME_EVOLUTION_REPORT", "INFO", text, send=True)
 
 
 def build_all(runtime_dir: Path, write: bool = False) -> Dict[str, object]:
@@ -121,7 +105,7 @@ def main(argv=None) -> int:
         content = evolution_to_chinese_text(payload)
         result = {"ok": True, "text": content, "payload": payload}
         if args.send:
-            result["telegram"] = send_telegram(content)
+            result["telegramGateway"] = send_telegram(runtime_dir, content)
         return emit(result)
     if args.command == "loop":
         while True:
@@ -129,7 +113,7 @@ def main(argv=None) -> int:
             content = evolution_to_chinese_text(payload)
             result = {"ok": True, "textPreview": content[:500], "generatedAtIso": payload["dataset"].get("generatedAtIso")}
             if args.send:
-                result["telegram"] = send_telegram(content)
+                result["telegramGateway"] = send_telegram(runtime_dir, content)
             print(json.dumps(result, ensure_ascii=False), flush=True)
             time.sleep(max(60, args.interval_seconds))
     return 1

@@ -5,11 +5,10 @@ import argparse
 import json
 import os
 import sys
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Dict
 
+from usdjpy_evidence_os.telegram_gateway import dispatch_text
 from usdjpy_bar_replay.dataset_loader import sample_runtime
 from usdjpy_bar_replay.replay_engine import build_bar_replay_report, build_entry_comparison, build_exit_comparison
 from usdjpy_bar_replay.schema import FOCUS_SYMBOL, READ_ONLY_SAFETY
@@ -35,28 +34,10 @@ def emit(payload) -> int:
     return 0
 
 
-def send_telegram(text: str) -> Dict[str, object]:
+def send_telegram(runtime_dir: Path, text: str) -> Dict[str, object]:
     root = Path(__file__).resolve().parents[1]
     load_env(root / ".env.telegram.local")
-    token = os.environ.get("QG_TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("QG_TELEGRAM_CHAT_ID", "").strip()
-    push_allowed = os.environ.get("QG_TELEGRAM_PUSH_ALLOWED", "0").strip() == "1"
-    commands_allowed = os.environ.get("QG_TELEGRAM_COMMANDS_ALLOWED", "0").strip() == "1"
-    if not push_allowed:
-        return {"ok": False, "skipped": True, "reason": "QG_TELEGRAM_PUSH_ALLOWED is not 1"}
-    if commands_allowed:
-        return {"ok": False, "skipped": True, "reason": "Telegram command execution must stay disabled"}
-    if not token or not chat_id:
-        return {"ok": False, "skipped": True, "reason": "Telegram token/chat_id missing"}
-    token_path = urllib.parse.quote(token, safe=":")
-    url = f"https://api.telegram.org/bot{token_path}/sendMessage"
-    body = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:3900]}).encode("utf-8")
-    try:
-        with urllib.request.urlopen(url, data=body, timeout=20) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-            return {"ok": bool(payload.get("ok")), "telegram": payload}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    return dispatch_text(runtime_dir, "usdjpy_bar_replay", "USDJPY_BAR_REPLAY_REPORT", "INFO", text, send=True)
 
 
 def main(argv=None) -> int:
@@ -100,7 +81,7 @@ def main(argv=None) -> int:
         content = bar_replay_to_chinese_text(payload)
         result = {"ok": True, "text": content, "report": payload}
         if args.send:
-            result["telegram"] = send_telegram(content)
+            result["telegramGateway"] = send_telegram(runtime_dir, content)
         return emit(result)
     return 1
 

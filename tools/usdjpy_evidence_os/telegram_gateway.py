@@ -31,6 +31,19 @@ def build_notification_event(source: str, topic: str, severity: str, text: str, 
     }
 
 
+def dispatch_text(
+    runtime_dir: Path,
+    source: str,
+    topic: str,
+    severity: str,
+    text: str,
+    payload: Dict[str, Any] | None = None,
+    send: bool = False,
+) -> Dict[str, Any]:
+    event = build_notification_event(source, topic, severity, text, payload=payload)
+    return dispatch_event(runtime_dir, event, send=send)
+
+
 def dispatch_event(runtime_dir: Path, event: Dict[str, Any], send: bool = False) -> Dict[str, Any]:
     ledger = gateway_ledger_path(runtime_dir)
     recent_ids = {row.get("eventId") for row in read_jsonl_tail(ledger, 200)}

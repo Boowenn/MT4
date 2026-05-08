@@ -98,7 +98,9 @@ test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety
     assert.match(report + text, new RegExp(marker));
   }
   assert.doesNotMatch(report, /requiresManualReview|manualReview|readyForReview/);
-  assert.match(runner, /QG_TELEGRAM_COMMANDS_ALLOWED/);
+  assert.match(runner, /dispatch_text/);
+  assert.match(runner, /telegramGateway/);
+  assert.match(read('tools/usdjpy_evidence_os/telegram_gateway.py'), /QG_TELEGRAM_COMMANDS_ALLOWED/);
   assert.doesNotMatch(runner + report + text, /privateKeyAllowed\s*["']?\s*:\s*true|polymarketRealMoneyAllowed\s*["']?\s*:\s*true/);
 });
 

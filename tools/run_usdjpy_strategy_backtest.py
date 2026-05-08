@@ -5,11 +5,10 @@ import argparse
 import json
 import os
 import sys
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any, Dict
 
+from usdjpy_evidence_os.telegram_gateway import dispatch_text
 from usdjpy_strategy_backtest.report import build_sample, ingest_klines, run_backtest, status
 from usdjpy_strategy_backtest.telegram_text import backtest_to_chinese_text
 
@@ -42,25 +41,10 @@ def load_strategy(path: str | None) -> Dict[str, Any] | None:
         return {"schema": "invalid", "seedId": "LOAD_FAILED", "loadError": str(exc)}
 
 
-def send_telegram(text: str) -> Dict[str, Any]:
+def send_telegram(runtime_dir: Path, text: str) -> Dict[str, Any]:
     root = Path(__file__).resolve().parents[1]
     load_env(root / ".env.telegram.local")
-    token = os.environ.get("QG_TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("QG_TELEGRAM_CHAT_ID", "").strip()
-    if os.environ.get("QG_TELEGRAM_PUSH_ALLOWED", "0").strip() != "1":
-        return {"ok": False, "skipped": True, "reason": "QG_TELEGRAM_PUSH_ALLOWED is not 1"}
-    if os.environ.get("QG_TELEGRAM_COMMANDS_ALLOWED", "0").strip() == "1":
-        return {"ok": False, "skipped": True, "reason": "Telegram command execution must stay disabled"}
-    if not token or not chat_id:
-        return {"ok": False, "skipped": True, "reason": "Telegram token/chat_id missing"}
-    url = f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/sendMessage"
-    body = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:3900]}).encode("utf-8")
-    try:
-        with urllib.request.urlopen(url, data=body, timeout=20) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-            return {"ok": bool(payload.get("ok")), "telegram": payload}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    return dispatch_text(runtime_dir, "usdjpy_strategy_backtest", "USDJPY_STRATEGY_BACKTEST_REPORT", "INFO", text, send=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -95,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         content = backtest_to_chinese_text(report)
         payload: Dict[str, Any] = {"ok": True, "text": content, "report": report}
         if args.send:
-            payload["telegram"] = send_telegram(content)
+            payload["telegramGateway"] = send_telegram(runtime_dir, content)
         return emit(payload)
     return 1
 
