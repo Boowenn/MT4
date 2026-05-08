@@ -93,11 +93,16 @@ class StrategyJsonGATests(unittest.TestCase):
             audit = detail["candidate"]["audit"]
             self.assertEqual(audit["schema"], "quantgod.ga.candidate_audit.v1")
             self.assertIn("lineage", audit)
+            self.assertIn("lineageTree", audit)
             self.assertIn("sourceTrace", audit)
             self.assertIn("backtest", audit)
             self.assertIn("evidenceChain", audit)
             self.assertTrue(audit["backtest"]["present"])
             self.assertIn("equityCurve", audit["backtest"])
+            self.assertEqual(audit["lineageTree"]["schema"], "quantgod.ga.lineage_tree.v1")
+            self.assertGreaterEqual(audit["lineageTree"]["nodeCount"], 1)
+            self.assertIsInstance(audit["lineageTree"]["nodes"], list)
+            self.assertIsInstance(audit["lineageTree"]["edges"], list)
             self.assertIsInstance(audit["evidenceChain"], list)
             self.assertTrue(any(item["step"] == "USDJPY SQLite 回测" for item in audit["evidenceChain"]))
 

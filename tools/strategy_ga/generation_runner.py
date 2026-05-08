@@ -358,12 +358,31 @@ def read_candidate(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
         "agentVersion": AGENT_VERSION,
         "seedId": seed_id,
         "lineage": _lineage_audit(runtime_dir, seed_id),
+        "lineageTree": _lineage_tree_audit(runtime_dir, seed_id),
         "sourceTrace": _source_trace(match),
         "backtest": _candidate_backtest_audit(runtime_dir, match),
         "evidenceChain": _candidate_evidence_chain(match),
         "safety": dict(SAFETY_BOUNDARY),
     }
     return {"ok": True, "candidate": enriched, "safety": dict(SAFETY_BOUNDARY)}
+
+
+def _candidate_rows_by_id(runtime_dir: Path) -> Dict[str, Dict[str, Any]]:
+    candidate_file = ga_dir(runtime_dir) / "QuantGod_GACandidateRuns.jsonl"
+    rows_by_id: Dict[str, Dict[str, Any]] = {}
+    if not candidate_file.exists():
+        return rows_by_id
+    for line in candidate_file.read_text(encoding="utf-8").splitlines()[-4096:]:
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(row, dict):
+            continue
+        seed_id = str(row.get("seedId") or "")
+        if seed_id:
+            rows_by_id[seed_id] = row
+    return rows_by_id
 
 
 def _lineage_audit(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
@@ -405,6 +424,204 @@ def _lineage_reason(parents: List[Dict[str, Any]]) -> str:
     if "CASE_MEMORY" in types:
         return "该 seed 来自 Case Memory 经验线索。"
     return "该 seed 存在父代 lineage 记录。"
+
+
+def _lineage_tree_audit(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
+    rows_by_id = _candidate_rows_by_id(runtime_dir)
+    lineage = read_lineage(runtime_dir)
+    latest_nodes = lineage.get("nodes") if isinstance(lineage.get("nodes"), list) else []
+    latest_edges = lineage.get("edges") if isinstance(lineage.get("edges"), list) else []
+    node_index = _lineage_node_index(rows_by_id, latest_nodes)
+    edges = _lineage_edges(rows_by_id, latest_edges)
+    parent_map: Dict[str, List[Dict[str, Any]]] = {}
+    child_map: Dict[str, List[Dict[str, Any]]] = {}
+    for edge in edges:
+        parent_map.setdefault(str(edge.get("to") or ""), []).append(edge)
+        child_map.setdefault(str(edge.get("from") or ""), []).append(edge)
+    relative_depths: Dict[str, int] = {seed_id: 0}
+    _collect_relative_lineage(seed_id, parent_map, relative_depths, -1, max_depth=6)
+    _collect_relative_lineage(seed_id, child_map, relative_depths, 1, max_depth=4)
+    visible_ids = set(relative_depths)
+    visible_edges = [
+        edge
+        for edge in edges
+        if str(edge.get("from") or "") in visible_ids and str(edge.get("to") or "") in visible_ids
+    ]
+    for edge in visible_edges:
+        for endpoint in (str(edge.get("from") or ""), str(edge.get("to") or "")):
+            if endpoint and endpoint not in node_index:
+                node_index[endpoint] = _external_lineage_node(endpoint)
+    visible_nodes = []
+    for current_id in sorted(visible_ids, key=lambda item: (relative_depths.get(item, 0), item)):
+        node = dict(node_index.get(current_id) or _external_lineage_node(current_id))
+        node["relativeDepth"] = relative_depths.get(current_id, 0)
+        node["selected"] = current_id == seed_id
+        visible_nodes.append(node)
+    mutation_count = sum(1 for edge in visible_edges if edge.get("type") == "MUTATION")
+    crossover_count = sum(1 for edge in visible_edges if edge.get("type") == "CROSSOVER")
+    generations = [
+        int(node.get("generation"))
+        for node in visible_nodes
+        if isinstance(node.get("generation"), int)
+    ]
+    return {
+        "schema": "quantgod.ga.lineage_tree.v1",
+        "agentVersion": AGENT_VERSION,
+        "seedId": seed_id,
+        "nodes": visible_nodes,
+        "edges": visible_edges,
+        "nodeCount": len(visible_nodes),
+        "edgeCount": len(visible_edges),
+        "ancestorCount": sum(1 for value in relative_depths.values() if value < 0),
+        "descendantCount": sum(1 for value in relative_depths.values() if value > 0),
+        "mutationCount": mutation_count,
+        "crossoverCount": crossover_count,
+        "generationSpan": {
+            "from": min(generations) if generations else None,
+            "to": max(generations) if generations else None,
+        },
+        "reasonZh": _lineage_tree_reason(visible_nodes, visible_edges),
+    }
+
+
+def _lineage_node_index(rows_by_id: Dict[str, Dict[str, Any]], latest_nodes: List[Any]) -> Dict[str, Dict[str, Any]]:
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for seed_id, row in rows_by_id.items():
+        nodes[seed_id] = _lineage_node_from_candidate(seed_id, row)
+    for node in latest_nodes:
+        if not isinstance(node, dict):
+            continue
+        seed_id = str(node.get("seedId") or "")
+        if not seed_id:
+            continue
+        merged = dict(nodes.get(seed_id) or {})
+        merged.update(node)
+        merged.setdefault("seedId", seed_id)
+        merged.setdefault("external", False)
+        nodes[seed_id] = merged
+    return nodes
+
+
+def _lineage_node_from_candidate(seed_id: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "seedId": seed_id,
+        "strategyId": row.get("strategyId"),
+        "strategyFamily": row.get("strategyFamily"),
+        "direction": row.get("direction"),
+        "source": row.get("source"),
+        "generation": row.get("generation"),
+        "generationId": row.get("generationId"),
+        "fitness": row.get("fitness"),
+        "rank": row.get("rank"),
+        "status": row.get("status"),
+        "promotionStage": row.get("promotionStage"),
+        "blockerCode": row.get("blockerCode"),
+        "blockerZh": row.get("blockerZh"),
+        "external": False,
+    }
+
+
+def _external_lineage_node(seed_id: str) -> Dict[str, Any]:
+    return {
+        "seedId": seed_id,
+        "strategyId": seed_id,
+        "strategyFamily": "EXTERNAL",
+        "source": "EXTERNAL",
+        "status": "EXTERNAL_REFERENCE",
+        "promotionStage": "REFERENCE",
+        "external": True,
+    }
+
+
+def _lineage_edges(rows_by_id: Dict[str, Dict[str, Any]], latest_edges: List[Any]) -> List[Dict[str, Any]]:
+    edges: List[Dict[str, Any]] = []
+    for row in rows_by_id.values():
+        seed = row.get("strategyJson") if isinstance(row.get("strategyJson"), dict) else {}
+        seed_id = str(row.get("seedId") or seed.get("seedId") or "")
+        if not seed_id:
+            continue
+        parent = seed.get("parentSeedId")
+        if parent:
+            edges.append(_lineage_edge(str(parent), seed_id, "MUTATION", row))
+        parent_ids = seed.get("parentSeedIds") if isinstance(seed.get("parentSeedIds"), list) else []
+        for parent_id in parent_ids:
+            if parent_id:
+                edges.append(_lineage_edge(str(parent_id), seed_id, "CROSSOVER", row))
+        case_id = seed.get("caseId")
+        if case_id:
+            edges.append(_lineage_edge(str(case_id), seed_id, "CASE_MEMORY", row))
+    for edge in latest_edges:
+        if isinstance(edge, dict) and edge.get("from") and edge.get("to"):
+            edges.append({
+                "from": str(edge.get("from")),
+                "to": str(edge.get("to")),
+                "type": edge.get("type") or "LINK",
+                "reasonZh": _edge_reason(edge.get("type")),
+            })
+    deduped: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for edge in edges:
+        key = (str(edge.get("from")), str(edge.get("to")), str(edge.get("type")))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(edge)
+    return deduped
+
+
+def _lineage_edge(parent: str, child: str, edge_type: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "from": parent,
+        "to": child,
+        "type": edge_type,
+        "generation": row.get("generation"),
+        "generationId": row.get("generationId"),
+        "reasonZh": _edge_reason(edge_type),
+    }
+
+
+def _edge_reason(edge_type: Any) -> str:
+    edge_text = str(edge_type or "LINK")
+    if edge_text == "MUTATION":
+        return "父代参数变异生成子代。"
+    if edge_text == "CROSSOVER":
+        return "同策略族父代交叉生成子代。"
+    if edge_text == "CASE_MEMORY":
+        return "Case Memory 经验线索生成候选。"
+    return "GA lineage 关联。"
+
+
+def _collect_relative_lineage(
+    seed_id: str,
+    edge_map: Dict[str, List[Dict[str, Any]]],
+    relative_depths: Dict[str, int],
+    direction: int,
+    max_depth: int,
+) -> None:
+    frontier = [(seed_id, 0)]
+    while frontier:
+        current, depth = frontier.pop(0)
+        if abs(depth) >= max_depth:
+            continue
+        for edge in edge_map.get(current, []):
+            next_value = edge.get("from") if direction < 0 else edge.get("to")
+            next_id = str(next_value or "")
+            if not next_id:
+                continue
+            next_depth = depth + direction
+            existing = relative_depths.get(next_id)
+            if existing is not None and abs(existing) <= abs(next_depth):
+                continue
+            relative_depths[next_id] = next_depth
+            frontier.append((next_id, next_depth))
+
+
+def _lineage_tree_reason(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> str:
+    if len(nodes) <= 1:
+        return "该 seed 暂无可视化父子 lineage；通常是第一代 seed 或归档导入。"
+    mutation_count = sum(1 for edge in edges if edge.get("type") == "MUTATION")
+    crossover_count = sum(1 for edge in edges if edge.get("type") == "CROSSOVER")
+    return f"已串联 {len(nodes)} 个 lineage 节点；mutation {mutation_count} 条，crossover {crossover_count} 条。"
 
 
 def _source_trace(row: Dict[str, Any]) -> Dict[str, Any]:

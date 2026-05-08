@@ -92,9 +92,13 @@ test('GA trace records process details rather than final result only', () => {
     'QuantGod_GALineage.json',
     'QuantGod_GACandidateRuns.jsonl',
     'candidate_audit',
+    'lineage_tree',
+    'lineageTree',
     'evidenceChain',
     'sourceTrace',
     'equityCurve',
+    'relativeDepth',
+    'generationSpan',
     'parentCount',
     'childCount',
   ]) {
