@@ -112,6 +112,7 @@ const mt5PendingWorkerScript = path.join(repoRoot, 'tools', 'mt5_pending_order_w
 const mt5PlatformStoreScript = path.join(repoRoot, 'tools', 'mt5_platform_store.py');
 const mt5AdaptiveControlScript = path.join(repoRoot, 'tools', 'mt5_adaptive_control_executor.py');
 const paramLabAutoTesterScript = path.join(repoRoot, 'tools', 'run_param_lab_auto_tester_window.py');
+const dailyReviewScript = path.join(repoRoot, 'tools', 'build_daily_review.py');
 const polymarketHistoryTables = new Set([
   'all',
   'opportunities',
@@ -528,6 +529,48 @@ function withServiceMeta(payload, endpoint, filePath) {
     return { ...payload, _api: source };
   }
   return { payload, _api: source };
+}
+
+function jstDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+}
+
+function dateKeyFromValue(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  const match = text.match(/(\d{4})[./-](\d{2})[./-](\d{2})/);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) return '';
+  return jstDateKey(new Date(parsed));
+}
+
+function dailyReviewDateKeys(payload = {}) {
+  return [
+    payload.generatedAtIso,
+    payload.generatedAt,
+    payload.timestamp,
+    payload.summary?.dailyReviewGeneratedAtIso,
+    payload.summary?.generatedAtIso,
+    payload.dailyPnl?.date,
+    payload.summary?.dailyReviewDateJst
+  ].map(dateKeyFromValue).filter(Boolean);
+}
+
+function isDailyReviewFresh(payload = {}, filePath = '') {
+  const today = jstDateKey();
+  const keys = dailyReviewDateKeys(payload);
+  if (keys.includes(today)) return true;
+  if (keys.length) return false;
+  if (filePath && fs.existsSync(filePath)) {
+    return jstDateKey(fs.statSync(filePath).mtime) === today;
+  }
+  return false;
 }
 
 function recentMt5LogDateNames(days = 3) {
@@ -2486,6 +2529,47 @@ async function handlePolymarketReadOnlyJson(req, res, fileName, endpoint) {
   }
 }
 
+async function handleDailyReviewJson(req, res) {
+  let refreshResult = null;
+  let shouldRefresh = false;
+  try {
+    const requestUrl = new URL(req.url || '/api/daily-review', 'http://localhost');
+    shouldRefresh = requestUrl.searchParams.get('refresh') === '1';
+  } catch (_) {
+    shouldRefresh = false;
+  }
+  try {
+    const current = readQuantGodJsonFile(dailyReviewName);
+    if (!isDailyReviewFresh(current.payload, current.filePath)) shouldRefresh = true;
+  } catch (_) {
+    shouldRefresh = true;
+  }
+  if (shouldRefresh) {
+    refreshResult = await runPlainPython(dailyReviewScript, ['--runtime-dir', defaultRuntimeDir], 90000);
+  }
+  try {
+    const { payload, filePath } = readQuantGodJsonFile(dailyReviewName);
+    sendJson(res, 200, {
+      ...withServiceMeta(payload, '/api/daily-review', filePath),
+      _dailyReviewFresh: isDailyReviewFresh(payload, filePath),
+      _dailyReviewRefresh: refreshResult || { ok: true, skipped: true, reason: 'fresh' }
+    });
+  } catch (error) {
+    sendJson(res, 404, {
+      ok: false,
+      error: error.message || String(error),
+      endpoint: '/api/daily-review',
+      refresh: refreshResult,
+      safety: {
+        walletWriteAllowed: false,
+        orderSendAllowed: false,
+        mutatesMt5: false,
+        readOnly: true
+      }
+    });
+  }
+}
+
 function requestPublicJson(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
@@ -3348,7 +3432,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/daily-review') {
-    handlePolymarketReadOnlyJson(req, res, dailyReviewName, '/api/daily-review');
+    handleDailyReviewJson(req, res);
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/daily-autopilot') {

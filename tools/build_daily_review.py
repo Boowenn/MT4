@@ -24,6 +24,8 @@ DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 OUTPUT_NAME = "QuantGod_DailyReview.json"
 LEDGER_NAME = "QuantGod_DailyReviewLedger.csv"
 JST = timezone(timedelta(hours=9), "JST")
+FOCUS_SYMBOL = "USDJPYc"
+NON_FOCUS_SYMBOL_RE = re.compile(r"\b(EURUSD|EURUSDc|XAUUSD|XAUUSDc)\b", re.I)
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,6 +137,59 @@ def clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def normalize_symbol(value: Any) -> str:
+    return clean(value).upper()
+
+
+def focus_symbol_root() -> str:
+    return normalize_symbol(FOCUS_SYMBOL).removesuffix("C")
+
+
+def row_symbol(row: dict[str, Any]) -> str:
+    for key in (
+        "Symbol",
+        "symbol",
+        "BrokerSymbol",
+        "brokerSymbol",
+        "CanonicalSymbol",
+        "canonicalSymbol",
+        "UnderlyingSymbol",
+        "underlyingSymbol",
+    ):
+        value = clean(row.get(key))
+        if value:
+            return value
+    return ""
+
+
+def row_mentions_non_focus_symbol(row: dict[str, Any]) -> bool:
+    text = " ".join(
+        clean(row.get(key))
+        for key in (
+            "candidateId",
+            "candidateVersionId",
+            "presetName",
+            "reportPath",
+            "existingReportPath",
+            "reportPathHint",
+            "testerOnlyCommand",
+            "configOnlyCommand",
+            "title",
+            "detail",
+            "summary",
+        )
+        if clean(row.get(key))
+    )
+    return bool(NON_FOCUS_SYMBOL_RE.search(text))
+
+
+def is_focus_or_unscoped_row(row: dict[str, Any]) -> bool:
+    symbol = row_symbol(row)
+    if symbol:
+        return normalize_symbol(symbol).startswith(focus_symbol_root())
+    return not row_mentions_non_focus_symbol(row)
+
+
 def parse_iso_datetime(value: Any) -> datetime | None:
     text = clean(value)
     if not text:
@@ -211,7 +266,10 @@ def rows_on_date(rows: list[dict[str, Any]], target: str, *fields: str) -> list[
 
 def close_history_summary(rows: list[dict[str, str]], target_day: str | None = None) -> dict[str, Any]:
     day = clean(target_day) or latest_date(rows, "CloseTime", "EventTime", "closeTime")
-    day_rows = rows_on_date(rows, day, "CloseTime", "EventTime", "closeTime")
+    day_rows = [
+        row for row in rows_on_date(rows, day, "CloseTime", "EventTime", "closeTime")
+        if is_focus_or_unscoped_row(row)
+    ]
     net = sum(as_float(first(row.get("NetProfit"), row.get("netProfit"), row.get("Profit"))) for row in day_rows)
     by_strategy: dict[str, dict[str, Any]] = {}
     by_strategy_side: dict[str, dict[str, Any]] = {}
@@ -310,7 +368,11 @@ def param_action_queue(
     only_waiting_window = bool(blocker_keys) and blocker_keys <= {"outside_strategy_tester_window"}
     window_plan = tester_window_plan()
     recovery_rows = recovery_by_candidate(run_recovery or {})
-    for task in as_list(scheduler.get("selectedTasks"))[:max_actions]:
+    focus_tasks = [
+        task for task in as_list(scheduler.get("selectedTasks"))
+        if isinstance(task, dict) and is_focus_or_unscoped_row(task)
+    ]
+    for task in focus_tasks[:max_actions]:
         if not isinstance(task, dict):
             continue
         candidate_id = clean(task.get("candidateId"))
@@ -395,6 +457,8 @@ def promotion_recommendations(version_gate: dict[str, Any], governance: dict[str
     recommendations: list[dict[str, Any]] = []
     for row in as_list(version_gate.get("versionDecisions")):
         if not isinstance(row, dict):
+            continue
+        if not is_focus_or_unscoped_row(row):
             continue
         decision = clean(row.get("decision")).upper()
         readiness = clean(row.get("evidence", {}).get("paramLabResult", {}).get("promotionReadiness")).upper()
@@ -1274,6 +1338,8 @@ def completed_tester_report_tasks(param_status: dict[str, Any], param_results: d
     rows: list[dict[str, Any]] = []
     for task in as_list(param_status.get("tasks")):
         if not isinstance(task, dict):
+            continue
+        if not is_focus_or_unscoped_row(task):
             continue
         status = clean(task.get("status")).upper()
         if status not in {"PARSED", "PARSED_AGENT_ARTIFACTS", "DONE", "SCORED"}:

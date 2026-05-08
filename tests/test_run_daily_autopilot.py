@@ -374,7 +374,7 @@ class DailyAutopilotTests(unittest.TestCase):
     def test_param_action_queue_marks_window_wait_as_scheduled(self):
         scheduler = {
             "selectedTasks": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "routeKey": "MA_Cross",
                 "score": 1.074,
                 "resultStatus": "CONFIG_ONLY_WAIT_REPORT",
@@ -396,7 +396,7 @@ class DailyAutopilotTests(unittest.TestCase):
     def test_param_action_queue_marks_terminal_nonzero_as_codex_triage(self):
         scheduler = {
             "selectedTasks": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "routeKey": "MA_Cross",
                 "score": 1.074,
                 "resultStatus": "REPORT_MISSING_AFTER_RUN",
@@ -408,7 +408,7 @@ class DailyAutopilotTests(unittest.TestCase):
         }
         run_recovery = {
             "candidateDrilldown": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "riskLevel": "red",
                 "riskReason": "terminal_nonzero",
                 "latestStopReason": "terminal_nonzero",
@@ -433,7 +433,7 @@ class DailyAutopilotTests(unittest.TestCase):
     def test_param_action_queue_treats_synced_account_context_as_window_wait(self):
         scheduler = {
             "selectedTasks": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "routeKey": "MA_Cross",
                 "score": 1.074,
                 "resultStatus": "CONFIG_ONLY_WAIT_REPORT",
@@ -445,7 +445,7 @@ class DailyAutopilotTests(unittest.TestCase):
         }
         run_recovery = {
             "candidateDrilldown": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "riskLevel": "yellow",
                 "riskReason": "account_context_synced_retry_ready",
                 "latestStopReason": "account_context_synced_retry_ready",
@@ -464,7 +464,7 @@ class DailyAutopilotTests(unittest.TestCase):
     def test_param_action_queue_marks_latest_parsed_agent_evidence_done(self):
         scheduler = {
             "selectedTasks": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "routeKey": "MA_Cross",
                 "score": 1.074,
                 "resultStatus": "REPORT_MISSING_AFTER_RUN",
@@ -476,7 +476,7 @@ class DailyAutopilotTests(unittest.TestCase):
         }
         run_recovery = {
             "candidateDrilldown": [{
-                "candidateId": "MA_Cross_EURUSDc_ma_control_tight_exit",
+                "candidateId": "MA_Cross_USDJPYc_ma_control_tight_exit",
                 "riskLevel": "green",
                 "riskReason": "parsed_latest",
                 "latestState": "parsed",
@@ -720,16 +720,16 @@ class DailyAutopilotTests(unittest.TestCase):
         }
         param_status = {
             "tasks": [{
-                "candidateId": "BB_Triple_EURUSDc_bb_outer_band_strict_v2",
+                "candidateId": "BB_Triple_USDJPYc_bb_outer_band_strict_v2",
                 "routeKey": "BB_Triple",
-                "symbol": "EURUSDc",
+                "symbol": "USDJPYc",
                 "status": "PARSED_AGENT_ARTIFACTS",
                 "score": -7.745,
             }]
         }
         param_results = {
             "results": [{
-                "candidateId": "BB_Triple_EURUSDc_bb_outer_band_strict_v2",
+                "candidateId": "BB_Triple_USDJPYc_bb_outer_band_strict_v2",
                 "grade": "C",
                 "promotionReadiness": "NEEDS_MORE_EVIDENCE",
                 "metrics": {
@@ -747,7 +747,7 @@ class DailyAutopilotTests(unittest.TestCase):
             {"closedTrades": 2, "netUSC": 3.54, "requiresReview": False},
             param_status,
             param_results,
-            [{"candidateId": "MA_Cross_EURUSDc_ma_slower_confirmation"}],
+            [{"candidateId": "MA_Cross_USDJPYc_ma_slower_confirmation"}],
             [],
             poly,
             iteration,
