@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 try:
     from tools.strategy_json.fingerprint import strategy_fingerprint
@@ -441,12 +442,21 @@ def _lineage_tree_audit(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
     relative_depths: Dict[str, int] = {seed_id: 0}
     _collect_relative_lineage(seed_id, parent_map, relative_depths, -1, max_depth=6)
     _collect_relative_lineage(seed_id, child_map, relative_depths, 1, max_depth=4)
+    elite_path_seed_ids = _elite_path_seed_ids(seed_id, parent_map, node_index, max_depth=8)
+    for index, current_id in enumerate(elite_path_seed_ids):
+        relative_depths.setdefault(current_id, index - (len(elite_path_seed_ids) - 1))
     visible_ids = set(relative_depths)
     visible_edges = [
         edge
         for edge in edges
         if str(edge.get("from") or "") in visible_ids and str(edge.get("to") or "") in visible_ids
     ]
+    elite_path_edge_ids = {
+        (parent, child)
+        for parent, child in zip(elite_path_seed_ids, elite_path_seed_ids[1:])
+    }
+    for edge in visible_edges:
+        edge["onElitePath"] = (str(edge.get("from") or ""), str(edge.get("to") or "")) in elite_path_edge_ids
     for edge in visible_edges:
         for endpoint in (str(edge.get("from") or ""), str(edge.get("to") or "")):
             if endpoint and endpoint not in node_index:
@@ -456,6 +466,10 @@ def _lineage_tree_audit(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
         node = dict(node_index.get(current_id) or _external_lineage_node(current_id))
         node["relativeDepth"] = relative_depths.get(current_id, 0)
         node["selected"] = current_id == seed_id
+        node["eliteSelected"] = str(node.get("status") or "").upper() == "ELITE_SELECTED"
+        node["onElitePath"] = current_id in elite_path_seed_ids
+        node["foldedByDefault"] = _lineage_folded_by_default(node)
+        node["lineageRole"] = _lineage_role(node)
         visible_nodes.append(node)
     mutation_count = sum(1 for edge in visible_edges if edge.get("type") == "MUTATION")
     crossover_count = sum(1 for edge in visible_edges if edge.get("type") == "CROSSOVER")
@@ -476,6 +490,15 @@ def _lineage_tree_audit(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
         "descendantCount": sum(1 for value in relative_depths.values() if value > 0),
         "mutationCount": mutation_count,
         "crossoverCount": crossover_count,
+        "elitePathSeedIds": elite_path_seed_ids,
+        "elitePathCount": len(elite_path_seed_ids),
+        "fold": {
+            "mode": "COLLAPSE_REMOTE_BRANCHES",
+            "defaultVisibleDepth": 2,
+            "foldedNodeCount": sum(1 for node in visible_nodes if node.get("foldedByDefault")),
+            "canExpand": any(node.get("foldedByDefault") for node in visible_nodes),
+            "reasonZh": "默认折叠远端旁支；当前 seed 与 elite path 始终高亮显示。",
+        },
         "generationSpan": {
             "from": min(generations) if generations else None,
             "to": max(generations) if generations else None,
@@ -531,6 +554,92 @@ def _external_lineage_node(seed_id: str) -> Dict[str, Any]:
         "promotionStage": "REFERENCE",
         "external": True,
     }
+
+
+def _elite_path_seed_ids(
+    seed_id: str,
+    parent_map: Dict[str, List[Dict[str, Any]]],
+    node_index: Dict[str, Dict[str, Any]],
+    max_depth: int,
+) -> List[str]:
+    """Return the preferred ancestor path ending at seed_id.
+
+    The path prefers elite parents, then stronger ranked/fitness parents. It is
+    deliberately deterministic so the frontend can highlight a stable main
+    bloodline while still letting the user expand side branches.
+    """
+    path = [seed_id]
+    current_id = seed_id
+    visited = {seed_id}
+    for _ in range(max_depth):
+        candidates = [
+            edge
+            for edge in parent_map.get(current_id, [])
+            if str(edge.get("from") or "") and str(edge.get("from") or "") not in visited
+        ]
+        if not candidates:
+            break
+        selected_edge = sorted(
+            candidates,
+            key=lambda edge: _elite_parent_sort_key(str(edge.get("from") or ""), node_index),
+        )[0]
+        parent_id = str(selected_edge.get("from") or "")
+        if not parent_id:
+            break
+        path.append(parent_id)
+        visited.add(parent_id)
+        current_id = parent_id
+    return list(reversed(path))
+
+
+def _elite_parent_sort_key(seed_id: str, node_index: Dict[str, Dict[str, Any]]) -> tuple[Any, ...]:
+    node = node_index.get(seed_id) or {}
+    status = str(node.get("status") or "").upper()
+    promotion_stage = str(node.get("promotionStage") or "").upper()
+    elite_score = 0 if status == "ELITE_SELECTED" else 1
+    stage_score = 0 if promotion_stage in {"FAST_SHADOW", "TESTER_ONLY", "PAPER_LIVE_SIM"} else 1
+    rank = node.get("rank")
+    rank_score = int(rank) if isinstance(rank, int) else 9999
+    fitness = _safe_float(node.get("fitness"))
+    fitness_score = -fitness if fitness is not None else 9999.0
+    return (elite_score, stage_score, rank_score, fitness_score, seed_id)
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _lineage_folded_by_default(node: Dict[str, Any]) -> bool:
+    if node.get("selected") or node.get("onElitePath") or node.get("eliteSelected"):
+        return False
+    try:
+        depth = abs(int(node.get("relativeDepth") or 0))
+    except (TypeError, ValueError):
+        depth = 0
+    return depth > 2
+
+
+def _lineage_role(node: Dict[str, Any]) -> str:
+    if node.get("selected"):
+        return "SELECTED"
+    if node.get("onElitePath"):
+        return "ELITE_PATH"
+    if node.get("eliteSelected"):
+        return "ELITE"
+    if node.get("external"):
+        return "EXTERNAL"
+    depth = int(node.get("relativeDepth") or 0)
+    if depth < 0:
+        return "ANCESTOR"
+    if depth > 0:
+        return "DESCENDANT"
+    return "SIDE_BRANCH"
 
 
 def _lineage_edges(rows_by_id: Dict[str, Dict[str, Any]], latest_edges: List[Any]) -> List[Dict[str, Any]]:

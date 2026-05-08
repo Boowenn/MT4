@@ -99,6 +99,10 @@ test('GA trace records process details rather than final result only', () => {
     'equityCurve',
     'relativeDepth',
     'generationSpan',
+    'elitePathSeedIds',
+    'onElitePath',
+    'foldedByDefault',
+    'COLLAPSE_REMOTE_BRANCHES',
     'parentCount',
     'childCount',
   ]) {

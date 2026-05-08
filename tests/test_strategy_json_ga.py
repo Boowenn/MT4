@@ -103,6 +103,10 @@ class StrategyJsonGATests(unittest.TestCase):
             self.assertGreaterEqual(audit["lineageTree"]["nodeCount"], 1)
             self.assertIsInstance(audit["lineageTree"]["nodes"], list)
             self.assertIsInstance(audit["lineageTree"]["edges"], list)
+            self.assertIn("elitePathSeedIds", audit["lineageTree"])
+            self.assertIn("fold", audit["lineageTree"])
+            self.assertIn("canExpand", audit["lineageTree"]["fold"])
+            self.assertTrue(any(node.get("selected") for node in audit["lineageTree"]["nodes"]))
             self.assertIsInstance(audit["evidenceChain"], list)
             self.assertTrue(any(item["step"] == "USDJPY SQLite 回测" for item in audit["evidenceChain"]))
 
