@@ -1,13 +1,17 @@
 import tempfile
+import sys
+import types
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES
 from tools.strategy_ga.fitness import evidence_metrics, score_seed
 from tools.strategy_json.schema import base_strategy_seed
+from tools.usdjpy_strategy_backtest.history_sync import sync_historical_klines
 from tools.usdjpy_strategy_backtest.report import build_sample, run_backtest, status
-from tools.usdjpy_strategy_backtest.schema import equity_path, report_path, trades_path
-from tools.usdjpy_strategy_backtest.sqlite_store import connect
+from tools.usdjpy_strategy_backtest.schema import equity_path, history_sync_report_path, report_path, trades_path
+from tools.usdjpy_strategy_backtest.sqlite_store import connect, count_bars
 
 
 class USDJPYStrategyBacktestTests(unittest.TestCase):
@@ -124,6 +128,77 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
                 rsi_score["strategyBacktest"]["strategyId"],
                 ma_score["strategyBacktest"]["strategyId"],
             )
+
+    def test_history_sync_pulls_incremental_usdjpy_bars_from_mt5(self):
+        class FakeMT5(types.SimpleNamespace):
+            TIMEFRAME_M1 = "M1"
+            TIMEFRAME_M5 = "M5"
+            TIMEFRAME_M15 = "M15"
+            TIMEFRAME_H1 = "H1"
+
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+
+            def initialize(self, path=""):
+                self.initialized_path = path
+                return True
+
+            def shutdown(self):
+                self.shutdown_called = True
+
+            def symbol_select(self, symbol, enabled):
+                self.selected = (symbol, enabled)
+                return True
+
+            def last_error(self):
+                return (0, "ok")
+
+            def copy_rates_range(self, symbol, timeframe, from_dt, to_dt):
+                self.calls.append((symbol, timeframe, from_dt, to_dt))
+                step = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}[timeframe]
+                rows = []
+                cursor = from_dt.astimezone(timezone.utc)
+                for index in range(12):
+                    if cursor >= to_dt:
+                        break
+                    rows.append(
+                        {
+                            "time": int(cursor.timestamp()),
+                            "open": 156.0 + index * 0.01,
+                            "high": 156.03 + index * 0.01,
+                            "low": 155.98 + index * 0.01,
+                            "close": 156.01 + index * 0.01,
+                            "tick_volume": 1000 + index,
+                        }
+                    )
+                    cursor += timedelta(seconds=step)
+                return rows
+
+        fake = FakeMT5()
+        old_module = sys.modules.get("MetaTrader5")
+        sys.modules["MetaTrader5"] = fake
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime_dir = Path(tmp)
+                report = sync_historical_klines(runtime_dir, lookback_days=3, timeframes=("M1", "M5", "M15", "H1"))
+                self.assertTrue(report["ok"], report)
+                self.assertEqual(report["source"], "MT5_COPY_RATES_RANGE")
+                self.assertEqual(report["sourceSymbol"], "USDJPYc")
+                self.assertTrue(history_sync_report_path(runtime_dir).exists())
+                self.assertGreaterEqual(len(fake.calls), 4)
+                self.assertEqual({call[1] for call in fake.calls}, {"M1", "M5", "M15", "H1"})
+                with connect(runtime_dir) as conn:
+                    for timeframe in ("M1", "M5", "M15", "H1"):
+                        self.assertGreater(count_bars(conn, timeframe), 0)
+                current = status(runtime_dir)
+                self.assertEqual(current["historySyncReport"]["schema"], "quantgod.usdjpy_historical_kline_sync_report.v1")
+                self.assertIn("historyCoverage", current["historySyncReport"])
+        finally:
+            if old_module is None:
+                sys.modules.pop("MetaTrader5", None)
+            else:
+                sys.modules["MetaTrader5"] = old_module
 
 
 if __name__ == "__main__":

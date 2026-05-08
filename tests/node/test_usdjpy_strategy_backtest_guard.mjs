@@ -21,6 +21,7 @@ test('USDJPY Strategy JSON backtest exposes USDJPY-scoped API endpoints', () => 
     '/api/usdjpy-strategy-lab/strategy-backtest/status',
     '/api/usdjpy-strategy-lab/strategy-backtest/sample',
     '/api/usdjpy-strategy-lab/strategy-backtest/run',
+    '/api/usdjpy-strategy-lab/strategy-backtest/sync-klines',
     '/api/usdjpy-strategy-lab/strategy-backtest/telegram-text',
   ]) {
     assert.match(routes, new RegExp(endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -31,6 +32,7 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
   const schema = read('tools/usdjpy_strategy_backtest/schema.py');
   const report = read('tools/usdjpy_strategy_backtest/report.py');
   const store = read('tools/usdjpy_strategy_backtest/sqlite_store.py');
+  const historySync = read('tools/usdjpy_strategy_backtest/history_sync.py');
   const runnerSource = read('tools/usdjpy_strategy_backtest/strategy_runner.py');
   const runner = read('tools/run_usdjpy_strategy_backtest.py');
   for (const marker of [
@@ -38,7 +40,12 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
     'QuantGod_StrategyBacktestReport.json',
     'QuantGod_StrategyTrades.csv',
     'QuantGod_StrategyEquityCurve.csv',
+    'QuantGod_USDJPYHistoricalKlineSyncReport.json',
     'STRATEGY_JSON_USDJPY_SQLITE_BACKTEST',
+    'MT5_COPY_RATES_RANGE',
+    'copy_rates_range',
+    'QG_USDJPY_HISTORY_LOOKBACK_DAYS',
+    'QG_USDJPY_HISTORY_TIMEFRAMES',
     'strategy_runs',
     'strategy_trades',
     'equity_curves',
@@ -53,7 +60,7 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
     'BacktestCostModel',
     'QG_TELEGRAM_COMMANDS_ALLOWED',
   ]) {
-    assert.match(schema + report + store + runnerSource + runner, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(schema + report + store + historySync + runnerSource + runner, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 });
 

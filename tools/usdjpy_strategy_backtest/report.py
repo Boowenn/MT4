@@ -17,6 +17,7 @@ from .schema import (
     FOCUS_SYMBOL,
     SAFETY_BOUNDARY,
     equity_path,
+    history_sync_report_path,
     ingest_report_path,
     report_path,
     trades_path,
@@ -37,10 +38,11 @@ from .strategy_runner import SUPPORTED_BACKTEST_FAMILIES, run_strategy
 def status(runtime_dir: Path) -> Dict[str, Any]:
     with connect(runtime_dir) as conn:
         bar_counts = {timeframe: count_bars(conn, timeframe) for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")}
-        latest_bars = {timeframe: latest_bar_time(conn, timeframe) for timeframe in ("M15", "H1", "H4", "D1")}
+        latest_bars = {timeframe: latest_bar_time(conn, timeframe) for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")}
         history_coverage = bar_coverage_summary(conn)
     report = _load_json(report_path(runtime_dir))
     ingest_report = _load_json(ingest_report_path(runtime_dir))
+    history_sync_report = _load_json(history_sync_report_path(runtime_dir))
     return {
         "ok": True,
         "schema": "quantgod.strategy_backtest.status.v1",
@@ -50,6 +52,7 @@ def status(runtime_dir: Path) -> Dict[str, Any]:
         "latestBars": latest_bars,
         "historyCoverage": history_coverage,
         "ingestReport": ingest_report,
+        "historySyncReport": history_sync_report,
         "latestReport": report,
         "paths": {
             "sqlite": str((runtime_dir / "backtest" / "usdjpy.sqlite").resolve()),

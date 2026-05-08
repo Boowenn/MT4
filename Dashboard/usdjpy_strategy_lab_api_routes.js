@@ -505,7 +505,11 @@ async function handle(req, res, ctx) {
     return;
   }
   if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/sync-klines') {
-    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'sync-klines'], 120000, 'run_usdjpy_strategy_backtest.py');
+    const args = ['--runtime-dir', runtimeDir, 'sync-klines'];
+    if (url.searchParams.get('months')) args.push('--months', url.searchParams.get('months'));
+    if (url.searchParams.get('lookbackDays')) args.push('--lookback-days', url.searchParams.get('lookbackDays'));
+    if (url.searchParams.get('timeframes')) args.push('--timeframes', url.searchParams.get('timeframes'));
+    const payload = await runPythonJson(ctx.repoRoot, args, 300000, 'run_usdjpy_strategy_backtest.py');
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }

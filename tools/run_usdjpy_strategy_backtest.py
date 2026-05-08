@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from usdjpy_evidence_os.telegram_gateway import dispatch_text
-from usdjpy_strategy_backtest.report import build_sample, ingest_klines, run_backtest, status
+from usdjpy_strategy_backtest.history_sync import sync_historical_klines
+from usdjpy_strategy_backtest.report import build_sample, run_backtest, status
 from usdjpy_strategy_backtest.telegram_text import backtest_to_chinese_text
 
 
@@ -56,7 +57,14 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sample = sub.add_parser("sample")
     sample.add_argument("--overwrite", action="store_true")
-    sub.add_parser("sync-klines")
+    sync = sub.add_parser("sync-klines")
+    sync.add_argument("--months", type=int, default=int(os.environ.get("QG_USDJPY_HISTORY_MONTHS", "12")))
+    sync.add_argument("--lookback-days", type=int, default=int(os.environ["QG_USDJPY_HISTORY_LOOKBACK_DAYS"]) if os.environ.get("QG_USDJPY_HISTORY_LOOKBACK_DAYS") else None)
+    sync.add_argument("--timeframes", default=os.environ.get("QG_USDJPY_HISTORY_TIMEFRAMES", "M1,M5,M15,H1"))
+    sync.add_argument("--symbol", default=os.environ.get("QG_USDJPY_MT5_SYMBOL", "USDJPYc"))
+    sync.add_argument("--terminal-path", default=os.environ.get("QG_MT5_TERMINAL_PATH", ""))
+    sync.add_argument("--full-refresh", action="store_true")
+    sync.add_argument("--max-bars-per-timeframe", type=int, default=int(os.environ.get("QG_USDJPY_HISTORY_MAX_BARS", "700000")))
     run = sub.add_parser("run")
     run.add_argument("--write", action="store_true")
     sub.add_parser("status")
@@ -69,7 +77,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sample":
         return emit(build_sample(runtime_dir, overwrite=args.overwrite))
     if args.command == "sync-klines":
-        return emit(ingest_klines(runtime_dir))
+        return emit(
+            sync_historical_klines(
+                runtime_dir,
+                months=args.months,
+                lookback_days=args.lookback_days,
+                timeframes=args.timeframes.split(","),
+                symbol=args.symbol,
+                terminal_path=args.terminal_path,
+                full_refresh=args.full_refresh,
+                max_bars_per_timeframe=args.max_bars_per_timeframe,
+            )
+        )
     if args.command == "run":
         return emit(run_backtest(runtime_dir, load_strategy(args.strategy_json), write=True if args.write else True))
     if args.command == "status":

@@ -10,6 +10,7 @@ REPORT_FILE = "QuantGod_StrategyBacktestReport.json"
 TRADES_FILE = "QuantGod_StrategyTrades.csv"
 EQUITY_FILE = "QuantGod_StrategyEquityCurve.csv"
 INGEST_REPORT_FILE = "QuantGod_USDJPYKlineIngestReport.json"
+HISTORY_SYNC_REPORT_FILE = "QuantGod_USDJPYHistoricalKlineSyncReport.json"
 
 SAFETY_BOUNDARY: Dict[str, Any] = {
     "usdJpyOnly": True,
@@ -48,3 +49,7 @@ def equity_path(runtime_dir: Path) -> Path:
 
 def ingest_report_path(runtime_dir: Path) -> Path:
     return backtest_dir(runtime_dir) / INGEST_REPORT_FILE
+
+
+def history_sync_report_path(runtime_dir: Path) -> Path:
+    return backtest_dir(runtime_dir) / HISTORY_SYNC_REPORT_FILE
