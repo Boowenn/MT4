@@ -881,7 +881,7 @@ def _candidate_backtest_audit(runtime_dir: Path, row: Dict[str, Any]) -> Dict[st
         except ModuleNotFoundError:  # pragma: no cover
             from usdjpy_strategy_backtest.report import run_backtest
 
-        report = run_backtest(runtime_dir, seed, write=False)
+        report = run_backtest(runtime_dir, seed, write=False, include_coverage_matrix=False)
     except Exception as exc:  # pragma: no cover - defensive audit path
         return {"present": False, "ok": False, "reasonZh": f"候选回测审计生成失败：{exc}"}
     equity = report.get("equityCurve") if isinstance(report.get("equityCurve"), list) else []

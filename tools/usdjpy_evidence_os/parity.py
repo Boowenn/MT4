@@ -42,6 +42,7 @@ def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]
         _check_equal("direction", backtest.get("direction"), "LONG", required=False),
         _check_backtest_engine(backtest.get("engine")),
         _check_sqlite_persistence(backtest),
+        _check_multi_strategy_coverage(backtest.get("strategyCoverageMatrix")),
         _check_parity_vector_vs_live(backtest, live_loop),
         _check_parity_vector_vs_ea(backtest, diagnostics),
         deep_gate_check,
@@ -285,6 +286,48 @@ def _check_sqlite_persistence(backtest: Dict[str, Any]) -> Dict[str, Any]:
             "hasEngine": has_engine,
         },
         "reasonZh": "Strategy run 可落入 SQLite 审计表" if status == "PASS" else "尚未看到完整 SQLite run 证据",
+    }
+
+
+def _check_multi_strategy_coverage(matrix: Any) -> Dict[str, Any]:
+    data = matrix if isinstance(matrix, dict) else {}
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    rows = data.get("rows") if isinstance(data.get("rows"), list) else []
+    expected_routes = 16
+    ok_routes = int(float(summary.get("okRouteCount") or 0))
+    covered_families = int(float(summary.get("coveredFamilyCount") or 0))
+    parity_routes = int(float(summary.get("parityVectorRouteCount") or 0))
+    missing = []
+    if data.get("schema") != "quantgod.strategy_backtest_coverage_matrix.v1":
+        missing.append("schema")
+    if len(rows) < expected_routes:
+        missing.append("routes")
+    if ok_routes < expected_routes:
+        missing.append("okRouteCount")
+    if covered_families < 8:
+        missing.append("coveredFamilyCount")
+    if parity_routes < expected_routes:
+        missing.append("parityVectorRouteCount")
+    status = "PASS" if not missing else "WARN"
+    return {
+        "name": "strategy_json_multi_strategy_coverage_matrix",
+        "status": status,
+        "required": False,
+        "promotionCritical": True,
+        "actual": {
+            "routeCount": len(rows),
+            "okRouteCount": ok_routes,
+            "coveredFamilyCount": covered_families,
+            "parityVectorRouteCount": parity_routes,
+        },
+        "expected": {
+            "routeCount": expected_routes,
+            "coveredFamilyCount": 8,
+            "parityVectorRouteCount": expected_routes,
+        },
+        "reasonZh": "8 个 USDJPY MT5 Shadow 策略族、双方向回测与 parityVector 覆盖已接入"
+        if status == "PASS"
+        else "多策略 Strategy JSON 回测覆盖矩阵不完整：" + ", ".join(missing),
     }
 
 

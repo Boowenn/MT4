@@ -120,6 +120,14 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
                 parity = build_parity_report(runtime_dir, write=True)
                 self.assertEqual(parity["status"], "PARITY_PASS", parity)
                 self.assertEqual(parity["promotionGate"]["status"], "PASS")
+                self.assertTrue(
+                    any(
+                        check["name"] == "strategy_json_multi_strategy_coverage_matrix"
+                        and check["status"] == "PASS"
+                        for check in parity["checks"]
+                    ),
+                    parity["checks"],
+                )
                 self.assertEqual(parity["rsiDiagnosticsSource"]["type"], "standalone_file")
                 self.assertIn(str(mt5_files), parity["rsiDiagnosticsSource"]["path"])
                 self.assertTrue((runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json").exists())

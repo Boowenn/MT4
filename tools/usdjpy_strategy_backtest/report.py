@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 try:
-    from tools.strategy_json.schema import base_strategy_seed
+    from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES, base_strategy_seed
 except ModuleNotFoundError:  # pragma: no cover
-    from strategy_json.schema import base_strategy_seed
+    from strategy_json.schema import ALLOWED_STRATEGY_FAMILIES, base_strategy_seed
 
 from .schema import (
     AGENT_VERSION,
@@ -21,14 +21,24 @@ from .schema import (
     report_path,
     trades_path,
 )
-from .sqlite_store import connect, count_bars, ingest_runtime_snapshot, load_bars, latest_bar_time, write_sample_bars, write_strategy_run
-from .strategy_runner import run_strategy
+from .sqlite_store import (
+    bar_coverage_summary,
+    connect,
+    count_bars,
+    ingest_runtime_snapshot,
+    load_bars,
+    latest_bar_time,
+    write_sample_bars,
+    write_strategy_run,
+)
+from .strategy_runner import SUPPORTED_BACKTEST_FAMILIES, run_strategy
 
 
 def status(runtime_dir: Path) -> Dict[str, Any]:
     with connect(runtime_dir) as conn:
         bar_counts = {timeframe: count_bars(conn, timeframe) for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")}
         latest_bars = {timeframe: latest_bar_time(conn, timeframe) for timeframe in ("M15", "H1", "H4", "D1")}
+        history_coverage = bar_coverage_summary(conn)
     report = _load_json(report_path(runtime_dir))
     ingest_report = _load_json(ingest_report_path(runtime_dir))
     return {
@@ -38,6 +48,7 @@ def status(runtime_dir: Path) -> Dict[str, Any]:
         "symbol": FOCUS_SYMBOL,
         "barCounts": bar_counts,
         "latestBars": latest_bars,
+        "historyCoverage": history_coverage,
         "ingestReport": ingest_report,
         "latestReport": report,
         "paths": {
@@ -61,7 +72,12 @@ def build_sample(runtime_dir: Path, overwrite: bool = False) -> Dict[str, Any]:
     }
 
 
-def run_backtest(runtime_dir: Path, strategy_json: Dict[str, Any] | None = None, write: bool = True) -> Dict[str, Any]:
+def run_backtest(
+    runtime_dir: Path,
+    strategy_json: Dict[str, Any] | None = None,
+    write: bool = True,
+    include_coverage_matrix: bool = True,
+) -> Dict[str, Any]:
     seed = strategy_json or base_strategy_seed("STRATEGY-BACKTEST-USDJPY-RSI-LONG")
     ingest_report = ingest_runtime_snapshot(runtime_dir)
     with connect(runtime_dir) as conn:
@@ -78,8 +94,22 @@ def run_backtest(runtime_dir: Path, strategy_json: Dict[str, Any] | None = None,
             }
             for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")
         }
+        history_coverage = bar_coverage_summary(conn)
     result = run_strategy(seed, bars_by_timeframe)
-    report = _report_payload(seed, result, bars_by_timeframe, ingest_report, multi_timeframe)
+    strategy_coverage = (
+        _multi_strategy_coverage_matrix(bars_by_timeframe)
+        if include_coverage_matrix
+        else _coverage_matrix_skipped("per-seed GA scoring skips full multi-strategy matrix to keep evolution fast")
+    )
+    report = _report_payload(
+        seed,
+        result,
+        bars_by_timeframe,
+        ingest_report,
+        multi_timeframe,
+        history_coverage,
+        strategy_coverage,
+    )
     if write:
         write_outputs(runtime_dir, report, result.get("trades", []), result.get("equityCurve", []))
     return report
@@ -130,6 +160,8 @@ def _report_payload(
     bars_by_timeframe: Dict[str, List[Any]],
     ingest_report: Dict[str, Any],
     multi_timeframe: Dict[str, Any],
+    history_coverage: Dict[str, Any],
+    strategy_coverage: Dict[str, Any],
 ) -> Dict[str, Any]:
     strategy = result.get("strategyJson") if isinstance(result.get("strategyJson"), dict) else seed
     metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
@@ -163,6 +195,8 @@ def _report_payload(
         },
         "engine": engine,
         "klineIngest": ingest_report,
+        "historyCoverage": history_coverage,
+        "strategyCoverageMatrix": strategy_coverage,
         "tradeCount": int(metrics.get("tradeCount", 0)),
         "metrics": metrics,
         "trades": result.get("trades", []),
@@ -181,6 +215,80 @@ def _evidence_quality(bar_count: int, trade_count: int) -> str:
     if bar_count >= 160 and trade_count >= 3:
         return "MEDIUM"
     return "LOW"
+
+
+def _coverage_matrix_skipped(reason: str) -> Dict[str, Any]:
+    return {
+        "schema": "quantgod.strategy_backtest_coverage_matrix.v1",
+        "status": "SKIPPED",
+        "reasonZh": reason,
+        "families": sorted(ALLOWED_STRATEGY_FAMILIES),
+        "rows": [],
+        "summary": {
+            "familyCount": len(ALLOWED_STRATEGY_FAMILIES),
+            "routeCount": 0,
+            "coveredFamilyCount": len(SUPPORTED_BACKTEST_FAMILIES),
+            "okRouteCount": 0,
+            "tradeRouteCount": 0,
+        },
+    }
+
+
+def _multi_strategy_coverage_matrix(bars_by_timeframe: Dict[str, List[Any]]) -> Dict[str, Any]:
+    rows: List[Dict[str, Any]] = []
+    for family in sorted(ALLOWED_STRATEGY_FAMILIES):
+        for direction in ("LONG", "SHORT"):
+            seed = base_strategy_seed(f"COVERAGE-{family}-{direction}", family=family, direction=direction)
+            try:
+                result = run_strategy(seed, bars_by_timeframe)
+            except Exception as exc:  # pragma: no cover - defensive audit path
+                result = {
+                    "ok": False,
+                    "metrics": {},
+                    "engine": {},
+                    "reasonZh": f"coverage runner failed: {exc}",
+                }
+            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+            engine = result.get("engine") if isinstance(result.get("engine"), dict) else {}
+            trade_count = int(float(metrics.get("tradeCount") or 0))
+            ok = bool(result.get("ok"))
+            rows.append(
+                {
+                    "strategyFamily": family,
+                    "direction": direction,
+                    "runnerCovered": family in SUPPORTED_BACKTEST_FAMILIES,
+                    "ok": ok,
+                    "status": "PASS" if ok else "FAILED",
+                    "tradeCount": trade_count,
+                    "netR": metrics.get("netR", 0),
+                    "profitFactor": metrics.get("profitFactor", 0),
+                    "winRate": metrics.get("winRate", 0),
+                    "maxDrawdownR": metrics.get("maxDrawdownR", 0),
+                    "sharpe": metrics.get("sharpe", 0),
+                    "sortino": metrics.get("sortino", 0),
+                    "parityVectorPresent": isinstance(engine.get("parityVector"), dict),
+                    "signalCount": engine.get("signalCount", 0),
+                    "reasonZh": result.get("reasonZh") or ("covered" if ok else "runner failed"),
+                }
+            )
+    ok_routes = [row for row in rows if row["ok"]]
+    trade_routes = [row for row in rows if int(row.get("tradeCount") or 0) > 0]
+    return {
+        "schema": "quantgod.strategy_backtest_coverage_matrix.v1",
+        "status": "PASS" if len(ok_routes) == len(rows) else "WARN",
+        "families": sorted(ALLOWED_STRATEGY_FAMILIES),
+        "directions": ["LONG", "SHORT"],
+        "rows": rows,
+        "summary": {
+            "familyCount": len(ALLOWED_STRATEGY_FAMILIES),
+            "routeCount": len(rows),
+            "coveredFamilyCount": len({row["strategyFamily"] for row in ok_routes}),
+            "okRouteCount": len(ok_routes),
+            "tradeRouteCount": len(trade_routes),
+            "parityVectorRouteCount": sum(1 for row in rows if row.get("parityVectorPresent")),
+        },
+        "reasonZh": "全部 USDJPY Strategy JSON 策略族已进入多策略回测覆盖矩阵；实盘仍只允许 RSI_Reversal LONG。",
+    }
 
 
 def _run_id(strategy: Dict[str, Any], created_at: str) -> str:

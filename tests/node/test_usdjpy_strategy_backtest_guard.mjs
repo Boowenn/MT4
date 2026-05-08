@@ -44,6 +44,12 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
     'equity_curves',
     'write_strategy_run',
     'ALL_SUPPORTED_USDJPY_SHADOW_FAMILIES',
+    'quantgod.usdjpy_sqlite_history_coverage.v1',
+    'quantgod.strategy_backtest_coverage_matrix.v1',
+    'historyCoverage',
+    'strategyCoverageMatrix',
+    'bar_coverage_summary',
+    '_multi_strategy_coverage_matrix',
     'BacktestCostModel',
     'QG_TELEGRAM_COMMANDS_ALLOWED',
   ]) {
@@ -52,7 +58,11 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
 });
 
 test('USDJPY Strategy JSON backtest covers all USDJPY shadow strategy families', () => {
-  const source = read('tools/usdjpy_strategy_backtest/strategy_runner.py');
+  const runnerSource = read('tools/usdjpy_strategy_backtest/strategy_runner.py');
+  const source = [
+    runnerSource,
+    read('tools/usdjpy_strategy_backtest/report.py'),
+  ].join('\n');
   for (const family of [
     'RSI_Reversal',
     'MA_Cross',
@@ -66,7 +76,21 @@ test('USDJPY Strategy JSON backtest covers all USDJPY shadow strategy families',
     assert.match(source, new RegExp(family.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   assert.match(source, /SUPPORTED_BACKTEST_FAMILIES/);
-  assert.doesNotMatch(source, /暂未接入高保真 runner[\s\S]*SUPPORTED_BACKTEST_FAMILIES/);
+  assert.match(source, /ALLOWED_STRATEGY_FAMILIES/);
+  assert.match(source, /for direction in \("LONG", "SHORT"\)/);
+  assert.match(source, /parityVectorRouteCount/);
+  assert.doesNotMatch(runnerSource, /暂未接入高保真 runner[\s\S]*SUPPORTED_BACKTEST_FAMILIES/);
+});
+
+test('GA seed scoring skips expensive full coverage matrix while audit backtest keeps core metrics', () => {
+  const fitness = read('tools/strategy_ga/fitness.py');
+  const generationRunner = read('tools/strategy_ga/generation_runner.py');
+  const report = read('tools/usdjpy_strategy_backtest/report.py');
+
+  assert.match(report, /include_coverage_matrix:\s*bool\s*=\s*True/);
+  assert.match(fitness, /include_coverage_matrix=False/);
+  assert.match(generationRunner, /include_coverage_matrix=False/);
+  assert.match(report, /_coverage_matrix_skipped/);
 });
 
 test('USDJPY Strategy JSON backtest does not introduce live execution or wallets', () => {

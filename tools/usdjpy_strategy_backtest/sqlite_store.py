@@ -129,12 +129,56 @@ def load_bars(conn: sqlite3.Connection, timeframe: str, limit: int = 1000) -> Li
     rows = conn.execute(
         f"""
         SELECT timestamp, open, high, low, close, volume
+        FROM (
+            SELECT timestamp, open, high, low, close, volume
+            FROM {table}
+            WHERE symbol = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        )
+        ORDER BY timestamp ASC
+        """,
+        (FOCUS_SYMBOL, int(limit)),
+    ).fetchall()
+    return [
+        Bar(
+            timestamp=str(row["timestamp"]),
+            open=float(row["open"]),
+            high=float(row["high"]),
+            low=float(row["low"]),
+            close=float(row["close"]),
+            volume=float(row["volume"]),
+        )
+        for row in rows
+    ]
+
+
+def load_bars_range(
+    conn: sqlite3.Connection,
+    timeframe: str,
+    start: str | None = None,
+    end: str | None = None,
+    limit: int = 50000,
+) -> List[Bar]:
+    table = BAR_TABLES[timeframe]
+    where = ["symbol = ?"]
+    params: List[Any] = [FOCUS_SYMBOL]
+    if start:
+        where.append("timestamp >= ?")
+        params.append(start)
+    if end:
+        where.append("timestamp <= ?")
+        params.append(end)
+    params.append(int(limit))
+    rows = conn.execute(
+        f"""
+        SELECT timestamp, open, high, low, close, volume
         FROM {table}
-        WHERE symbol = ?
+        WHERE {' AND '.join(where)}
         ORDER BY timestamp ASC
         LIMIT ?
         """,
-        (FOCUS_SYMBOL, int(limit)),
+        params,
     ).fetchall()
     return [
         Bar(
@@ -162,6 +206,84 @@ def latest_bar_time(conn: sqlite3.Connection, timeframe: str) -> str | None:
         (FOCUS_SYMBOL,),
     ).fetchone()
     return str(row["latest"]) if row and row["latest"] else None
+
+
+def earliest_bar_time(conn: sqlite3.Connection, timeframe: str) -> str | None:
+    table = BAR_TABLES[timeframe]
+    row = conn.execute(
+        f"SELECT MIN(timestamp) AS earliest FROM {table} WHERE symbol = ?",
+        (FOCUS_SYMBOL,),
+    ).fetchone()
+    return str(row["earliest"]) if row and row["earliest"] else None
+
+
+def bar_coverage_summary(conn: sqlite3.Connection) -> Dict[str, Any]:
+    timeframes: Dict[str, Any] = {}
+    primary_days = 0.0
+    primary_count = 0
+    for timeframe in BAR_TABLES:
+        count = count_bars(conn, timeframe)
+        earliest = earliest_bar_time(conn, timeframe)
+        latest = latest_bar_time(conn, timeframe)
+        span_days = _span_days(earliest, latest)
+        timeframes[timeframe] = {
+            "barCount": count,
+            "earliestBar": earliest,
+            "latestBar": latest,
+            "spanDays": span_days,
+        }
+        if timeframe == "H1":
+            primary_days = span_days
+            primary_count = count
+    return {
+        "schema": "quantgod.usdjpy_sqlite_history_coverage.v1",
+        "symbol": FOCUS_SYMBOL,
+        "primaryTimeframe": "H1",
+        "primaryBarCount": primary_count,
+        "primarySpanDays": primary_days,
+        "timeframes": timeframes,
+        "evidenceQuality": _history_evidence_quality(primary_days, primary_count),
+        "reasonZh": _history_reason(primary_days, primary_count),
+    }
+
+
+def _parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _span_days(earliest: str | None, latest: str | None) -> float:
+    start = _parse_time(earliest)
+    end = _parse_time(latest)
+    if not start or not end or end < start:
+        return 0.0
+    return round((end - start).total_seconds() / 86400.0, 3)
+
+
+def _history_evidence_quality(span_days: float, bar_count: int) -> str:
+    if span_days >= 365 and bar_count >= 4000:
+        return "HIGH"
+    if span_days >= 90 and bar_count >= 1000:
+        return "MEDIUM_HIGH"
+    if span_days >= 30 and bar_count >= 300:
+        return "MEDIUM"
+    if span_days >= 7 and bar_count >= 120:
+        return "LOW_MEDIUM"
+    return "LOW"
+
+
+def _history_reason(span_days: float, bar_count: int) -> str:
+    if span_days >= 365 and bar_count >= 4000:
+        return "USDJPY SQLite 历史窗口已覆盖一年级别，可用于 GA 样本外筛选。"
+    if span_days >= 90 and bar_count >= 1000:
+        return "USDJPY SQLite 历史窗口已覆盖季度级别，可用于更可信的多策略比较。"
+    if span_days >= 30 and bar_count >= 300:
+        return "USDJPY SQLite 历史窗口已覆盖月度级别，可用于初步策略比较。"
+    return "USDJPY SQLite 历史窗口仍偏短，GA 结论只能视为 shadow/tester 证据。"
 
 
 def write_strategy_run(conn: sqlite3.Connection, report: Dict[str, Any]) -> str:

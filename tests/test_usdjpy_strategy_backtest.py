@@ -27,12 +27,19 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertIn("netR", report["metrics"])
             self.assertIn("profitFactor", report["metrics"])
             self.assertIn("maxDrawdownR", report["metrics"])
+            self.assertIn("historyCoverage", report)
+            self.assertIn("strategyCoverageMatrix", report)
+            self.assertEqual(report["historyCoverage"]["schema"], "quantgod.usdjpy_sqlite_history_coverage.v1")
+            self.assertEqual(report["strategyCoverageMatrix"]["schema"], "quantgod.strategy_backtest_coverage_matrix.v1")
+            self.assertEqual(report["strategyCoverageMatrix"]["summary"]["routeCount"], len(ALLOWED_STRATEGY_FAMILIES) * 2)
+            self.assertEqual(report["strategyCoverageMatrix"]["summary"]["parityVectorRouteCount"], len(ALLOWED_STRATEGY_FAMILIES) * 2)
             self.assertTrue(report_path(runtime_dir).exists())
             self.assertTrue(trades_path(runtime_dir).exists())
             self.assertTrue(equity_path(runtime_dir).exists())
 
             current = status(runtime_dir)
             self.assertEqual(current["barCounts"]["H1"], sample["barCount"])
+            self.assertEqual(current["historyCoverage"]["primaryTimeframe"], "H1")
             self.assertEqual(current["latestReport"]["schema"], "quantgod.strategy_backtest.report.v1")
             with connect(runtime_dir) as conn:
                 run_rows = conn.execute("SELECT COUNT(*) AS count FROM strategy_runs").fetchone()
@@ -65,6 +72,7 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertIn("strategyBacktest", score)
             self.assertTrue(score["strategyBacktest"]["present"])
             self.assertEqual(score["strategyBacktest"]["strategyId"], seed["strategyId"])
+            self.assertEqual(score["strategyBacktest"]["engine"].get("coverage"), "ALL_SUPPORTED_USDJPY_SHADOW_FAMILIES")
 
     def test_all_usdjpy_strategy_families_have_backtest_runner_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -80,6 +88,25 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
                     self.assertIn(family, report["engine"]["supportedFamilies"])
                     self.assertIn("netR", report["metrics"])
                     self.assertNotIn("暂未接入", str(report.get("reasonZh")))
+
+    def test_backtest_loads_latest_sqlite_window_when_history_expands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            build_sample(runtime_dir, overwrite=True)
+            with connect(runtime_dir) as conn:
+                bars = conn.execute(
+                    "SELECT timestamp FROM bars_h1 WHERE symbol = ? ORDER BY timestamp ASC",
+                    ("USDJPYc",),
+                ).fetchall()
+                self.assertGreaterEqual(len(bars), 100)
+                oldest = str(bars[0]["timestamp"])
+                newest = str(bars[-1]["timestamp"])
+
+            report = run_backtest(runtime_dir, write=True)
+            coverage = report["historyCoverage"]
+            self.assertEqual(coverage["timeframes"]["H1"]["earliestBar"], oldest)
+            self.assertEqual(coverage["timeframes"]["H1"]["latestBar"], newest)
+            self.assertEqual(report["multiTimeframe"]["contexts"]["H1"]["latestBar"], newest)
 
     def test_ga_fitness_backtests_each_seed_independently(self):
         with tempfile.TemporaryDirectory() as tmp:

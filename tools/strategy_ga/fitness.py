@@ -298,5 +298,5 @@ def _strategy_backtest_metrics(runtime_dir: Path, seed: Dict[str, Any] | None) -
     except ModuleNotFoundError:  # pragma: no cover
         from usdjpy_strategy_backtest.report import run_backtest
 
-    report = run_backtest(runtime_dir, seed, write=False)
+    report = run_backtest(runtime_dir, seed, write=False, include_coverage_matrix=False)
     return report if isinstance(report, dict) else {}
