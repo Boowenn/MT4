@@ -76,7 +76,11 @@ test('MT5 EA exports USDJPY CopyRates CSVs for macOS history fallback', () => {
     'UsdJpyKlineExportMonths',
     'ExportUsdJpyKlinesIfDue',
     'ExportUsdJpyKlineTimeframe',
-    'CopyRates(symbol, timeframe, fromTime, toTime, rates)',
+    'KlineExporterChunkDays',
+    'CopyRates(symbol, timeframe, cursor, chunkEnd, rates)',
+    'chunkCount',
+    'totalCopiedByChunks',
+    'failedChunks',
     'backtest\\\\exported_klines',
     'QuantGod_USDJPY_KlineExportManifest.json',
     'QuantGod_USDJPYKlineExportManifest.json',
@@ -86,6 +90,31 @@ test('MT5 EA exports USDJPY CopyRates CSVs for macOS history fallback', () => {
     'PERIOD_H1',
   ]) {
     assert.match(ea, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('Mac MT5 startup raises MaxBars so M1 CopyRates can reach 6-12 months', () => {
+  const launcher = read('Start_QuantGod_mac.sh');
+  for (const marker of [
+    'QG_MT5_MAX_BARS',
+    '1000000',
+    'patch_ini_section_key',
+    'patch_ini_section_key "$MT5_LIVE_CONFIG" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"',
+    'patch_ini_section_key "$MT5_SHADOW_CONFIG" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"',
+    'terminal.ini',
+  ]) {
+    assert.match(launcher, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+
+  for (const rel of [
+    'MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini',
+    'MQL5/Config/QuantGod_MT5_HFM_Shadow.ini',
+    'MQL5/Config/QuantGod_MT5_Start.ini',
+    'MQL5/Config/BacktestLab/QuantGod_MT5_HFM_Backtest_USDJPYc.ini',
+  ]) {
+    const config = read(rel);
+    assert.match(config, /\[Charts\]/);
+    assert.match(config, /MaxBars=1000000/);
   }
 });
 

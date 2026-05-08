@@ -9,6 +9,8 @@ BACKTEST_USDJPY_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_US
 BACKTEST_EURUSD_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Backtest_EURUSDc.set"
 LIVE_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_LivePilot.ini"
 SHADOW_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_HFM_Shadow.ini"
+START_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_Start.ini"
+BACKTEST_CONFIG_DIR = ROOT / "MQL5" / "Config" / "BacktestLab"
 SHADOW_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Shadow.set"
 MAC_LAUNCHER_PATH = ROOT / "Start_QuantGod_mac.sh"
 
@@ -220,6 +222,22 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
             self.assertIn("Symbol=USDJPYc", text)
             self.assertNotIn("Symbol=EURUSDc", text)
 
+    def test_mt5_configs_raise_chart_history_depth_for_m1_exporter(self):
+        config_paths = [
+            LIVE_CONFIG_PATH,
+            SHADOW_CONFIG_PATH,
+            START_CONFIG_PATH,
+            *BACKTEST_CONFIG_DIR.glob("*.ini"),
+        ]
+        for path in config_paths:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("[Charts]", text, f"{path} should configure chart history depth")
+            self.assertIn("MaxBars=1000000", text, f"{path} should allow 6-12 months of M1 CopyRates")
+
+        start_text = START_CONFIG_PATH.read_text(encoding="utf-8")
+        self.assertIn("Symbol=USDJPYc", start_text)
+        self.assertNotIn("Symbol=EURUSD", start_text)
+
     def test_mac_launcher_defaults_to_usdjpy_live_and_agent_v25(self):
         config_text = SHADOW_CONFIG_PATH.read_text(encoding="utf-8")
         self.assertIn("AllowLiveTrading=0", config_text)
@@ -248,6 +266,11 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("tools/run_mac_usdjpy_history_sync_loop.sh --loop", launcher_text)
         self.assertIn("QG_MT5_TERMINAL_PATH", launcher_text)
         self.assertIn("QG_MT5_PYTHON_BIN", launcher_text)
+        self.assertIn("QG_MT5_MAX_BARS", launcher_text)
+        self.assertIn("patch_ini_section_key", launcher_text)
+        self.assertIn('patch_ini_section_key "$MT5_LIVE_CONFIG" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"', launcher_text)
+        self.assertIn('patch_ini_section_key "$MT5_SHADOW_CONFIG" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"', launcher_text)
+        self.assertIn("terminal.ini", launcher_text)
         self.assertIn("QG_USDJPY_HISTORY_SYNC_ENABLED", launcher_text)
         self.assertIn("MT5_SHADOW_SCREEN", launcher_text)
         self.assertIn("MT5_LIVE_SCREEN", launcher_text)

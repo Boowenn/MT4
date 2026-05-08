@@ -5494,6 +5494,17 @@ string KlineExporterCsvPath(string symbol, string timeframe)
    return "backtest\\exported_klines\\QuantGod_" + KlineExporterSafeSymbol(symbol) + "_" + timeframe + "_rates.csv";
 }
 
+int KlineExporterChunkDays(ENUM_TIMEFRAMES timeframe)
+{
+   if(timeframe == PERIOD_M1)
+      return 31;
+   if(timeframe == PERIOD_M5)
+      return 93;
+   if(timeframe == PERIOD_M15)
+      return 186;
+   return 372;
+}
+
 int ExportUsdJpyKlineTimeframe(string symbol,
                                ENUM_TIMEFRAMES timeframe,
                                string timeframeLabel,
@@ -5502,9 +5513,6 @@ int ExportUsdJpyKlineTimeframe(string symbol,
                                int maxBars,
                                string &manifestItems)
 {
-   MqlRates rates[];
-   ArraySetAsSeries(rates, false);
-   int copied = CopyRates(symbol, timeframe, fromTime, toTime, rates);
    string csvPath = KlineExporterCsvPath(symbol, timeframeLabel);
    string item = "{";
    item += "\"timeframe\":\"" + JsonEscape(timeframeLabel) + "\",";
@@ -5512,22 +5520,6 @@ int ExportUsdJpyKlineTimeframe(string symbol,
    item += "\"requestedFromServer\":\"" + JsonEscape(FormatDateTime(fromTime, true)) + "\",";
    item += "\"requestedToServer\":\"" + JsonEscape(FormatDateTime(toTime, true)) + "\",";
 
-   if(copied <= 0)
-   {
-      item += "\"copiedBars\":0,";
-      item += "\"ok\":false,";
-      item += "\"error\":\"" + JsonEscape("CopyRates returned " + IntegerToString(copied) + " err=" + IntegerToString(GetLastError())) + "\"";
-      item += "}";
-      if(StringLen(manifestItems) > 0)
-         manifestItems += ",";
-      manifestItems += item;
-      return 0;
-   }
-
-   int rowsToWrite = copied;
-   if(maxBars > 0 && copied > maxBars)
-      rowsToWrite = maxBars;
-   int startIndex = MathMax(0, copied - rowsToWrite);
    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
 
    ResetLastError();
@@ -5548,26 +5540,106 @@ int ExportUsdJpyKlineTimeframe(string symbol,
    }
 
    FileWrite(handle, "epoch", "timestamp", "open", "high", "low", "close", "tick_volume", "spread", "real_volume");
-   for(int i = startIndex; i < copied; i++)
+
+   int chunkDays = KlineExporterChunkDays(timeframe);
+   int timeframeSeconds = PeriodSeconds(timeframe);
+   if(timeframeSeconds <= 0)
+      timeframeSeconds = 60;
+
+   datetime cursor = fromTime;
+   datetime lastWrittenTime = 0;
+   datetime oldestWritten = 0;
+   datetime latestWritten = 0;
+   int rowsToWrite = 0;
+   int totalCopied = 0;
+   int chunkCount = 0;
+   int failedChunks = 0;
+   bool truncated = false;
+   string firstError = "";
+
+   while(cursor < toTime)
    {
-      FileWrite(handle,
-                IntegerToString((long)rates[i].time),
-                FormatDateTime(rates[i].time, true),
-                DoubleToString(rates[i].open, digits),
-                DoubleToString(rates[i].high, digits),
-                DoubleToString(rates[i].low, digits),
-                DoubleToString(rates[i].close, digits),
-                IntegerToString((long)rates[i].tick_volume),
-                IntegerToString((long)rates[i].spread),
-                IntegerToString((long)rates[i].real_volume));
+      if(maxBars > 0 && rowsToWrite >= maxBars)
+      {
+         truncated = true;
+         break;
+      }
+
+      datetime chunkEnd = cursor + chunkDays * 24 * 60 * 60;
+      if(chunkEnd > toTime)
+         chunkEnd = toTime;
+      if(chunkEnd <= cursor)
+         chunkEnd = cursor + timeframeSeconds;
+
+      MqlRates rates[];
+      ArraySetAsSeries(rates, false);
+      ResetLastError();
+      int copied = CopyRates(symbol, timeframe, cursor, chunkEnd, rates);
+      chunkCount++;
+      if(copied <= 0)
+      {
+         int err = GetLastError();
+         if(err != 0)
+         {
+            failedChunks++;
+            if(StringLen(firstError) <= 0)
+               firstError = "CopyRates chunk returned " + IntegerToString(copied) + " err=" + IntegerToString(err)
+                            + " from=" + FormatDateTime(cursor, true)
+                            + " to=" + FormatDateTime(chunkEnd, true);
+         }
+         cursor = chunkEnd + timeframeSeconds;
+         continue;
+      }
+
+      totalCopied += copied;
+      for(int i = 0; i < copied; i++)
+      {
+         if(maxBars > 0 && rowsToWrite >= maxBars)
+         {
+            truncated = true;
+            break;
+         }
+         if(rates[i].time < fromTime || rates[i].time > toTime)
+            continue;
+         if(lastWrittenTime > 0 && rates[i].time <= lastWrittenTime)
+            continue;
+
+         FileWrite(handle,
+                   IntegerToString((long)rates[i].time),
+                   FormatDateTime(rates[i].time, true),
+                   DoubleToString(rates[i].open, digits),
+                   DoubleToString(rates[i].high, digits),
+                   DoubleToString(rates[i].low, digits),
+                   DoubleToString(rates[i].close, digits),
+                   IntegerToString((long)rates[i].tick_volume),
+                   IntegerToString((long)rates[i].spread),
+                   IntegerToString((long)rates[i].real_volume));
+         lastWrittenTime = rates[i].time;
+         latestWritten = rates[i].time;
+         if(oldestWritten <= 0)
+            oldestWritten = rates[i].time;
+         rowsToWrite++;
+      }
+      cursor = chunkEnd + timeframeSeconds;
    }
    FileFlush(handle);
    FileClose(handle);
 
    item += "\"copiedBars\":" + IntegerToString(rowsToWrite) + ",";
-   item += "\"ok\":true,";
-   item += "\"oldestServer\":\"" + JsonEscape(FormatDateTime(rates[startIndex].time, true)) + "\",";
-   item += "\"latestServer\":\"" + JsonEscape(FormatDateTime(rates[copied - 1].time, true)) + "\"";
+   item += "\"chunkCount\":" + IntegerToString(chunkCount) + ",";
+   item += "\"totalCopiedByChunks\":" + IntegerToString(totalCopied) + ",";
+   item += "\"failedChunks\":" + IntegerToString(failedChunks) + ",";
+   item += "\"truncated\":" + (truncated ? "true" : "false") + ",";
+   item += "\"ok\":" + (rowsToWrite > 0 ? "true" : "false") + ",";
+   if(rowsToWrite > 0)
+   {
+      item += "\"oldestServer\":\"" + JsonEscape(FormatDateTime(oldestWritten, true)) + "\",";
+      item += "\"latestServer\":\"" + JsonEscape(FormatDateTime(latestWritten, true)) + "\"";
+   }
+   else
+   {
+      item += "\"error\":\"" + JsonEscape(StringLen(firstError) > 0 ? firstError : "No rows copied from chunked CopyRates") + "\"";
+   }
    item += "}";
    if(StringLen(manifestItems) > 0)
       manifestItems += ",";

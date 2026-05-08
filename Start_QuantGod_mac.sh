@@ -33,6 +33,67 @@ patch_ini_key() {
   fi
 }
 
+patch_ini_section_key() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  "$QG_PYTHON_BIN" - "$file" "$section" "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+section = sys.argv[2]
+key = sys.argv[3]
+value = sys.argv[4]
+
+encoding = "utf-8"
+if path.exists():
+    raw = path.read_bytes()
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        encoding = "utf-16"
+    text = raw.decode(encoding)
+else:
+    text = ""
+lines = text.splitlines()
+out = []
+in_section = False
+seen_section = False
+key_written = False
+target_section = f"[{section}]".lower()
+target_key = key.lower()
+
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        if in_section and not key_written:
+            out.append(f"{key}={value}")
+            key_written = True
+        in_section = stripped.lower() == target_section
+        if in_section:
+            seen_section = True
+        out.append(line)
+        continue
+
+    if in_section and "=" in stripped and stripped.split("=", 1)[0].strip().lower() == target_key:
+        out.append(f"{key}={value}")
+        key_written = True
+    else:
+        out.append(line)
+
+if in_section and not key_written:
+    out.append(f"{key}={value}")
+
+if not seen_section:
+    if out and out[-1] != "":
+        out.append("")
+    out.append(f"[{section}]")
+    out.append(f"{key}={value}")
+
+path.write_text("\n".join(out) + "\n", encoding=encoding)
+PY
+}
+
 start_screen() {
   local name="$1"
   local log_file="$2"
@@ -103,6 +164,7 @@ export QG_USDJPY_HISTORY_MONTHS="${QG_USDJPY_HISTORY_MONTHS:-12}"
 export QG_USDJPY_HISTORY_TIMEFRAMES="${QG_USDJPY_HISTORY_TIMEFRAMES:-M1,M5,M15,H1}"
 export QG_USDJPY_HISTORY_MAX_BARS="${QG_USDJPY_HISTORY_MAX_BARS:-700000}"
 export QG_USDJPY_MT5_SYMBOL="${QG_USDJPY_MT5_SYMBOL:-USDJPYc}"
+export QG_MT5_MAX_BARS="${QG_MT5_MAX_BARS:-1000000}"
 export QG_PARAMLAB_HFM_ROOT="${QG_PARAMLAB_HFM_ROOT:-$SCRIPT_DIR/runtime/ParamLab_Tester_Sandbox/live_hfm_placeholder}"
 export QG_PARAMLAB_TESTER_ROOT="${QG_PARAMLAB_TESTER_ROOT:-$SCRIPT_DIR/runtime/HFM_MT5_Tester_Isolated}"
 export QG_MT5_TESTER_ROOT="${QG_MT5_TESTER_ROOT:-$QG_PARAMLAB_TESTER_ROOT}"
@@ -144,6 +206,7 @@ echo "MT5 start symbol: $MT5_START_SYMBOL"
 echo "MT5 live launch allowed: $MT5_LIVE_LAUNCH_ALLOWED"
 echo "MT5 terminal path: $QG_MT5_TERMINAL_PATH"
 echo "MT5 Python bin: $QG_MT5_PYTHON_BIN"
+echo "MT5 chart max bars: $QG_MT5_MAX_BARS"
 echo "USDJPY history sync: $QG_USDJPY_HISTORY_SYNC_ENABLED every ${QG_USDJPY_HISTORY_INTERVAL_SECONDS}s for ${QG_USDJPY_HISTORY_MONTHS} months"
 echo "Frontend: http://$QG_FRONTEND_HOST:$QG_FRONTEND_PORT/vue/?workspace=mt5"
 echo "Backend API: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
@@ -165,7 +228,11 @@ if [[ -d "$MT5_ROOT" ]]; then
   rsync -a MQL5/Presets/ "$MT5_PRESETS/"
   cp MQL5/Config/QuantGod_MT5_HFM_Shadow.ini "$MT5_SHADOW_CONFIG"
   patch_ini_key "$MT5_SHADOW_CONFIG" "Symbol" "$MT5_START_SYMBOL"
+  patch_ini_section_key "$MT5_SHADOW_CONFIG" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"
   perl -0pi -e 's/AllowLiveTrading=1/AllowLiveTrading=0/g' "$MT5_SHADOW_CONFIG"
+  if [[ -f "$MT5_ROOT/config/terminal.ini" ]]; then
+    patch_ini_section_key "$MT5_ROOT/config/terminal.ini" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"
+  fi
 
   if [[ -x "$WINE64" ]]; then
     echo "Compiling QuantGod_MultiStrategy.mq5 with MetaEditor..."
@@ -200,6 +267,7 @@ if [[ -d "$MT5_ROOT" ]]; then
     elif [[ "$MT5_START_MODE" == "live" ]]; then
       cp MQL5/Config/QuantGod_MT5_HFM_LivePilot.ini "$MT5_LIVE_CONFIG"
       patch_ini_key "$MT5_LIVE_CONFIG" "Symbol" "$MT5_START_SYMBOL"
+      patch_ini_section_key "$MT5_LIVE_CONFIG" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"
       echo "Live MT5 config prepared at $MT5_LIVE_CONFIG."
       if [[ "$MT5_LIVE_LAUNCH_ALLOWED" != "1" ]]; then
         echo "Live launch is locked. Set QG_MT5_LIVE_LAUNCH_ALLOWED=1 after checking live risk controls."
