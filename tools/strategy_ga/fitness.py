@@ -49,7 +49,9 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     backtest_trade_count = int(_num(backtest_metrics.get("tradeCount"), 0))
     replay_net_r = _num(entry_relaxed.get("netRDelta") or summary.get("relaxedNetRDelta") or wf_summary.get("netRDelta"), 0)
     backtest_penalty = min(1.0, _num(backtest_metrics.get("maxDrawdownR"), 0) * 0.2)
-    parity_penalty = 0.0 if parity.get("status") in {"PARITY_PASS", "PARITY_WARN", None, ""} else 1.0
+    promotion_gate = parity.get("promotionGate") if isinstance(parity.get("promotionGate"), dict) else {}
+    parity_status = parity.get("status") or "MISSING"
+    parity_penalty = _parity_penalty(parity_status, promotion_gate)
     execution_penalty = _execution_penalty(execution_metrics)
     case_penalty = _case_penalty(cases)
     sample_count = backtest_trade_count if has_seed_backtest else int(
@@ -90,7 +92,10 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
         },
         "parity": {
             "present": bool(parity),
-            "status": parity.get("status") or "MISSING",
+            "status": parity_status,
+            "promotionGateStatus": promotion_gate.get("status") or "MISSING",
+            "promotionAllowed": bool(promotion_gate.get("promotionAllowed")) if promotion_gate else False,
+            "blockerCount": int(_num(promotion_gate.get("blockerCount"), 0)) if promotion_gate else 0,
             "penalty": parity_penalty,
         },
         "executionFeedback": {
@@ -145,6 +150,8 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         blocker = "INSUFFICIENT_SAMPLES"
     elif overfit_penalty:
         blocker = "OVERFIT_RISK"
+    elif metrics.get("parity", {}).get("promotionGateStatus") in {"BLOCKED", "MISSING"}:
+        blocker = "PARITY_PROMOTION_GATE_BLOCKED"
     elif evidence_penalty >= 1.0:
         blocker = "PARITY_OR_EXECUTION_EVIDENCE_FAILED"
     elif max_adverse_penalty > 0.5:
@@ -177,6 +184,20 @@ def _execution_penalty(metrics: Dict[str, Any]) -> float:
     mismatch_penalty = min(0.5, _num(metrics.get("policyMismatchCount"), 0) * 0.25)
     ack_fill_penalty = min(0.25, max(0.0, _num(metrics.get("acceptedWithoutFillCount"), 0) - 2.0) * 0.05)
     return round(min(1.25, reject_penalty + reject_count_penalty + slippage_penalty + latency_penalty + mismatch_penalty + ack_fill_penalty), 4)
+
+
+def _parity_penalty(status: str, promotion_gate: Dict[str, Any]) -> float:
+    if status == "PARITY_FAIL":
+        return 1.0
+    if not promotion_gate or promotion_gate.get("status") == "MISSING":
+        return 0.65
+    if promotion_gate.get("status") == "BLOCKED":
+        # Missing EA/live evidence should not be confused with a proven
+        # strategy failure, but it must still prevent promotion.
+        return 0.65
+    if status == "PARITY_WARN":
+        return 0.2
+    return 0.0
 
 
 def _case_penalty(cases: Dict[str, Any]) -> float:

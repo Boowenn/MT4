@@ -6,6 +6,14 @@ from typing import Any, Dict, List
 from .io_utils import load_json, utc_now_iso, write_json
 from .schema import AGENT_VERSION, FOCUS_SYMBOL, SAFETY_BOUNDARY, parity_path
 
+PROMOTION_HARD_CHECKS = {
+    "strategy_json_backtest_engine_v2",
+    "strategy_json_vs_live_loop_policy",
+    "strategy_json_vs_mql5_rsi_diagnostics",
+    "backtest_no_execution",
+    "live_loop_no_frontend_execution",
+}
+
 
 def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
     backtest = load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestReport.json")
@@ -30,6 +38,7 @@ def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]
     failed_required = [row for row in checks if row["status"] == "FAIL" and row.get("required")]
     warnings = [row for row in checks if row["status"] in {"WARN", "MISSING"}]
     status = "PARITY_FAIL" if failed_required else ("PARITY_WARN" if warnings else "PARITY_PASS")
+    promotion_gate = _promotion_gate(checks)
     report = {
         "ok": status != "PARITY_FAIL",
         "schema": "quantgod.strategy_parity_report.v1",
@@ -38,6 +47,7 @@ def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]
         "symbol": FOCUS_SYMBOL,
         "status": status,
         "checks": checks,
+        "promotionGate": promotion_gate,
         "parityDimensions": _parity_dimensions(backtest, live_loop, diagnostics),
         "summary": _summary(checks),
         "reasonZh": _reason_zh(status),
@@ -102,7 +112,8 @@ def _check_parity_vector_vs_live(backtest: Dict[str, Any], live_loop: Dict[str, 
             "name": "strategy_json_vs_live_loop_policy",
             "status": "MISSING",
             "required": False,
-            "reasonZh": "等待 Live Loop policy 与 Strategy JSON parity vector 同步",
+            "promotionCritical": True,
+            "reasonZh": "等待 Live Loop policy 与 Strategy JSON parity vector 同步；同步前不能晋级。",
         }
     expected_family = _policy_strategy(top_policy)
     expected_direction = str(top_policy.get("direction") or "").upper()
@@ -111,18 +122,19 @@ def _check_parity_vector_vs_live(backtest: Dict[str, Any], live_loop: Dict[str, 
         mismatches.append("strategyFamily")
     if expected_direction and str(vector.get("direction") or "").upper() != expected_direction:
         mismatches.append("direction")
-    status = "PASS" if not mismatches else "WARN"
+    status = "PASS" if not mismatches else "FAIL"
     return {
         "name": "strategy_json_vs_live_loop_policy",
         "status": status,
-        "required": False,
+        "required": bool(mismatches),
+        "promotionCritical": True,
         "actual": {
             "vectorFamily": vector.get("strategyFamily"),
             "vectorDirection": vector.get("direction"),
             "policyFamily": expected_family,
             "policyDirection": expected_direction,
         },
-        "reasonZh": "Strategy JSON 与 Live Loop 候选策略方向一致" if status == "PASS" else f"Strategy JSON 与 Live Loop 存在口径差异：{', '.join(mismatches)}",
+        "reasonZh": "Strategy JSON 与 Live Loop 候选策略方向一致" if status == "PASS" else f"Strategy JSON 与 Live Loop 存在硬口径差异：{', '.join(mismatches)}",
     }
 
 
@@ -133,7 +145,8 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
             "name": "strategy_json_vs_mql5_rsi_diagnostics",
             "status": "MISSING",
             "required": False,
-            "reasonZh": "等待 EA 输出 QuantGod_USDJPYRsiEntryDiagnostics.json 后做逐字段对账",
+            "promotionCritical": True,
+            "reasonZh": "等待 EA 输出 QuantGod_USDJPYRsiEntryDiagnostics.json 后做逐字段对账；同步前不能晋级。",
         }
     diag_strategy = diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"
     diag_direction = str(diagnostics.get("direction") or "LONG").upper()
@@ -154,11 +167,12 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
         mismatches.append("rsi.buyBand/oversold")
     if str(diag_rsi.get("signalDirection") or "").upper() not in {"", "NONE", str(vector.get("direction") or "").upper()}:
         mismatches.append("signalDirection")
-    status = "PASS" if not mismatches else "WARN"
+    status = "PASS" if not mismatches else "FAIL"
     return {
         "name": "strategy_json_vs_mql5_rsi_diagnostics",
         "status": status,
-        "required": False,
+        "required": bool(mismatches),
+        "promotionCritical": True,
         "actual": {
             "vectorFamily": vector.get("strategyFamily"),
             "vectorDirection": vector.get("direction"),
@@ -191,7 +205,7 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
                 "evalReason": diag_rsi.get("evalReason"),
             },
         },
-        "reasonZh": "Strategy JSON 与 MQL5 RSI 诊断关键口径一致" if status == "PASS" else f"Strategy JSON 与 MQL5 诊断存在口径差异：{', '.join(mismatches)}",
+        "reasonZh": "Strategy JSON 与 MQL5 RSI 诊断关键口径一致" if status == "PASS" else f"Strategy JSON 与 MQL5 诊断存在硬口径差异：{', '.join(mismatches)}",
     }
 
 
@@ -210,11 +224,12 @@ def _check_backtest_engine(engine: Any) -> Dict[str, Any]:
         missing.append("costModel")
     if not isinstance(data.get("parityVector"), dict):
         missing.append("parityVector")
-    status = "PASS" if not missing else "WARN"
+    status = "PASS" if not missing else "FAIL"
     return {
         "name": "strategy_json_backtest_engine_v2",
         "status": status,
-        "required": False,
+        "required": bool(missing),
+        "promotionCritical": True,
         "actual": {
             "schema": data.get("schema"),
             "coverage": data.get("coverage"),
@@ -224,7 +239,7 @@ def _check_backtest_engine(engine: Any) -> Dict[str, Any]:
         "expected": required_markers,
         "reasonZh": "全策略 Strategy JSON runner 已接入 parity 审计"
         if status == "PASS"
-        else f"Strategy JSON runner 证据不完整：{', '.join(missing)}",
+        else f"Strategy JSON runner 晋级证据不完整：{', '.join(missing)}",
     }
 
 
@@ -249,6 +264,28 @@ def _summary(checks: List[Dict[str, Any]]) -> Dict[str, int]:
         status = str(row.get("status") or "WARN")
         counts[status] = counts.get(status, 0) + 1
     return counts
+
+
+def _promotion_gate(checks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    blockers = [
+        {
+            "name": str(row.get("name") or ""),
+            "status": str(row.get("status") or ""),
+            "reasonZh": str(row.get("reasonZh") or "晋级关键证据未通过"),
+        }
+        for row in checks
+        if row.get("name") in PROMOTION_HARD_CHECKS and row.get("status") != "PASS"
+    ]
+    return {
+        "schema": "quantgod.strategy_parity_promotion_gate.v1",
+        "status": "BLOCKED" if blockers else "PASS",
+        "promotionAllowed": not blockers,
+        "blockerCount": len(blockers),
+        "blockers": blockers,
+        "reasonZh": "Strategy JSON / Python Replay / MQL5 EA 关键口径一致，可进入后续 shadow/tester 晋级评估。"
+        if not blockers
+        else "Strategy JSON / Python Replay / MQL5 EA 关键口径未完全一致，禁止晋级。",
+    }
 
 
 def _parity_dimensions(backtest: Dict[str, Any], live_loop: Dict[str, Any], diagnostics: Dict[str, Any]) -> Dict[str, Any]:

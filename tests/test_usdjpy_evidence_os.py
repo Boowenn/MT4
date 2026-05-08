@@ -4,6 +4,7 @@ from pathlib import Path
 
 from tools.strategy_ga.fitness import score_seed
 from tools.strategy_json.schema import base_strategy_seed
+from tools.usdjpy_evidence_os.parity import build_parity_report
 from tools.usdjpy_evidence_os.report import build_evidence_os
 from tools.usdjpy_evidence_os.telegram_gateway import build_notification_event, dispatch_pending, enqueue_event, gateway_status
 from tools.usdjpy_strategy_backtest.report import ingest_klines, run_backtest
@@ -142,6 +143,58 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             score = score_seed(base_strategy_seed("GA-EXECUTION-QUALITY"), runtime_dir)
             self.assertGreater(score["executionFeedback"]["penalty"], 0.5)
             self.assertGreater(score["caseMemory"]["penalty"], 0.0)
+            self.assertEqual(score["parity"]["promotionGateStatus"], "BLOCKED")
+            self.assertGreaterEqual(score["parity"]["penalty"], 0.65)
+
+    def test_parity_mismatch_blocks_promotion_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            run_backtest(runtime_dir, write=True)
+            live_dir = runtime_dir / "live"
+            live_dir.mkdir(parents=True)
+            (live_dir / "QuantGod_USDJPYLiveLoopStatus.json").write_text(
+                """
+                {
+                  "topLiveEligiblePolicy": {
+                    "strategy": "RSI_Reversal",
+                    "direction": "LONG",
+                    "entryMode": "OPPORTUNITY_ENTRY"
+                  },
+                  "safety": {
+                    "orderSendAllowed": false,
+                    "livePresetMutationAllowed": false
+                  }
+                }
+                """,
+                encoding="utf-8",
+            )
+            (runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                """
+                {
+                  "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                  "symbol": "USDJPYc",
+                  "strategy": "RSI_Reversal",
+                  "direction": "SHORT",
+                  "route": {"timeframe": "H1", "candidateEnabled": true, "liveEnabled": true},
+                  "guards": {"sessionOpen": true, "spreadAllowed": true, "newsBlocked": false},
+                  "rsi": {
+                    "period": 21,
+                    "oversold": 34,
+                    "signalReady": true,
+                    "signalDirection": "SHORT",
+                    "evalCode": "READY"
+                  }
+                }
+                """,
+                encoding="utf-8",
+            )
+
+            parity = build_parity_report(runtime_dir, write=True)
+            self.assertEqual(parity["status"], "PARITY_FAIL")
+            self.assertEqual(parity["promotionGate"]["status"], "BLOCKED")
+            self.assertFalse(parity["promotionGate"]["promotionAllowed"])
+            blocker_names = {row["name"] for row in parity["promotionGate"]["blockers"]}
+            self.assertIn("strategy_json_vs_mql5_rsi_diagnostics", blocker_names)
 
     def test_independent_telegram_gateway_queues_dedupes_and_dispatches(self):
         with tempfile.TemporaryDirectory() as tmp:
