@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -78,9 +79,10 @@ def build_execution_feedback(runtime_dir: Path, write: bool = True) -> Dict[str,
 
 def _collect_rows(runtime_dir: Path) -> List[Tuple[Dict[str, Any], str]]:
     rows: List[Tuple[Dict[str, Any], str]] = []
-    for name in ("QuantGod_LiveExecutionFeedback.jsonl", "QuantGod_LiveExecutionFeedbackHistory.jsonl"):
-        path = runtime_dir / name
-        rows.extend((row, path.name) for row in read_jsonl_tail(path, 1000))
+    for directory in _candidate_mt5_feedback_dirs(runtime_dir):
+        for name in ("QuantGod_LiveExecutionFeedback.jsonl", "QuantGod_LiveExecutionFeedbackHistory.jsonl"):
+            path = directory / name
+            rows.extend((row, path.name) for row in read_jsonl_tail(path, 1000))
     trade_events = runtime_dir / "QuantGod_RuntimeTradeEvents.jsonl"
     rows.extend((row, trade_events.name) for row in read_jsonl_tail(trade_events, 500))
     live_loop_ledger = runtime_dir / "live" / "QuantGod_USDJPYLiveLoopLedger.csv"
@@ -105,6 +107,51 @@ def _collect_rows(runtime_dir: Path) -> List[Tuple[Dict[str, Any], str]]:
         if status:
             rows.append((status, "QuantGod_USDJPYLiveLoopStatus.json"))
     return rows
+
+
+def _candidate_mt5_feedback_dirs(runtime_dir: Path) -> List[Path]:
+    candidates: List[Path] = [runtime_dir]
+    explicit_candidates: List[Path] = []
+    env_keys = (
+        "QG_MT5_FILES_DIR",
+        "QG_MT5_FILES",
+        "QG_HFM_FILES_DIR",
+        "QG_HFM_FILES",
+    )
+    for key in env_keys:
+        value = os.environ.get(key)
+        if value:
+            explicit_candidates.append(_resolve_path(value))
+    candidates.extend(explicit_candidates)
+    if not explicit_candidates and os.environ.get("QG_ENABLE_DEFAULT_MT5_FEEDBACK_DISCOVERY") == "1":
+        candidates.append(
+            Path.home()
+            / "Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Files"
+        )
+    return _unique_existing_dirs(candidates)
+
+
+def _resolve_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    return Path.cwd() / path
+
+
+def _unique_existing_dirs(candidates: List[Path]) -> List[Path]:
+    seen = set()
+    dirs: List[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+        key = str(resolved)
+        if key in seen or not resolved.exists() or not resolved.is_dir():
+            continue
+        seen.add(key)
+        dirs.append(resolved)
+    return dirs
 
 
 def _read_csv(path: Path) -> List[Dict[str, Any]]:

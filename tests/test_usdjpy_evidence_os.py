@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 from tools.strategy_ga.fitness import score_seed
 from tools.strategy_ga.seed_generator import case_memory_seed_pool
 from tools.strategy_json.schema import base_strategy_seed
+from tools.usdjpy_evidence_os.execution_feedback import build_execution_feedback
 from tools.usdjpy_evidence_os.parity import build_parity_report
 from tools.usdjpy_evidence_os.report import build_evidence_os
 from tools.usdjpy_evidence_os.telegram_gateway import build_notification_event, dispatch_pending, enqueue_event, gateway_status
@@ -12,6 +14,35 @@ from tools.usdjpy_strategy_backtest.report import ingest_klines, run_backtest
 
 
 class USDJPYEvidenceOSTests(unittest.TestCase):
+    def test_execution_feedback_reads_live_mt5_files_dir_when_runtime_is_repo_local(self):
+        old_mt5_files_dir = os.environ.get("QG_MT5_FILES_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as runtime_tmp, tempfile.TemporaryDirectory() as mt5_tmp:
+                runtime_dir = Path(runtime_tmp)
+                mt5_files = Path(mt5_tmp)
+                os.environ["QG_MT5_FILES_DIR"] = str(mt5_files)
+                (mt5_files / "QuantGod_LiveExecutionFeedback.jsonl").write_text(
+                    "\n".join(
+                        [
+                            '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"mt5-fill-001","eventType":"ORDER_FILL","symbol":"USDJPYc","side":"BUY","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","intentId":"pilot-live-001","expectedPrice":155.20,"fillPrice":155.21,"slippagePips":0.1,"latencyMs":140,"retcode":10009}',
+                            '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"mt5-close-001","eventType":"ORDER_CLOSE","symbol":"USDJPYc","side":"SELL","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","intentId":"pilot-live-001","fillPrice":155.42,"slippagePips":0.0,"latencyMs":0,"profitR":0.8,"mfeR":1.1,"maeR":-0.2,"exitReason":"TP"}',
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = build_execution_feedback(runtime_dir, write=False)
+                self.assertEqual(report["sampleCount"], 2)
+                self.assertEqual(report["fieldCompleteness"]["status"], "PASS")
+                self.assertEqual(report["fieldCompleteness"]["auditedRows"], 2)
+                self.assertEqual(report["metrics"]["fillCount"], 2)
+                self.assertEqual(report["recentFeedback"][0]["intentId"], "pilot-live-001")
+        finally:
+            if old_mt5_files_dir is None:
+                os.environ.pop("QG_MT5_FILES_DIR", None)
+            else:
+                os.environ["QG_MT5_FILES_DIR"] = old_mt5_files_dir
+
     def test_ingest_snapshot_backtest_and_evidence_os_write_audit_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)
