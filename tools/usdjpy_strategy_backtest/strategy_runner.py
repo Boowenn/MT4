@@ -10,6 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from strategy_json.validator import validate_strategy_json
 
 from .cost_model import BacktestCostModel, cost_model_from_strategy
+from .historical_news import classify_historical_news
 from .indicators import bollinger_bands, ema_values, macd_values, rsi_values
 from .metrics import summarize_trades
 from .sqlite_store import Bar
@@ -27,7 +28,11 @@ SUPPORTED_BACKTEST_FAMILIES = {
 }
 
 
-def run_strategy(seed: Dict[str, Any], bars: List[Bar] | Dict[str, List[Bar]]) -> Dict[str, Any]:
+def run_strategy(
+    seed: Dict[str, Any],
+    bars: List[Bar] | Dict[str, List[Bar]],
+    historical_news: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     validation = validate_strategy_json(seed)
     if not validation.get("valid"):
         return {
@@ -58,7 +63,7 @@ def run_strategy(seed: Dict[str, Any], bars: List[Bar] | Dict[str, List[Bar]]) -
 
     cost_model = cost_model_from_strategy(strategy)
     signals = _entry_signals(strategy, primary_bars, bars_by_timeframe)
-    trades = _run_entries(strategy, primary_bars, signals, cost_model)
+    trades, gate_stats = _run_entries(strategy, primary_bars, signals, cost_model, historical_news or {})
     equity_curve: List[float] = []
     running = 0.0
     for trade in trades:
@@ -78,6 +83,7 @@ def run_strategy(seed: Dict[str, Any], bars: List[Bar] | Dict[str, List[Bar]]) -
             "primaryTimeframe": primary_timeframe,
             "supportedFamilies": sorted(SUPPORTED_BACKTEST_FAMILIES),
             "signalCount": len(signals),
+            "newsGateBacktest": gate_stats,
             "costModel": cost_model.to_payload(),
             "parityVector": _parity_vector(strategy, primary_bars, signals),
         },
@@ -301,18 +307,41 @@ def _run_entries(
     bars: List[Bar],
     signals: List[Dict[str, Any]],
     cost_model: BacktestCostModel,
-) -> List[Dict[str, Any]]:
+    historical_news: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     exit_cfg = strategy.get("exit") if isinstance(strategy.get("exit"), dict) else {}
     hold_bars = int(((exit_cfg.get("timeStopBars") or {}).get("H1") or 4))
     giveback_pct = float(exit_cfg.get("mfeGivebackPct", 0.6))
     trail_start_r = float(exit_cfg.get("trailStartR", 1.5))
     risk_pips = float(((strategy.get("risk") or {}).get("riskPips") or 10.0))
     trades: List[Dict[str, Any]] = []
+    gate_stats = {
+        "schema": "quantgod.strategy_backtest_news_gate_stats.v1",
+        "sourceAvailable": bool(historical_news.get("sourceAvailable")),
+        "eventCount": int(historical_news.get("eventCount") or 0),
+        "evaluatedSignals": 0,
+        "hardBlockedSignals": 0,
+        "softAdjustedTrades": 0,
+        "unknownSignals": 0,
+        "lotMultiplierSum": 0.0,
+        "reasonZh": historical_news.get("reasonZh") or "历史新闻门禁未接入。",
+    }
     next_available_index = 0
     for signal in signals:
         entry_index = int(signal["entryIndex"])
         if entry_index < next_available_index or entry_index >= len(bars) - 1:
             continue
+        news_decision = classify_historical_news(bars[entry_index].timestamp, historical_news)
+        gate_stats["evaluatedSignals"] += 1
+        if news_decision.get("riskLevel") == "UNKNOWN":
+            gate_stats["unknownSignals"] += 1
+        if news_decision.get("hardBlock"):
+            gate_stats["hardBlockedSignals"] += 1
+            continue
+        lot_multiplier = float(news_decision.get("lotMultiplier") or 1.0)
+        gate_stats["lotMultiplierSum"] += lot_multiplier
+        if lot_multiplier < 1.0 or news_decision.get("stageDowngrade"):
+            gate_stats["softAdjustedTrades"] += 1
         trade, exit_index = _simulate_exit(
             strategy,
             bars,
@@ -325,10 +354,16 @@ def _run_entries(
             trade_no=len(trades) + 1,
             signal=signal,
             cost_model=cost_model,
+            news_decision=news_decision,
         )
         trades.append(trade)
         next_available_index = exit_index + 1
-    return trades
+    if trades:
+        gate_stats["avgLotMultiplier"] = round(gate_stats["lotMultiplierSum"] / len(trades), 4)
+    else:
+        gate_stats["avgLotMultiplier"] = 0.0
+    gate_stats.pop("lotMultiplierSum", None)
+    return trades, gate_stats
 
 
 def _simulate_exit(
@@ -343,6 +378,7 @@ def _simulate_exit(
     trade_no: int,
     signal: Dict[str, Any],
     cost_model: BacktestCostModel,
+    news_decision: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], int]:
     entry = bars[entry_index]
     entry_price = entry.open
@@ -383,9 +419,11 @@ def _simulate_exit(
         exit_bar = bar
         exit_price = bar.close
     gross_profit_pips = signed * (exit_price - entry_price) / pip_size
-    cost_pips = cost_model.round_turn_pips
+    cost_pips = cost_model.round_turn_pips_for_bar(entry)
     profit_pips = gross_profit_pips - cost_pips
-    profit_r = profit_pips / risk_pips
+    raw_profit_r = profit_pips / risk_pips
+    lot_multiplier = max(0.0, min(1.0, float(news_decision.get("lotMultiplier") or 1.0)))
+    profit_r = raw_profit_r * lot_multiplier
     return {
         "tradeId": f"BT-{trade_no:04d}",
         "symbol": "USDJPYc",
@@ -399,12 +437,18 @@ def _simulate_exit(
         "exitPrice": round(exit_price, 5),
         "exitReason": exit_reason,
         "riskPips": round(risk_pips, 3),
+        "spreadPoints": round(float(getattr(entry, "spread", 0.0) or 0.0), 3),
+        "spreadPips": round(cost_model.spread_pips_for_bar(entry), 3),
         "grossProfitPips": round(gross_profit_pips, 3),
         "costPips": round(cost_pips, 3),
         "profitPips": round(profit_pips, 3),
+        "rawProfitR": round(raw_profit_r, 4),
         "profitR": round(profit_r, 4),
         "mfeR": round(max_profit_pips / risk_pips, 4),
         "maeR": round(max_loss_pips / risk_pips, 4),
+        "newsRiskLevel": news_decision.get("riskLevel") or "NONE",
+        "newsLotMultiplier": round(lot_multiplier, 4),
+        "newsReasonZh": news_decision.get("reasonZh") or "",
     }, last_index
 
 

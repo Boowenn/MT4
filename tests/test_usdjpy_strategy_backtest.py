@@ -10,9 +10,17 @@ from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES
 from tools.strategy_ga.fitness import evidence_metrics, score_seed
 from tools.strategy_json.schema import base_strategy_seed
 from tools.usdjpy_strategy_backtest.history_sync import sync_historical_klines
+from tools.usdjpy_strategy_backtest.historical_news import classify_historical_news, load_historical_news_events
 from tools.usdjpy_strategy_backtest.report import build_sample, run_backtest, status
-from tools.usdjpy_strategy_backtest.schema import equity_path, history_sync_report_path, report_path, trades_path
-from tools.usdjpy_strategy_backtest.sqlite_store import connect, count_bars
+from tools.usdjpy_strategy_backtest.schema import (
+    backtest_cache_path,
+    equity_path,
+    history_sync_report_path,
+    quality_report_path,
+    report_path,
+    trades_path,
+)
+from tools.usdjpy_strategy_backtest.sqlite_store import connect, count_bars, load_bars
 
 
 class USDJPYStrategyBacktestTests(unittest.TestCase):
@@ -34,24 +42,34 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertIn("maxDrawdownR", report["metrics"])
             self.assertIn("historyCoverage", report)
             self.assertIn("strategyCoverageMatrix", report)
+            self.assertIn("historicalNews", report)
+            self.assertIn("cache", report)
             self.assertEqual(report["historyCoverage"]["schema"], "quantgod.usdjpy_sqlite_history_coverage.v1")
             self.assertEqual(report["strategyCoverageMatrix"]["schema"], "quantgod.strategy_backtest_coverage_matrix.v1")
             self.assertEqual(report["strategyCoverageMatrix"]["summary"]["routeCount"], len(ALLOWED_STRATEGY_FAMILIES) * 2)
             self.assertEqual(report["strategyCoverageMatrix"]["summary"]["parityVectorRouteCount"], len(ALLOWED_STRATEGY_FAMILIES) * 2)
+            self.assertTrue(report["engine"]["costModel"]["dynamicSpreadFromBars"])
+            self.assertEqual(report["engine"]["newsGateBacktest"]["schema"], "quantgod.strategy_backtest_news_gate_stats.v1")
             self.assertTrue(report_path(runtime_dir).exists())
             self.assertTrue(trades_path(runtime_dir).exists())
             self.assertTrue(equity_path(runtime_dir).exists())
+            self.assertTrue(quality_report_path(runtime_dir).exists())
+            self.assertTrue(backtest_cache_path(runtime_dir).exists())
 
             current = status(runtime_dir)
             self.assertEqual(current["barCounts"]["H1"], sample["barCount"])
             self.assertEqual(current["historyCoverage"]["primaryTimeframe"], "H1")
             self.assertEqual(current["latestReport"]["schema"], "quantgod.strategy_backtest.report.v1")
+            self.assertEqual(current["qualityReport"]["schema"], "quantgod.strategy_backtest_quality.v1")
             with connect(runtime_dir) as conn:
                 run_rows = conn.execute("SELECT COUNT(*) AS count FROM strategy_runs").fetchone()
                 self.assertGreaterEqual(int(run_rows["count"]), 1)
                 self.assertEqual(report["engine"]["coverage"], "ALL_SUPPORTED_USDJPY_SHADOW_FAMILIES")
                 self.assertIn("costModel", report["engine"])
                 self.assertIn("parityVector", report["engine"])
+
+            cached = run_backtest(runtime_dir, write=False)
+            self.assertTrue(cached["cache"]["hit"])
 
     def test_backtest_rejects_non_usdjpy_strategy_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,6 +96,37 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertTrue(score["strategyBacktest"]["present"])
             self.assertEqual(score["strategyBacktest"]["strategyId"], seed["strategyId"])
             self.assertEqual(score["strategyBacktest"]["engine"].get("coverage"), "ALL_SUPPORTED_USDJPY_SHADOW_FAMILIES")
+            self.assertIn("backtestQuality", score)
+            self.assertTrue(score["backtestQuality"]["present"])
+
+    def test_historical_news_classifier_keeps_soft_news_soft_and_high_impact_hard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            news_dir = runtime_dir / "news"
+            news_dir.mkdir(parents=True)
+            (news_dir / "QuantGod_USDJPYNewsEvents.json").write_text(
+                """
+                {
+                  "events": [
+                    {"timeIso":"2026-05-07T12:00:00Z","title":"USDJPY liquidity note","impact":"medium"},
+                    {"timeIso":"2026-05-07T18:00:00Z","title":"FOMC rate decision","impact":"high"}
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            events = load_historical_news_events(runtime_dir)
+            self.assertTrue(events["sourceAvailable"])
+            self.assertEqual(events["eventCount"], 2)
+
+            soft = classify_historical_news("2026-05-07T12:10:00Z", events)
+            self.assertEqual(soft["riskLevel"], "SOFT")
+            self.assertFalse(soft["hardBlock"])
+            self.assertLess(soft["lotMultiplier"], 1.0)
+
+            hard = classify_historical_news("2026-05-07T17:45:00Z", events)
+            self.assertEqual(hard["riskLevel"], "HARD")
+            self.assertTrue(hard["hardBlock"])
 
     def test_all_usdjpy_strategy_families_have_backtest_runner_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,6 +281,8 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             with connect(runtime_dir) as conn:
                 for timeframe in ("M1", "M5", "M15", "H1"):
                     self.assertEqual(count_bars(conn, timeframe), 3)
+                m1_bars = load_bars(conn, "M1", limit=1)
+                self.assertEqual(m1_bars[0].spread, 10.0)
 
 
 if __name__ == "__main__":

@@ -496,6 +496,11 @@ async function handle(req, res, ctx) {
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
+  if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/quality') {
+    const payload = await runPythonJson(ctx.repoRoot, ['--runtime-dir', runtimeDir, 'quality'], 120000, 'run_usdjpy_strategy_backtest.py');
+    sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/usdjpy-strategy-lab/strategy-backtest/telegram-text') {
     const args = ['--runtime-dir', runtimeDir, 'telegram-text'];
     if (url.searchParams.get('refresh') === '1') args.push('--refresh');

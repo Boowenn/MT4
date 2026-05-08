@@ -21,6 +21,7 @@ test('USDJPY Strategy JSON backtest exposes USDJPY-scoped API endpoints', () => 
     '/api/usdjpy-strategy-lab/strategy-backtest/status',
     '/api/usdjpy-strategy-lab/strategy-backtest/sample',
     '/api/usdjpy-strategy-lab/strategy-backtest/run',
+    '/api/usdjpy-strategy-lab/strategy-backtest/quality',
     '/api/usdjpy-strategy-lab/strategy-backtest/sync-klines',
     '/api/usdjpy-strategy-lab/strategy-backtest/telegram-text',
   ]) {
@@ -33,11 +34,16 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
   const report = read('tools/usdjpy_strategy_backtest/report.py');
   const store = read('tools/usdjpy_strategy_backtest/sqlite_store.py');
   const historySync = read('tools/usdjpy_strategy_backtest/history_sync.py');
+  const costModel = read('tools/usdjpy_strategy_backtest/cost_model.py');
+  const historicalNews = read('tools/usdjpy_strategy_backtest/historical_news.py');
+  const quality = read('tools/usdjpy_strategy_backtest/quality.py');
   const runnerSource = read('tools/usdjpy_strategy_backtest/strategy_runner.py');
   const runner = read('tools/run_usdjpy_strategy_backtest.py');
   for (const marker of [
     'usdjpy.sqlite',
     'QuantGod_StrategyBacktestReport.json',
+    'QuantGod_StrategyBacktestCache.json',
+    'QuantGod_StrategyBacktestQualityReport.json',
     'QuantGod_StrategyTrades.csv',
     'QuantGod_StrategyEquityCurve.csv',
     'QuantGod_USDJPYHistoricalKlineSyncReport.json',
@@ -62,9 +68,16 @@ test('USDJPY Strategy JSON backtest writes SQLite, trades, equity, and report ar
     'bar_coverage_summary',
     '_multi_strategy_coverage_matrix',
     'BacktestCostModel',
+    'dynamicSpreadFromBars',
+    'newsGateBacktest',
+    'HISTORICAL_NEWS_GATE_AUDIT',
+    'QG_BACKTEST_CACHE_ENABLED',
     'QG_TELEGRAM_COMMANDS_ALLOWED',
   ]) {
-    assert.match(schema + report + store + historySync + runnerSource + runner, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(
+      schema + report + store + historySync + costModel + historicalNews + quality + runnerSource + runner,
+      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    );
   }
 });
 
@@ -150,6 +163,7 @@ test('GA seed scoring skips expensive full coverage matrix while audit backtest 
 
   assert.match(report, /include_coverage_matrix:\s*bool\s*=\s*True/);
   assert.match(fitness, /include_coverage_matrix=False/);
+  assert.match(fitness, /backtestQuality/);
   assert.match(generationRunner, /include_coverage_matrix=False/);
   assert.match(report, /_coverage_matrix_skipped/);
 });

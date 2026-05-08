@@ -275,6 +275,8 @@ def _rates_to_bars(rates: Any) -> List[Bar]:
                     low=float(_row_value(row, "low")),
                     close=float(_row_value(row, "close")),
                     volume=float(_row_value(row, "tick_volume", _row_value(row, "real_volume", 0)) or 0),
+                    spread=float(_row_value(row, "spread", 0) or 0),
+                    real_volume=float(_row_value(row, "real_volume", 0) or 0),
                 )
             )
         except Exception:
@@ -336,6 +338,8 @@ def _read_mql5_export_csv(path: Path) -> Tuple[List[Bar], List[str]]:
                             low=float(row.get("low") or 0),
                             close=float(row.get("close") or 0),
                             volume=float(row.get("tick_volume") or row.get("volume") or row.get("real_volume") or 0),
+                            spread=float(row.get("spread") or 0),
+                            real_volume=float(row.get("real_volume") or 0),
                         )
                     )
                 except Exception as exc:

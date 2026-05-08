@@ -109,6 +109,15 @@ def _build_steps(runtime_dir: Path, repo_root: Path, *, bootstrap_samples: bool)
             "timeoutSeconds": 180,
         },
         {
+            "id": "strategy_backtest_quality",
+            "lane": "MT5_SHADOW",
+            "action": "CHECK_STRATEGY_BACKTEST_QUALITY",
+            "summaryZh": "检查回测生产化质量：历史深度、动态成本、历史新闻门禁和缓存证据。",
+            "command": [py, "tools/run_usdjpy_strategy_backtest.py", *runtime_arg, "quality"],
+            "timeoutSeconds": 120,
+            "allowWarn": True,
+        },
+        {
             "id": "bar_replay",
             "lane": "MT5_SHADOW",
             "action": "RUN_CAUSAL_BAR_REPLAY",
@@ -168,7 +177,8 @@ def _run_step(repo_root: Path, step: Dict[str, Any]) -> Dict[str, Any]:
             timeout=int(step.get("timeoutSeconds") or 180),
         )
         payload = _parse_json(proc.stdout)
-        ok = proc.returncode == 0 and payload.get("ok") is not False
+        warn_allowed = bool(step.get("allowWarn")) and str(payload.get("status") or "").upper() == "WARN"
+        ok = proc.returncode == 0 and (payload.get("ok") is not False or warn_allowed)
         return {
             "id": step["id"],
             "lane": step["lane"],

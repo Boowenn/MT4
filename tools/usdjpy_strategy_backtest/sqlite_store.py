@@ -19,6 +19,8 @@ class Bar:
     low: float
     close: float
     volume: float
+    spread: float = 0.0
+    real_volume: float = 0.0
 
 
 BAR_TABLES = {
@@ -61,10 +63,14 @@ def init_schema(conn: sqlite3.Connection) -> None:
                 low REAL NOT NULL,
                 close REAL NOT NULL,
                 volume REAL NOT NULL,
+                spread REAL NOT NULL DEFAULT 0,
+                real_volume REAL NOT NULL DEFAULT 0,
                 PRIMARY KEY (symbol, timestamp)
             )
             """
         )
+        _ensure_column(conn, table, "spread", "REAL NOT NULL DEFAULT 0")
+        _ensure_column(conn, table, "real_volume", "REAL NOT NULL DEFAULT 0")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS strategy_runs (
@@ -111,15 +117,35 @@ def init_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    existing = {str(row["name"]) for row in rows}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def upsert_bars(conn: sqlite3.Connection, timeframe: str, bars: Iterable[Bar]) -> None:
     table = BAR_TABLES[timeframe]
     conn.executemany(
         f"""
         INSERT OR REPLACE INTO {table}
-        (symbol, timestamp, open, high, low, close, volume)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (symbol, timestamp, open, high, low, close, volume, spread, real_volume)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        [(FOCUS_SYMBOL, item.timestamp, item.open, item.high, item.low, item.close, item.volume) for item in bars],
+        [
+            (
+                FOCUS_SYMBOL,
+                item.timestamp,
+                item.open,
+                item.high,
+                item.low,
+                item.close,
+                item.volume,
+                item.spread,
+                item.real_volume,
+            )
+            for item in bars
+        ],
     )
     conn.commit()
 
@@ -128,9 +154,9 @@ def load_bars(conn: sqlite3.Connection, timeframe: str, limit: int = 1000) -> Li
     table = BAR_TABLES[timeframe]
     rows = conn.execute(
         f"""
-        SELECT timestamp, open, high, low, close, volume
+        SELECT timestamp, open, high, low, close, volume, spread, real_volume
         FROM (
-            SELECT timestamp, open, high, low, close, volume
+            SELECT timestamp, open, high, low, close, volume, spread, real_volume
             FROM {table}
             WHERE symbol = ?
             ORDER BY timestamp DESC
@@ -148,6 +174,8 @@ def load_bars(conn: sqlite3.Connection, timeframe: str, limit: int = 1000) -> Li
             low=float(row["low"]),
             close=float(row["close"]),
             volume=float(row["volume"]),
+            spread=float(row["spread"] or 0),
+            real_volume=float(row["real_volume"] or 0),
         )
         for row in rows
     ]
@@ -172,7 +200,7 @@ def load_bars_range(
     params.append(int(limit))
     rows = conn.execute(
         f"""
-        SELECT timestamp, open, high, low, close, volume
+        SELECT timestamp, open, high, low, close, volume, spread, real_volume
         FROM {table}
         WHERE {' AND '.join(where)}
         ORDER BY timestamp ASC
@@ -188,6 +216,8 @@ def load_bars_range(
             low=float(row["low"]),
             close=float(row["close"]),
             volume=float(row["volume"]),
+            spread=float(row["spread"] or 0),
+            real_volume=float(row["real_volume"] or 0),
         )
         for row in rows
     ]
@@ -404,6 +434,8 @@ def bars_from_snapshot_rows(rows: Any) -> List[Bar]:
                     low=float(row.get("low")),
                     close=float(row.get("close")),
                     volume=float(row.get("volume") or 0),
+                    spread=float(row.get("spread") or row.get("spreadPoints") or 0),
+                    real_volume=float(row.get("real_volume") or row.get("realVolume") or 0),
                 )
             )
         except Exception:
@@ -445,6 +477,8 @@ def sample_h1_bars(count: int = 180) -> List[Bar]:
                 low=round(low, 5),
                 close=round(close, 5),
                 volume=1000 + (index % 12) * 37,
+                spread=10,
+                real_volume=0,
             )
         )
         price = close

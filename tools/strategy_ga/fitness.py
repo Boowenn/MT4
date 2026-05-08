@@ -35,6 +35,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     replay = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
     walk_forward = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYWalkForwardReport.json")
     strategy_backtest = _strategy_backtest_metrics(runtime_dir, seed)
+    strategy_backtest_quality = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestQualityReport.json")
     backtest_required = seed is not None
     parity = _load_json(runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json")
     execution = _load_json(runtime_dir / "evidence_os" / "QuantGod_LiveExecutionQualityReport.json")
@@ -44,6 +45,8 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     summary = replay.get("summary") if isinstance(replay.get("summary"), dict) else {}
     wf_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
     backtest_metrics = strategy_backtest.get("metrics") if isinstance(strategy_backtest.get("metrics"), dict) else {}
+    backtest_quality_status = str(strategy_backtest_quality.get("status") or "MISSING")
+    backtest_quality_penalty = _backtest_quality_penalty(backtest_quality_status, strategy_backtest_quality)
     execution_metrics = execution.get("metrics") if isinstance(execution.get("metrics"), dict) else {}
     execution_gate = execution.get("promotionGate") if isinstance(execution.get("promotionGate"), dict) else {}
     has_seed_backtest = bool(seed and strategy_backtest)
@@ -138,7 +141,15 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "caseTypeCounts": cases.get("caseTypeCounts") if isinstance(cases.get("caseTypeCounts"), dict) else {},
             "penalty": case_penalty,
         },
-        "evidencePenalty": parity_penalty + execution_penalty + case_penalty,
+        "evidencePenalty": parity_penalty + execution_penalty + case_penalty + backtest_quality_penalty,
+        "backtestQuality": {
+            "present": bool(strategy_backtest_quality),
+            "status": backtest_quality_status,
+            "failedCount": int(_num(strategy_backtest_quality.get("failedCount"), 0)),
+            "historyTargetSatisfied": bool(strategy_backtest_quality.get("historyTargetSatisfied")),
+            "penalty": backtest_quality_penalty,
+            "reasonZh": strategy_backtest_quality.get("reasonZh") or "",
+        },
         "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or strategy_backtest.get("evidenceQuality") or "LOW",
     }
 
@@ -213,6 +224,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "parity": metrics.get("parity", {}),
         "executionFeedback": metrics.get("executionFeedback", {}),
         "caseMemory": metrics.get("caseMemory", {}),
+        "backtestQuality": metrics.get("backtestQuality", {}),
     }
 
 
@@ -272,6 +284,15 @@ def _case_penalty(cases: Dict[str, Any]) -> float:
     severe_count = sum(int(_num(type_counts.get(name), 0)) for name in execution_types)
     overfit_count = int(_num(type_counts.get("GA_OVERFIT"), 0))
     return round(min(0.5, severe_count * 0.08 + overfit_count * 0.05), 4)
+
+
+def _backtest_quality_penalty(status: str, quality: Dict[str, Any]) -> float:
+    if not quality:
+        return 0.15
+    if status == "PASS":
+        return 0.0
+    failed_count = int(_num(quality.get("failedCount"), 0))
+    return round(min(0.6, 0.2 + failed_count * 0.08), 4)
 
 
 def _profit_factor_bonus(value: float) -> float:

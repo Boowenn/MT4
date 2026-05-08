@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 from usdjpy_evidence_os.telegram_gateway import dispatch_text
 from usdjpy_strategy_backtest.history_sync import sync_historical_klines
+from usdjpy_strategy_backtest.quality import build_quality_report, write_quality_report
 from usdjpy_strategy_backtest.report import build_sample, run_backtest, status
 from usdjpy_strategy_backtest.telegram_text import backtest_to_chinese_text
 
@@ -68,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run")
     run.add_argument("--write", action="store_true")
     sub.add_parser("status")
+    sub.add_parser("quality")
     text = sub.add_parser("telegram-text")
     text.add_argument("--refresh", action="store_true")
     text.add_argument("--send", action="store_true")
@@ -93,6 +95,11 @@ def main(argv: list[str] | None = None) -> int:
         return emit(run_backtest(runtime_dir, load_strategy(args.strategy_json), write=True if args.write else True))
     if args.command == "status":
         return emit(status(runtime_dir))
+    if args.command == "quality":
+        current = status(runtime_dir)
+        payload = build_quality_report(current, current.get("latestReport", {}))
+        write_quality_report(runtime_dir, payload)
+        return emit(payload)
     if args.command == "telegram-text":
         report = run_backtest(runtime_dir, load_strategy(args.strategy_json), write=True) if args.refresh else status(runtime_dir).get("latestReport", {})
         content = backtest_to_chinese_text(report)

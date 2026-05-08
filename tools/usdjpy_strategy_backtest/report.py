@@ -3,22 +3,31 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 try:
     from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES, base_strategy_seed
+    from tools.strategy_json.fingerprint import strategy_fingerprint
+    from tools.strategy_json.normalizer import normalize_strategy_json
 except ModuleNotFoundError:  # pragma: no cover
     from strategy_json.schema import ALLOWED_STRATEGY_FAMILIES, base_strategy_seed
+    from strategy_json.fingerprint import strategy_fingerprint
+    from strategy_json.normalizer import normalize_strategy_json
 
+from .historical_news import load_historical_news_events
+from .quality import build_quality_report, write_quality_report
 from .schema import (
     AGENT_VERSION,
     FOCUS_SYMBOL,
     SAFETY_BOUNDARY,
+    backtest_cache_path,
     equity_path,
     history_sync_report_path,
     ingest_report_path,
+    quality_report_path,
     report_path,
     trades_path,
 )
@@ -43,6 +52,7 @@ def status(runtime_dir: Path) -> Dict[str, Any]:
     report = _load_json(report_path(runtime_dir))
     ingest_report = _load_json(ingest_report_path(runtime_dir))
     history_sync_report = _load_json(history_sync_report_path(runtime_dir))
+    quality_report = _load_json(quality_report_path(runtime_dir))
     return {
         "ok": True,
         "schema": "quantgod.strategy_backtest.status.v1",
@@ -53,6 +63,7 @@ def status(runtime_dir: Path) -> Dict[str, Any]:
         "historyCoverage": history_coverage,
         "ingestReport": ingest_report,
         "historySyncReport": history_sync_report,
+        "qualityReport": quality_report,
         "latestReport": report,
         "paths": {
             "sqlite": str((runtime_dir / "backtest" / "usdjpy.sqlite").resolve()),
@@ -83,6 +94,7 @@ def run_backtest(
 ) -> Dict[str, Any]:
     seed = strategy_json or base_strategy_seed("STRATEGY-BACKTEST-USDJPY-RSI-LONG")
     ingest_report = ingest_runtime_snapshot(runtime_dir)
+    historical_news = load_historical_news_events(runtime_dir)
     with connect(runtime_dir) as conn:
         if count_bars(conn, "H1") < 40:
             write_sample_bars(runtime_dir, overwrite=False)
@@ -98,7 +110,22 @@ def run_backtest(
             for timeframe in ("M1", "M5", "M15", "H1", "H4", "D1")
         }
         history_coverage = bar_coverage_summary(conn)
-    result = run_strategy(seed, bars_by_timeframe)
+    cache_key = _backtest_cache_key(seed, history_coverage, historical_news, include_coverage_matrix)
+    cached = _get_cached_backtest(runtime_dir, cache_key) if _cache_enabled() else None
+    if cached:
+        cached["cache"] = {
+            "enabled": True,
+            "hit": True,
+            "cacheKey": cache_key,
+            "reasonZh": "命中 Strategy JSON 回测缓存；历史窗口、策略指纹、成本和新闻证据未变化。",
+        }
+        if write:
+            write_outputs(runtime_dir, cached, cached.get("trades", []), cached.get("equityCurve", []))
+            quality = build_quality_report(status(runtime_dir), cached)
+            write_quality_report(runtime_dir, quality)
+        return cached
+
+    result = run_strategy(seed, bars_by_timeframe, historical_news=historical_news)
     strategy_coverage = (
         _multi_strategy_coverage_matrix(bars_by_timeframe)
         if include_coverage_matrix
@@ -112,9 +139,20 @@ def run_backtest(
         multi_timeframe,
         history_coverage,
         strategy_coverage,
+        historical_news,
     )
+    report["cache"] = {
+        "enabled": _cache_enabled(),
+        "hit": False,
+        "cacheKey": cache_key,
+        "reasonZh": "本次重新计算 Strategy JSON 回测，并写入缓存供 GA 重复评分使用。",
+    }
+    if _cache_enabled() and report.get("ok"):
+        _put_cached_backtest(runtime_dir, cache_key, report)
     if write:
         write_outputs(runtime_dir, report, result.get("trades", []), result.get("equityCurve", []))
+        quality = build_quality_report(status(runtime_dir), report)
+        write_quality_report(runtime_dir, quality)
     return report
 
 
@@ -133,10 +171,18 @@ def write_outputs(runtime_dir: Path, report: Dict[str, Any], trades: List[Dict[s
         "exitPrice",
         "exitReason",
         "riskPips",
+        "grossProfitPips",
+        "costPips",
+        "spreadPoints",
+        "spreadPips",
         "profitPips",
+        "rawProfitR",
         "profitR",
         "mfeR",
         "maeR",
+        "newsRiskLevel",
+        "newsLotMultiplier",
+        "newsReasonZh",
     ]
     with trades_path(runtime_dir).open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=trade_fields)
@@ -165,6 +211,7 @@ def _report_payload(
     multi_timeframe: Dict[str, Any],
     history_coverage: Dict[str, Any],
     strategy_coverage: Dict[str, Any],
+    historical_news: Dict[str, Any],
 ) -> Dict[str, Any]:
     strategy = result.get("strategyJson") if isinstance(result.get("strategyJson"), dict) else seed
     metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
@@ -197,6 +244,13 @@ def _report_payload(
             "runnerZh": "Strategy JSON runner 会读取 USDJPY 多周期 SQLite K线，并按策略族选择主执行周期。",
         },
         "engine": engine,
+        "historicalNews": {
+            "schema": historical_news.get("schema"),
+            "sourceAvailable": bool(historical_news.get("sourceAvailable")),
+            "eventCount": int(historical_news.get("eventCount") or 0),
+            "digest": historical_news.get("digest"),
+            "reasonZh": historical_news.get("reasonZh"),
+        },
         "klineIngest": ingest_report,
         "historyCoverage": history_coverage,
         "strategyCoverageMatrix": strategy_coverage,
@@ -218,6 +272,71 @@ def _evidence_quality(bar_count: int, trade_count: int) -> str:
     if bar_count >= 160 and trade_count >= 3:
         return "MEDIUM"
     return "LOW"
+
+
+def _cache_enabled() -> bool:
+    value = os.environ.get("QG_BACKTEST_CACHE_ENABLED", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _backtest_cache_key(
+    seed: Dict[str, Any],
+    history_coverage: Dict[str, Any],
+    historical_news: Dict[str, Any],
+    include_coverage_matrix: bool,
+) -> str:
+    normalized_seed = normalize_strategy_json(seed)
+    if not isinstance(normalized_seed, dict):
+        normalized_seed = seed
+    cost_env = {
+        "spreadPips": os.environ.get("QG_BACKTEST_SPREAD_PIPS", ""),
+        "slippagePips": os.environ.get("QG_BACKTEST_SLIPPAGE_PIPS", ""),
+        "commissionPips": os.environ.get("QG_BACKTEST_COMMISSION_PIPS", ""),
+        "dynamicSpread": os.environ.get("QG_BACKTEST_DYNAMIC_SPREAD", ""),
+        "maxSpreadPips": os.environ.get("QG_BACKTEST_MAX_SPREAD_PIPS", ""),
+    }
+    raw = {
+        "schema": "quantgod.strategy_backtest_cache_key.v1",
+        "strategyFingerprint": strategy_fingerprint(normalized_seed),
+        "historyCoverage": history_coverage,
+        "historicalNewsDigest": historical_news.get("digest"),
+        "historicalNewsEventCount": historical_news.get("eventCount"),
+        "includeCoverageMatrix": include_coverage_matrix,
+        "costEnv": cost_env,
+    }
+    return hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _get_cached_backtest(runtime_dir: Path, cache_key: str) -> Dict[str, Any] | None:
+    cache = _load_json(backtest_cache_path(runtime_dir))
+    entries = cache.get("entries") if isinstance(cache.get("entries"), dict) else {}
+    cached = entries.get(cache_key)
+    if isinstance(cached, dict):
+        return json.loads(json.dumps(cached))
+    return None
+
+
+def _put_cached_backtest(runtime_dir: Path, cache_key: str, report: Dict[str, Any]) -> None:
+    path = backtest_cache_path(runtime_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cache = _load_json(path)
+    entries = cache.get("entries") if isinstance(cache.get("entries"), dict) else {}
+    entries[cache_key] = report
+    max_entries = int(os.environ.get("QG_BACKTEST_CACHE_MAX_ENTRIES", "24"))
+    if len(entries) > max_entries:
+        for key in list(entries.keys())[: len(entries) - max_entries]:
+            entries.pop(key, None)
+    payload = {
+        "schema": "quantgod.strategy_backtest_cache.v1",
+        "agentVersion": AGENT_VERSION,
+        "updatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "entryCount": len(entries),
+        "maxEntries": max_entries,
+        "entries": entries,
+        "reasonZh": "Strategy JSON 回测缓存按策略指纹、历史覆盖、成本模型和历史新闻证据失效。",
+        "safety": dict(SAFETY_BOUNDARY),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _coverage_matrix_skipped(reason: str) -> Dict[str, Any]:
