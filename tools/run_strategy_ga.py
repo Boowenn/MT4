@@ -71,6 +71,7 @@ def main(argv=None) -> int:
     status.add_argument("--write", action="store_true")
     run = sub.add_parser("run-generation")
     run.add_argument("--write", action="store_true")
+    run.add_argument("--force", action="store_true")
     sub.add_parser("generations")
     sub.add_parser("candidates")
     candidate = sub.add_parser("candidate")
@@ -88,7 +89,7 @@ def main(argv=None) -> int:
             return emit(run_generation(runtime_dir, write=True))
         return emit(build_ga_status(runtime_dir))
     if args.command == "run-generation":
-        return emit(run_generation(runtime_dir, write=True if args.write else True))
+        return emit(run_generation(runtime_dir, write=True if args.write else True, force=args.force))
     if args.command == "generations":
         return emit(read_generations(runtime_dir))
     if args.command == "candidates":
@@ -114,4 +115,3 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
-

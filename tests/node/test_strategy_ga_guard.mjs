@@ -60,6 +60,10 @@ test('GA trace records process details rather than final result only', () => {
   const fitness = read('tools/strategy_ga/fitness.py');
   const mutation = read('tools/strategy_ga/mutation.py');
   const crossover = read('tools/strategy_ga/crossover.py');
+  const schema = read('tools/strategy_ga/schema.py');
+  const cache = read('tools/strategy_ga/cache.py');
+  const lineage = read('tools/strategy_ga/lineage.py');
+  const seedGenerator = read('tools/strategy_ga/seed_generator.py');
 
   for (const marker of [
     'generationId',
@@ -72,9 +76,15 @@ test('GA trace records process details rather than final result only', () => {
     'PROMOTED_TO_SHADOW',
     'mutationCount',
     'crossoverCount',
+    'caseMemorySeedCount',
+    'cacheHit',
+    'evidenceSignature',
+    'CASE_MEMORY',
+    'QuantGod_GAFitnessCache.json',
+    'QuantGod_GALineage.json',
     'QuantGod_GACandidateRuns.jsonl',
   ]) {
-    assert.match(runner + fitness + mutation + crossover, new RegExp(marker));
+    assert.match(runner + fitness + mutation + crossover + schema + cache + lineage + seedGenerator, new RegExp(marker));
   }
 });
 

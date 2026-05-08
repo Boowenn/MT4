@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, List
 
 try:
@@ -42,3 +44,53 @@ def clone_seed(seed: Dict[str, Any], seed_id: str, source: str) -> Dict[str, Any
     cloned["seedId"] = seed_id
     cloned["source"] = source
     return cloned
+
+
+def case_memory_seed_pool(runtime_dir: Path, limit: int = 6) -> List[Dict[str, Any]]:
+    """Turn Case Memory into safe Strategy JSON seeds for GA shadow research."""
+    cases = _load_case_memory(runtime_dir)
+    seeds: List[Dict[str, Any]] = []
+    for index, case in enumerate(cases[:limit], start=1):
+        hint = str(((case.get("proposedAction") or {}).get("mutationHint") or "case_memory_observe"))
+        seed = base_strategy_seed(f"GA-USDJPY-CASE-{index:04d}", family="RSI_Reversal", direction="LONG")
+        seed["source"] = "CASE_MEMORY"
+        seed["caseId"] = case.get("caseId")
+        seed["mutationHint"] = hint
+        seed["strategyId"] = f"USDJPY_RSI_REVERSAL_LONG_CASE_{hint.upper()}_{index:03d}"
+        _apply_case_hint(seed, hint)
+        seeds.append(seed)
+    return seeds
+
+
+def _load_case_memory(runtime_dir: Path) -> List[Dict[str, Any]]:
+    summary = runtime_dir / "evidence_os" / "QuantGod_CaseMemorySummary.json"
+    try:
+        if summary.exists():
+            data = json.loads(summary.read_text(encoding="utf-8"))
+            rows = data.get("cases") if isinstance(data.get("cases"), list) else []
+            return [row for row in rows if isinstance(row, dict) and row.get("status") == "QUEUED_FOR_GA"]
+    except Exception:
+        pass
+    return []
+
+
+def _apply_case_hint(seed: Dict[str, Any], hint: str) -> None:
+    rsi = seed.setdefault("indicators", {}).setdefault("rsi", {})
+    exit_cfg = seed.setdefault("exit", {})
+    risk = seed.setdefault("risk", {})
+    if hint in {"relax_rsi_crossback", "keep_soft_news_gate"}:
+        rsi["buyBand"] = min(38, float(rsi.get("buyBand", 34)) + 1)
+        rsi["crossbackThreshold"] = max(0.3, round(float(rsi.get("crossbackThreshold", 0.8)) - 0.2, 2))
+    elif hint == "let_profit_run":
+        exit_cfg["breakevenDelayR"] = max(1.0, float(exit_cfg.get("breakevenDelayR", 1.0)))
+        exit_cfg["trailStartR"] = max(1.5, float(exit_cfg.get("trailStartR", 1.5)))
+        exit_cfg["mfeGivebackPct"] = min(0.68, max(0.6, float(exit_cfg.get("mfeGivebackPct", 0.6)) + 0.05))
+    elif hint in {"tighten_entry_filter", "tighten_execution_filter"}:
+        rsi["buyBand"] = max(30, float(rsi.get("buyBand", 34)) - 1)
+        rsi["crossbackThreshold"] = min(1.2, round(float(rsi.get("crossbackThreshold", 0.8)) + 0.2, 2))
+        risk["opportunityLotMultiplier"] = min(0.35, float(risk.get("opportunityLotMultiplier", 0.35)))
+    elif hint in {"inspect_execution_quality", "reduce_execution_latency", "verify_execution_ack_fill_sync", "verify_ea_policy_sync"}:
+        risk["opportunityLotMultiplier"] = min(0.25, float(risk.get("opportunityLotMultiplier", 0.35)))
+        seed.setdefault("entry", {}).setdefault("conditions", []).append("executionQuality != DEGRADED")
+    risk["stage"] = "SHADOW"
+    risk["maxLot"] = min(2.0, float(risk.get("maxLot", 2.0)))

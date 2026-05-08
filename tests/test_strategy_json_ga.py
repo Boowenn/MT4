@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
 from tools.strategy_ga.generation_runner import read_candidates, run_generation
@@ -46,6 +47,9 @@ class StrategyJsonGATests(unittest.TestCase):
                 "QuantGod_GAEliteStrategies.json",
                 "QuantGod_GABlockerSummary.json",
                 "QuantGod_GAEvolutionPath.json",
+                "QuantGod_GAFitnessCache.json",
+                "QuantGod_GALineage.json",
+                "QuantGod_GARunLimiter.json",
             ]:
                 self.assertTrue((ga_dir / name).exists(), name)
 
@@ -62,6 +66,60 @@ class StrategyJsonGATests(unittest.TestCase):
 
             latest = read_candidates(runtime_dir)
             self.assertEqual(len(latest["candidates"]), len(result["candidates"]))
+
+    def test_case_memory_seeds_cache_and_lineage_are_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            evidence_dir = runtime_dir / "evidence_os"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "QuantGod_CaseMemorySummary.json").write_text(
+                """
+                {
+                  "schema": "quantgod.case_memory_summary.v1",
+                  "cases": [
+                    {
+                      "caseId": "USDJPY-MISSED-001",
+                      "status": "QUEUED_FOR_GA",
+                      "proposedAction": {"mutationHint": "relax_rsi_crossback"}
+                    },
+                    {
+                      "caseId": "USDJPY-EARLY-001",
+                      "status": "QUEUED_FOR_GA",
+                      "proposedAction": {"mutationHint": "let_profit_run"}
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            first = run_generation(runtime_dir, write=True, force=True)
+            self.assertTrue(any(row["source"] == "CASE_MEMORY" for row in first["candidates"]))
+            self.assertGreater(first["generation"]["caseMemorySeedCount"], 0)
+            self.assertEqual(first["generation"]["cache"]["hits"], 0)
+            self.assertIn("lineage", first)
+            self.assertTrue(any(edge["type"] == "CASE_MEMORY" for edge in first["lineage"]["edges"]))
+
+            second = run_generation(runtime_dir, write=True, force=True)
+            self.assertTrue(any(row.get("cacheHit") for row in second["candidates"]), second["candidates"])
+            self.assertGreaterEqual(second["generation"]["cache"]["hits"], 1)
+
+    def test_generation_frequency_limiter_can_skip_without_losing_status(self):
+        old = os.environ.get("QG_GA_MIN_RUN_INTERVAL_SECONDS")
+        os.environ["QG_GA_MIN_RUN_INTERVAL_SECONDS"] = "3600"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime_dir = Path(tmp)
+                first = run_generation(runtime_dir, write=True, force=True)
+                self.assertTrue(first["ok"])
+                skipped = run_generation(runtime_dir, write=True, force=False)
+                self.assertFalse(skipped["ok"])
+                self.assertTrue(skipped["skipped"])
+                self.assertFalse(skipped["runLimiter"]["allowed"])
+        finally:
+            if old is None:
+                os.environ.pop("QG_GA_MIN_RUN_INTERVAL_SECONDS", None)
+            else:
+                os.environ["QG_GA_MIN_RUN_INTERVAL_SECONDS"] = old
 
     def test_generation_rejects_only_dangerous_seed_fields_not_safe_field_names(self):
         with tempfile.TemporaryDirectory() as tmp:

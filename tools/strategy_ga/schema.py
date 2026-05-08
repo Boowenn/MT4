@@ -12,6 +12,9 @@ CANDIDATE_RUNS_FILE = "QuantGod_GACandidateRuns.jsonl"
 ELITE_FILE = "QuantGod_GAEliteStrategies.json"
 BLOCKER_FILE = "QuantGod_GABlockerSummary.json"
 EVOLUTION_PATH_FILE = "QuantGod_GAEvolutionPath.json"
+FITNESS_CACHE_FILE = "QuantGod_GAFitnessCache.json"
+LINEAGE_FILE = "QuantGod_GALineage.json"
+RUN_LIMIT_FILE = "QuantGod_GARunLimiter.json"
 
 DEFAULT_POPULATION_SIZE = 16
 DEFAULT_ELITE_COUNT = 4
@@ -37,4 +40,3 @@ def utc_now_iso() -> str:
 
 def ga_dir(runtime_dir: Path) -> Path:
     return runtime_dir / "ga"
-

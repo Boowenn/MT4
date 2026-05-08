@@ -2,13 +2,29 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from typing import Any, Dict
+
+
+METADATA_KEYS = {
+    "seedId",
+    "strategyId",
+    "source",
+    "parentSeedId",
+    "parentSeedIds",
+    "caseId",
+    "mutationHint",
+    "createdAt",
+    "generation",
+    "generationId",
+}
 
 
 def _canonical_strategy_json(seed: Dict[str, Any]) -> str:
     """Return a stable representation for dedupe and lineage tracing."""
+    data = _strip_metadata(seed)
     return json.dumps(
-        seed,
+        data,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -24,3 +40,15 @@ def strategy_fingerprint(seed: Dict[str, Any]) -> str:
     """Build the Strategy JSON fingerprint used by GA duplicate checks."""
     canonical = _canonical_strategy_json(seed)
     return _sha256_text(canonical)
+
+
+def _strip_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_metadata(item)
+            for key, item in deepcopy(value).items()
+            if key not in METADATA_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_metadata(item) for item in value]
+    return value

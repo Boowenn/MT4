@@ -15,14 +15,20 @@ except ModuleNotFoundError:  # pragma: no cover
     from strategy_json.validator import validate_strategy_json
 
 from .blocker_explainer import explain_blocker
+from .cache import cache_stats, evidence_signature, get_cached_score, put_cached_score
 from .fitness import score_seed
+from .frequency_limiter import check_run_allowed, record_run
+from .lineage import build_lineage, read_lineage, write_lineage
 from .population import build_population, elite_count, population_size
 from .schema import (
     AGENT_VERSION,
     BLOCKER_FILE,
     ELITE_FILE,
     EVOLUTION_PATH_FILE,
+    FITNESS_CACHE_FILE,
     LATEST_GENERATION_FILE,
+    LINEAGE_FILE,
+    RUN_LIMIT_FILE,
     SAFETY_BOUNDARY,
     STATUS_FILE,
     ga_dir,
@@ -109,6 +115,9 @@ def build_ga_status(runtime_dir: Path) -> Dict[str, Any]:
         "elites": _load_json(root / ELITE_FILE),
         "blockers": _load_json(root / BLOCKER_FILE),
         "evolutionPath": _load_json(root / EVOLUTION_PATH_FILE),
+        "lineage": read_lineage(runtime_dir),
+        "fitnessCache": _load_json(root / FITNESS_CACHE_FILE),
+        "runLimiter": _load_json(root / RUN_LIMIT_FILE),
         "safety": dict(SAFETY_BOUNDARY),
     }
 
@@ -116,10 +125,12 @@ def build_ga_status(runtime_dir: Path) -> Dict[str, Any]:
 def _score_candidates(runtime_dir: Path, generation_number: int, generation_id: str, seeds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     seen: set[str] = set()
     runs: List[Dict[str, Any]] = []
+    signature = evidence_signature(runtime_dir)
     for seed in seeds:
         normalized = normalize_strategy_json(seed)
         fingerprint = strategy_fingerprint(normalized)
         validation = validate_strategy_json(normalized)
+        cache_hit = False
         blocker = None
         score = {
             "fitness": -99,
@@ -136,7 +147,13 @@ def _score_candidates(runtime_dir: Path, generation_number: int, generation_id: 
         elif not validation.get("valid"):
             blocker = str(validation.get("blockerCode") or "SAFETY_REJECTED")
         else:
-            score = score_seed(normalized, runtime_dir)
+            cached = get_cached_score(runtime_dir, fingerprint, signature)
+            if cached:
+                score = cached
+                cache_hit = True
+            else:
+                score = score_seed(normalized, runtime_dir)
+                put_cached_score(runtime_dir, fingerprint, signature, score)
             blocker = score.get("blockerCode")
         seen.add(fingerprint)
         runs.append({
@@ -153,6 +170,8 @@ def _score_candidates(runtime_dir: Path, generation_number: int, generation_id: 
             "validation": validation,
             "fitnessBreakdown": score,
             "fitness": score["fitness"],
+            "cacheHit": cache_hit,
+            "evidenceSignature": signature,
             "blockerCode": blocker,
             "blockerZh": explain_blocker(blocker),
             "safety": dict(SAFETY_BOUNDARY),
@@ -165,11 +184,27 @@ def _score_candidates(runtime_dir: Path, generation_number: int, generation_id: 
     return ranked
 
 
-def run_generation(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
+def _generation_cache_stats(runtime_dir: Path, candidates: List[Dict[str, Any]], signature: str) -> Dict[str, Any]:
+    stats = cache_stats(runtime_dir, [str(row.get("fingerprint") or "") for row in candidates], signature)
+    hits = sum(1 for row in candidates if row.get("cacheHit"))
+    stats["hits"] = hits
+    stats["misses"] = max(0, len(candidates) - hits)
+    return stats
+
+
+def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -> Dict[str, Any]:
+    limiter = check_run_allowed(runtime_dir, force=force)
+    if not limiter.get("allowed"):
+        status = build_ga_status(runtime_dir)
+        status["ok"] = False
+        status["skipped"] = True
+        status["runLimiter"] = limiter
+        return status
     generation_number = _next_generation_number(runtime_dir)
     generation_id = f"GA-USDJPY-GEN-{generation_number:04d}"
-    seeds = build_population(generation_number, _existing_elites(runtime_dir))
+    seeds = build_population(generation_number, _existing_elites(runtime_dir), runtime_dir=runtime_dir)
     candidates = _score_candidates(runtime_dir, generation_number, generation_id, seeds)
+    signature = evidence_signature(runtime_dir)
     elites = [row for row in candidates if row.get("status") == "ELITE_SELECTED"][: elite_count()]
     blocker_counts = Counter(str(row.get("blockerCode") or "PASSED") for row in candidates)
     best = candidates[0] if candidates else {}
@@ -192,6 +227,9 @@ def run_generation(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
         "blockedCount": sum(1 for row in candidates if row.get("blockerCode")),
         "mutationCount": sum(1 for row in candidates if row.get("source") == "MUTATION"),
         "crossoverCount": sum(1 for row in candidates if row.get("source") == "CROSSOVER"),
+        "caseMemorySeedCount": sum(1 for row in candidates if row.get("source") == "CASE_MEMORY"),
+        "cache": _generation_cache_stats(runtime_dir, candidates, signature),
+        "runLimiter": limiter,
         "safety": dict(SAFETY_BOUNDARY),
     }
     path = _load_json(ga_dir(runtime_dir) / EVOLUTION_PATH_FILE)
@@ -232,6 +270,7 @@ def run_generation(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
         "singleSourceOfTruth": "USDJPY_STRATEGY_JSON_GA_TRACE",
         "safety": dict(SAFETY_BOUNDARY),
     }
+    lineage = build_lineage(candidates)
     payload = {
         "ok": True,
         "status": status,
@@ -245,10 +284,13 @@ def run_generation(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
         },
         "blockers": blockers,
         "evolutionPath": evolution_path,
+        "lineage": lineage,
         "safety": dict(SAFETY_BOUNDARY),
     }
     if write:
         write_trace(runtime_dir, payload)
+        write_lineage(runtime_dir, lineage)
+        record_run(runtime_dir, generation_id)
     return payload
 
 
