@@ -60,11 +60,22 @@ def _cases_from_execution(runtime_dir: Path) -> List[Dict[str, Any]]:
     metrics = feedback.get("metrics") if isinstance(feedback.get("metrics"), dict) else {}
     cases: List[Dict[str, Any]] = []
     if int(metrics.get("rejectCount") or 0) > 0:
-        cases.append(_case("POLICY_MISMATCH", "EA 执行或券商拒单需要进入执行反馈复盘", metrics, "inspect_execution_quality"))
+        reason = metrics.get("dominantRejectReason") or "UNKNOWN_REJECT"
+        cases.append(_case("EXECUTION_REJECT", f"EA 或券商拒单偏多，主因：{reason}", metrics, "inspect_execution_quality"))
     if float(metrics.get("avgAbsSlippagePips") or 0) > 0.8:
         cases.append(_case("EXECUTION_SLIPPAGE", "平均滑点偏高，需要限制触发窗口或降仓", metrics, "tighten_execution_filter"))
+    if float(metrics.get("avgLatencyMs") or 0) > 1500.0:
+        cases.append(_case("EXECUTION_LATENCY", "平均执行延迟偏高，需要检查 VPS、终端或券商链路", metrics, "reduce_execution_latency"))
+    if int(metrics.get("acceptedWithoutFillCount") or 0) > 2:
+        cases.append(_case("POLICY_MISMATCH", "EA 已接受指令但未看到成交回执偏多，需要核对历史同步和回执链路", metrics, "verify_execution_ack_fill_sync"))
     if int(metrics.get("policyMismatchCount") or 0) > 0:
         cases.append(_case("POLICY_MISMATCH", "发现 policy 阻断态仍有执行痕迹，需要检查 EA 同步", metrics, "verify_ea_policy_sync"))
+    for row in feedback.get("recentFeedback", []) if isinstance(feedback.get("recentFeedback"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("strategyId") or "RSI_Reversal") != "RSI_Reversal":
+            cases.append(_case("POLICY_MISMATCH", "执行反馈出现非 RSI_Reversal 策略，需要确认实盘路线仍被锁定", row, "verify_live_lane_strategy_lock"))
+            break
     return cases
 
 

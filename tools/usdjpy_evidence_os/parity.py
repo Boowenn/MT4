@@ -38,6 +38,7 @@ def build_parity_report(runtime_dir: Path, write: bool = True) -> Dict[str, Any]
         "symbol": FOCUS_SYMBOL,
         "status": status,
         "checks": checks,
+        "parityDimensions": _parity_dimensions(backtest, live_loop, diagnostics),
         "summary": _summary(checks),
         "reasonZh": _reason_zh(status),
         "singleSourceOfTruth": "STRATEGY_JSON_PYTHON_REPLAY_MQL5_EA_PARITY",
@@ -136,11 +137,23 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
         }
     diag_strategy = diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"
     diag_direction = str(diagnostics.get("direction") or "LONG").upper()
+    diag_route = diagnostics.get("route") if isinstance(diagnostics.get("route"), dict) else {}
+    diag_guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
+    diag_rsi = diagnostics.get("rsi") if isinstance(diagnostics.get("rsi"), dict) else {}
+    vector_rsi = vector.get("rsi") if isinstance(vector.get("rsi"), dict) else {}
     mismatches = []
     if vector.get("strategyFamily") != diag_strategy:
         mismatches.append("strategyFamily")
     if str(vector.get("direction") or "").upper() != diag_direction:
         mismatches.append("direction")
+    if _present(vector_rsi.get("period")) and _present(diag_rsi.get("period")) and int(float(vector_rsi.get("period"))) != int(float(diag_rsi.get("period"))):
+        mismatches.append("rsi.period")
+    if _present(vector_rsi.get("timeframe")) and _present(diag_route.get("timeframe")) and str(vector_rsi.get("timeframe")).upper() != str(diag_route.get("timeframe")).upper():
+        mismatches.append("rsi.timeframe")
+    if _present(vector_rsi.get("buyBand")) and _present(diag_rsi.get("oversold")) and abs(float(vector_rsi.get("buyBand")) - float(diag_rsi.get("oversold"))) > 5.0:
+        mismatches.append("rsi.buyBand/oversold")
+    if str(diag_rsi.get("signalDirection") or "").upper() not in {"", "NONE", str(vector.get("direction") or "").upper()}:
+        mismatches.append("signalDirection")
     status = "PASS" if not mismatches else "WARN"
     return {
         "name": "strategy_json_vs_mql5_rsi_diagnostics",
@@ -149,11 +162,36 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
         "actual": {
             "vectorFamily": vector.get("strategyFamily"),
             "vectorDirection": vector.get("direction"),
+            "vectorRsi": vector_rsi,
             "eaFamily": diag_strategy,
             "eaDirection": diag_direction,
             "eaStatus": diagnostics.get("status") or diagnostics.get("state"),
+            "eaRoute": {
+                "timeframe": diag_route.get("timeframe"),
+                "candidateEnabled": diag_route.get("candidateEnabled"),
+                "liveEnabled": diag_route.get("liveEnabled"),
+                "lastStatus": diag_route.get("lastStatus"),
+                "lastReason": diag_route.get("lastReason"),
+            },
+            "eaGuards": {
+                "sessionOpen": diag_guards.get("sessionOpen"),
+                "spreadAllowed": diag_guards.get("spreadAllowed"),
+                "newsBlocked": diag_guards.get("newsBlocked"),
+                "cooldownActive": diag_guards.get("cooldownActive"),
+                "startupGuardActive": diag_guards.get("startupGuardActive"),
+                "symbolPositions": diag_guards.get("symbolPositions"),
+                "maxPositionsPerSymbol": diag_guards.get("maxPositionsPerSymbol"),
+            },
+            "eaRsi": {
+                "period": diag_rsi.get("period"),
+                "oversold": diag_rsi.get("oversold"),
+                "signalReady": diag_rsi.get("signalReady"),
+                "signalDirection": diag_rsi.get("signalDirection"),
+                "evalCode": diag_rsi.get("evalCode"),
+                "evalReason": diag_rsi.get("evalReason"),
+            },
         },
-        "reasonZh": "Strategy JSON 与 MQL5 RSI 诊断方向一致" if status == "PASS" else f"Strategy JSON 与 MQL5 诊断存在口径差异：{', '.join(mismatches)}",
+        "reasonZh": "Strategy JSON 与 MQL5 RSI 诊断关键口径一致" if status == "PASS" else f"Strategy JSON 与 MQL5 诊断存在口径差异：{', '.join(mismatches)}",
     }
 
 
@@ -211,6 +249,63 @@ def _summary(checks: List[Dict[str, Any]]) -> Dict[str, int]:
         status = str(row.get("status") or "WARN")
         counts[status] = counts.get(status, 0) + 1
     return counts
+
+
+def _parity_dimensions(backtest: Dict[str, Any], live_loop: Dict[str, Any], diagnostics: Dict[str, Any]) -> Dict[str, Any]:
+    vector = ((backtest.get("engine") or {}).get("parityVector") or {}) if isinstance(backtest.get("engine"), dict) else {}
+    diag_route = diagnostics.get("route") if isinstance(diagnostics.get("route"), dict) else {}
+    diag_guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
+    diag_rsi = diagnostics.get("rsi") if isinstance(diagnostics.get("rsi"), dict) else {}
+    top_policy = live_loop.get("topLiveEligiblePolicy") or live_loop.get("topPolicy") or {}
+    return {
+        "strategyJson": {
+            "strategyFamily": vector.get("strategyFamily"),
+            "direction": vector.get("direction"),
+            "entryMode": vector.get("entryMode"),
+            "rsi": vector.get("rsi") if isinstance(vector.get("rsi"), dict) else {},
+            "exit": vector.get("exit") if isinstance(vector.get("exit"), dict) else {},
+            "risk": vector.get("risk") if isinstance(vector.get("risk"), dict) else {},
+            "signalCount": vector.get("signalCount"),
+            "lastSignalTime": vector.get("lastSignalTime"),
+        },
+        "liveLoop": {
+            "status": live_loop.get("status") or live_loop.get("state"),
+            "topLiveEligiblePolicy": {
+                "strategy": _policy_strategy(top_policy),
+                "direction": top_policy.get("direction"),
+                "entryMode": top_policy.get("entryMode") or top_policy.get("mode"),
+                "recommendedLot": top_policy.get("recommendedLot"),
+            },
+        },
+        "mql5Ea": {
+            "state": diagnostics.get("state") or diagnostics.get("status"),
+            "route": {
+                "timeframe": diag_route.get("timeframe"),
+                "candidateEnabled": diag_route.get("candidateEnabled"),
+                "liveEnabled": diag_route.get("liveEnabled"),
+                "lastStatus": diag_route.get("lastStatus"),
+            },
+            "guards": {
+                "sessionOpen": diag_guards.get("sessionOpen"),
+                "spreadAllowed": diag_guards.get("spreadAllowed"),
+                "newsBlocked": diag_guards.get("newsBlocked"),
+                "cooldownActive": diag_guards.get("cooldownActive"),
+                "startupGuardActive": diag_guards.get("startupGuardActive"),
+                "manualPositionBlock": diag_guards.get("manualPositionBlock"),
+            },
+            "rsi": {
+                "period": diag_rsi.get("period"),
+                "oversold": diag_rsi.get("oversold"),
+                "signalReady": diag_rsi.get("signalReady"),
+                "signalDirection": diag_rsi.get("signalDirection"),
+                "evalCode": diag_rsi.get("evalCode"),
+            },
+        },
+    }
+
+
+def _present(value: Any) -> bool:
+    return value not in {None, ""}
 
 
 def _reason_zh(status: str) -> str:

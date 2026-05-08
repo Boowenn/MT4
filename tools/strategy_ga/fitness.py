@@ -50,7 +50,8 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     replay_net_r = _num(entry_relaxed.get("netRDelta") or summary.get("relaxedNetRDelta") or wf_summary.get("netRDelta"), 0)
     backtest_penalty = min(1.0, _num(backtest_metrics.get("maxDrawdownR"), 0) * 0.2)
     parity_penalty = 0.0 if parity.get("status") in {"PARITY_PASS", "PARITY_WARN", None, ""} else 1.0
-    execution_penalty = min(0.5, _num(execution_metrics.get("rejectCount"), 0) * 0.1)
+    execution_penalty = _execution_penalty(execution_metrics)
+    case_penalty = _case_penalty(cases)
     sample_count = backtest_trade_count if has_seed_backtest else int(
         _num(summary.get("sampleCount") or wf_summary.get("sampleCount") or backtest_trade_count, 0)
     )
@@ -96,15 +97,23 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "present": bool(execution),
             "sampleCount": int(_num(execution.get("sampleCount"), 0)),
             "rejectCount": int(_num(execution_metrics.get("rejectCount"), 0)),
+            "rejectRatePct": _num(execution_metrics.get("rejectRatePct"), 0),
+            "dominantRejectReason": execution_metrics.get("dominantRejectReason") or "",
             "avgAbsSlippagePips": _num(execution_metrics.get("avgAbsSlippagePips"), 0),
+            "maxAbsSlippagePips": _num(execution_metrics.get("maxAbsSlippagePips"), 0),
+            "avgLatencyMs": _num(execution_metrics.get("avgLatencyMs"), 0),
+            "acceptedWithoutFillCount": int(_num(execution_metrics.get("acceptedWithoutFillCount"), 0)),
+            "policyMismatchCount": int(_num(execution_metrics.get("policyMismatchCount"), 0)),
             "penalty": execution_penalty,
         },
         "caseMemory": {
             "present": bool(cases),
             "caseCount": int(_num(cases.get("caseCount"), 0)),
             "queuedForGA": int(_num(cases.get("queuedForGA"), 0)),
+            "caseTypeCounts": cases.get("caseTypeCounts") if isinstance(cases.get("caseTypeCounts"), dict) else {},
+            "penalty": case_penalty,
         },
-        "evidencePenalty": parity_penalty + execution_penalty,
+        "evidencePenalty": parity_penalty + execution_penalty + case_penalty,
         "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or strategy_backtest.get("evidenceQuality") or "LOW",
     }
 
@@ -156,6 +165,33 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "executionFeedback": metrics.get("executionFeedback", {}),
         "caseMemory": metrics.get("caseMemory", {}),
     }
+
+
+def _execution_penalty(metrics: Dict[str, Any]) -> float:
+    if not metrics:
+        return 0.0
+    reject_penalty = min(0.45, _num(metrics.get("rejectRatePct"), 0) / 100.0 * 1.5)
+    reject_count_penalty = min(0.25, _num(metrics.get("rejectCount"), 0) * 0.05)
+    slippage_penalty = max(0.0, _num(metrics.get("avgAbsSlippagePips"), 0) - 0.8) * 0.35
+    latency_penalty = max(0.0, _num(metrics.get("avgLatencyMs"), 0) - 1500.0) / 3000.0
+    mismatch_penalty = min(0.5, _num(metrics.get("policyMismatchCount"), 0) * 0.25)
+    ack_fill_penalty = min(0.25, max(0.0, _num(metrics.get("acceptedWithoutFillCount"), 0) - 2.0) * 0.05)
+    return round(min(1.25, reject_penalty + reject_count_penalty + slippage_penalty + latency_penalty + mismatch_penalty + ack_fill_penalty), 4)
+
+
+def _case_penalty(cases: Dict[str, Any]) -> float:
+    type_counts = cases.get("caseTypeCounts") if isinstance(cases.get("caseTypeCounts"), dict) else {}
+    if not type_counts:
+        return 0.0
+    execution_types = {
+        "EXECUTION_REJECT",
+        "EXECUTION_SLIPPAGE",
+        "EXECUTION_LATENCY",
+        "POLICY_MISMATCH",
+    }
+    severe_count = sum(int(_num(type_counts.get(name), 0)) for name in execution_types)
+    overfit_count = int(_num(type_counts.get("GA_OVERFIT"), 0))
+    return round(min(0.5, severe_count * 0.08 + overfit_count * 0.05), 4)
 
 
 def _strategy_backtest_metrics(runtime_dir: Path, seed: Dict[str, Any] | None) -> Dict[str, Any]:

@@ -80,12 +80,68 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertEqual(evidence["executionFeedback"]["metrics"]["acceptedCount"], 1)
             self.assertEqual(evidence["executionFeedback"]["metrics"]["fillCount"], 3)
             self.assertEqual(evidence["executionFeedback"]["metrics"]["rejectCount"], 2)
+            self.assertIn("dominantRejectReason", evidence["executionFeedback"]["metrics"])
             sources = {row["source"] for row in evidence["executionFeedback"]["recentFeedback"]}
             self.assertIn("QuantGod_LiveExecutionFeedback.jsonl", sources)
             self.assertIn("QuantGod_LiveExecutionFeedbackHistory.jsonl", sources)
             self.assertIn("qualityGates", evidence["executionFeedback"])
+            self.assertIn("parityDimensions", evidence["parity"])
             self.assertFalse(evidence["safety"]["orderSendAllowed"])
             self.assertTrue((runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json").exists())
+
+    def test_execution_quality_feeds_case_memory_and_ga_penalty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            run_backtest(runtime_dir, write=True)
+            (runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                """
+                {
+                  "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                  "symbol": "USDJPYc",
+                  "strategy": "RSI_Reversal",
+                  "direction": "LONG",
+                  "state": "READY_BUY_SIGNAL",
+                  "route": {"timeframe": "H1", "candidateEnabled": true, "liveEnabled": true},
+                  "guards": {"sessionOpen": true, "spreadAllowed": true, "newsBlocked": false},
+                  "rsi": {
+                    "period": 14,
+                    "oversold": 34,
+                    "signalReady": true,
+                    "signalDirection": "LONG",
+                    "evalCode": "READY"
+                  }
+                }
+                """,
+                encoding="utf-8",
+            )
+            (runtime_dir / "QuantGod_LiveExecutionFeedback.jsonl").write_text(
+                "\n".join(
+                    [
+                        '{"feedbackId":"ack-1","eventType":"ORDER_ACCEPTED","symbol":"USDJPYc","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","expectedPrice":155.10,"latencyMs":2600}',
+                        '{"feedbackId":"ack-2","eventType":"ORDER_ACCEPTED","symbol":"USDJPYc","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","expectedPrice":155.11,"latencyMs":2800}',
+                        '{"feedbackId":"ack-3","eventType":"ORDER_ACCEPTED","symbol":"USDJPYc","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","expectedPrice":155.12,"latencyMs":3000}',
+                        '{"feedbackId":"rej-1","eventType":"ORDER_REJECTED","symbol":"USDJPYc","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","retcode":10030,"latencyMs":2100}',
+                        '{"feedbackId":"fill-1","eventType":"ORDER_FILL","symbol":"USDJPYc","policyId":"EVIDENCE_MISSING","strategyId":"RSI_Reversal","expectedPrice":155.00,"fillPrice":155.03,"slippagePips":3.0,"latencyMs":2400}',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            evidence = build_evidence_os(runtime_dir, write=True)
+            metrics = evidence["executionFeedback"]["metrics"]
+            self.assertEqual(metrics["acceptedWithoutFillCount"], 3)
+            self.assertGreater(metrics["avgAbsSlippagePips"], 0.8)
+            self.assertGreater(metrics["avgLatencyMs"], 1500)
+            self.assertEqual(metrics["policyMismatchCount"], 1)
+
+            cases = evidence["caseMemory"]
+            self.assertIn("EXECUTION_SLIPPAGE", cases["caseTypeCounts"])
+            self.assertIn("EXECUTION_LATENCY", cases["caseTypeCounts"])
+            self.assertIn("POLICY_MISMATCH", cases["caseTypeCounts"])
+
+            score = score_seed(base_strategy_seed("GA-EXECUTION-QUALITY"), runtime_dir)
+            self.assertGreater(score["executionFeedback"]["penalty"], 0.5)
+            self.assertGreater(score["caseMemory"]["penalty"], 0.0)
 
     def test_independent_telegram_gateway_queues_dedupes_and_dispatches(self):
         with tempfile.TemporaryDirectory() as tmp:

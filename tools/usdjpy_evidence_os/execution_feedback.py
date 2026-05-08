@@ -131,6 +131,17 @@ def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         and not row.get("rejectReason")
     ]
     accepted = [row for row in rows if str(row.get("eventType") or "").upper() in accepted_event_types]
+    filled_feedback_ids = {
+        str(row.get("feedbackId") or "")
+        for row in fills
+        if row.get("feedbackId")
+    }
+    accepted_without_fill = [
+        row
+        for row in accepted
+        if str(row.get("feedbackId") or "") not in filled_feedback_ids
+        and not row.get("fillPrice")
+    ]
     latency = [float(row["latencyMs"]) for row in rows if row.get("latencyMs")]
     profits = [float(row.get("profitR") or 0.0) for row in rows]
     wins = [value for value in profits if value > 0]
@@ -146,10 +157,13 @@ def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "acceptedCount": len(accepted),
         "fillCount": len(fills),
         "rejectCount": len(rejects),
+        "acceptedWithoutFillCount": len(accepted_without_fill),
         "rejectRatePct": round((len(rejects) / len(rows) * 100.0), 2) if rows else 0.0,
+        "dominantRejectReason": _dominant_reject_reason(rejects),
         "avgAbsSlippagePips": round(sum(slippage) / len(slippage), 4) if slippage else 0.0,
         "maxAbsSlippagePips": round(max(slippage), 4) if slippage else 0.0,
         "avgLatencyMs": round(sum(latency) / len(latency), 2) if latency else 0.0,
+        "maxLatencyMs": round(max(latency), 2) if latency else 0.0,
         "netR": round(sum(profits), 4),
         "winRatePct": round(len(wins) / (len(wins) + len(losses)) * 100.0, 2) if wins or losses else 0.0,
         "policyMismatchCount": len(policy_mismatch),
@@ -169,6 +183,16 @@ def _quality_gates(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "name": "reject_rate",
             "status": "PASS" if float(metrics["rejectRatePct"]) <= 15.0 else "WARN",
             "reasonZh": "拒单率正常" if float(metrics["rejectRatePct"]) <= 15.0 else "拒单率偏高，需要检查 EA 与券商执行",
+        },
+        {
+            "name": "latency",
+            "status": "PASS" if float(metrics["avgLatencyMs"]) <= 1500.0 else "WARN",
+            "reasonZh": "平均执行延迟可接受" if float(metrics["avgLatencyMs"]) <= 1500.0 else "平均执行延迟偏高，需要检查 VPS/终端/券商链路",
+        },
+        {
+            "name": "accepted_without_fill",
+            "status": "PASS" if int(metrics["acceptedWithoutFillCount"]) <= 2 else "WARN",
+            "reasonZh": "未成交挂起数量可接受" if int(metrics["acceptedWithoutFillCount"]) <= 2 else "已接受但未看到成交回执偏多，需要确认 EA/历史同步",
         },
         {
             "name": "policy_mismatch",
@@ -225,6 +249,16 @@ def _reject_reason(row: Dict[str, Any], retcode: Any) -> str:
     if not code or code in {"0", "10009", "10008"}:
         return ""
     return f"MT5_RETCODE_{code}"
+
+
+def _dominant_reject_reason(rejects: List[Dict[str, Any]]) -> str:
+    counts: Dict[str, int] = {}
+    for row in rejects:
+        reason = str(row.get("rejectReason") or "UNKNOWN_REJECT")
+        counts[reason] = counts.get(reason, 0) + 1
+    if not counts:
+        return ""
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
 
 def _feedback_id(index: int, row: Dict[str, Any], source: str) -> str:

@@ -411,10 +411,34 @@ def _simulate_exit(
 def _parity_vector(strategy: Dict[str, Any], bars: List[Bar], signals: List[Dict[str, Any]]) -> Dict[str, Any]:
     last_signal = signals[-1] if signals else {}
     last_signal_index = int(last_signal["entryIndex"]) if last_signal else -1
+    rsi_cfg = ((strategy.get("indicators") or {}).get("rsi") or {})
+    entry_cfg = strategy.get("entry") if isinstance(strategy.get("entry"), dict) else {}
+    exit_cfg = strategy.get("exit") if isinstance(strategy.get("exit"), dict) else {}
+    risk_cfg = strategy.get("risk") if isinstance(strategy.get("risk"), dict) else {}
     return {
         "schema": "quantgod.strategy_parity_vector.v1",
         "strategyFamily": strategy.get("strategyFamily"),
         "direction": strategy.get("direction"),
+        "entryMode": entry_cfg.get("mode"),
+        "entryConditions": entry_cfg.get("conditions") if isinstance(entry_cfg.get("conditions"), list) else [],
+        "rsi": {
+            "period": rsi_cfg.get("period"),
+            "timeframe": rsi_cfg.get("timeframe"),
+            "buyBand": rsi_cfg.get("buyBand"),
+            "sellBand": rsi_cfg.get("sellBand"),
+            "crossbackThreshold": rsi_cfg.get("crossbackThreshold"),
+        },
+        "exit": {
+            "breakevenDelayR": exit_cfg.get("breakevenDelayR"),
+            "trailStartR": exit_cfg.get("trailStartR"),
+            "mfeGivebackPct": exit_cfg.get("mfeGivebackPct"),
+            "timeStopBars": exit_cfg.get("timeStopBars") if isinstance(exit_cfg.get("timeStopBars"), dict) else {},
+        },
+        "risk": {
+            "maxLot": risk_cfg.get("maxLot"),
+            "stage": risk_cfg.get("stage"),
+            "opportunityLotMultiplier": risk_cfg.get("opportunityLotMultiplier"),
+        },
         "barCount": len(bars),
         "lastSignalTime": bars[last_signal_index].timestamp if 0 <= last_signal_index < len(bars) else None,
         "lastSignalReason": last_signal.get("reason"),
