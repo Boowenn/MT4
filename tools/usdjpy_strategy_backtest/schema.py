@@ -21,6 +21,7 @@ SAFETY_BOUNDARY: Dict[str, Any] = {
     "livePresetMutationAllowed": False,
     "polymarketRealMoneyAllowed": False,
     "telegramCommandExecutionAllowed": False,
+    "telegramCommandEnv": "QG_TELEGRAM_COMMANDS_ALLOWED=0",
     "backtestDirectLiveAllowed": False,
 }
 
