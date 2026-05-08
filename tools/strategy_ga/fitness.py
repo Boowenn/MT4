@@ -44,6 +44,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     wf_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
     backtest_metrics = strategy_backtest.get("metrics") if isinstance(strategy_backtest.get("metrics"), dict) else {}
     execution_metrics = execution.get("metrics") if isinstance(execution.get("metrics"), dict) else {}
+    execution_gate = execution.get("promotionGate") if isinstance(execution.get("promotionGate"), dict) else {}
     has_seed_backtest = bool(seed and strategy_backtest)
     backtest_net_r = _num(backtest_metrics.get("netR"), 0)
     backtest_trade_count = int(_num(backtest_metrics.get("tradeCount"), 0))
@@ -101,6 +102,9 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
         "executionFeedback": {
             "present": bool(execution),
             "sampleCount": int(_num(execution.get("sampleCount"), 0)),
+            "promotionGateStatus": execution_gate.get("status") or ("MISSING" if not execution else "UNKNOWN"),
+            "promotionAllowed": bool(execution_gate.get("promotionAllowed")) if execution_gate else False,
+            "caseMemoryTriggerCount": len(execution.get("caseMemoryTriggers", [])) if isinstance(execution.get("caseMemoryTriggers"), list) else 0,
             "rejectCount": int(_num(execution_metrics.get("rejectCount"), 0)),
             "rejectRatePct": _num(execution_metrics.get("rejectRatePct"), 0),
             "dominantRejectReason": execution_metrics.get("dominantRejectReason") or "",
@@ -152,6 +156,8 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         blocker = "OVERFIT_RISK"
     elif metrics.get("parity", {}).get("promotionGateStatus") in {"BLOCKED", "MISSING"}:
         blocker = "PARITY_PROMOTION_GATE_BLOCKED"
+    elif metrics.get("executionFeedback", {}).get("promotionGateStatus") == "BLOCKED":
+        blocker = "PARITY_OR_EXECUTION_EVIDENCE_FAILED"
     elif evidence_penalty >= 1.0:
         blocker = "PARITY_OR_EXECUTION_EVIDENCE_FAILED"
     elif max_adverse_penalty > 0.5:

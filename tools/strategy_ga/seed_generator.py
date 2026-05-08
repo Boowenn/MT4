@@ -51,10 +51,14 @@ def case_memory_seed_pool(runtime_dir: Path, limit: int = 6) -> List[Dict[str, A
     cases = _load_case_memory(runtime_dir)
     seeds: List[Dict[str, Any]] = []
     for index, case in enumerate(cases[:limit], start=1):
-        hint = str(((case.get("proposedAction") or {}).get("mutationHint") or "case_memory_observe"))
+        action = case.get("proposedAction") if isinstance(case.get("proposedAction"), dict) else {}
+        hint = str(case.get("mutationHint") or action.get("mutationHint") or "case_memory_observe")
         seed = base_strategy_seed(f"GA-USDJPY-CASE-{index:04d}", family="RSI_Reversal", direction="LONG")
         seed["source"] = "CASE_MEMORY"
         seed["caseId"] = case.get("caseId")
+        seed["caseType"] = case.get("caseType") or case.get("type")
+        seed["casePriority"] = case.get("priority") or action.get("priority") or "MEDIUM"
+        seed["caseReasonZh"] = case.get("reasonZh") or case.get("rootCause")
         seed["mutationHint"] = hint
         seed["strategyId"] = f"USDJPY_RSI_REVERSAL_LONG_CASE_{hint.upper()}_{index:03d}"
         _apply_case_hint(seed, hint)
@@ -67,6 +71,14 @@ def _load_case_memory(runtime_dir: Path) -> List[Dict[str, Any]]:
     try:
         if summary.exists():
             data = json.loads(summary.read_text(encoding="utf-8"))
+            hints = data.get("gaSeedHints") if isinstance(data.get("gaSeedHints"), list) else []
+            if hints:
+                return [
+                    row
+                    for row in hints
+                    if isinstance(row, dict)
+                    and row.get("status", "QUEUED_FOR_GA") == "QUEUED_FOR_GA"
+                ]
             rows = data.get("cases") if isinstance(data.get("cases"), list) else []
             return [row for row in rows if isinstance(row, dict) and row.get("status") == "QUEUED_FOR_GA"]
     except Exception:

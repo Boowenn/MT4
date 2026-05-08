@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from tools.strategy_ga.fitness import score_seed
+from tools.strategy_ga.seed_generator import case_memory_seed_pool
 from tools.strategy_json.schema import base_strategy_seed
 from tools.usdjpy_evidence_os.parity import build_parity_report
 from tools.usdjpy_evidence_os.report import build_evidence_os
@@ -86,6 +87,8 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertIn("QuantGod_LiveExecutionFeedback.jsonl", sources)
             self.assertIn("QuantGod_LiveExecutionFeedbackHistory.jsonl", sources)
             self.assertIn("qualityGates", evidence["executionFeedback"])
+            self.assertIn("promotionGate", evidence["executionFeedback"])
+            self.assertIn(evidence["executionFeedback"]["promotionGate"]["status"], {"PASS", "WATCH", "BLOCKED"})
             self.assertIn("parityDimensions", evidence["parity"])
             self.assertFalse(evidence["safety"]["orderSendAllowed"])
             self.assertTrue((runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json").exists())
@@ -134,14 +137,26 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertGreater(metrics["avgAbsSlippagePips"], 0.8)
             self.assertGreater(metrics["avgLatencyMs"], 1500)
             self.assertEqual(metrics["policyMismatchCount"], 1)
+            self.assertEqual(evidence["executionFeedback"]["promotionGate"]["status"], "BLOCKED")
+            self.assertFalse(evidence["executionFeedback"]["promotionGate"]["promotionAllowed"])
+            self.assertGreaterEqual(len(evidence["executionFeedback"]["caseMemoryTriggers"]), 1)
 
             cases = evidence["caseMemory"]
             self.assertIn("EXECUTION_SLIPPAGE", cases["caseTypeCounts"])
             self.assertIn("EXECUTION_LATENCY", cases["caseTypeCounts"])
             self.assertIn("POLICY_MISMATCH", cases["caseTypeCounts"])
+            self.assertIn("gaSeedHints", cases)
+            self.assertGreaterEqual(cases["caseMemoryToGA"]["queuedHintCount"], 1)
+            hints = {row["mutationHint"] for row in cases["gaSeedHints"]}
+            self.assertIn("tighten_execution_filter", hints)
+            seeds = case_memory_seed_pool(runtime_dir)
+            self.assertTrue(seeds)
+            self.assertTrue(any(seed.get("source") == "CASE_MEMORY" for seed in seeds))
+            self.assertTrue(any(seed.get("casePriority") == "HIGH" for seed in seeds))
 
             score = score_seed(base_strategy_seed("GA-EXECUTION-QUALITY"), runtime_dir)
             self.assertGreater(score["executionFeedback"]["penalty"], 0.5)
+            self.assertEqual(score["executionFeedback"]["promotionGateStatus"], "BLOCKED")
             self.assertGreater(score["caseMemory"]["penalty"], 0.0)
             self.assertEqual(score["parity"]["promotionGateStatus"], "BLOCKED")
             self.assertGreaterEqual(score["parity"]["penalty"], 0.65)

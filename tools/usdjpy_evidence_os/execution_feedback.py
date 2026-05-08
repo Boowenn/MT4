@@ -20,6 +20,10 @@ def build_execution_feedback(runtime_dir: Path, write: bool = True) -> Dict[str,
     normalized = _dedupe_feedback(
         [_normalize_row(index, row, source) for index, (row, source) in enumerate(rows, start=1)]
     )
+    metrics = _metrics(normalized)
+    quality_gates = _quality_gates_from_metrics(metrics)
+    promotion_gate = _promotion_gate(metrics, quality_gates)
+    case_memory_triggers = _case_memory_triggers(metrics, promotion_gate)
     report = {
         "ok": True,
         "schema": "quantgod.live_execution_quality_report.v1",
@@ -27,8 +31,12 @@ def build_execution_feedback(runtime_dir: Path, write: bool = True) -> Dict[str,
         "createdAt": utc_now_iso(),
         "symbol": FOCUS_SYMBOL,
         "sampleCount": len(normalized),
-        "metrics": _metrics(normalized),
-        "qualityGates": _quality_gates(normalized),
+        "metrics": metrics,
+        "qualityGates": quality_gates,
+        "promotionGate": promotion_gate,
+        "caseMemoryTriggers": case_memory_triggers,
+        "agentAction": _agent_action(promotion_gate),
+        "nextActionZh": _next_action_zh(promotion_gate),
         "recentFeedback": normalized[-20:],
         "reasonZh": "执行反馈统一审计 EA trade event、成交、拒单、滑点、延迟和 policy 偏离；不会下单。",
         "safety": dict(SAFETY_BOUNDARY),
@@ -172,7 +180,10 @@ def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _quality_gates(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    metrics = _metrics(rows)
+    return _quality_gates_from_metrics(_metrics(rows))
+
+
+def _quality_gates_from_metrics(metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [
         {
             "name": "slippage",
@@ -200,6 +211,166 @@ def _quality_gates(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "reasonZh": "未发现 policy 与执行明显偏离" if int(metrics["policyMismatchCount"]) == 0 else "发现 policy 阻断态仍有执行痕迹，需要复盘",
         },
     ]
+
+
+def _promotion_gate(metrics: Dict[str, Any], quality_gates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rows = int(metrics.get("feedbackRows") or 0)
+    if rows <= 0:
+        return {
+            "schema": "quantgod.live_execution_promotion_gate.v1",
+            "status": "WAITING_FEEDBACK",
+            "promotionAllowed": False,
+            "liveStageAllowed": False,
+            "blockerCount": 0,
+            "blockers": [],
+            "warnings": [],
+            "reasonZh": "尚无真实执行反馈；可以继续 shadow/tester，但不能把执行质量视为已通过。",
+        }
+
+    blockers: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+
+    def add_blocker(code: str, reason: str, value: Any, limit: Any, case_type: str, mutation_hint: str) -> None:
+        blockers.append(
+            {
+                "code": code,
+                "reasonZh": reason,
+                "value": value,
+                "limit": limit,
+                "caseType": case_type,
+                "mutationHint": mutation_hint,
+            }
+        )
+
+    if int(metrics.get("policyMismatchCount") or 0) > 0:
+        add_blocker(
+            "POLICY_MISMATCH",
+            "发现 policy 阻断态仍有执行痕迹，必须先核对 EA 与后端策略同步。",
+            metrics.get("policyMismatchCount"),
+            0,
+            "POLICY_MISMATCH",
+            "verify_ea_policy_sync",
+        )
+    if int(metrics.get("acceptedWithoutFillCount") or 0) > 5:
+        add_blocker(
+            "ACCEPTED_WITHOUT_FILL_HIGH",
+            "EA 接受请求后缺少成交回执过多，需要核对成交历史同步。",
+            metrics.get("acceptedWithoutFillCount"),
+            5,
+            "POLICY_MISMATCH",
+            "verify_execution_ack_fill_sync",
+        )
+    if float(metrics.get("rejectRatePct") or 0.0) > 30.0 and int(metrics.get("rejectCount") or 0) >= 2:
+        add_blocker(
+            "REJECT_RATE_HIGH",
+            "拒单率过高，不能把当前执行链路视为可晋级。",
+            metrics.get("rejectRatePct"),
+            "30%",
+            "EXECUTION_REJECT",
+            "inspect_execution_quality",
+        )
+    if float(metrics.get("avgAbsSlippagePips") or 0.0) > 2.0:
+        add_blocker(
+            "SLIPPAGE_HIGH",
+            "平均滑点超过 2 pips，需要限制触发窗口或降仓。",
+            metrics.get("avgAbsSlippagePips"),
+            2.0,
+            "EXECUTION_SLIPPAGE",
+            "tighten_execution_filter",
+        )
+    if float(metrics.get("avgLatencyMs") or 0.0) > 3000.0:
+        add_blocker(
+            "LATENCY_HIGH",
+            "平均执行延迟超过 3000ms，需要检查 VPS、终端或券商链路。",
+            metrics.get("avgLatencyMs"),
+            3000,
+            "EXECUTION_LATENCY",
+            "reduce_execution_latency",
+        )
+
+    for gate in quality_gates:
+        if gate.get("status") == "WARN" and not any(item.get("code") == gate.get("name") for item in blockers):
+            warnings.append(
+                {
+                    "code": str(gate.get("name") or "EXECUTION_WARN").upper(),
+                    "reasonZh": gate.get("reasonZh") or "执行质量有轻微风险，需要继续观察。",
+                }
+            )
+
+    if blockers:
+        status = "BLOCKED"
+        reason = "真实执行反馈未通过晋级门；需要进入 Case Memory 并阻止实盘阶段扩大。"
+    elif warnings:
+        status = "WATCH"
+        reason = "真实执行反馈有轻微风险；允许继续观察，但不建议扩大 live 阶段。"
+    else:
+        status = "PASS"
+        reason = "真实执行反馈未发现拒单、滑点、延迟或 policy 偏离硬风险。"
+
+    return {
+        "schema": "quantgod.live_execution_promotion_gate.v1",
+        "status": status,
+        "promotionAllowed": status == "PASS",
+        "liveStageAllowed": status == "PASS",
+        "blockerCount": len(blockers),
+        "blockers": blockers,
+        "warnings": warnings,
+        "reasonZh": reason,
+    }
+
+
+def _case_memory_triggers(metrics: Dict[str, Any], promotion_gate: Dict[str, Any]) -> List[Dict[str, Any]]:
+    triggers: List[Dict[str, Any]] = []
+    for blocker in promotion_gate.get("blockers", []) if isinstance(promotion_gate.get("blockers"), list) else []:
+        if not isinstance(blocker, dict):
+            continue
+        triggers.append(
+            {
+                "caseType": blocker.get("caseType") or "EXECUTION_QUALITY",
+                "mutationHint": blocker.get("mutationHint") or "inspect_execution_quality",
+                "priority": "HIGH",
+                "recommendedLane": "MT5_SHADOW",
+                "reasonZh": blocker.get("reasonZh") or "执行反馈触发 Case Memory。",
+                "metrics": {
+                    "rejectRatePct": metrics.get("rejectRatePct"),
+                    "avgAbsSlippagePips": metrics.get("avgAbsSlippagePips"),
+                    "avgLatencyMs": metrics.get("avgLatencyMs"),
+                    "acceptedWithoutFillCount": metrics.get("acceptedWithoutFillCount"),
+                    "policyMismatchCount": metrics.get("policyMismatchCount"),
+                },
+            }
+        )
+    return triggers
+
+
+def _agent_action(promotion_gate: Dict[str, Any]) -> Dict[str, Any]:
+    status = str(promotion_gate.get("status") or "WAITING_FEEDBACK")
+    if status == "BLOCKED":
+        action = "BLOCK_PROMOTION_AND_QUEUE_CASE_MEMORY"
+    elif status == "WATCH":
+        action = "KEEP_SHADOW_AND_MONITOR_EXECUTION"
+    elif status == "PASS":
+        action = "ALLOW_EXECUTION_FEEDBACK_TO_SUPPORT_PROMOTION"
+    else:
+        action = "WAIT_FOR_LIVE_EXECUTION_FEEDBACK"
+    return {
+        "action": action,
+        "completedByAgent": True,
+        "autoAppliedByAgent": status == "BLOCKED",
+        "requiresAutonomousGovernance": True,
+        "requiresManualReview": False,
+    }
+
+
+def _next_action_zh(promotion_gate: Dict[str, Any]) -> str:
+    status = str(promotion_gate.get("status") or "WAITING_FEEDBACK")
+    if status == "BLOCKED":
+        return "执行反馈触发晋级阻断：写入 Case Memory，下一代 GA 需优先生成执行质量修复候选。"
+    if status == "WATCH":
+        return "执行反馈有轻微风险：继续 shadow/tester 收集，不扩大 live 阶段。"
+    if status == "PASS":
+        return "执行反馈通过：可作为后续自主晋级的支持证据。"
+    return "等待 EA 输出标准化 LiveExecutionFeedback 后再评估执行质量。"
 
 
 def _dedupe_feedback(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
