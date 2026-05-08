@@ -32,6 +32,7 @@ test('autonomous lifecycle keeps the three-lane safety model explicit', () => {
   const polymarket = read('tools/autonomous_lifecycle/polymarket_shadow_lane.py');
   const cent = read('tools/autonomous_lifecycle/cent_account_rules.py');
   const daily = read('tools/daily_autopilot_v2/report.py');
+  const orchestrator = read('tools/daily_autopilot_v2/orchestrator.py');
 
   for (const marker of [
     '实盘要窄，模拟要宽，升降级要快，回滚要硬',
@@ -42,7 +43,7 @@ test('autonomous lifecycle keeps the three-lane safety model explicit', () => {
     'polymarketRealMoneyAllowed',
     'liveMutationAllowed',
   ]) {
-    assert.match(lifecycle + mt5 + polymarket + daily, new RegExp(marker));
+    assert.match(lifecycle + mt5 + polymarket + daily + orchestrator, new RegExp(marker));
   }
   assert.match(cent, /QG_AUTO_MAX_LOT/);
   assert.match(cent, /2\.0/);
@@ -86,14 +87,26 @@ test('API exposes lifecycle and lane endpoints', () => {
 test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety', () => {
   const runner = read('tools/run_daily_autopilot_v2.py');
   const report = read('tools/daily_autopilot_v2/report.py');
+  const orchestrator = read('tools/daily_autopilot_v2/orchestrator.py');
   const text = read('tools/daily_autopilot_v2/telegram_text.py');
+  const routes = read('Dashboard/usdjpy_strategy_lab_api_routes.js');
 
   for (const marker of ['今日自动作战计划', '今日自动复盘', 'MT5 模拟车道', 'Polymarket 模拟车道', '不会下单']) {
     assert.match(report + text, new RegExp(marker));
   }
   for (const marker of ['dailyTodo', 'dailyReview', 'completedByAgent', 'autoAppliedByAgent', 'requiresAutonomousGovernance', 'strategyJsonTodo', 'gaEvolutionTodo', 'telegramGatewayTodo', 'COMPLETED_BY_AGENT']) {
-    assert.match(report, new RegExp(marker));
+    assert.match(report + orchestrator, new RegExp(marker));
   }
+  for (const marker of [
+    'run-cycle',
+    'RUN_GA_GENERATION',
+    'RUN_PARITY_AND_EXECUTION_FEEDBACK',
+    'QuantGod_DailyAutopilotV2RunLatest.json',
+    'QuantGod_DailyAutopilotV2RunLedger.jsonl',
+  ]) {
+    assert.match(runner + orchestrator + routes, new RegExp(marker));
+  }
+  assert.match(routes, /run-cycle', '--write'/);
   for (const marker of ['Strategy JSON', 'GA Evolution', 'Telegram Gateway', '下一阶段任务', '独立 Telegram Gateway 已接入']) {
     assert.match(report + text, new RegExp(marker));
   }

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Dict
 
+from daily_autopilot_v2.orchestrator import run_daily_autopilot_cycle
 from daily_autopilot_v2.report import build_daily_autopilot_v2
 from daily_autopilot_v2.telegram_text import daily_autopilot_v2_to_chinese_text
 from usdjpy_evidence_os.telegram_gateway import dispatch_text
@@ -85,6 +86,10 @@ def main(argv=None) -> int:
     sub.add_parser("status")
     build = sub.add_parser("build")
     build.add_argument("--write", action="store_true")
+    run_cycle = sub.add_parser("run-cycle")
+    run_cycle.add_argument("--write", action="store_true")
+    run_cycle.add_argument("--bootstrap-samples", action="store_true")
+    run_cycle.add_argument("--view", choices=["full", "daily-todo", "daily-review"], default="full")
     todo = sub.add_parser("daily-todo")
     todo.add_argument("--write", action="store_true")
     review = sub.add_parser("daily-review")
@@ -108,6 +113,24 @@ def main(argv=None) -> int:
         return emit(build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=False))
     if args.command == "build":
         return emit(build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write))
+    if args.command == "run-cycle":
+        run_payload = run_daily_autopilot_cycle(
+            runtime_dir,
+            repo_root=repo_root,
+            write=args.write or True,
+            bootstrap_samples=args.bootstrap_samples,
+        )
+        payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write or True)
+        payload["orchestrationRun"] = run_payload
+        if args.view == "daily-todo":
+            daily_todo = payload.get("dailyTodo") if isinstance(payload.get("dailyTodo"), dict) else {}
+            daily_todo["orchestrationRun"] = run_payload
+            return emit(daily_todo)
+        if args.view == "daily-review":
+            daily_review = payload.get("dailyReview") if isinstance(payload.get("dailyReview"), dict) else {}
+            daily_review["orchestrationRun"] = run_payload
+            return emit(daily_review)
+        return emit(payload)
     if args.command == "daily-todo":
         payload = build_daily_autopilot_v2(runtime_dir, repo_root=repo_root, write=args.write)
         return emit(payload.get("dailyTodo") or {"ok": False, "error": "daily_todo_missing"})

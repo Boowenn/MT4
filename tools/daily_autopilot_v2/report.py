@@ -6,11 +6,13 @@ from typing import Any, Dict, List
 
 try:
     from tools.autonomous_lifecycle.lifecycle import build_autonomous_lifecycle
+    from tools.daily_autopilot_v2.orchestrator import read_latest_run
     from tools.news_gate.classifier import classify_news_gate
     from tools.usdjpy_autonomous_agent.agent_state import build_agent_state
     from tools.usdjpy_strategy_lab.schema import FOCUS_SYMBOL, utc_now_iso
 except ModuleNotFoundError:  # pragma: no cover
     from autonomous_lifecycle.lifecycle import build_autonomous_lifecycle
+    from daily_autopilot_v2.orchestrator import read_latest_run
     from news_gate.classifier import classify_news_gate
     from usdjpy_autonomous_agent.agent_state import build_agent_state
     from usdjpy_strategy_lab.schema import FOCUS_SYMBOL, utc_now_iso
@@ -180,6 +182,25 @@ def _ga_summary(runtime_dir: Path) -> Dict[str, Any]:
         "generationStatus": generation.get("status"),
         "blockers": blocker_rows,
         "nextAction": status.get("nextAction", "运行 Strategy JSON GA 一代并写入全过程 trace"),
+    }
+
+
+def _orchestration_summary(runtime_dir: Path) -> Dict[str, Any]:
+    latest = read_latest_run(runtime_dir)
+    if latest:
+        return latest
+    return {
+        "ok": True,
+        "schema": "quantgod.daily_autopilot_v2_run.v1",
+        "status": "WAITING_FIRST_AGENT_CYCLE",
+        "completedByAgent": False,
+        "autoAppliedByAgent": False,
+        "requiresAutonomousGovernance": True,
+        "stepCount": 0,
+        "completedStepCount": 0,
+        "failedStepCount": 0,
+        "steps": [],
+        "summaryZh": "等待 Agent 首次运行自动调度循环。",
     }
 
 
@@ -377,7 +398,14 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
     ] + _ga_todo_items(ga)
 
 
-def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], ga: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
+def _build_daily_todo(
+    agent: Dict[str, Any],
+    lifecycle: Dict[str, Any],
+    metrics: Dict[str, Any],
+    ga: Dict[str, Any],
+    orchestration: Dict[str, Any],
+    generated_at: str,
+) -> Dict[str, Any]:
     items = _agent_todo_items(agent, lifecycle, metrics, ga)
     next_phase = _next_phase_todos()
     rollback_triggered = any(bool(item.get("rollbackTriggered")) for item in items)
@@ -401,6 +429,7 @@ def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
         "items": items,
         "nextPhaseTodos": next_phase,
         "gaReview": ga,
+        "orchestrationRun": orchestration,
         "strategyJsonTodo": next_phase["strategyJsonTodo"],
         "gaEvolutionTodo": next_phase["gaEvolutionTodo"],
         "telegramGatewayTodo": next_phase["telegramGatewayTodo"],
@@ -408,7 +437,14 @@ def _build_daily_todo(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
     }
 
 
-def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], ga: Dict[str, Any], generated_at: str) -> Dict[str, Any]:
+def _build_daily_review(
+    agent: Dict[str, Any],
+    lifecycle: Dict[str, Any],
+    metrics: Dict[str, Any],
+    ga: Dict[str, Any],
+    orchestration: Dict[str, Any],
+    generated_at: str,
+) -> Dict[str, Any]:
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
@@ -457,6 +493,7 @@ def _build_daily_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], metric
             "nextGenerationPlanned": True,
             "nextAction": ga.get("nextAction"),
         },
+        "orchestrationRun": orchestration,
         "summaryZh": "每日复盘已由 Agent 自动完成：收集三车道样本、计算指标、更新升降级/回滚状态，不等待人工确认。",
     }
 
@@ -474,8 +511,9 @@ def build_daily_autopilot_v2(
     metrics = _runtime_metrics(runtime_dir, agent)
     news_gate = _news_gate_summary(runtime_dir)
     ga = _ga_summary(runtime_dir)
-    daily_todo = _build_daily_todo(agent, lifecycle, metrics, ga, generated_at)
-    daily_review = _build_daily_review(agent, lifecycle, metrics, ga, generated_at)
+    orchestration = _orchestration_summary(runtime_dir)
+    daily_todo = _build_daily_todo(agent, lifecycle, metrics, ga, orchestration, generated_at)
+    daily_review = _build_daily_review(agent, lifecycle, metrics, ga, orchestration, generated_at)
     payload: Dict[str, Any] = {
         "ok": True,
         "schema": "quantgod.daily_autopilot_v2.v1",
@@ -490,6 +528,7 @@ def build_daily_autopilot_v2(
         "newsGate": news_gate,
         "dailyTodo": daily_todo,
         "dailyReview": daily_review,
+        "orchestrationRun": orchestration,
         "gaReview": ga,
         "nextPhaseTodos": _next_phase_todos(),
         "completedByAgent": True,

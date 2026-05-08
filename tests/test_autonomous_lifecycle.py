@@ -8,6 +8,7 @@ from tools.autonomous_lifecycle.cent_account_rules import cent_account_config
 from tools.autonomous_lifecycle.lifecycle import build_autonomous_lifecycle
 from tools.autonomous_lifecycle.mt5_shadow_lane import build_mt5_shadow_lane
 from tools.autonomous_lifecycle.polymarket_shadow_lane import build_polymarket_shadow_lane
+from tools.daily_autopilot_v2.orchestrator import run_daily_autopilot_cycle
 from tools.daily_autopilot_v2.report import build_daily_autopilot_v2
 from tools.usdjpy_strategy_lab.schema import DEFAULT_STRATEGIES
 from tools.usdjpy_walk_forward.selector import sample_walk_forward_runtime
@@ -94,6 +95,28 @@ class AutonomousLifecycleTests(unittest.TestCase):
             self.assertFalse(payload["safety"]["orderSendAllowed"])
             self.assertFalse(payload["safety"]["polymarketRealMoneyAllowed"])
             self.assertTrue((runtime / "agent" / "QuantGod_DailyAutopilotV2.json").exists())
+
+    def test_daily_autopilot_v2_runs_agent_cycle_and_records_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Path(temp)
+            repo_root = Path(__file__).resolve().parents[1]
+
+            run = run_daily_autopilot_cycle(
+                runtime,
+                repo_root=repo_root,
+                write=True,
+                bootstrap_samples=True,
+            )
+            payload = build_daily_autopilot_v2(runtime, repo_root=repo_root, write=True)
+
+            self.assertTrue(run["ok"])
+            self.assertEqual(run["status"], "COMPLETED_BY_AGENT")
+            self.assertGreaterEqual(run["completedStepCount"], 7)
+            self.assertEqual(run["failedStepCount"], 0)
+            self.assertIn("orchestrationRun", payload)
+            self.assertEqual(payload["orchestrationRun"]["status"], "COMPLETED_BY_AGENT")
+            self.assertTrue((runtime / "agent" / "QuantGod_DailyAutopilotV2RunLatest.json").exists())
+            self.assertTrue((runtime / "agent" / "QuantGod_DailyAutopilotV2RunLedger.jsonl").exists())
 
 
 if __name__ == "__main__":

@@ -418,8 +418,8 @@ async function handle(req, res, ctx) {
     return;
   }
   if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/autonomous-agent/daily-autopilot-v2/run') {
-    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'build', '--write'];
-    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'run-cycle', '--write'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 360000, 'run_daily_autopilot_v2.py');
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
@@ -438,8 +438,8 @@ async function handle(req, res, ctx) {
     return;
   }
   if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/daily-todo/run') {
-    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-todo', '--write'];
-    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'run-cycle', '--write', '--view', 'daily-todo'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 360000, 'run_daily_autopilot_v2.py');
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
@@ -458,8 +458,8 @@ async function handle(req, res, ctx) {
     return;
   }
   if (req.method === 'POST' && pathname === '/api/usdjpy-strategy-lab/daily-review/run') {
-    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'daily-review', '--write'];
-    const payload = await runPythonJson(ctx.repoRoot, args, 120000, 'run_daily_autopilot_v2.py');
+    const args = ['--runtime-dir', runtimeDir, '--repo-root', ctx.repoRoot, 'run-cycle', '--write', '--view', 'daily-review'];
+    const payload = await runPythonJson(ctx.repoRoot, args, 360000, 'run_daily_autopilot_v2.py');
     sendJson(res, payload && payload.ok === false ? 500 : 200, payload);
     return;
   }
