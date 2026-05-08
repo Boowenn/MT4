@@ -47,6 +47,7 @@ class Mt5UsdJpyRsiEntryDiagnosticsTest(unittest.TestCase):
             "PilotBBPeriod",
             "PilotBBDeviation",
             "PilotRsiBandTolerancePct",
+            "PilotRsiCrossbackThreshold",
             "PilotSessionStartHour",
             "PilotSessionEndHour",
         ]:
@@ -83,6 +84,18 @@ class Mt5UsdJpyRsiEntryDiagnosticsTest(unittest.TestCase):
             "点差超过 EA 入场限制",
         ]:
             self.assertIn(phrase, text)
+
+    def test_diagnostics_export_parity_contract_optional_fields(self) -> None:
+        body = _diagnostic_function_body()
+        for token in [
+            "parityContractVersion",
+            "strategyJsonSchema",
+            "inputs",
+            "crossbackThreshold",
+            "crossbackRule",
+            "PilotRsiCrossbackThreshold",
+        ]:
+            self.assertIn(token, body)
 
 
 if __name__ == "__main__":

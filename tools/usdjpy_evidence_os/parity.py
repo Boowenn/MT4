@@ -145,12 +145,21 @@ def _check_parity_vector_vs_live(backtest: Dict[str, Any], live_loop: Dict[str, 
 def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, Any]) -> Dict[str, Any]:
     vector = ((backtest.get("engine") or {}).get("parityVector") or {}) if isinstance(backtest.get("engine"), dict) else {}
     if not vector or not diagnostics:
+        missing_reason = (
+            "等待 Strategy JSON parity vector 与 EA 诊断同步；EA 诊断已读取，但缺 Strategy JSON parity vector。"
+            if diagnostics
+            else "等待 EA 输出 QuantGod_USDJPYRsiEntryDiagnostics.json 后做逐字段对账；同步前不能晋级。"
+        )
         return {
             "name": "strategy_json_vs_mql5_rsi_diagnostics",
             "status": "MISSING",
             "required": False,
             "promotionCritical": True,
-            "reasonZh": "等待 EA 输出 QuantGod_USDJPYRsiEntryDiagnostics.json 后做逐字段对账；同步前不能晋级。",
+            "actual": {
+                "hasParityVector": bool(vector),
+                "hasEaDiagnostics": bool(diagnostics),
+            },
+            "reasonZh": missing_reason,
         }
     diag_strategy = diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"
     diag_direction = str(diagnostics.get("direction") or "LONG").upper()
@@ -267,15 +276,16 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
     hard_mismatches: List[str] = []
     if vector.get("strategyFamily") and vector.get("strategyFamily") != (diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"):
         hard_mismatches.append("strategyFamily")
-    if str(vector.get("direction") or "").upper() != str(diagnostics.get("direction") or "LONG").upper():
+    if _present(vector.get("direction")) and str(vector.get("direction") or "").upper() != str(diagnostics.get("direction") or "LONG").upper():
         hard_mismatches.append("direction")
-    _compare_number("rsi.period", vector_rsi.get("period"), diag_rsi.get("period"), hard_mismatches, missing_optional, tolerance=0.0)
-    _compare_text("rsi.timeframe", vector_rsi.get("timeframe"), diag_route.get("timeframe"), hard_mismatches, missing_optional)
-    _compare_number("rsi.buyBand", vector_rsi.get("buyBand"), diag_rsi.get("oversold"), hard_mismatches, missing_optional, tolerance=0.01)
+    if vector_rsi:
+        _compare_number("rsi.period", vector_rsi.get("period"), diag_rsi.get("period"), hard_mismatches, missing_optional, tolerance=0.0)
+        _compare_text("rsi.timeframe", vector_rsi.get("timeframe"), diag_route.get("timeframe"), hard_mismatches, missing_optional)
+        _compare_number("rsi.buyBand", vector_rsi.get("buyBand"), diag_rsi.get("oversold"), hard_mismatches, missing_optional, tolerance=0.01)
     if _present(vector_rsi.get("crossbackThreshold")) and not _present(diag_rsi.get("crossbackThreshold")):
         missing_optional.append("mql5.rsi.crossbackThreshold")
     signal_direction = str(diag_rsi.get("signalDirection") or "").upper()
-    if signal_direction not in {"", "NONE", str(vector.get("direction") or "").upper()}:
+    if _present(vector.get("direction")) and signal_direction not in {"", "NONE", str(vector.get("direction") or "").upper()}:
         hard_mismatches.append("mql5.rsi.signalDirection")
 
     if replay_causal.get("posteriorMayAffectTrigger") is True or replay_entry_causal.get("posteriorMayAffectTrigger") is True:
@@ -358,6 +368,10 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
                 "period": diag_rsi.get("period"),
                 "timeframe": diag_route.get("timeframe"),
                 "oversold": diag_rsi.get("oversold"),
+                "buyBandLevel": diag_rsi.get("buyBandLevel"),
+                "buyBand": diag_rsi.get("buyBand"),
+                "crossbackThreshold": diag_rsi.get("crossbackThreshold"),
+                "crossbackRule": diag_rsi.get("crossbackRule"),
                 "signalReady": diag_rsi.get("signalReady"),
                 "signalDirection": diag_rsi.get("signalDirection"),
                 "evalCode": diag_rsi.get("evalCode"),

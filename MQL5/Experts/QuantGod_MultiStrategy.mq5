@@ -28,6 +28,7 @@ input ENUM_TIMEFRAMES PilotRsiTimeframe = PERIOD_H1;
 input int    PilotRsiPeriod           = 2;
 input int    PilotRsiOverbought       = 85;
 input int    PilotRsiOversold         = 15;
+input double PilotRsiCrossbackThreshold = 0.0;
 input double PilotRsiBandTolerancePct = 0.006;
 input double PilotRsiATRMultiplierSL  = 1.5;
 input bool   EnablePilotRsiFastExitProtect = true;
@@ -3529,8 +3530,9 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
       return false;
    }
 
-   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold);
-   bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought);
+   double crossbackThreshold = MathMax(0.0, PilotRsiCrossbackThreshold);
+   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold + crossbackThreshold);
+   bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought - crossbackThreshold);
    bool buyReversal = (rsi1 <= PilotRsiOversold || exactBuyReversal);
    bool sellReversal = (rsi1 >= PilotRsiOverbought || exactSellReversal);
    double tolerance = MathMax(0.0, PilotRsiBandTolerancePct);
@@ -6801,7 +6803,8 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    double atr1 = ATRValue(symbol, PilotRsiTimeframe, 14, 1);
    bool indicatorReady = (rsi1 > 0.0 && rsi2 > 0.0 && lowerBand > 0.0 && upperBand > 0.0 && close1 > 0.0);
    double tolerance = MathMax(0.0, PilotRsiBandTolerancePct);
-   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold);
+   double crossbackThreshold = MathMax(0.0, PilotRsiCrossbackThreshold);
+   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold + crossbackThreshold);
    bool buyReversal = (rsi1 <= PilotRsiOversold || exactBuyReversal);
    bool buyBand = (indicatorReady && close1 <= lowerBand * (1.0 + tolerance));
    double buyScore = 0.0;
@@ -6814,7 +6817,7 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
          buyScore += 35.0;
       buyScore = MathMin(100.0, buyScore);
    }
-   bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought);
+   bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought - crossbackThreshold);
    bool sellReversal = (rsi1 >= PilotRsiOverbought || exactSellReversal);
    bool sellBand = (indicatorReady && close1 >= upperBand * (1.0 - tolerance));
    double sellScore = 0.0;
@@ -6965,6 +6968,19 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    json += "\"symbol\": \"" + JsonEscape(symbol) + "\", ";
    json += "\"strategy\": \"RSI_Reversal\", ";
    json += "\"direction\": \"LONG\", ";
+   json += "\"parityContractVersion\": \"quantgod.strategy_deep_parity_matrix.v1\", ";
+   json += "\"strategyJsonSchema\": \"quantgod.strategy.v1\", ";
+   json += "\"inputs\": {";
+   json += "\"PilotRsiTimeframe\": \"" + JsonEscape(TimeframeLabel(PilotRsiTimeframe)) + "\", ";
+   json += "\"PilotRsiPeriod\": " + IntegerToString(PilotRsiPeriod) + ", ";
+   json += "\"PilotRsiOversold\": " + FormatNumber(PilotRsiOversold, 2) + ", ";
+   json += "\"PilotRsiOverbought\": " + FormatNumber(PilotRsiOverbought, 2) + ", ";
+   json += "\"PilotRsiCrossbackThreshold\": " + FormatNumber(crossbackThreshold, 2) + ", ";
+   json += "\"PilotRsiBandTolerancePct\": " + FormatNumber(PilotRsiBandTolerancePct, 4) + ", ";
+   json += "\"PilotMaxSpreadPips\": " + FormatNumber(PilotMaxSpreadPips, 1) + ", ";
+   json += "\"PilotRestrictSession\": " + JsonBool(PilotRestrictSession) + ", ";
+   json += "\"PilotSessionStartHour\": " + IntegerToString(PilotSessionStartHour) + ", ";
+   json += "\"PilotSessionEndHour\": " + IntegerToString(PilotSessionEndHour) + "}, ";
    json += "\"state\": \"" + JsonEscape(state) + "\", ";
    json += "\"stateZh\": \"" + JsonEscape(EntryDiagnosticStateZh(state)) + "\", ";
    json += "\"summary\": \"" + JsonEscape(summary) + "\", ";
@@ -7010,8 +7026,13 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    json += "\"rsi\": {";
    json += "\"indicatorReady\": " + JsonBool(indicatorReady) + ", ";
    json += "\"period\": " + IntegerToString(PilotRsiPeriod) + ", ";
+   json += "\"timeframe\": \"" + JsonEscape(TimeframeLabel(PilotRsiTimeframe)) + "\", ";
    json += "\"oversold\": " + FormatNumber(PilotRsiOversold, 2) + ", ";
    json += "\"overbought\": " + FormatNumber(PilotRsiOverbought, 2) + ", ";
+   json += "\"buyBandLevel\": " + FormatNumber(PilotRsiOversold, 2) + ", ";
+   json += "\"sellBandLevel\": " + FormatNumber(PilotRsiOverbought, 2) + ", ";
+   json += "\"crossbackThreshold\": " + FormatNumber(crossbackThreshold, 2) + ", ";
+   json += "\"crossbackRule\": \"previous_rsi_outside_band_current_rsi_crosses_band_plus_threshold\", ";
    json += "\"rsiClosed1\": " + FormatNumber(rsi1, 2) + ", ";
    json += "\"rsiClosed2\": " + FormatNumber(rsi2, 2) + ", ";
    json += "\"lowerBand\": " + FormatNumber(lowerBand, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ", ";
@@ -7381,7 +7402,6 @@ int OnInit()
    ArmPilotStartupEntryGuard();
    LoadTrackedUsdCalendarEvents();
    EventSetTimer(MathMax(1, RefreshIntervalSec));
-   ExportDashboard(true);
    string startupReason = "";
    bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupReason);
    Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,

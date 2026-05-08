@@ -17,6 +17,7 @@ PilotRsiTimeframe=16385
 PilotRsiPeriod=2
 PilotRsiOverbought=85
 PilotRsiOversold=15
+PilotRsiCrossbackThreshold=0.0
 PilotRsiBandTolerancePct=0.006
 PilotRsiATRMultiplierSL=1.5
 EnablePilotRsiFastExitProtect=true

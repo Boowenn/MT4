@@ -30,6 +30,7 @@ NUMERIC_RANGES = {
     "PilotRsiPeriod": (1, 100),
     "PilotRsiOverbought": (50, 100),
     "PilotRsiOversold": (0, 50),
+    "PilotRsiCrossbackThreshold": (0, 5),
     "PilotNewsHighImpactPreBlockMinutes": (0, 180),
 }
 

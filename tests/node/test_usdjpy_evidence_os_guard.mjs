@@ -86,6 +86,10 @@ test('MT5 EA emits standardized live execution feedback for Evidence OS', () => 
     'profitR',
     'mfeR',
     'maeR',
+    'parityContractVersion',
+    'strategyJsonSchema',
+    'PilotRsiCrossbackThreshold',
+    'crossbackThreshold',
   ]) {
     assert.match(eaSource, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
