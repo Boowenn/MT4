@@ -7634,7 +7634,10 @@ int OnInit()
    InitializeWatchlist();
    ArmPilotStartupEntryGuard();
    LoadTrackedUsdCalendarEvents();
-   EventSetTimer(MathMax(1, RefreshIntervalSec));
+   int timerSeconds = MathMax(1, RefreshIntervalSec);
+   ResetLastError();
+   if(!EventSetTimer(timerSeconds))
+      Print("QuantGod timer setup failed. seconds=", timerSeconds, " err=", GetLastError());
    string startupReason = "";
    bool startupGuardActive = PilotStartupEntryGuardBlocks(g_focusSymbol, startupReason);
    Print("QuantGod MT5 runtime initialized. Focus symbol=", g_focusSymbol,
@@ -7644,6 +7647,7 @@ int OnInit()
          " nonRsiLegacyLiveAuthorization=", NonRsiLegacyLiveAuthorizationState(),
          " startupEntryGuard=", (startupGuardActive ? "ACTIVE" : "CLEAR"),
          " startupReason=", startupReason);
+   ExportDashboard(false);
    return(INIT_SUCCEEDED);
 }
 
@@ -7680,8 +7684,14 @@ void OnTick()
 
 void OnTimer()
 {
-   ExportDashboard(true);
+   // Timer exports are read-only. Live strategy evaluation stays on OnTick so a
+   // no-tick/weekend timer cannot stall dashboard freshness or trigger orders.
+   ExportDashboard(false);
    ExportUsdJpyKlinesIfDue(false);
+   string timerHeartbeat = "localTime=" + FormatDateTime(TimeLocal(), true) + "\r\n";
+   timerHeartbeat += "serverTime=" + FormatDateTime(CurrentServerTime(), true) + "\r\n";
+   timerHeartbeat += "refreshIntervalSeconds=" + IntegerToString(MathMax(1, RefreshIntervalSec)) + "\r\n";
+   WriteTextFile("QuantGod_MT5_TimerHeartbeat.txt", timerHeartbeat);
 }
 
 void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest& request, const MqlTradeResult& result)
