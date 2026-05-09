@@ -55,8 +55,13 @@ class StrategyJsonGATests(unittest.TestCase):
 
             self.assertTrue(result["candidates"])
             self.assertTrue(result["generation"]["strategyBacktest"]["required"])
+            self.assertTrue(result["generation"]["walkForward"]["required"])
             self.assertEqual(
                 result["generation"]["strategyBacktest"]["scoredCount"],
+                len(result["candidates"]),
+            )
+            self.assertEqual(
+                result["generation"]["walkForward"]["scoredCount"],
                 len(result["candidates"]),
             )
             for row in result["candidates"]:
@@ -66,6 +71,7 @@ class StrategyJsonGATests(unittest.TestCase):
                 self.assertIn("fitness", row)
                 self.assertIn("blockerCode", row)
                 backtest = row["fitnessBreakdown"]["strategyBacktest"]
+                walk_forward = row["fitnessBreakdown"]["walkForward"]
                 for field in [
                     "required",
                     "present",
@@ -81,6 +87,11 @@ class StrategyJsonGATests(unittest.TestCase):
                     self.assertIn(field, backtest)
                 self.assertTrue(backtest["required"])
                 self.assertTrue(backtest["present"])
+                self.assertEqual(walk_forward["schema"], "quantgod.usdjpy_seed_walk_forward.v1")
+                self.assertEqual([item["segment"] for item in walk_forward["segments"]], ["train", "validation", "forward"])
+                self.assertIn("stabilityScore", walk_forward["summary"])
+                self.assertIn("walkForwardPenalty", row["fitnessBreakdown"])
+                self.assertIn("walkForwardStabilityBonus", row["fitnessBreakdown"])
                 self.assertNotIn(row["promotionStage"], {"MICRO_LIVE", "LIVE_LIMITED"})
                 self.assertFalse(row["safety"]["orderSendAllowed"])
                 self.assertFalse(row["safety"]["livePresetMutationAllowed"])
@@ -96,8 +107,14 @@ class StrategyJsonGATests(unittest.TestCase):
             self.assertIn("lineageTree", audit)
             self.assertIn("sourceTrace", audit)
             self.assertIn("backtest", audit)
+            self.assertIn("walkForward", audit)
             self.assertIn("evidenceChain", audit)
             self.assertTrue(audit["backtest"]["present"])
+            self.assertTrue(audit["walkForward"]["present"])
+            self.assertEqual(
+                [item["segment"] for item in audit["walkForward"]["segments"]],
+                ["train", "validation", "forward"],
+            )
             self.assertIn("equityCurve", audit["backtest"])
             self.assertEqual(audit["lineageTree"]["schema"], "quantgod.ga.lineage_tree.v1")
             self.assertGreaterEqual(audit["lineageTree"]["nodeCount"], 1)
@@ -114,6 +131,7 @@ class StrategyJsonGATests(unittest.TestCase):
             self.assertIn("fitnessDelta", audit["lineagePath"])
             self.assertIsInstance(audit["evidenceChain"], list)
             self.assertTrue(any(item["step"] == "USDJPY SQLite 回测" for item in audit["evidenceChain"]))
+            self.assertTrue(any(item["step"] == "Per-seed Walk-forward" for item in audit["evidenceChain"]))
 
     def test_case_memory_seeds_cache_and_lineage_are_written(self):
         with tempfile.TemporaryDirectory() as tmp:

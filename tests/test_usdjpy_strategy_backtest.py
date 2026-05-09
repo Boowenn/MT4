@@ -23,6 +23,7 @@ from tools.usdjpy_strategy_backtest.schema import (
     trades_path,
 )
 from tools.usdjpy_strategy_backtest.sqlite_store import connect, count_bars, load_bars
+from tools.usdjpy_strategy_backtest.walk_forward import build_seed_walk_forward
 
 
 class USDJPYStrategyBacktestTests(unittest.TestCase):
@@ -204,6 +205,40 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
                 rsi_score["strategyBacktest"]["strategyId"],
                 ma_score["strategyBacktest"]["strategyId"],
             )
+
+    def test_seed_walk_forward_splits_train_validation_forward_for_each_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            build_sample(runtime_dir, overwrite=True)
+            seed = base_strategy_seed("WF-SEED", family="MA_Cross", direction="LONG")
+
+            report = build_seed_walk_forward(runtime_dir, seed, write=True)
+
+            self.assertEqual(report["schema"], "quantgod.usdjpy_seed_walk_forward.v1")
+            self.assertEqual(report["symbol"], "USDJPYc")
+            self.assertEqual(report["seedId"], seed["seedId"])
+            self.assertEqual(report["splitPolicy"]["trainPct"], 60)
+            self.assertFalse(report["splitPolicy"]["posteriorMayAffectTrigger"])
+            self.assertEqual([item["segment"] for item in report["segments"]], ["train", "validation", "forward"])
+            for segment in report["segments"]:
+                self.assertIn("netR", segment)
+                self.assertIn("profitFactor", segment)
+                self.assertIn("winRate", segment)
+                self.assertIn("maxDrawdownR", segment)
+                self.assertIn("sharpe", segment)
+                self.assertIn("sortino", segment)
+                self.assertIn("tradeCount", segment)
+                self.assertIn("parityStatus", segment)
+                self.assertIn("executionFeedbackPenalty", segment)
+            self.assertIn(report["summary"]["promotionGateStatus"], {"PASS", "WARN", "BLOCKED"})
+            self.assertIn("stabilityScore", report["summary"])
+            self.assertTrue((runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYSeedWalkForwardReport.json").exists())
+
+            score = score_seed(seed, runtime_dir)
+            self.assertIn("walkForward", score)
+            self.assertEqual(score["walkForward"]["seedId"], seed["seedId"])
+            self.assertIn("walkForwardPenalty", score)
+            self.assertIn("walkForwardStabilityBonus", score)
 
     def test_history_sync_pulls_incremental_usdjpy_bars_from_mt5(self):
         class FakeMT5(types.SimpleNamespace):

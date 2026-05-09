@@ -37,6 +37,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     replay = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
     walk_forward = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYWalkForwardReport.json")
     strategy_backtest = _strategy_backtest_metrics(runtime_dir, seed)
+    seed_walk_forward = _seed_walk_forward_metrics(runtime_dir, seed)
     strategy_backtest_quality = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestQualityReport.json")
     history_production_status = _load_json(runtime_dir / "backtest" / "QuantGod_USDJPYHistoryProductionStatus.json")
     backtest_required = seed is not None
@@ -48,6 +49,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     exit_let_run = _variant_metrics(replay, "exitComparison", 1)
     summary = replay.get("summary") if isinstance(replay.get("summary"), dict) else {}
     wf_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
+    seed_wf_summary = seed_walk_forward.get("summary") if isinstance(seed_walk_forward.get("summary"), dict) else {}
     backtest_metrics = strategy_backtest.get("metrics") if isinstance(strategy_backtest.get("metrics"), dict) else {}
     backtest_quality_status = str(strategy_backtest_quality.get("status") or "MISSING")
     backtest_quality_penalty = _backtest_quality_penalty(backtest_quality_status, strategy_backtest_quality)
@@ -71,7 +73,8 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     parity_penalty = _parity_penalty(parity_status, promotion_gate)
     execution_penalty = _execution_penalty(execution_metrics)
     case_penalty = _case_penalty(cases)
-    sample_count = backtest_trade_count if has_seed_backtest else int(
+    seed_wf_sample_count = int(_num(seed_wf_summary.get("sampleCount"), 0))
+    sample_count = max(backtest_trade_count, seed_wf_sample_count) if has_seed_backtest else int(
         _num(summary.get("sampleCount") or wf_summary.get("sampleCount") or backtest_trade_count, 0)
     )
     net_r = backtest_net_r if has_seed_backtest else replay_net_r + min(1.0, backtest_net_r * 0.15)
@@ -90,8 +93,9 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
         "maxAdverseR": max_adverse_r,
         "profitCaptureRatio": profit_capture,
         "missedOpportunityReduction": _num(entry_relaxed.get("missedOpportunityReduction") or summary.get("entryCountDelta"), 0),
-        "validationNetRDelta": _num(wf_summary.get("validationNetRDelta"), 0),
-        "forwardNetRDelta": _num(wf_summary.get("forwardNetRDelta"), 0),
+        "validationNetRDelta": _num(seed_wf_summary.get("validationNetRDelta"), _num(wf_summary.get("validationNetRDelta"), 0)),
+        "forwardNetRDelta": _num(seed_wf_summary.get("forwardNetRDelta"), _num(wf_summary.get("forwardNetRDelta"), 0)),
+        "walkForward": seed_walk_forward,
         "strategyBacktest": {
             "required": backtest_required,
             "present": bool(strategy_backtest),
@@ -163,7 +167,13 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "reasonZh": strategy_backtest_quality.get("reasonZh") or "",
         },
         "historyProductionStatus": history_production,
-        "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or strategy_backtest.get("evidenceQuality") or "LOW",
+        "evidenceQuality": (
+            seed_wf_summary.get("evidenceQuality")
+            or entry_relaxed.get("evidenceQuality")
+            or wf_summary.get("evidenceQuality")
+            or strategy_backtest.get("evidenceQuality")
+            or "LOW"
+        ),
     }
 
 
@@ -177,7 +187,14 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
     low_sample_penalty = max(0.0, (20 - sample_count) / 20.0)
     max_adverse_penalty = max(0.0, abs(min(0.0, metrics["maxAdverseR"])) - 0.5)
     max_drawdown_penalty = min(1.5, _num(backtest.get("maxDrawdownR"), 0) * 0.35)
-    overfit_penalty = 0.25 if metrics["validationNetRDelta"] < 0 or metrics["forwardNetRDelta"] < 0 else 0.0
+    walk_forward = metrics.get("walkForward") if isinstance(metrics.get("walkForward"), dict) else {}
+    walk_forward_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
+    walk_forward_penalty = _walk_forward_penalty(walk_forward_summary)
+    walk_forward_stability_bonus = _walk_forward_stability_bonus(walk_forward_summary)
+    overfit_penalty = max(
+        _num(walk_forward_summary.get("overfitPenalty"), 0),
+        0.25 if metrics["validationNetRDelta"] < 0 or metrics["forwardNetRDelta"] < 0 else 0.0,
+    )
     trade_frequency_penalty = 0.15 if sample_count == 0 else 0.0
     evidence_penalty = float(metrics.get("evidencePenalty", 0.0))
     strategy_contract_shadow_bonus = _strategy_contract_shadow_bonus(metrics.get("strategyContractShadow", {}))
@@ -193,11 +210,13 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         + win_rate_bonus
         + sharpe_bonus
         + sortino_bonus
+        + walk_forward_stability_bonus
         + strategy_contract_shadow_bonus
         + family_bonus
         - max_drawdown_penalty
         - max_adverse_penalty
         - overfit_penalty
+        - walk_forward_penalty
         - low_sample_penalty
         - trade_frequency_penalty
         - evidence_penalty
@@ -212,6 +231,8 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         blocker = "HISTORY_PRODUCTION_NOT_READY"
     elif sample_count < 5:
         blocker = "INSUFFICIENT_SAMPLES"
+    elif walk_forward_summary.get("promotionGateStatus") == "BLOCKED":
+        blocker = walk_forward_summary.get("blockerCode") or "WALK_FORWARD_FAILED"
     elif overfit_penalty:
         blocker = "OVERFIT_RISK"
     elif metrics.get("parity", {}).get("promotionGateStatus") in {"BLOCKED", "MISSING"}:
@@ -228,6 +249,8 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         **metrics,
         "fitness": round(fitness, 4),
         "overfitPenalty": round(overfit_penalty, 4),
+        "walkForwardPenalty": round(walk_forward_penalty, 4),
+        "walkForwardStabilityBonus": round(walk_forward_stability_bonus, 4),
         "lowSamplePenalty": round(low_sample_penalty, 4),
         "maxAdversePenalty": round(max_adverse_penalty, 4),
         "maxDrawdownPenalty": round(max_drawdown_penalty, 4),
@@ -246,6 +269,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "strategyContractShadow": metrics.get("strategyContractShadow", {}),
         "backtestQuality": metrics.get("backtestQuality", {}),
         "historyProductionStatus": metrics.get("historyProductionStatus", {}),
+        "walkForward": metrics.get("walkForward", {}),
     }
 
 
@@ -418,3 +442,43 @@ def _strategy_backtest_metrics(runtime_dir: Path, seed: Dict[str, Any] | None) -
 
     report = run_backtest(runtime_dir, seed, write=False, include_coverage_matrix=False)
     return report if isinstance(report, dict) else {}
+
+
+def _seed_walk_forward_metrics(runtime_dir: Path, seed: Dict[str, Any] | None) -> Dict[str, Any]:
+    if seed is None:
+        return _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYSeedWalkForwardReport.json")
+    try:
+        from tools.usdjpy_strategy_backtest.walk_forward import build_seed_walk_forward
+    except ModuleNotFoundError:  # pragma: no cover
+        from usdjpy_strategy_backtest.walk_forward import build_seed_walk_forward
+
+    report = build_seed_walk_forward(runtime_dir, seed, write=False)
+    return report if isinstance(report, dict) else {}
+
+
+def _walk_forward_penalty(summary: Dict[str, Any]) -> float:
+    if not summary:
+        return 0.35
+    penalty = 0.0
+    if summary.get("promotionGateStatus") == "BLOCKED":
+        penalty += 0.45
+    penalty += _num(summary.get("overfitPenalty"), 0) * 0.65
+    if _num(summary.get("validationNetR"), 0) < 0:
+        penalty += 0.2
+    if _num(summary.get("forwardNetR"), 0) < 0:
+        penalty += 0.3
+    if int(_num(summary.get("validSegmentCount"), 0)) < 3:
+        penalty += 0.25
+    return round(min(1.25, penalty), 4)
+
+
+def _walk_forward_stability_bonus(summary: Dict[str, Any]) -> float:
+    if not summary:
+        return 0.0
+    stability = _num(summary.get("stabilityScore"), 0)
+    validation_net = _num(summary.get("validationNetR"), 0)
+    forward_net = _num(summary.get("forwardNetR"), 0)
+    sample_count = int(_num(summary.get("sampleCount"), 0))
+    if validation_net < 0 or forward_net < 0 or sample_count < 5:
+        return 0.0
+    return round(min(0.6, stability * 0.35 + min(0.25, sample_count / 80.0)), 4)

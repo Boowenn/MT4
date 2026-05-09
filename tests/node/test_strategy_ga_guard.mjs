@@ -64,6 +64,7 @@ test('GA trace records process details rather than final result only', () => {
   const cache = read('tools/strategy_ga/cache.py');
   const lineage = read('tools/strategy_ga/lineage.py');
   const seedGenerator = read('tools/strategy_ga/seed_generator.py');
+  const seedWalkForward = read('tools/usdjpy_strategy_backtest/walk_forward.py');
 
   for (const marker of [
     'generationId',
@@ -71,6 +72,13 @@ test('GA trace records process details rather than final result only', () => {
     'strategyJson',
     'fitnessBreakdown',
     'strategyBacktest',
+    'walkForward',
+    'train',
+    'validation',
+    'forward',
+    'stabilityScore',
+    'walkForwardPenalty',
+    'walkForwardStabilityBonus',
     'profitFactor',
     'winRate',
     'maxDrawdownR',
@@ -78,6 +86,8 @@ test('GA trace records process details rather than final result only', () => {
     'sortino',
     'tradeCount',
     'STRATEGY_BACKTEST_FAILED',
+    'WALK_FORWARD_INSUFFICIENT',
+    'WALK_FORWARD_UNSTABLE',
     'blockerCode',
     'ELITE_SELECTED',
     'NEEDS_MORE_DATA',
@@ -113,7 +123,10 @@ test('GA trace records process details rather than final result only', () => {
     'parentCount',
     'childCount',
   ]) {
-    assert.match(runner + fitness + mutation + crossover + schema + cache + lineage + seedGenerator, new RegExp(marker));
+    assert.match(
+      runner + fitness + mutation + crossover + schema + cache + lineage + seedGenerator + seedWalkForward,
+      new RegExp(marker),
+    );
   }
 });
 

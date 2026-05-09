@@ -218,6 +218,28 @@ def _backtest_stats(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _walk_forward_stats(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    summaries = []
+    for row in candidates:
+        fitness = row.get("fitnessBreakdown") if isinstance(row.get("fitnessBreakdown"), dict) else {}
+        walk_forward = fitness.get("walkForward") if isinstance(fitness.get("walkForward"), dict) else {}
+        summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
+        if summary:
+            summaries.append(summary)
+    passed = [row for row in summaries if row.get("promotionGateStatus") == "PASS"]
+    blocked = [row for row in summaries if row.get("promotionGateStatus") == "BLOCKED"]
+    stability_values = [float(row.get("stabilityScore") or 0.0) for row in summaries]
+    return {
+        "required": True,
+        "candidateCount": len(candidates),
+        "scoredCount": len(summaries),
+        "passedCount": len(passed),
+        "blockedCount": len(blocked),
+        "avgStabilityScore": round(sum(stability_values) / max(1, len(stability_values)), 4),
+        "reasonZh": "每个 GA seed 必须独立切 train / validation / forward，三段稳定性直接进入 fitness。",
+    }
+
+
 def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -> Dict[str, Any]:
     limiter = check_run_allowed(runtime_dir, force=force)
     if not limiter.get("allowed"):
@@ -232,6 +254,7 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
     candidates = _score_candidates(runtime_dir, generation_number, generation_id, seeds)
     signature = evidence_signature(runtime_dir)
     backtest_stats = _backtest_stats(candidates)
+    walk_forward_stats = _walk_forward_stats(candidates)
     elites = [row for row in candidates if row.get("status") == "ELITE_SELECTED"][: elite_count()]
     blocker_counts = Counter(str(row.get("blockerCode") or "PASSED") for row in candidates)
     best = candidates[0] if candidates else {}
@@ -256,6 +279,7 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
         "crossoverCount": sum(1 for row in candidates if row.get("source") == "CROSSOVER"),
         "caseMemorySeedCount": sum(1 for row in candidates if row.get("source") == "CASE_MEMORY"),
         "strategyBacktest": backtest_stats,
+        "walkForward": walk_forward_stats,
         "cache": _generation_cache_stats(runtime_dir, candidates, signature),
         "runLimiter": limiter,
         "safety": dict(SAFETY_BOUNDARY),
@@ -365,6 +389,7 @@ def read_candidate(runtime_dir: Path, seed_id: str) -> Dict[str, Any]:
         "lineagePath": _lineage_path_audit(seed_id, lineage_tree),
         "sourceTrace": _source_trace(match),
         "backtest": _candidate_backtest_audit(runtime_dir, match),
+        "walkForward": _candidate_walk_forward_audit(match),
         "evidenceChain": _candidate_evidence_chain(match),
         "safety": dict(SAFETY_BOUNDARY),
     }
@@ -925,6 +950,8 @@ def _candidate_evidence_chain(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     validation = row.get("validation") if isinstance(row.get("validation"), dict) else {}
     fitness = row.get("fitnessBreakdown") if isinstance(row.get("fitnessBreakdown"), dict) else {}
     backtest = fitness.get("strategyBacktest") if isinstance(fitness.get("strategyBacktest"), dict) else {}
+    walk_forward = fitness.get("walkForward") if isinstance(fitness.get("walkForward"), dict) else {}
+    wf_summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
     parity = fitness.get("parity") if isinstance(fitness.get("parity"), dict) else {}
     execution = fitness.get("executionFeedback") if isinstance(fitness.get("executionFeedback"), dict) else {}
     blocker = row.get("blockerCode")
@@ -938,6 +965,11 @@ def _candidate_evidence_chain(row: Dict[str, Any]) -> List[Dict[str, Any]]:
             "step": "USDJPY SQLite 回测",
             "status": "PASS" if backtest.get("ok") else "FAIL",
             "reasonZh": backtest.get("reasonZh") or ("回测已进入 fitness" if backtest.get("present") else "缺少回测证据"),
+        },
+        {
+            "step": "Per-seed Walk-forward",
+            "status": wf_summary.get("promotionGateStatus") or "WAITING",
+            "reasonZh": wf_summary.get("reasonZh") or "等待该 seed 的 train / validation / forward 三段稳定性评分。",
         },
         {
             "step": "三方 Parity",
@@ -955,3 +987,17 @@ def _candidate_evidence_chain(row: Dict[str, Any]) -> List[Dict[str, Any]]:
             "reasonZh": row.get("blockerZh") or explain_blocker(blocker) or "通过 fitness 排名，进入候选晋级路径。",
         },
     ]
+
+
+def _candidate_walk_forward_audit(row: Dict[str, Any]) -> Dict[str, Any]:
+    fitness = row.get("fitnessBreakdown") if isinstance(row.get("fitnessBreakdown"), dict) else {}
+    walk_forward = fitness.get("walkForward") if isinstance(fitness.get("walkForward"), dict) else {}
+    summary = walk_forward.get("summary") if isinstance(walk_forward.get("summary"), dict) else {}
+    segments = walk_forward.get("segments") if isinstance(walk_forward.get("segments"), list) else []
+    return {
+        "present": bool(walk_forward),
+        "schema": walk_forward.get("schema"),
+        "summary": summary,
+        "segments": segments,
+        "reasonZh": summary.get("reasonZh") or "每个 GA seed 会独立切 train / validation / forward，稳定性进入 fitness。",
+    }
