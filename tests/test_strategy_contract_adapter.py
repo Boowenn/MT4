@@ -13,7 +13,9 @@ from tools.strategy_contract_adapter.schema import (
     EA_SHADOW_EVALUATION_LEDGER_FILE,
     EA_SHADOW_EVALUATION_STATUS_FILE,
 )
+from tools.strategy_ga.fitness import score_seed
 from tools.strategy_ga.seed_generator import case_memory_seed_pool
+from tools.strategy_json.schema import base_strategy_seed
 from tools.usdjpy_evidence_os.case_memory import build_case_memory
 
 
@@ -119,8 +121,66 @@ class StrategyContractAdapterTests(unittest.TestCase):
             seeds = case_memory_seed_pool(runtime)
 
             self.assertIn("STRATEGY_CONTRACT_SHADOW_SIGNAL", cases["caseTypeCounts"])
+            self.assertTrue(any(case.get("strategy") == "RSI_Reversal" for case in cases["cases"]))
             self.assertGreaterEqual(cases["caseMemoryToGA"]["queuedHintCount"], 1)
             self.assertTrue(any(seed.get("mutationHint") == "promote_contract_candidate_to_tester" for seed in seeds))
+
+    def test_generic_shadow_evaluation_feeds_case_memory_summary_and_ga_fitness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            rows = [
+                {
+                    "schema": "quantgod.strategy_json_ea_shadow_evaluation.v1",
+                    "evaluationId": "eval-ma-observe",
+                    "status": "SHADOW_OBSERVE",
+                    "blocker": "NONE",
+                    "selectedSeedId": "GA-USDJPY-MA-OBSERVE",
+                    "fingerprint": "fp-ma-observe",
+                    "strategyId": "USDJPY_MA_CROSS_LONG_SHADOW",
+                    "strategyFamily": "MA_Cross",
+                    "direction": "LONG",
+                    "lane": "MT5_SHADOW",
+                    "contractFamilyImplemented": True,
+                    "wouldEnter": False,
+                    "hardGuardsPass": True,
+                    "reasonZh": "MA shadow adapter observed the contract.",
+                },
+                {
+                    "schema": "quantgod.strategy_json_ea_shadow_evaluation.v1",
+                    "evaluationId": "eval-ma-would-enter",
+                    "status": "SHADOW_WOULD_ENTER",
+                    "blocker": "NONE",
+                    "selectedSeedId": "GA-USDJPY-MA-SIGNAL",
+                    "fingerprint": "fp-ma-signal",
+                    "strategyId": "USDJPY_MA_CROSS_LONG_SIGNAL",
+                    "strategyFamily": "MA_Cross",
+                    "direction": "LONG",
+                    "lane": "MT5_SHADOW",
+                    "contractFamilyImplemented": True,
+                    "wouldEnter": True,
+                    "hardGuardsPass": True,
+                    "reasonZh": "MA shadow adapter saw a would-enter signal.",
+                },
+            ]
+            (runtime / EA_SHADOW_EVALUATION_LEDGER_FILE).write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            cases = build_case_memory(runtime, write=True)
+            shadow = cases["strategyContractShadowEvaluation"]
+            ma_summary = shadow["genericAdapterSummary"]["MA_Cross"]
+
+            self.assertIn("MA_Cross", shadow["genericAdapterStableFamilies"])
+            self.assertEqual(ma_summary["shadowObserveCount"], 2)
+            self.assertEqual(ma_summary["shadowWouldEnterCount"], 1)
+            self.assertIn("STRATEGY_CONTRACT_SHADOW_SIGNAL", cases["caseTypeCounts"])
+            self.assertTrue(any(case.get("strategy") == "MA_Cross" for case in cases["cases"]))
+
+            score = score_seed(base_strategy_seed("GA-USDJPY-MA-SCORE", family="MA_Cross"), runtime)
+            self.assertTrue(score["strategyContractShadow"]["adapterStable"])
+            self.assertEqual(score["strategyContractShadow"]["strategyFamily"], "MA_Cross")
+            self.assertGreater(score["strategyContractShadowBonus"], 0.0)
 
     def test_case_memory_uses_latest_shadow_evaluation_for_same_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

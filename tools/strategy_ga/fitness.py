@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
+GENERIC_STRATEGY_FAMILIES = {"MA_Cross", "BB_Triple", "MACD_Divergence", "SR_Breakout"}
+
 
 def _load_json(path: Path) -> Dict[str, Any]:
     try:
@@ -40,6 +42,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     parity = _load_json(runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json")
     execution = _load_json(runtime_dir / "evidence_os" / "QuantGod_LiveExecutionQualityReport.json")
     cases = _load_json(runtime_dir / "evidence_os" / "QuantGod_CaseMemorySummary.json")
+    strategy_contract_shadow = _strategy_contract_shadow_metrics(cases, seed)
     entry_relaxed = _variant_metrics(replay, "entryComparison", 1)
     exit_let_run = _variant_metrics(replay, "exitComparison", 1)
     summary = replay.get("summary") if isinstance(replay.get("summary"), dict) else {}
@@ -140,7 +143,9 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "queuedForGA": int(_num(cases.get("queuedForGA"), 0)),
             "caseTypeCounts": cases.get("caseTypeCounts") if isinstance(cases.get("caseTypeCounts"), dict) else {},
             "penalty": case_penalty,
+            "strategyContractShadow": strategy_contract_shadow,
         },
+        "strategyContractShadow": strategy_contract_shadow,
         "evidencePenalty": parity_penalty + execution_penalty + case_penalty + backtest_quality_penalty,
         "backtestQuality": {
             "present": bool(strategy_backtest_quality),
@@ -167,6 +172,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
     overfit_penalty = 0.25 if metrics["validationNetRDelta"] < 0 or metrics["forwardNetRDelta"] < 0 else 0.0
     trade_frequency_penalty = 0.15 if sample_count == 0 else 0.0
     evidence_penalty = float(metrics.get("evidencePenalty", 0.0))
+    strategy_contract_shadow_bonus = _strategy_contract_shadow_bonus(metrics.get("strategyContractShadow", {}))
     profit_factor_bonus = _profit_factor_bonus(_num(backtest.get("profitFactor"), 0))
     win_rate_bonus = _win_rate_bonus(_num(backtest.get("winRate"), 0))
     sharpe_bonus = _bounded_bonus(_num(backtest.get("sharpe"), 0), scale=0.12, cap=0.45)
@@ -179,6 +185,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         + win_rate_bonus
         + sharpe_bonus
         + sortino_bonus
+        + strategy_contract_shadow_bonus
         + family_bonus
         - max_drawdown_penalty
         - max_adverse_penalty
@@ -219,11 +226,13 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "winRateBonus": round(win_rate_bonus, 4),
         "sharpeBonus": round(sharpe_bonus, 4),
         "sortinoBonus": round(sortino_bonus, 4),
+        "strategyContractShadowBonus": round(strategy_contract_shadow_bonus, 4),
         "blockerCode": blocker,
         "strategyBacktest": metrics.get("strategyBacktest", {}),
         "parity": metrics.get("parity", {}),
         "executionFeedback": metrics.get("executionFeedback", {}),
         "caseMemory": metrics.get("caseMemory", {}),
+        "strategyContractShadow": metrics.get("strategyContractShadow", {}),
         "backtestQuality": metrics.get("backtestQuality", {}),
     }
 
@@ -284,6 +293,38 @@ def _case_penalty(cases: Dict[str, Any]) -> float:
     severe_count = sum(int(_num(type_counts.get(name), 0)) for name in execution_types)
     overfit_count = int(_num(type_counts.get("GA_OVERFIT"), 0))
     return round(min(0.5, severe_count * 0.08 + overfit_count * 0.05), 4)
+
+
+def _strategy_contract_shadow_metrics(cases: Dict[str, Any], seed: Dict[str, Any] | None) -> Dict[str, Any]:
+    shadow = cases.get("strategyContractShadowEvaluation") if isinstance(cases.get("strategyContractShadowEvaluation"), dict) else {}
+    generic_summary = shadow.get("genericAdapterSummary") if isinstance(shadow.get("genericAdapterSummary"), dict) else {}
+    stable_families = shadow.get("genericAdapterStableFamilies") if isinstance(shadow.get("genericAdapterStableFamilies"), list) else []
+    family = str((seed or {}).get("strategyFamily") or "")
+    family_summary = generic_summary.get(family) if isinstance(generic_summary.get(family), dict) else {}
+    return {
+        "present": bool(shadow),
+        "strategyFamily": family,
+        "isGenericFamily": family in GENERIC_STRATEGY_FAMILIES,
+        "adapterStable": family in stable_families,
+        "stableFamilyCount": len(stable_families),
+        "familyCount": int(_num(family_summary.get("count"), 0)),
+        "implementedRows": int(_num(family_summary.get("implementedRows"), 0)),
+        "shadowObserveCount": int(_num(family_summary.get("shadowObserveCount"), 0)),
+        "shadowWouldEnterCount": int(_num(family_summary.get("shadowWouldEnterCount"), 0)),
+        "guardBlockedCount": int(_num(family_summary.get("guardBlockedCount"), 0)),
+        "adapterGapCount": int(_num(family_summary.get("adapterGapCount"), 0)),
+        "latest": family_summary.get("latest") if isinstance(family_summary.get("latest"), dict) else {},
+    }
+
+
+def _strategy_contract_shadow_bonus(metrics: Dict[str, Any]) -> float:
+    if not metrics or not metrics.get("isGenericFamily") or not metrics.get("adapterStable"):
+        return 0.0
+    if int(_num(metrics.get("adapterGapCount"), 0)) > 0:
+        return 0.0
+    observe_bonus = min(0.12, int(_num(metrics.get("shadowObserveCount"), 0)) * 0.03)
+    signal_bonus = min(0.20, int(_num(metrics.get("shadowWouldEnterCount"), 0)) * 0.10)
+    return round(min(0.35, 0.05 + observe_bonus + signal_bonus), 4)
 
 
 def _backtest_quality_penalty(status: str, quality: Dict[str, Any]) -> float:

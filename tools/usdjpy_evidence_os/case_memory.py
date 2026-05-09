@@ -7,12 +7,21 @@ from typing import Any, Dict, List
 from .io_utils import append_jsonl_unique, load_json, utc_now_iso, write_json
 from .schema import AGENT_VERSION, FOCUS_SYMBOL, SAFETY_BOUNDARY, case_memory_path, case_summary_path
 
+GENERIC_STRATEGY_FAMILIES = {"MA_Cross", "BB_Triple", "MACD_Divergence", "SR_Breakout"}
+SHADOW_OBSERVE_STATUSES = {
+    "SHADOW_OBSERVE",
+    "SHADOW_GUARD_BLOCKED",
+    "SHADOW_WAIT_INDICATORS",
+    "DIRECTION_SHADOW_ONLY_DEMOTED",
+}
+
 
 def build_case_memory(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
+    contract_shadow_rows = _strategy_contract_shadow_rows(runtime_dir)
     cases = (
         _cases_from_replay(runtime_dir)
         + _cases_from_execution(runtime_dir)
-        + _cases_from_strategy_contract_shadow(runtime_dir)
+        + _cases_from_strategy_contract_shadow(runtime_dir, contract_shadow_rows)
         + _cases_from_ga(runtime_dir)
     )
     ga_seed_hints = _ga_seed_hints(cases)
@@ -32,6 +41,7 @@ def build_case_memory(runtime_dir: Path, write: bool = True) -> Dict[str, Any]:
             "source": "CASE_MEMORY",
             "nextActionZh": "GA 会优先把高优先级 Case Memory 转成 Strategy JSON shadow 候选。",
         },
+        "strategyContractShadowEvaluation": _strategy_contract_shadow_summary(contract_shadow_rows),
         "cases": cases[-50:],
         "queuedForGA": sum(1 for item in cases if item.get("status") == "QUEUED_FOR_GA"),
         "reasonZh": "Case Memory 把错失机会、早出场、执行偏差和过拟合风险转成下一轮 Strategy JSON/GA 种子线索。",
@@ -108,7 +118,7 @@ def _cases_from_execution(runtime_dir: Path) -> List[Dict[str, Any]]:
     return cases
 
 
-def _cases_from_strategy_contract_shadow(runtime_dir: Path) -> List[Dict[str, Any]]:
+def _strategy_contract_shadow_rows(runtime_dir: Path) -> List[Dict[str, Any]]:
     from .io_utils import candidate_mt5_files_dirs, read_jsonl_tail
 
     rows: List[Dict[str, Any]] = []
@@ -133,7 +143,95 @@ def _cases_from_strategy_contract_shadow(runtime_dir: Path) -> List[Dict[str, An
         if not key:
             continue
         latest_by_contract[key] = row
-    rows = list(latest_by_contract.values())
+    return list(latest_by_contract.values())
+
+
+def _strategy_contract_shadow_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    generic_summary: Dict[str, Dict[str, Any]] = {}
+    generic_shadow_observe_count = 0
+    generic_shadow_would_enter_count = 0
+    generic_guard_blocked_count = 0
+    generic_adapter_gap_count = 0
+
+    for row in rows[-200:]:
+        if not isinstance(row, dict):
+            continue
+        family = str(row.get("strategyFamily") or "")
+        if family not in GENERIC_STRATEGY_FAMILIES:
+            continue
+        status_value = str(row.get("status") or "UNKNOWN")
+        blocker = str(row.get("blocker") or "")
+        implemented = bool(row.get("contractFamilyImplemented"))
+        generic_strategy = row.get("genericStrategy") if isinstance(row.get("genericStrategy"), dict) else {}
+        implemented = implemented or bool(generic_strategy.get("implemented"))
+
+        item = generic_summary.setdefault(
+            family,
+            {
+                "count": 0,
+                "statuses": {},
+                "implementedRows": 0,
+                "shadowObserveCount": 0,
+                "shadowWouldEnterCount": 0,
+                "guardBlockedCount": 0,
+                "adapterGapCount": 0,
+                "latest": {},
+            },
+        )
+        item["count"] += 1
+        item["statuses"][status_value] = int(item["statuses"].get(status_value, 0)) + 1
+        if implemented:
+            item["implementedRows"] += 1
+        if status_value == "SHADOW_WOULD_ENTER":
+            item["shadowWouldEnterCount"] += 1
+            generic_shadow_would_enter_count += 1
+        if status_value in SHADOW_OBSERVE_STATUSES or status_value == "SHADOW_WOULD_ENTER":
+            item["shadowObserveCount"] += 1
+            generic_shadow_observe_count += 1
+        if status_value == "SHADOW_GUARD_BLOCKED":
+            item["guardBlockedCount"] += 1
+            generic_guard_blocked_count += 1
+        if blocker == "EA_CONTRACT_FAMILY_NOT_IMPLEMENTED":
+            item["adapterGapCount"] += 1
+            generic_adapter_gap_count += 1
+        item["latest"] = {
+            "selectedSeedId": row.get("selectedSeedId"),
+            "strategyId": row.get("strategyId"),
+            "status": status_value,
+            "blocker": blocker,
+            "wouldEnter": bool(row.get("wouldEnter")),
+            "hardGuardsPass": bool(row.get("hardGuardsPass")),
+            "reasonZh": row.get("reasonZh") or "",
+            "generatedAtLocal": row.get("generatedAtLocal"),
+            "generatedAtServer": row.get("generatedAtServer"),
+        }
+
+    stable_families = [
+        family
+        for family, item in sorted(generic_summary.items())
+        if int(item.get("count") or 0) > 0
+        and int(item.get("implementedRows") or 0) > 0
+        and int(item.get("adapterGapCount") or 0) == 0
+    ]
+    return {
+        "schema": "quantgod.strategy_contract_shadow_summary.v1",
+        "source": "QuantGod_StrategyJsonEAShadowEvaluationLedger.jsonl",
+        "genericAdapterSummary": generic_summary,
+        "genericAdapterStableFamilies": stable_families,
+        "genericShadowObserveCount": generic_shadow_observe_count,
+        "genericShadowWouldEnterCount": generic_shadow_would_enter_count,
+        "genericGuardBlockedCount": generic_guard_blocked_count,
+        "genericAdapterGapCount": generic_adapter_gap_count,
+        "nextActionZh": (
+            "通用策略族 EA shadow rows 会进入 Case Memory 摘要，并作为 GA fitness 的 shadow evidence。"
+            if generic_summary
+            else "等待 MA_Cross、BB_Triple、MACD_Divergence、SR_Breakout 的真实 EA shadow rows。"
+        ),
+    }
+
+
+def _cases_from_strategy_contract_shadow(runtime_dir: Path, rows: List[Dict[str, Any]] | None = None) -> List[Dict[str, Any]]:
+    rows = rows if rows is not None else _strategy_contract_shadow_rows(runtime_dir)
     cases: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows[-100:]:
@@ -181,6 +279,7 @@ def _cases_from_strategy_contract_shadow(runtime_dir: Path) -> List[Dict[str, An
                     "promote_contract_candidate_to_tester",
                     priority="MEDIUM",
                     recommended_lane="MT5_SHADOW",
+                    strategy=str(row.get("strategyFamily") or "RSI_Reversal"),
                 )
             )
         elif blocker in {"EA_CONTRACT_FAMILY_NOT_IMPLEMENTED", "EA_CONTRACT_DIRECTION_NOT_LIVE_ROUTE"}:
@@ -192,6 +291,7 @@ def _cases_from_strategy_contract_shadow(runtime_dir: Path) -> List[Dict[str, An
                     "add_ea_contract_adapter_family",
                     priority="MEDIUM",
                     recommended_lane="MT5_SHADOW",
+                    strategy=str(row.get("strategyFamily") or "RSI_Reversal"),
                 )
             )
         elif blocker in {"CONTRACT_SAFETY_REJECTED", "NON_USDJPY_CONTRACT", "CONTRACT_MODE_REJECTED"}:
@@ -203,6 +303,7 @@ def _cases_from_strategy_contract_shadow(runtime_dir: Path) -> List[Dict[str, An
                     "repair_strategy_json_contract_safety",
                     priority="HIGH",
                     recommended_lane="MT5_SHADOW",
+                    strategy=str(row.get("strategyFamily") or "RSI_Reversal"),
                 )
             )
     return cases
@@ -230,6 +331,7 @@ def _case(
     mutation_hint: str,
     priority: str | None = None,
     recommended_lane: str = "MT5_SHADOW",
+    strategy: str = "RSI_Reversal",
 ) -> Dict[str, Any]:
     digest = hashlib.sha256(
         f"{case_type}|{root_cause}|{mutation_hint}|{sorted((evidence or {}).items())[:8]}".encode("utf-8", errors="ignore")
@@ -241,7 +343,7 @@ def _case(
         "createdAt": utc_now_iso(),
         "type": case_type,
         "symbol": FOCUS_SYMBOL,
-        "strategy": "RSI_Reversal",
+        "strategy": strategy or "RSI_Reversal",
         "priority": priority_value,
         "recommendedLane": recommended_lane,
         "rootCause": root_cause,
