@@ -117,6 +117,23 @@ def _cases_from_strategy_contract_shadow(runtime_dir: Path) -> List[Dict[str, An
     status = load_json(runtime_dir / "QuantGod_StrategyJsonEAShadowEvaluationStatus.json")
     if status:
         rows.append(status)
+    latest_by_contract: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = "|".join(
+            [
+                str(row.get("selectedSeedId") or ""),
+                str(row.get("fingerprint") or ""),
+                str(row.get("strategyId") or ""),
+            ]
+        )
+        if not key.strip("|"):
+            key = str(row.get("evaluationId") or "")
+        if not key:
+            continue
+        latest_by_contract[key] = row
+    rows = list(latest_by_contract.values())
     cases: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows[-100:]:

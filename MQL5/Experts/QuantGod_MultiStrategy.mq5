@@ -5779,6 +5779,81 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool rsiLongSignal = (indicatorReady && (rsi1 <= effectiveBuyBand || (rsi2 < effectiveBuyBand && rsi1 > effectiveBuyBand + effectiveThreshold)));
    bool hardGuardsPass = (tickOk && spreadAllowed && sessionOpen && !newsBlocked);
    bool wouldEnter = false;
+   bool contractFamilyImplemented = (strategyFamily == "RSI_Reversal" || strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT");
+
+   ENUM_TIMEFRAMES tokyoTimeframe = PERIOD_M15;
+   datetime tokyoEventBarTime = iTime(symbol, tokyoTimeframe, 1);
+   double tokyoOpen1 = iOpen(symbol, tokyoTimeframe, 1);
+   double tokyoClose1 = iClose(symbol, tokyoTimeframe, 1);
+   double tokyoAtr1 = ATRValue(symbol, tokyoTimeframe, PilotATRPeriod, 1);
+   double tokyoPip = PipSize(symbol);
+   int tokyoMinute = tokyoEventBarTime > 0 ? JstMinuteOfDayFromServerTime(tokyoEventBarTime) : -1;
+   bool tokyoWindowActive = (tokyoMinute >= 12 * 60 && tokyoMinute <= 18 * 60);
+   double tokyoBoxHigh = 0.0;
+   double tokyoBoxLow = 0.0;
+   int tokyoSamples = 0;
+   if(tokyoEventBarTime > 0)
+   {
+      int tokyoDayKey = JstDayKeyFromServerTime(tokyoEventBarTime);
+      int tokyoBars = Bars(symbol, tokyoTimeframe);
+      int maxTokyoLookback = MathMin(tokyoBars - 1, 120);
+      for(int shift = 1; shift <= maxTokyoLookback; shift++)
+      {
+         datetime barTime = iTime(symbol, tokyoTimeframe, shift);
+         if(barTime <= 0)
+            continue;
+         if(JstDayKeyFromServerTime(barTime) != tokyoDayKey)
+            continue;
+         int barMinute = JstMinuteOfDayFromServerTime(barTime);
+         if(barMinute < 9 * 60 || barMinute >= 12 * 60)
+            continue;
+
+         double high = iHigh(symbol, tokyoTimeframe, shift);
+         double low = iLow(symbol, tokyoTimeframe, shift);
+         if(high <= 0.0 || low <= 0.0)
+            continue;
+         if(tokyoSamples == 0)
+         {
+            tokyoBoxHigh = high;
+            tokyoBoxLow = low;
+         }
+         else
+         {
+            tokyoBoxHigh = MathMax(tokyoBoxHigh, high);
+            tokyoBoxLow = MathMin(tokyoBoxLow, low);
+         }
+         tokyoSamples++;
+      }
+   }
+   double tokyoBoxPips = (tokyoPip > 0.0 && tokyoBoxHigh > tokyoBoxLow) ? (tokyoBoxHigh - tokyoBoxLow) / tokyoPip : 0.0;
+   double tokyoBuffer = (tokyoPip > 0.0 && tokyoAtr1 > 0.0) ? MathMax(8.0 * tokyoPip, tokyoAtr1 * 0.15) : 0.0;
+   double tokyoBufferPips = tokyoPip > 0.0 ? tokyoBuffer / tokyoPip : 0.0;
+   double tokyoAdx = ADXValue(symbol, tokyoTimeframe, 14, 1);
+   bool tokyoAdxPass = (tokyoAdx != EMPTY_VALUE && tokyoAdx >= 18.0);
+   bool tokyoBoxReady = (tokyoSamples >= 6 && tokyoBoxHigh > tokyoBoxLow && tokyoBoxPips >= 12.0 && tokyoBoxPips <= 75.0);
+   bool tokyoIndicatorReady = (tokyoEventBarTime > 0 && tokyoClose1 > 0.0 && tokyoOpen1 > 0.0 && tokyoAtr1 > 0.0 && tokyoPip > 0.0 && tokyoBoxReady);
+   bool tokyoBullishClose = (tokyoClose1 > tokyoOpen1);
+   bool tokyoBearishClose = (tokyoClose1 < tokyoOpen1);
+   bool tokyoBreakoutLong = (tokyoIndicatorReady && tokyoAdxPass && tokyoClose1 > tokyoBoxHigh + tokyoBuffer);
+   bool tokyoBreakoutShort = (tokyoIndicatorReady && tokyoAdxPass && tokyoClose1 < tokyoBoxLow - tokyoBuffer);
+   bool tokyoNearLong = (tokyoIndicatorReady && tokyoClose1 > tokyoBoxHigh - tokyoBuffer * 0.50 && tokyoBullishClose);
+   bool tokyoNearShort = (tokyoIndicatorReady && tokyoClose1 < tokyoBoxLow + tokyoBuffer * 0.50 && tokyoBearishClose);
+   bool tokyoOpportunityMode = (entryMode == "OPPORTUNITY_ENTRY");
+   bool tokyoContractLong = (direction == "LONG");
+   bool tokyoContractShort = (direction == "SHORT");
+   bool tokyoLongSignal = tokyoBreakoutLong || (tokyoOpportunityMode && tokyoNearLong);
+   bool tokyoShortSignal = tokyoBreakoutShort || (tokyoOpportunityMode && tokyoNearShort);
+   bool tokyoContractSignal = ((tokyoContractLong && tokyoLongSignal) || (tokyoContractShort && tokyoShortSignal));
+   int tokyoSignalDirection = tokyoContractSignal ? (tokyoContractLong ? 1 : -1) : 0;
+   double tokyoScore = 0.0;
+   if(tokyoContractLong && tokyoBreakoutLong)
+      tokyoScore = 74.0;
+   else if(tokyoContractShort && tokyoBreakoutShort)
+      tokyoScore = 74.0;
+   else if(tokyoContractLong && tokyoNearLong)
+      tokyoScore = 52.0;
+   else if(tokyoContractShort && tokyoNearShort)
+      tokyoScore = 52.0;
 
    if(loaded)
    {
@@ -5800,11 +5875,69 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          blocker = "CONTRACT_MODE_REJECTED";
          reason = "Strategy JSON contract 不是 shadow/tester/paper 只读评估模式。";
       }
+      else if(strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT")
+      {
+         if(!EnableUsdJpyTokyoBreakoutShadowResearch)
+         {
+            status = "SHADOW_RESEARCH_ROUTE_DISABLED";
+            blocker = "TOKYO_RANGE_ROUTE_DISABLED";
+            reason = "USDJPY Tokyo Range Breakout 影子研究路线当前关闭；EA 不做 would-enter 评估。";
+         }
+         else if(!(tokyoContractLong || tokyoContractShort))
+         {
+            status = "DIRECTION_SHADOW_ONLY_DEMOTED";
+            blocker = "EA_CONTRACT_DIRECTION_NOT_SUPPORTED";
+            reason = "Tokyo Range Breakout contract 方向不是 LONG/SHORT，EA 只做 shadow 拒绝记录。";
+         }
+         else if(!tokyoIndicatorReady)
+         {
+            status = "SHADOW_WAIT_INDICATORS";
+            if(!tokyoWindowActive)
+               blocker = "TOKYO_RANGE_WAIT_WINDOW";
+            else if(!tokyoBoxReady)
+               blocker = "TOKYO_RANGE_BOX_NOT_READY";
+            else
+               blocker = "TOKYO_RANGE_INDICATORS_NOT_READY";
+            reason = "EA 已读取 Tokyo Range Breakout contract，等待 JST 09-12 箱体、M15 bar、ATR/ADX 等影子评估证据稳定。";
+         }
+         else if(!tokyoWindowActive)
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "TOKYO_RANGE_WAIT_BREAKOUT_WINDOW";
+            reason = "Tokyo Range Breakout 只在 JST 12:00-18:00 观察箱体突破；当前继续 shadow 观察。";
+         }
+         else if(!hardGuardsPass)
+         {
+            status = "SHADOW_GUARD_BLOCKED";
+            if(!tickOk)
+               blocker = "TICK_MISSING";
+            else if(!spreadAllowed)
+               blocker = "SPREAD_BLOCK";
+            else if(!sessionOpen)
+               blocker = "SESSION_CLOSED";
+            else if(newsBlocked)
+               blocker = "NEWS_HARD_BLOCK";
+            reason = "Tokyo Range Breakout shadow evaluation 只记录机会；runtime/session/spread/news 硬守门未通过，不会进入实盘。";
+         }
+         else if(tokyoContractSignal)
+         {
+            status = "SHADOW_WOULD_ENTER";
+            blocker = "NONE";
+            reason = "EA 按 Strategy JSON contract 看到 USDJPY Tokyo Range Breakout shadow 机会；仅写入 shadow ledger，供 Case Memory/GA 使用。";
+            wouldEnter = true;
+         }
+         else
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "TOKYO_RANGE_SIGNAL_NOT_READY";
+            reason = "EA 已读取 Tokyo Range Breakout contract；当前未触发 contract 方向的箱体突破或机会入场条件。";
+         }
+      }
       else if(strategyFamily != "RSI_Reversal")
       {
          status = "UNSUPPORTED_STRATEGY_FAMILY_SHADOW_OBSERVE";
          blocker = "EA_CONTRACT_FAMILY_NOT_IMPLEMENTED";
-         reason = "EA 当前只对 RSI_Reversal Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
+         reason = "EA 当前只对 RSI_Reversal 与 USDJPY_TOKYO_RANGE_BREAKOUT Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
       }
       else if(direction != "LONG")
       {
@@ -5868,6 +6001,7 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"entryMode\":\"" + JsonEscape(entryMode) + "\",";
    json += "\"symbol\":\"" + JsonEscape(symbol) + "\",";
    json += "\"timeframe\":\"" + JsonEscape(TimeframeLabel(rsiTimeframe)) + "\",";
+   json += "\"contractFamilyImplemented\":" + JsonBool(contractFamilyImplemented) + ",";
    json += "\"rsiPeriod\":" + IntegerToString(effectiveRsiPeriod) + ",";
    json += "\"rsiClosed1\":" + FormatNumber(rsi1, 4) + ",";
    json += "\"rsiClosed2\":" + FormatNumber(rsi2, 4) + ",";
@@ -5883,6 +6017,23 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"maxSpreadPips\":" + FormatNumber(PilotMaxSpreadPips, 2) + ",";
    json += "\"newsBlocked\":" + JsonBool(newsBlocked) + ",";
    json += "\"newsReason\":\"" + JsonEscape(newsReason) + "\",";
+   json += "\"tokyoRange\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(tokyoTimeframe)) + "\",";
+   json += "\"eventBarTime\":\"" + JsonEscape(FormatDateTime(tokyoEventBarTime, true)) + "\",";
+   json += "\"windowActive\":" + JsonBool(tokyoWindowActive) + ",";
+   json += "\"boxReady\":" + JsonBool(tokyoBoxReady) + ",";
+   json += "\"boxSamples\":" + IntegerToString(tokyoSamples) + ",";
+   json += "\"boxHigh\":" + FormatNumber(tokyoBoxHigh, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"boxLow\":" + FormatNumber(tokyoBoxLow, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"boxPips\":" + FormatNumber(tokyoBoxPips, 2) + ",";
+   json += "\"bufferPips\":" + FormatNumber(tokyoBufferPips, 2) + ",";
+   json += "\"adx\":" + FormatNumber(tokyoAdx, 2) + ",";
+   json += "\"adxPass\":" + JsonBool(tokyoAdxPass) + ",";
+   json += "\"breakoutLong\":" + JsonBool(tokyoBreakoutLong) + ",";
+   json += "\"breakoutShort\":" + JsonBool(tokyoBreakoutShort) + ",";
+   json += "\"nearLong\":" + JsonBool(tokyoNearLong) + ",";
+   json += "\"nearShort\":" + JsonBool(tokyoNearShort) + ",";
+   json += "\"signalDirection\":" + IntegerToString(tokyoSignalDirection) + ",";
+   json += "\"score\":" + FormatNumber(tokyoScore, 1) + "},";
    json += "\"bid\":" + FormatNumber(bid, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"ask\":" + FormatNumber(ask, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"shadowEvaluationOnly\":true,";

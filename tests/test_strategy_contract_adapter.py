@@ -122,6 +122,37 @@ class StrategyContractAdapterTests(unittest.TestCase):
             self.assertGreaterEqual(cases["caseMemoryToGA"]["queuedHintCount"], 1)
             self.assertTrue(any(seed.get("mutationHint") == "promote_contract_candidate_to_tester" for seed in seeds))
 
+    def test_case_memory_uses_latest_shadow_evaluation_for_same_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            old_gap = {
+                "schema": "quantgod.strategy_json_ea_shadow_evaluation.v1",
+                "evaluationId": "eval-old-gap",
+                "selectedSeedId": "GA-USDJPY-TOKYO",
+                "fingerprint": "fp-tokyo",
+                "strategyId": "USDJPY_TOKYO_RANGE_BREAKOUT_SHORT",
+                "strategyFamily": "USDJPY_TOKYO_RANGE_BREAKOUT",
+                "direction": "SHORT",
+                "status": "UNSUPPORTED_STRATEGY_FAMILY_SHADOW_OBSERVE",
+                "blocker": "EA_CONTRACT_FAMILY_NOT_IMPLEMENTED",
+                "reasonZh": "old adapter gap",
+            }
+            latest_waiting = {
+                **old_gap,
+                "evaluationId": "eval-latest-wait",
+                "status": "SHADOW_WAIT_INDICATORS",
+                "blocker": "TOKYO_RANGE_WAIT_WINDOW",
+                "reasonZh": "Tokyo adapter now evaluates the contract.",
+            }
+            (runtime / EA_SHADOW_EVALUATION_LEDGER_FILE).write_text(
+                json.dumps(old_gap, ensure_ascii=False) + "\n" + json.dumps(latest_waiting, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            cases = build_case_memory(runtime, write=True)
+
+            self.assertNotIn("STRATEGY_CONTRACT_EA_ADAPTER_GAP", cases["caseTypeCounts"])
+
 
 if __name__ == "__main__":
     unittest.main()
