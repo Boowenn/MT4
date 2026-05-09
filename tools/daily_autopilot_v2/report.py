@@ -158,7 +158,10 @@ def _next_phase_todos() -> Dict[str, Any]:
         "completedByAgent": True,
         "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
-        "summaryZh": "Strategy JSON、GA Evolution 和独立 Telegram Gateway 已接入；下一阶段聚焦更高保真回测、真实执行样本和 parity 深化。",
+        "summaryZh": (
+            "Strategy JSON、GA Evolution 和独立 Telegram Gateway 已接入；"
+            "下一阶段聚焦更高保真回测、真实执行样本和 parity 深化。"
+        ),
         "items": todos,
         "strategyJsonTodo": todos[0],
         "gaEvolutionTodo": todos[1],
@@ -171,6 +174,7 @@ def _ga_summary(runtime_dir: Path) -> Dict[str, Any]:
     generation = _load_json(runtime_dir / "ga" / "QuantGod_GAGenerationLatest.json")
     blockers = _load_json(runtime_dir / "ga" / "QuantGod_GABlockerSummary.json")
     blocker_rows = blockers.get("summary") if isinstance(blockers.get("summary"), list) else []
+    history_production = _history_production_summary(runtime_dir)
     return {
         "status": status.get("status") or "WAITING_FIRST_GENERATION",
         "currentGeneration": status.get("currentGeneration", 0),
@@ -181,7 +185,55 @@ def _ga_summary(runtime_dir: Path) -> Dict[str, Any]:
         "blockedCandidates": status.get("blockedCandidates", 0),
         "generationStatus": generation.get("status"),
         "blockers": blocker_rows,
+        "historyProductionStatus": history_production,
         "nextAction": status.get("nextAction", "运行 Strategy JSON GA 一代并写入全过程 trace"),
+    }
+
+
+def _history_production_summary(runtime_dir: Path) -> Dict[str, Any]:
+    production = _load_json(runtime_dir / "backtest" / "QuantGod_USDJPYHistoryProductionStatus.json")
+    if not production:
+        quality = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestQualityReport.json")
+        production = _safe_dict(quality.get("historyProductionStatus"))
+    status = str(production.get("status") or "MISSING").upper()
+    target_satisfied = bool(production.get("historyTargetSatisfied"))
+    failed_count = int(production.get("failedCount") or 0)
+    promotion_blocked = status != "PASS" or not target_satisfied
+    source = _safe_dict(production.get("source"))
+    timeframes = _safe_dict(production.get("timeframes"))
+    h1 = _safe_dict(timeframes.get("H1"))
+    m1 = _safe_dict(timeframes.get("M1"))
+    if status == "PASS" and target_satisfied:
+        status_zh = "生产级 PASS"
+    elif status == "WARN":
+        status_zh = "生产告警"
+    else:
+        status_zh = "等待生产状态"
+    source_zh = "MQL5 CopyRates" if source.get("mql5ExportDir") else ("MT5 Python" if source.get("mt5PythonStatus") else "未知来源")
+    depth_parts = []
+    if h1.get("spanDays") is not None:
+        depth_parts.append(f"H1 {h1.get('spanDays')} 天")
+    if m1.get("spanDays") is not None:
+        depth_parts.append(f"M1 {m1.get('spanDays')} 天")
+    depth_zh = " / ".join(depth_parts)
+    reason = production.get("reasonZh") or (
+        "USDJPY 历史样本已达到生产级深度，GA 可使用完整 SQLite 回测评分。"
+        if not promotion_blocked
+        else "USDJPY 历史样本未达到生产级 PASS，GA 只能保留 shadow/tester 研究证据。"
+    )
+    return {
+        "present": bool(production),
+        "status": status,
+        "statusZh": status_zh,
+        "historyTargetSatisfied": target_satisfied,
+        "promotionGateStatus": "BLOCKED" if promotion_blocked else "PASS",
+        "promotionAllowed": not promotion_blocked,
+        "failedCount": failed_count,
+        "source": source,
+        "sourceZh": source_zh,
+        "timeframes": timeframes,
+        "reasonZh": reason,
+        "summaryZh": f"{status_zh}；{reason} 来源 {source_zh}{f'；{depth_zh}' if depth_zh else ''}",
     }
 
 
@@ -429,11 +481,15 @@ def _build_daily_todo(
         "items": items,
         "nextPhaseTodos": next_phase,
         "gaReview": ga,
+        "historyProductionStatus": ga.get("historyProductionStatus"),
         "orchestrationRun": orchestration,
         "strategyJsonTodo": next_phase["strategyJsonTodo"],
         "gaEvolutionTodo": next_phase["gaEvolutionTodo"],
         "telegramGatewayTodo": next_phase["telegramGatewayTodo"],
-        "summaryZh": "今日待办已由 Agent 自动检查、生成和闭环；无需人工回灌。",
+        "summaryZh": (
+            "今日待办已由 Agent 自动检查、生成和闭环；"
+            "GA 会先确认 USDJPY 历史样本生产状态，不靠不完整样本晋级。"
+        ),
     }
 
 
@@ -490,11 +546,16 @@ def _build_daily_review(
             "bestStrategy": ga.get("bestSeedId"),
             "promotedToShadow": ga.get("eliteCount", 0),
             "rejected": ga.get("blockedCandidates", 0),
+            "historyProductionStatus": ga.get("historyProductionStatus"),
             "nextGenerationPlanned": True,
             "nextAction": ga.get("nextAction"),
         },
+        "historyProductionStatus": ga.get("historyProductionStatus"),
         "orchestrationRun": orchestration,
-        "summaryZh": "每日复盘已由 Agent 自动完成：收集三车道样本、计算指标、更新升降级/回滚状态，不等待人工确认。",
+        "summaryZh": (
+            "每日复盘已由 Agent 自动完成：收集三车道样本、计算指标、更新升降级/回滚状态，"
+            "并记录 GA 是否使用生产级历史样本。"
+        ),
     }
 
 
@@ -530,6 +591,7 @@ def build_daily_autopilot_v2(
         "dailyReview": daily_review,
         "orchestrationRun": orchestration,
         "gaReview": ga,
+        "historyProductionStatus": ga.get("historyProductionStatus"),
         "nextPhaseTodos": _next_phase_todos(),
         "completedByAgent": True,
         "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),

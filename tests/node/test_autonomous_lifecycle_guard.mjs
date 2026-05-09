@@ -94,7 +94,19 @@ test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety
   for (const marker of ['今日自动作战计划', '今日自动复盘', 'MT5 模拟车道', 'Polymarket 模拟车道', '不会下单']) {
     assert.match(report + text, new RegExp(marker));
   }
-  for (const marker of ['dailyTodo', 'dailyReview', 'completedByAgent', 'autoAppliedByAgent', 'requiresAutonomousGovernance', 'strategyJsonTodo', 'gaEvolutionTodo', 'telegramGatewayTodo', 'COMPLETED_BY_AGENT']) {
+  for (const marker of [
+    'dailyTodo',
+    'dailyReview',
+    'completedByAgent',
+    'autoAppliedByAgent',
+    'requiresAutonomousGovernance',
+    'strategyJsonTodo',
+    'gaEvolutionTodo',
+    'telegramGatewayTodo',
+    'historyProductionStatus',
+    'QuantGod_USDJPYHistoryProductionStatus.json',
+    'COMPLETED_BY_AGENT',
+  ]) {
     assert.match(report + orchestrator, new RegExp(marker));
   }
   for (const marker of [
@@ -109,6 +121,9 @@ test('daily autopilot v2 keeps Chinese autonomous reporting and push-only safety
   assert.match(routes, /run-cycle', '--write'/);
   for (const marker of ['Strategy JSON', 'GA Evolution', 'Telegram Gateway', '下一阶段任务', '独立 Telegram Gateway 已接入']) {
     assert.match(report + text, new RegExp(marker));
+  }
+  for (const marker of ['GA 历史样本', '生产级 PASS', '晋级门']) {
+    assert.match(runner + report + text, new RegExp(marker));
   }
   assert.doesNotMatch(report, /requiresManualReview|manualReview|readyForReview/);
   assert.match(runner, /dispatch_text/);

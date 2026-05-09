@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ from tools.autonomous_lifecycle.mt5_shadow_lane import build_mt5_shadow_lane
 from tools.autonomous_lifecycle.polymarket_shadow_lane import build_polymarket_shadow_lane
 from tools.daily_autopilot_v2.orchestrator import run_daily_autopilot_cycle
 from tools.daily_autopilot_v2.report import build_daily_autopilot_v2
+from tools.daily_autopilot_v2.telegram_text import daily_autopilot_v2_to_chinese_text
 from tools.usdjpy_strategy_lab.schema import DEFAULT_STRATEGIES
 from tools.usdjpy_walk_forward.selector import sample_walk_forward_runtime
 
@@ -68,6 +70,22 @@ class AutonomousLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp)
             sample_walk_forward_runtime(runtime, overwrite=True)
+            backtest_dir = runtime / "backtest"
+            backtest_dir.mkdir(parents=True, exist_ok=True)
+            (backtest_dir / "QuantGod_USDJPYHistoryProductionStatus.json").write_text(
+                json.dumps(
+                    {
+                        "status": "PASS",
+                        "historyTargetSatisfied": True,
+                        "failedCount": 0,
+                        "reasonZh": "USDJPY SQLite 历史数据生产状态通过。",
+                        "source": {"mql5ExportDir": "/tmp/exported_klines"},
+                        "timeframes": {"H1": {"spanDays": 372.1}, "M1": {"spanDays": 372.2}},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             payload = build_daily_autopilot_v2(runtime, write=True)
 
@@ -84,6 +102,13 @@ class AutonomousLifecycleTests(unittest.TestCase):
             self.assertIn("strategyJsonTodo", payload["dailyTodo"])
             self.assertIn("gaEvolutionTodo", payload["dailyTodo"])
             self.assertIn("telegramGatewayTodo", payload["dailyTodo"])
+            self.assertEqual(payload["historyProductionStatus"]["statusZh"], "生产级 PASS")
+            self.assertEqual(payload["gaReview"]["historyProductionStatus"]["promotionGateStatus"], "PASS")
+            self.assertEqual(payload["dailyTodo"]["historyProductionStatus"]["status"], "PASS")
+            self.assertEqual(payload["dailyReview"]["historyProductionStatus"]["status"], "PASS")
+            text = daily_autopilot_v2_to_chinese_text(payload)
+            self.assertIn("GA 历史样本", text)
+            self.assertIn("生产级 PASS", text)
             self.assertTrue(payload["nextPhaseTodos"]["completedByAgent"])
             self.assertEqual(payload["nextPhaseTodos"]["strategyJsonTodo"]["status"], "COMPLETED_BY_AGENT")
             self.assertEqual(payload["nextPhaseTodos"]["gaEvolutionTodo"]["status"], "COMPLETED_BY_AGENT")

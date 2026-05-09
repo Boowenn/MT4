@@ -33,12 +33,14 @@ def emit(payload) -> int:
 
 def todo_text(payload: Dict[str, object]) -> str:
     items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    history = payload.get("historyProductionStatus") if isinstance(payload.get("historyProductionStatus"), dict) else {}
     lines = [
         "【QuantGod Agent 今日待办】",
         "",
         f"状态：{payload.get('status', 'COMPLETED_BY_AGENT')}",
         f"Agent 版本：{payload.get('agentVersion', 'v2.5')}",
         "无需人工回灌；每项由 Agent 自动检查、完成、晋级或回滚。",
+        f"GA 历史样本：{history.get('statusZh', '等待生产状态')}；晋级门：{history.get('promotionGateStatus', 'BLOCKED')}",
         "",
     ]
     for item in items[:8]:
@@ -56,6 +58,7 @@ def review_text(payload: Dict[str, object]) -> str:
     live = payload.get("liveLane") if isinstance(payload.get("liveLane"), dict) else {}
     mt5 = payload.get("mt5ShadowLane") if isinstance(payload.get("mt5ShadowLane"), dict) else {}
     poly = payload.get("polymarketShadowLane") if isinstance(payload.get("polymarketShadowLane"), dict) else {}
+    history = payload.get("historyProductionStatus") if isinstance(payload.get("historyProductionStatus"), dict) else {}
     lines = [
         "【QuantGod Agent 每日复盘】",
         "",
@@ -64,6 +67,7 @@ def review_text(payload: Dict[str, object]) -> str:
         f"净 R：{metrics.get('netR', 0)}｜最大不利 R：{metrics.get('maxAdverseR', '—')}｜利润捕获：{metrics.get('profitCaptureRatio', '—')}",
         f"错失机会：{metrics.get('missedOpportunity', 0)}｜早出场改善：{metrics.get('earlyExit', 0)}",
         f"MT5 模拟路线：{(mt5.get('summary') or {}).get('routeCount', 0)}｜Polymarket：{poly.get('stageZh') or poly.get('stage', '模拟观察')}",
+        f"GA 历史样本：{history.get('statusZh', '等待生产状态')}｜{history.get('reasonZh', '未 PASS 时只允许 shadow/tester 观察')}",
         "",
         "复盘已由 Agent 自动完成；不等待人工确认，不修改 live preset，不连接 Polymarket 钱包。",
     ]
