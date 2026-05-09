@@ -5779,7 +5779,9 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool rsiLongSignal = (indicatorReady && (rsi1 <= effectiveBuyBand || (rsi2 < effectiveBuyBand && rsi1 > effectiveBuyBand + effectiveThreshold)));
    bool hardGuardsPass = (tickOk && spreadAllowed && sessionOpen && !newsBlocked);
    bool wouldEnter = false;
-   bool contractFamilyImplemented = (strategyFamily == "RSI_Reversal" || strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT");
+   bool contractFamilyImplemented = (strategyFamily == "RSI_Reversal" ||
+                                     strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT" ||
+                                     strategyFamily == "USDJPY_NIGHT_REVERSION_SAFE");
 
    ENUM_TIMEFRAMES tokyoTimeframe = PERIOD_M15;
    datetime tokyoEventBarTime = iTime(symbol, tokyoTimeframe, 1);
@@ -5854,6 +5856,52 @@ string BuildStrategyJsonEAShadowEvaluationJson()
       tokyoScore = 52.0;
    else if(tokyoContractShort && tokyoNearShort)
       tokyoScore = 52.0;
+
+   ENUM_TIMEFRAMES nightTimeframe = PERIOD_M15;
+   datetime nightEventBarTime = iTime(symbol, nightTimeframe, 1);
+   double nightOpen1 = iOpen(symbol, nightTimeframe, 1);
+   double nightClose1 = iClose(symbol, nightTimeframe, 1);
+   double nightAtr1 = ATRValue(symbol, nightTimeframe, PilotATRPeriod, 1);
+   double nightRsi1 = RSIValue(symbol, nightTimeframe, 14, 1);
+   double nightUpperBand = BandsValue(symbol, nightTimeframe, 20, 2.0, 1, 1);
+   double nightLowerBand = BandsValue(symbol, nightTimeframe, 20, 2.0, 2, 1);
+   double nightAdx = ADXValue(symbol, nightTimeframe, 14, 1);
+   int nightMinute = nightEventBarTime > 0 ? JstMinuteOfDayFromServerTime(nightEventBarTime) : -1;
+   bool nightWindowActive = (nightMinute >= 21 * 60 || (nightMinute >= 0 && nightMinute <= 8 * 60 + 30));
+   RegimeSnapshot nightRegime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, nightEventBarTime);
+   bool nightRangeRegime = (nightRegime.label == "RANGE" || nightRegime.label == "RANGE_TIGHT");
+   bool nightAdxPass = (nightAdx != EMPTY_VALUE && nightAdx < 20.0);
+   bool nightIndicatorReady = (nightEventBarTime > 0 &&
+                               nightOpen1 > 0.0 &&
+                               nightClose1 > 0.0 &&
+                               nightAtr1 > 0.0 &&
+                               nightRsi1 > 0.0 &&
+                               nightUpperBand > 0.0 &&
+                               nightLowerBand > 0.0 &&
+                               nightUpperBand > nightLowerBand &&
+                               nightAdx != EMPTY_VALUE);
+   bool nightBullishClose = (nightClose1 >= nightOpen1);
+   bool nightBearishClose = (nightClose1 <= nightOpen1);
+   bool nightStrictLong = (nightIndicatorReady && nightClose1 <= nightLowerBand && nightRsi1 <= 35.0 && nightBullishClose);
+   bool nightStrictShort = (nightIndicatorReady && nightClose1 >= nightUpperBand && nightRsi1 >= 65.0 && nightBearishClose);
+   bool nightSoftLong = (nightIndicatorReady && nightClose1 <= nightLowerBand + nightAtr1 * 0.15 && nightRsi1 <= 40.0);
+   bool nightSoftShort = (nightIndicatorReady && nightClose1 >= nightUpperBand - nightAtr1 * 0.15 && nightRsi1 >= 60.0);
+   bool nightOpportunityMode = (entryMode == "OPPORTUNITY_ENTRY");
+   bool nightContractLong = (direction == "LONG");
+   bool nightContractShort = (direction == "SHORT");
+   bool nightLongSignal = nightStrictLong || (nightOpportunityMode && nightSoftLong);
+   bool nightShortSignal = nightStrictShort || (nightOpportunityMode && nightSoftShort);
+   bool nightContractSignal = ((nightContractLong && nightLongSignal) || (nightContractShort && nightShortSignal));
+   int nightSignalDirection = nightContractSignal ? (nightContractLong ? 1 : -1) : 0;
+   double nightScore = 0.0;
+   if(nightContractLong && nightStrictLong)
+      nightScore = 64.0;
+   else if(nightContractShort && nightStrictShort)
+      nightScore = 64.0;
+   else if(nightContractLong && nightSoftLong)
+      nightScore = 50.0;
+   else if(nightContractShort && nightSoftShort)
+      nightScore = 50.0;
 
    if(loaded)
    {
@@ -5933,11 +5981,76 @@ string BuildStrategyJsonEAShadowEvaluationJson()
             reason = "EA 已读取 Tokyo Range Breakout contract；当前未触发 contract 方向的箱体突破或机会入场条件。";
          }
       }
+      else if(strategyFamily == "USDJPY_NIGHT_REVERSION_SAFE")
+      {
+         if(!EnableUsdJpyNightReversionShadowResearch)
+         {
+            status = "SHADOW_RESEARCH_ROUTE_DISABLED";
+            blocker = "NIGHT_REVERSION_ROUTE_DISABLED";
+            reason = "USDJPY Night Reversion 影子研究路线当前关闭；EA 不做 would-enter 评估。";
+         }
+         else if(!(nightContractLong || nightContractShort))
+         {
+            status = "DIRECTION_SHADOW_ONLY_DEMOTED";
+            blocker = "EA_CONTRACT_DIRECTION_NOT_SUPPORTED";
+            reason = "Night Reversion contract 方向不是 LONG/SHORT，EA 只做 shadow 拒绝记录。";
+         }
+         else if(!nightIndicatorReady)
+         {
+            status = "SHADOW_WAIT_INDICATORS";
+            blocker = "NIGHT_REVERSION_INDICATORS_NOT_READY";
+            reason = "EA 已读取 Night Reversion contract，等待 M15 bar、布林带、RSI、ATR/ADX 等影子评估证据稳定。";
+         }
+         else if(!nightWindowActive)
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "NIGHT_REVERSION_WAIT_WINDOW";
+            reason = "Night Reversion 只在 JST 21:00-08:30 低波动窗口观察均值回归；当前继续 shadow 观察。";
+         }
+         else if(!nightRangeRegime)
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "NIGHT_REVERSION_REGIME_NOT_RANGE";
+            reason = "Night Reversion 只在 RANGE/RANGE_TIGHT 环境观察；当前行情环境不适合均值回归。";
+         }
+         else if(!nightAdxPass)
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "NIGHT_REVERSION_ADX_TOO_HIGH";
+            reason = "Night Reversion 要求 ADX<20 的低趋势强度环境；当前趋势强度偏高，继续 shadow 观察。";
+         }
+         else if(!hardGuardsPass)
+         {
+            status = "SHADOW_GUARD_BLOCKED";
+            if(!tickOk)
+               blocker = "TICK_MISSING";
+            else if(!spreadAllowed)
+               blocker = "SPREAD_BLOCK";
+            else if(!sessionOpen)
+               blocker = "SESSION_CLOSED";
+            else if(newsBlocked)
+               blocker = "NEWS_HARD_BLOCK";
+            reason = "Night Reversion shadow evaluation 只记录机会；runtime/session/spread/news 硬守门未通过，不会进入实盘。";
+         }
+         else if(nightContractSignal)
+         {
+            status = "SHADOW_WOULD_ENTER";
+            blocker = "NONE";
+            reason = "EA 按 Strategy JSON contract 看到 USDJPY Night Reversion shadow 机会；仅写入 shadow ledger，供 Case Memory/GA 使用。";
+            wouldEnter = true;
+         }
+         else
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "NIGHT_REVERSION_SIGNAL_NOT_READY";
+            reason = "EA 已读取 Night Reversion contract；当前未触发 contract 方向的布林带/RSI 均值回归条件。";
+         }
+      }
       else if(strategyFamily != "RSI_Reversal")
       {
          status = "UNSUPPORTED_STRATEGY_FAMILY_SHADOW_OBSERVE";
          blocker = "EA_CONTRACT_FAMILY_NOT_IMPLEMENTED";
-         reason = "EA 当前只对 RSI_Reversal 与 USDJPY_TOKYO_RANGE_BREAKOUT Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
+         reason = "EA 当前只对 RSI_Reversal、USDJPY_TOKYO_RANGE_BREAKOUT 与 USDJPY_NIGHT_REVERSION_SAFE Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
       }
       else if(direction != "LONG")
       {
@@ -6034,6 +6147,24 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"nearShort\":" + JsonBool(tokyoNearShort) + ",";
    json += "\"signalDirection\":" + IntegerToString(tokyoSignalDirection) + ",";
    json += "\"score\":" + FormatNumber(tokyoScore, 1) + "},";
+   json += "\"nightReversion\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(nightTimeframe)) + "\",";
+   json += "\"eventBarTime\":\"" + JsonEscape(FormatDateTime(nightEventBarTime, true)) + "\",";
+   json += "\"windowActive\":" + JsonBool(nightWindowActive) + ",";
+   json += "\"indicatorReady\":" + JsonBool(nightIndicatorReady) + ",";
+   json += "\"rangeRegime\":" + JsonBool(nightRangeRegime) + ",";
+   json += "\"regime\":\"" + JsonEscape(nightRegime.label) + "\",";
+   json += "\"rsi\":" + FormatNumber(nightRsi1, 2) + ",";
+   json += "\"upperBand\":" + FormatNumber(nightUpperBand, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"lowerBand\":" + FormatNumber(nightLowerBand, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"atr\":" + FormatNumber(nightAtr1, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"adx\":" + FormatNumber(nightAdx, 2) + ",";
+   json += "\"adxPass\":" + JsonBool(nightAdxPass) + ",";
+   json += "\"strictLong\":" + JsonBool(nightStrictLong) + ",";
+   json += "\"strictShort\":" + JsonBool(nightStrictShort) + ",";
+   json += "\"softLong\":" + JsonBool(nightSoftLong) + ",";
+   json += "\"softShort\":" + JsonBool(nightSoftShort) + ",";
+   json += "\"signalDirection\":" + IntegerToString(nightSignalDirection) + ",";
+   json += "\"score\":" + FormatNumber(nightScore, 1) + "},";
    json += "\"bid\":" + FormatNumber(bid, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"ask\":" + FormatNumber(ask, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"shadowEvaluationOnly\":true,";
