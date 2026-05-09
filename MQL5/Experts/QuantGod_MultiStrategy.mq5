@@ -5781,7 +5781,8 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool wouldEnter = false;
    bool contractFamilyImplemented = (strategyFamily == "RSI_Reversal" ||
                                      strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT" ||
-                                     strategyFamily == "USDJPY_NIGHT_REVERSION_SAFE");
+                                     strategyFamily == "USDJPY_NIGHT_REVERSION_SAFE" ||
+                                     strategyFamily == "USDJPY_H4_TREND_PULLBACK");
 
    ENUM_TIMEFRAMES tokyoTimeframe = PERIOD_M15;
    datetime tokyoEventBarTime = iTime(symbol, tokyoTimeframe, 1);
@@ -5902,6 +5903,56 @@ string BuildStrategyJsonEAShadowEvaluationJson()
       nightScore = 50.0;
    else if(nightContractShort && nightSoftShort)
       nightScore = 50.0;
+
+   ENUM_TIMEFRAMES h4SignalTimeframe = PERIOD_M15;
+   datetime h4EventBarTime = iTime(symbol, h4SignalTimeframe, 1);
+   double h4M15Open1 = iOpen(symbol, h4SignalTimeframe, 1);
+   double h4M15Close1 = iClose(symbol, h4SignalTimeframe, 1);
+   double h4M15High1 = iHigh(symbol, h4SignalTimeframe, 1);
+   double h4M15Low1 = iLow(symbol, h4SignalTimeframe, 1);
+   double h4M15Atr1 = ATRValue(symbol, h4SignalTimeframe, PilotATRPeriod, 1);
+   double h4M15FastEma = MAValue(symbol, h4SignalTimeframe, PilotFastMAPeriod, 1, MODE_EMA);
+   double h4M15SlowEma = MAValue(symbol, h4SignalTimeframe, PilotSlowMAPeriod, 1, MODE_EMA);
+   double h4Rsi1 = RSIValue(symbol, h4SignalTimeframe, 14, 1);
+   double h4Rsi2 = RSIValue(symbol, h4SignalTimeframe, 14, 2);
+   double h4Close1 = iClose(symbol, PERIOD_H4, 1);
+   double h4Ema50 = MAValue(symbol, PERIOD_H4, 50, 1, MODE_EMA);
+   double h4Ema50Prev = MAValue(symbol, PERIOD_H4, 50, 2, MODE_EMA);
+   double h4Ema200 = MAValue(symbol, PERIOD_H4, 200, 1, MODE_EMA);
+   bool h4HistoryReady = (Bars(symbol, PERIOD_H4) >= 205);
+   bool h4IndicatorReady = (h4HistoryReady &&
+                            h4EventBarTime > 0 &&
+                            h4M15Open1 > 0.0 &&
+                            h4M15Close1 > 0.0 &&
+                            h4M15High1 > 0.0 &&
+                            h4M15Low1 > 0.0 &&
+                            h4M15Atr1 > 0.0 &&
+                            h4M15FastEma > 0.0 &&
+                            h4M15SlowEma > 0.0 &&
+                            h4Rsi1 > 0.0 &&
+                            h4Close1 > 0.0 &&
+                            h4Ema50 > 0.0 &&
+                            h4Ema200 > 0.0);
+   bool h4LongTrend = (h4IndicatorReady && h4Close1 > h4Ema200 && h4Ema50 > h4Ema200 && h4Ema50 >= h4Ema50Prev);
+   bool h4ShortTrend = (h4IndicatorReady && h4Close1 < h4Ema200 && h4Ema50 < h4Ema200 && h4Ema50 <= h4Ema50Prev);
+   bool h4BullishClose = (h4M15Close1 > h4M15Open1);
+   bool h4BearishClose = (h4M15Close1 < h4M15Open1);
+   bool h4LongPullback = (h4IndicatorReady &&
+                          h4M15Low1 <= h4M15SlowEma + h4M15Atr1 * 0.30 &&
+                          h4M15Close1 >= h4M15FastEma &&
+                          h4BullishClose &&
+                          ((h4Rsi1 >= 38.0 && h4Rsi1 <= 62.0) || (h4Rsi2 > 0.0 && h4Rsi1 > h4Rsi2 + 2.0)));
+   bool h4ShortPullback = (h4IndicatorReady &&
+                           h4M15High1 >= h4M15SlowEma - h4M15Atr1 * 0.30 &&
+                           h4M15Close1 <= h4M15FastEma &&
+                           h4BearishClose &&
+                           ((h4Rsi1 >= 38.0 && h4Rsi1 <= 62.0) || (h4Rsi2 > 0.0 && h4Rsi1 < h4Rsi2 - 2.0)));
+   bool h4ContractLong = (direction == "LONG");
+   bool h4ContractShort = (direction == "SHORT");
+   bool h4ContractSignal = ((h4ContractLong && h4LongTrend && h4LongPullback) ||
+                            (h4ContractShort && h4ShortTrend && h4ShortPullback));
+   int h4SignalDirection = h4ContractSignal ? (h4ContractLong ? 1 : -1) : 0;
+   double h4Score = h4ContractSignal ? 70.0 : 0.0;
 
    if(loaded)
    {
@@ -6046,11 +6097,64 @@ string BuildStrategyJsonEAShadowEvaluationJson()
             reason = "EA 已读取 Night Reversion contract；当前未触发 contract 方向的布林带/RSI 均值回归条件。";
          }
       }
+      else if(strategyFamily == "USDJPY_H4_TREND_PULLBACK")
+      {
+         if(!EnableUsdJpyH4PullbackShadowResearch)
+         {
+            status = "SHADOW_RESEARCH_ROUTE_DISABLED";
+            blocker = "H4_PULLBACK_ROUTE_DISABLED";
+            reason = "USDJPY H4 Trend Pullback 影子研究路线当前关闭；EA 不做 would-enter 评估。";
+         }
+         else if(!(h4ContractLong || h4ContractShort))
+         {
+            status = "DIRECTION_SHADOW_ONLY_DEMOTED";
+            blocker = "EA_CONTRACT_DIRECTION_NOT_SUPPORTED";
+            reason = "H4 Trend Pullback contract 方向不是 LONG/SHORT，EA 只做 shadow 拒绝记录。";
+         }
+         else if(!h4IndicatorReady)
+         {
+            status = "SHADOW_WAIT_INDICATORS";
+            blocker = "H4_PULLBACK_INDICATORS_NOT_READY";
+            reason = "EA 已读取 H4 Trend Pullback contract，等待 H4 EMA50/200、M15 EMA/ATR/RSI 等影子评估证据稳定。";
+         }
+         else if((h4ContractLong && !h4LongTrend) || (h4ContractShort && !h4ShortTrend))
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "H4_PULLBACK_TREND_NOT_READY";
+            reason = "H4 Trend Pullback 要求 contract 方向与 H4 EMA50/200 趋势一致；当前大周期趋势未通过。";
+         }
+         else if(!hardGuardsPass)
+         {
+            status = "SHADOW_GUARD_BLOCKED";
+            if(!tickOk)
+               blocker = "TICK_MISSING";
+            else if(!spreadAllowed)
+               blocker = "SPREAD_BLOCK";
+            else if(!sessionOpen)
+               blocker = "SESSION_CLOSED";
+            else if(newsBlocked)
+               blocker = "NEWS_HARD_BLOCK";
+            reason = "H4 Trend Pullback shadow evaluation 只记录机会；runtime/session/spread/news 硬守门未通过，不会进入实盘。";
+         }
+         else if(h4ContractSignal)
+         {
+            status = "SHADOW_WOULD_ENTER";
+            blocker = "NONE";
+            reason = "EA 按 Strategy JSON contract 看到 USDJPY H4 Trend Pullback shadow 机会；仅写入 shadow ledger，供 Case Memory/GA 使用。";
+            wouldEnter = true;
+         }
+         else
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "H4_PULLBACK_SIGNAL_NOT_READY";
+            reason = "EA 已读取 H4 Trend Pullback contract；当前未触发 contract 方向的 M15 回踩恢复条件。";
+         }
+      }
       else if(strategyFamily != "RSI_Reversal")
       {
          status = "UNSUPPORTED_STRATEGY_FAMILY_SHADOW_OBSERVE";
          blocker = "EA_CONTRACT_FAMILY_NOT_IMPLEMENTED";
-         reason = "EA 当前只对 RSI_Reversal、USDJPY_TOKYO_RANGE_BREAKOUT 与 USDJPY_NIGHT_REVERSION_SAFE Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
+         reason = "EA 当前只对 RSI_Reversal、USDJPY_TOKYO_RANGE_BREAKOUT、USDJPY_NIGHT_REVERSION_SAFE 与 USDJPY_H4_TREND_PULLBACK Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
       }
       else if(direction != "LONG")
       {
@@ -6165,6 +6269,25 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"softShort\":" + JsonBool(nightSoftShort) + ",";
    json += "\"signalDirection\":" + IntegerToString(nightSignalDirection) + ",";
    json += "\"score\":" + FormatNumber(nightScore, 1) + "},";
+   json += "\"h4Pullback\":{\"signalTimeframe\":\"" + JsonEscape(TimeframeLabel(h4SignalTimeframe)) + "\",";
+   json += "\"trendTimeframe\":\"H4\",";
+   json += "\"eventBarTime\":\"" + JsonEscape(FormatDateTime(h4EventBarTime, true)) + "\",";
+   json += "\"historyReady\":" + JsonBool(h4HistoryReady) + ",";
+   json += "\"indicatorReady\":" + JsonBool(h4IndicatorReady) + ",";
+   json += "\"h4Close\":" + FormatNumber(h4Close1, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"h4Ema50\":" + FormatNumber(h4Ema50, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"h4Ema200\":" + FormatNumber(h4Ema200, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"m15FastEma\":" + FormatNumber(h4M15FastEma, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"m15SlowEma\":" + FormatNumber(h4M15SlowEma, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"m15Atr\":" + FormatNumber(h4M15Atr1, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"m15Rsi\":" + FormatNumber(h4Rsi1, 2) + ",";
+   json += "\"m15RsiPrev\":" + FormatNumber(h4Rsi2, 2) + ",";
+   json += "\"longTrend\":" + JsonBool(h4LongTrend) + ",";
+   json += "\"shortTrend\":" + JsonBool(h4ShortTrend) + ",";
+   json += "\"longPullback\":" + JsonBool(h4LongPullback) + ",";
+   json += "\"shortPullback\":" + JsonBool(h4ShortPullback) + ",";
+   json += "\"signalDirection\":" + IntegerToString(h4SignalDirection) + ",";
+   json += "\"score\":" + FormatNumber(h4Score, 1) + "},";
    json += "\"bid\":" + FormatNumber(bid, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"ask\":" + FormatNumber(ask, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"shadowEvaluationOnly\":true,";
