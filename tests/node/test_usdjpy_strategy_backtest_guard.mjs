@@ -170,6 +170,8 @@ test('GA seed scoring skips expensive full coverage matrix while audit backtest 
   assert.match(report, /include_coverage_matrix:\s*bool\s*=\s*True/);
   assert.match(fitness, /include_coverage_matrix=False/);
   assert.match(fitness, /backtestQuality/);
+  assert.match(fitness, /historyProductionStatus/);
+  assert.match(fitness, /HISTORY_PRODUCTION_NOT_READY/);
   assert.match(generationRunner, /include_coverage_matrix=False/);
   assert.match(report, /_coverage_matrix_skipped/);
 });

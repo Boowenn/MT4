@@ -101,6 +101,30 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertIn("backtestQuality", score)
             self.assertTrue(score["backtestQuality"]["present"])
 
+    def test_ga_fitness_blocks_promotion_when_history_production_is_not_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            seed = base_strategy_seed("FITNESS-HISTORY-PRODUCTION")
+            run_backtest(runtime_dir, seed, write=True)
+            production_status_path(runtime_dir).write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.usdjpy_history_production_status.v1",
+                        "status": "WARN",
+                        "historyTargetSatisfied": False,
+                        "failedCount": 1,
+                        "reasonZh": "M1 历史深度不足，不能作为生产级 GA 评分样本。",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            score = score_seed(seed, runtime_dir)
+            self.assertEqual(score["blockerCode"], "HISTORY_PRODUCTION_NOT_READY")
+            self.assertEqual(score["historyProductionStatus"]["promotionGateStatus"], "BLOCKED")
+            self.assertFalse(score["historyProductionStatus"]["promotionAllowed"])
+
     def test_historical_news_classifier_keeps_soft_news_soft_and_high_impact_hard(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)

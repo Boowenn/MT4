@@ -65,7 +65,7 @@ def _next_generation_number(runtime_dir: Path) -> int:
 def _candidate_status(rank: int, blocker: str | None, fitness: float) -> str:
     if blocker == "SAFETY_REJECTED":
         return "SAFETY_REJECTED"
-    if blocker == "INSUFFICIENT_SAMPLES":
+    if blocker in {"INSUFFICIENT_SAMPLES", "HISTORY_PRODUCTION_NOT_READY"}:
         return "NEEDS_MORE_DATA"
     if blocker:
         return "REJECTED"

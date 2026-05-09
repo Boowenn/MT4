@@ -38,6 +38,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     walk_forward = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYWalkForwardReport.json")
     strategy_backtest = _strategy_backtest_metrics(runtime_dir, seed)
     strategy_backtest_quality = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestQualityReport.json")
+    history_production_status = _load_json(runtime_dir / "backtest" / "QuantGod_USDJPYHistoryProductionStatus.json")
     backtest_required = seed is not None
     parity = _load_json(runtime_dir / "evidence_os" / "QuantGod_StrategyParityReport.json")
     execution = _load_json(runtime_dir / "evidence_os" / "QuantGod_LiveExecutionQualityReport.json")
@@ -50,6 +51,8 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     backtest_metrics = strategy_backtest.get("metrics") if isinstance(strategy_backtest.get("metrics"), dict) else {}
     backtest_quality_status = str(strategy_backtest_quality.get("status") or "MISSING")
     backtest_quality_penalty = _backtest_quality_penalty(backtest_quality_status, strategy_backtest_quality)
+    history_production = _history_production_metrics(history_production_status, strategy_backtest_quality)
+    history_production_penalty = _history_production_penalty(history_production)
     execution_metrics = execution.get("metrics") if isinstance(execution.get("metrics"), dict) else {}
     execution_gate = execution.get("promotionGate") if isinstance(execution.get("promotionGate"), dict) else {}
     has_seed_backtest = bool(seed and strategy_backtest)
@@ -146,7 +149,11 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "strategyContractShadow": strategy_contract_shadow,
         },
         "strategyContractShadow": strategy_contract_shadow,
-        "evidencePenalty": parity_penalty + execution_penalty + case_penalty + backtest_quality_penalty,
+        "evidencePenalty": parity_penalty
+        + execution_penalty
+        + case_penalty
+        + backtest_quality_penalty
+        + history_production_penalty,
         "backtestQuality": {
             "present": bool(strategy_backtest_quality),
             "status": backtest_quality_status,
@@ -155,6 +162,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "penalty": backtest_quality_penalty,
             "reasonZh": strategy_backtest_quality.get("reasonZh") or "",
         },
+        "historyProductionStatus": history_production,
         "evidenceQuality": entry_relaxed.get("evidenceQuality") or wf_summary.get("evidenceQuality") or strategy_backtest.get("evidenceQuality") or "LOW",
     }
 
@@ -195,10 +203,13 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         - evidence_penalty
     )
     blocker = None
+    history_production = metrics.get("historyProductionStatus", {})
     if not backtest.get("present"):
         blocker = "STRATEGY_BACKTEST_MISSING"
     elif not backtest.get("ok"):
         blocker = "STRATEGY_BACKTEST_FAILED"
+    elif history_production.get("promotionGateStatus") == "BLOCKED":
+        blocker = "HISTORY_PRODUCTION_NOT_READY"
     elif sample_count < 5:
         blocker = "INSUFFICIENT_SAMPLES"
     elif overfit_penalty:
@@ -234,6 +245,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "caseMemory": metrics.get("caseMemory", {}),
         "strategyContractShadow": metrics.get("strategyContractShadow", {}),
         "backtestQuality": metrics.get("backtestQuality", {}),
+        "historyProductionStatus": metrics.get("historyProductionStatus", {}),
     }
 
 
@@ -334,6 +346,50 @@ def _backtest_quality_penalty(status: str, quality: Dict[str, Any]) -> float:
         return 0.0
     failed_count = int(_num(quality.get("failedCount"), 0))
     return round(min(0.6, 0.2 + failed_count * 0.08), 4)
+
+
+def _history_production_metrics(production: Dict[str, Any], quality: Dict[str, Any]) -> Dict[str, Any]:
+    nested = quality.get("historyProductionStatus") if isinstance(quality.get("historyProductionStatus"), dict) else {}
+    source = production if production else nested
+    status = str(source.get("status") or "MISSING")
+    target_satisfied = bool(source.get("historyTargetSatisfied"))
+    failed_count = int(_num(source.get("failedCount"), 0))
+    timeframe_rows = source.get("timeframes") if isinstance(source.get("timeframes"), dict) else {}
+    source_meta = source.get("source") if isinstance(source.get("source"), dict) else {}
+    promotion_blocked = status != "PASS" or not target_satisfied
+    return {
+        "present": bool(source),
+        "status": status,
+        "historyTargetSatisfied": target_satisfied,
+        "promotionGateStatus": "BLOCKED" if promotion_blocked else "PASS",
+        "promotionAllowed": not promotion_blocked,
+        "failedCount": failed_count,
+        "source": source_meta,
+        "timeframes": timeframe_rows,
+        "penalty": _history_production_penalty(
+            {
+                "present": bool(source),
+                "status": status,
+                "historyTargetSatisfied": target_satisfied,
+                "failedCount": failed_count,
+            }
+        ),
+        "reasonZh": source.get("reasonZh")
+        or (
+            "USDJPY 历史样本已达到生产级深度，GA 可使用完整 SQLite 回测评分。"
+            if not promotion_blocked
+            else "USDJPY 历史样本未达到生产级 PASS，GA 候选只能停留在 shadow/tester 证据。"
+        ),
+    }
+
+
+def _history_production_penalty(production: Dict[str, Any]) -> float:
+    if not production or not production.get("present"):
+        return 0.5
+    if production.get("status") == "PASS" and production.get("historyTargetSatisfied"):
+        return 0.0
+    failed_count = int(_num(production.get("failedCount"), 0))
+    return round(min(0.9, 0.35 + failed_count * 0.1), 4)
 
 
 def _profit_factor_bonus(value: float) -> float:
