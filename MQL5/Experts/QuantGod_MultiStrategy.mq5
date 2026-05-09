@@ -5544,6 +5544,60 @@ bool StrategyJsonContractModeAllowed(string mode)
            mode == "PAPER_LIVE_SIM_EVALUATION_ONLY");
 }
 
+bool StrategyJsonGenericAdapterFamily(string strategyFamily)
+{
+   return (strategyFamily == "MA_Cross" ||
+           strategyFamily == "BB_Triple" ||
+           strategyFamily == "MACD_Divergence" ||
+           strategyFamily == "SR_Breakout");
+}
+
+bool StrategyJsonEvaluateGenericAdapterFamily(string strategyFamily, string symbol, int symbolIndex, int &direction, double &score, string &reason, double &slPrice, double &tpPrice, int &evalCode, string &trigger)
+{
+   if(strategyFamily == "MA_Cross")
+   {
+      trigger = "";
+      return EvaluatePilotMASignal(symbol, symbolIndex, direction, score, reason, slPrice, tpPrice, evalCode);
+   }
+   if(strategyFamily == "BB_Triple" ||
+      strategyFamily == "MACD_Divergence" ||
+      strategyFamily == "SR_Breakout")
+      return EvaluateLegacyPilotRouteSignal(strategyFamily, symbol, direction, score, reason, slPrice, tpPrice, evalCode, trigger);
+
+   direction = 0;
+   score = 0.0;
+   reason = "Strategy JSON generic adapter family is not implemented";
+   slPrice = 0.0;
+   tpPrice = 0.0;
+   evalCode = PILOT_EVAL_NONE;
+   trigger = "";
+   return false;
+}
+
+string StrategyJsonGenericAdapterBlocker(string strategyFamily, int evalCode)
+{
+   string prefix = strategyFamily;
+   StringReplace(prefix, "_", "");
+   prefix = ToUpperString(prefix);
+   if(evalCode == PILOT_EVAL_NOT_ENOUGH_BARS)
+      return prefix + "_NOT_ENOUGH_BARS";
+   if(evalCode == PILOT_EVAL_TICK_UNAVAILABLE)
+      return "TICK_MISSING";
+   if(evalCode == PILOT_EVAL_SPREAD_BLOCK)
+      return "SPREAD_BLOCK";
+   if(evalCode == PILOT_EVAL_SESSION_BLOCK)
+      return "SESSION_CLOSED";
+   if(evalCode == PILOT_EVAL_INDICATOR_NOT_READY)
+      return prefix + "_INDICATORS_NOT_READY";
+   if(evalCode == PILOT_EVAL_TREND_NOT_READY)
+      return prefix + "_TREND_NOT_READY";
+   if(evalCode == PILOT_EVAL_ATR_UNAVAILABLE)
+      return prefix + "_ATR_NOT_READY";
+   if(evalCode == PILOT_EVAL_RANGE_BLOCK)
+      return prefix + "_REGIME_BLOCK";
+   return prefix + "_SIGNAL_NOT_READY";
+}
+
 string StrategyJsonEAContractStatusFileName()
 {
    return "QuantGod_StrategyJsonEAContractEAStatus.json";
@@ -5780,9 +5834,31 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool hardGuardsPass = (tickOk && spreadAllowed && sessionOpen && !newsBlocked);
    bool wouldEnter = false;
    bool contractFamilyImplemented = (strategyFamily == "RSI_Reversal" ||
+                                     StrategyJsonGenericAdapterFamily(strategyFamily) ||
                                      strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT" ||
                                      strategyFamily == "USDJPY_NIGHT_REVERSION_SAFE" ||
                                      strategyFamily == "USDJPY_H4_TREND_PULLBACK");
+
+   int genericDirection = 0;
+   double genericScore = 0.0;
+   string genericReason = "";
+   string genericTrigger = "";
+   double genericSL = 0.0;
+   double genericTP = 0.0;
+   int genericEvalCode = PILOT_EVAL_NONE;
+   bool genericHasSignal = false;
+   bool genericContractLong = (direction == "LONG");
+   bool genericContractShort = (direction == "SHORT");
+   bool genericDirectionSupported = (genericContractLong || genericContractShort);
+   bool genericContractSignal = false;
+   if(StrategyJsonGenericAdapterFamily(strategyFamily))
+   {
+      int genericSymbolIndex = FindSymbolIndex(symbol);
+      genericHasSignal = StrategyJsonEvaluateGenericAdapterFamily(strategyFamily, symbol, genericSymbolIndex, genericDirection, genericScore, genericReason, genericSL, genericTP, genericEvalCode, genericTrigger);
+      genericContractSignal = (genericHasSignal &&
+                               ((genericContractLong && genericDirection > 0) ||
+                                (genericContractShort && genericDirection < 0)));
+   }
 
    ENUM_TIMEFRAMES tokyoTimeframe = PERIOD_M15;
    datetime tokyoEventBarTime = iTime(symbol, tokyoTimeframe, 1);
@@ -5974,6 +6050,57 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          blocker = "CONTRACT_MODE_REJECTED";
          reason = "Strategy JSON contract 不是 shadow/tester/paper 只读评估模式。";
       }
+      else if(StrategyJsonGenericAdapterFamily(strategyFamily))
+      {
+         if(!genericDirectionSupported)
+         {
+            status = "DIRECTION_SHADOW_ONLY_DEMOTED";
+            blocker = "EA_CONTRACT_DIRECTION_NOT_SUPPORTED";
+            reason = strategyFamily + " contract 方向不是 LONG/SHORT，EA 只做 shadow 拒绝记录。";
+         }
+         else if(genericContractSignal)
+         {
+            status = "SHADOW_WOULD_ENTER";
+            blocker = "NONE";
+            reason = "EA 按 Strategy JSON contract 看到 " + strategyFamily + " shadow 机会；仅写入 shadow ledger，供 Case Memory/GA 使用。";
+            wouldEnter = true;
+         }
+         else if(genericHasSignal)
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = "GENERIC_CONTRACT_OPPOSITE_DIRECTION_SIGNAL";
+            reason = "EA 已读取 " + strategyFamily + " contract，但当前信号方向与 contract 方向不一致；继续 shadow 观察。";
+         }
+         else if(genericEvalCode == PILOT_EVAL_TICK_UNAVAILABLE ||
+                 genericEvalCode == PILOT_EVAL_SPREAD_BLOCK ||
+                 genericEvalCode == PILOT_EVAL_SESSION_BLOCK)
+         {
+            status = "SHADOW_GUARD_BLOCKED";
+            blocker = StrategyJsonGenericAdapterBlocker(strategyFamily, genericEvalCode);
+            reason = strategyFamily + " shadow evaluation 只记录机会；tick/spread/session 硬守门未通过，不会进入实盘。";
+         }
+         else if(genericEvalCode == PILOT_EVAL_NOT_ENOUGH_BARS ||
+                 genericEvalCode == PILOT_EVAL_INDICATOR_NOT_READY ||
+                 genericEvalCode == PILOT_EVAL_TREND_NOT_READY ||
+                 genericEvalCode == PILOT_EVAL_ATR_UNAVAILABLE)
+         {
+            status = "SHADOW_WAIT_INDICATORS";
+            blocker = StrategyJsonGenericAdapterBlocker(strategyFamily, genericEvalCode);
+            reason = "EA 已读取 " + strategyFamily + " contract，等待对应 K 线/指标证据稳定。";
+         }
+         else if(genericEvalCode == PILOT_EVAL_RANGE_BLOCK)
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = StrategyJsonGenericAdapterBlocker(strategyFamily, genericEvalCode);
+            reason = "EA 已读取 " + strategyFamily + " contract，但当前 regime/过滤器不适合该 legacy 路线；继续 shadow 观察。";
+         }
+         else
+         {
+            status = "SHADOW_OBSERVE";
+            blocker = StrategyJsonGenericAdapterBlocker(strategyFamily, genericEvalCode);
+            reason = "EA 已读取 " + strategyFamily + " contract；当前未触发 contract 方向的 legacy 策略条件。";
+         }
+      }
       else if(strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT")
       {
          if(!EnableUsdJpyTokyoBreakoutShadowResearch)
@@ -6154,7 +6281,7 @@ string BuildStrategyJsonEAShadowEvaluationJson()
       {
          status = "UNSUPPORTED_STRATEGY_FAMILY_SHADOW_OBSERVE";
          blocker = "EA_CONTRACT_FAMILY_NOT_IMPLEMENTED";
-         reason = "EA 当前只对 RSI_Reversal、USDJPY_TOKYO_RANGE_BREAKOUT、USDJPY_NIGHT_REVERSION_SAFE 与 USDJPY_H4_TREND_PULLBACK Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
+         reason = "EA 当前只对 RSI_Reversal、MA_Cross、BB_Triple、MACD_Divergence、SR_Breakout、USDJPY_TOKYO_RANGE_BREAKOUT、USDJPY_NIGHT_REVERSION_SAFE 与 USDJPY_H4_TREND_PULLBACK Strategy JSON contract 做逐 bar shadow evaluation；其他策略先进入 Case Memory/GA 待适配。";
       }
       else if(direction != "LONG")
       {
@@ -6288,6 +6415,18 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"shortPullback\":" + JsonBool(h4ShortPullback) + ",";
    json += "\"signalDirection\":" + IntegerToString(h4SignalDirection) + ",";
    json += "\"score\":" + FormatNumber(h4Score, 1) + "},";
+   json += "\"genericStrategy\":{\"implemented\":" + JsonBool(StrategyJsonGenericAdapterFamily(strategyFamily)) + ",";
+   json += "\"strategyFamily\":\"" + JsonEscape(strategyFamily) + "\",";
+   json += "\"timeframe\":\"" + JsonEscape(TimeframeLabel(strategyFamily == "MA_Cross" ? PilotSignalTimeframe : LegacyPilotRouteTimeframe(strategyFamily))) + "\",";
+   json += "\"evalCode\":\"" + JsonEscape(PilotEvalCodeLabel(genericEvalCode)) + "\",";
+   json += "\"signalDirection\":" + IntegerToString(genericDirection) + ",";
+   json += "\"score\":" + FormatNumber(genericScore, 1) + ",";
+   json += "\"hasSignal\":" + JsonBool(genericHasSignal) + ",";
+   json += "\"contractSignalMatches\":" + JsonBool(genericContractSignal) + ",";
+   json += "\"trigger\":\"" + JsonEscape(genericTrigger) + "\",";
+   json += "\"reason\":\"" + JsonEscape(genericReason) + "\",";
+   json += "\"slPrice\":" + FormatNumber(genericSL, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"tpPrice\":" + FormatNumber(genericTP, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + "},";
    json += "\"bid\":" + FormatNumber(bid, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"ask\":" + FormatNumber(ask, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + ",";
    json += "\"shadowEvaluationOnly\":true,";
