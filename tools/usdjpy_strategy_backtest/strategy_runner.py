@@ -109,8 +109,20 @@ def _normalize_bars_input(bars: List[Bar] | Dict[str, List[Bar]]) -> Dict[str, L
 
 
 def _primary_timeframe(strategy: Dict[str, Any], bars_by_timeframe: Dict[str, List[Bar]]) -> str:
-    rsi_cfg = ((strategy.get("indicators") or {}).get("rsi") or {})
-    preferred = str(rsi_cfg.get("timeframe") or "H1").upper()
+    family = str(strategy.get("strategyFamily") or "")
+    indicators = strategy.get("indicators") if isinstance(strategy.get("indicators"), dict) else {}
+    cfg_key = {
+        "RSI_Reversal": "rsi",
+        "MA_Cross": "ma",
+        "BB_Triple": "bollinger",
+        "MACD_Divergence": "macd",
+        "SR_Breakout": "supportResistance",
+        "USDJPY_TOKYO_RANGE_BREAKOUT": "tokyoRange",
+        "USDJPY_NIGHT_REVERSION_SAFE": "nightReversion",
+        "USDJPY_H4_TREND_PULLBACK": "h4Pullback",
+    }.get(family, "rsi")
+    family_cfg = indicators.get(cfg_key) if isinstance(indicators.get(cfg_key), dict) else {}
+    preferred = str(family_cfg.get("timeframe") or "H1").upper()
     if len(bars_by_timeframe.get(preferred, [])) >= 40:
         return preferred
     for candidate in ("H1", "M15", "M5", "M1", "H4", "D1"):
@@ -170,127 +182,266 @@ def _rsi_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, An
 
 
 def _ma_cross_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, Any]]:
+    ma_cfg = _indicator_cfg(strategy, "ma")
+    fast_period = _int_param(ma_cfg, "fastPeriod", 9, 2, 80)
+    slow_period = _int_param(ma_cfg, "slowPeriod", 21, fast_period + 1, 240)
     closes = [item.close for item in bars]
-    fast = ema_values(closes, 9)
-    slow = ema_values(closes, 21)
+    fast = ema_values(closes, fast_period)
+    slow = ema_values(closes, slow_period)
     direction = str(strategy.get("direction") or "LONG").upper()
     signals: List[Dict[str, Any]] = []
-    for index in range(22, len(bars) - 2):
+    for index in range(slow_period + 1, len(bars) - 2):
         if None in (fast[index - 1], slow[index - 1], fast[index], slow[index]):
             continue
         long_cross = fast[index - 1] <= slow[index - 1] and fast[index] > slow[index]
         short_cross = fast[index - 1] >= slow[index - 1] and fast[index] < slow[index]
         if (direction == "LONG" and long_cross) or (direction == "SHORT" and short_cross):
-            signals.append(_signal(index + 1, direction, "EMA_9_21_CROSS", {"fastEma": fast[index], "slowEma": slow[index]}))
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "EMA_CROSS",
+                    {"fastEma": fast[index], "slowEma": slow[index], "fastPeriod": fast_period, "slowPeriod": slow_period},
+                )
+            )
     return signals
 
 
 def _bb_triple_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, Any]]:
+    bb_cfg = _indicator_cfg(strategy, "bollinger")
+    period = _int_param(bb_cfg, "period", 20, 5, 120)
+    deviations = _float_param(bb_cfg, "deviations", 2.0, 0.5, 4.0)
+    reclaim_buffer_pips = _float_param(bb_cfg, "reclaimBufferPips", 0.0, 0.0, 30.0)
+    reclaim_buffer = reclaim_buffer_pips * 0.01
     closes = [item.close for item in bars]
-    bands = bollinger_bands(closes, 20, 2.0)
+    bands = bollinger_bands(closes, period, deviations)
     direction = str(strategy.get("direction") or "LONG").upper()
     signals: List[Dict[str, Any]] = []
-    for index in range(21, len(bars) - 2):
+    for index in range(period + 1, len(bars) - 2):
         lower, mid, upper = bands[index]
         if lower is None or mid is None or upper is None:
             continue
         previous_close = closes[index - 1]
         current_close = closes[index]
-        long_reclaim = previous_close < lower and current_close > lower
-        short_reclaim = previous_close > upper and current_close < upper
+        long_reclaim = previous_close < lower and current_close > lower + reclaim_buffer
+        short_reclaim = previous_close > upper and current_close < upper - reclaim_buffer
         if (direction == "LONG" and long_reclaim) or (direction == "SHORT" and short_reclaim):
-            signals.append(_signal(index + 1, direction, "BOLLINGER_RECLAIM", {"lower": lower, "mid": mid, "upper": upper}))
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "BOLLINGER_RECLAIM",
+                    {"lower": lower, "mid": mid, "upper": upper, "period": period, "deviations": deviations},
+                )
+            )
     return signals
 
 
 def _macd_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, Any]]:
+    macd_cfg = _indicator_cfg(strategy, "macd")
+    fast_period = _int_param(macd_cfg, "fastPeriod", 12, 2, 80)
+    slow_period = _int_param(macd_cfg, "slowPeriod", 26, fast_period + 1, 160)
+    signal_period = _int_param(macd_cfg, "signalPeriod", 9, 2, 80)
+    min_histogram_abs = _float_param(macd_cfg, "minHistogramAbs", 0.0, 0.0, 1.0)
     closes = [item.close for item in bars]
-    macd = macd_values(closes)
+    macd = macd_values(closes, fast_period, slow_period, signal_period)
     direction = str(strategy.get("direction") or "LONG").upper()
     signals: List[Dict[str, Any]] = []
-    for index in range(35, len(bars) - 2):
+    for index in range(slow_period + signal_period, len(bars) - 2):
         previous_hist = macd[index - 1][2]
         current_hist = macd[index][2]
         if previous_hist is None or current_hist is None:
             continue
         long_cross = previous_hist <= 0 < current_hist
         short_cross = previous_hist >= 0 > current_hist
+        if abs(float(current_hist)) < min_histogram_abs:
+            continue
         if (direction == "LONG" and long_cross) or (direction == "SHORT" and short_cross):
-            signals.append(_signal(index + 1, direction, "MACD_HISTOGRAM_CROSS", {"histogram": current_hist}))
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "MACD_HISTOGRAM_CROSS",
+                    {
+                        "histogram": current_hist,
+                        "fastPeriod": fast_period,
+                        "slowPeriod": slow_period,
+                        "signalPeriod": signal_period,
+                    },
+                )
+            )
     return signals
 
 
 def _sr_breakout_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, Any]]:
+    sr_cfg = _indicator_cfg(strategy, "supportResistance")
     direction = str(strategy.get("direction") or "LONG").upper()
-    lookback = 24
+    lookback = _int_param(sr_cfg, "lookbackBars", 24, 4, 240)
+    buffer_pips = _float_param(sr_cfg, "breakoutBufferPips", 0.0, 0.0, 50.0)
+    buffer_price = buffer_pips * 0.01
     signals: List[Dict[str, Any]] = []
     for index in range(lookback, len(bars) - 2):
         window = bars[index - lookback : index]
         resistance = max(item.high for item in window)
         support = min(item.low for item in window)
-        long_break = bars[index].close > resistance
-        short_break = bars[index].close < support
+        long_break = bars[index].close > resistance + buffer_price
+        short_break = bars[index].close < support - buffer_price
         if (direction == "LONG" and long_break) or (direction == "SHORT" and short_break):
-            signals.append(_signal(index + 1, direction, "SR_BREAKOUT", {"support": support, "resistance": resistance}))
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "SR_BREAKOUT",
+                    {"support": support, "resistance": resistance, "lookbackBars": lookback, "bufferPips": buffer_pips},
+                )
+            )
     return signals
 
 
 def _tokyo_breakout_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, Any]]:
+    tokyo_cfg = _indicator_cfg(strategy, "tokyoRange")
+    range_hours = _hour_window(
+        _int_param(tokyo_cfg, "rangeStartHourUtc", 0, 0, 23),
+        _int_param(tokyo_cfg, "rangeEndHourUtc", 2, 0, 23),
+    )
+    trade_hours = _hour_window(
+        _int_param(tokyo_cfg, "tradeStartHourUtc", 3, 0, 23),
+        _int_param(tokyo_cfg, "tradeEndHourUtc", 6, 0, 23),
+    )
+    lookback = _int_param(tokyo_cfg, "lookbackBars", 8, 2, 96)
+    buffer_pips = _float_param(tokyo_cfg, "bufferPips", 0.0, 0.0, 50.0)
+    buffer_price = buffer_pips * 0.01
     direction = str(strategy.get("direction") or "LONG").upper()
     signals: List[Dict[str, Any]] = []
-    for index in range(12, len(bars) - 2):
+    for index in range(max(lookback + 1, 12), len(bars) - 2):
         hour = _hour_utc(bars[index].timestamp)
-        if hour not in {3, 4, 5, 6}:
+        if hour not in trade_hours:
             continue
-        asian_window = [item for item in bars[max(0, index - 8) : index] if _hour_utc(item.timestamp) in {0, 1, 2}]
+        asian_window = [item for item in bars[max(0, index - lookback) : index] if _hour_utc(item.timestamp) in range_hours]
         if len(asian_window) < 2:
             continue
         high = max(item.high for item in asian_window)
         low = min(item.low for item in asian_window)
-        if direction == "LONG" and bars[index].close > high:
-            signals.append(_signal(index + 1, direction, "TOKYO_RANGE_BREAKOUT", {"rangeHigh": high, "rangeLow": low}))
-        if direction == "SHORT" and bars[index].close < low:
-            signals.append(_signal(index + 1, direction, "TOKYO_RANGE_BREAKOUT", {"rangeHigh": high, "rangeLow": low}))
+        if direction == "LONG" and bars[index].close > high + buffer_price:
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "TOKYO_RANGE_BREAKOUT",
+                    {"rangeHigh": high, "rangeLow": low, "bufferPips": buffer_pips},
+                )
+            )
+        if direction == "SHORT" and bars[index].close < low - buffer_price:
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "TOKYO_RANGE_BREAKOUT",
+                    {"rangeHigh": high, "rangeLow": low, "bufferPips": buffer_pips},
+                )
+            )
     return signals
 
 
 def _night_reversion_signals(strategy: Dict[str, Any], bars: List[Bar]) -> List[Dict[str, Any]]:
+    night_cfg = _indicator_cfg(strategy, "nightReversion")
+    active_hours = _hour_window(
+        _int_param(night_cfg, "startHourUtc", 20, 0, 23),
+        _int_param(night_cfg, "endHourUtc", 2, 0, 23),
+    )
+    period = _int_param(night_cfg, "bollingerPeriod", 20, 5, 120)
+    deviations = _float_param(night_cfg, "deviations", 1.8, 0.5, 4.0)
+    entry_buffer_pips = _float_param(night_cfg, "entryBufferPips", 0.0, 0.0, 30.0)
+    entry_buffer = entry_buffer_pips * 0.01
     closes = [item.close for item in bars]
-    bands = bollinger_bands(closes, 20, 1.8)
+    bands = bollinger_bands(closes, period, deviations)
     direction = str(strategy.get("direction") or "LONG").upper()
     signals: List[Dict[str, Any]] = []
-    for index in range(21, len(bars) - 2):
+    for index in range(period + 1, len(bars) - 2):
         hour = _hour_utc(bars[index].timestamp)
-        if hour not in {20, 21, 22, 23, 0, 1, 2}:
+        if hour not in active_hours:
             continue
         lower, _, upper = bands[index]
         if lower is None or upper is None:
             continue
-        if direction == "LONG" and closes[index] <= lower:
-            signals.append(_signal(index + 1, direction, "NIGHT_REVERSION_LOWER_BAND", {"lower": lower}))
-        if direction == "SHORT" and closes[index] >= upper:
-            signals.append(_signal(index + 1, direction, "NIGHT_REVERSION_UPPER_BAND", {"upper": upper}))
+        if direction == "LONG" and closes[index] <= lower - entry_buffer:
+            signals.append(_signal(index + 1, direction, "NIGHT_REVERSION_LOWER_BAND", {"lower": lower, "deviations": deviations}))
+        if direction == "SHORT" and closes[index] >= upper + entry_buffer:
+            signals.append(_signal(index + 1, direction, "NIGHT_REVERSION_UPPER_BAND", {"upper": upper, "deviations": deviations}))
     return signals
 
 
 def _h4_pullback_signals(strategy: Dict[str, Any], bars: List[Bar], bars_by_timeframe: Dict[str, List[Bar]]) -> List[Dict[str, Any]]:
+    h4_cfg = _indicator_cfg(strategy, "h4Pullback")
+    fast_period = _int_param(h4_cfg, "fastEmaPeriod", 20, 2, 120)
+    slow_period = _int_param(h4_cfg, "slowEmaPeriod", 50, fast_period + 1, 240)
+    pullback_period = _int_param(h4_cfg, "pullbackEmaPeriod", fast_period, 2, 120)
+    rsi_period = _int_param(h4_cfg, "rsiPeriod", 14, 2, 50)
+    long_rsi_min = _float_param(h4_cfg, "longRsiMin", 38.0, 5.0, 65.0)
+    short_rsi_max = _float_param(h4_cfg, "shortRsiMax", 62.0, 35.0, 95.0)
     closes = [item.close for item in bars]
-    ema20 = ema_values(closes, 20)
-    ema50 = ema_values(closes, 50)
+    fast_ema = ema_values(closes, fast_period)
+    slow_ema = ema_values(closes, slow_period)
+    pullback_ema = ema_values(closes, pullback_period)
+    rsi_series = rsi_values(closes, rsi_period)
     direction = str(strategy.get("direction") or "LONG").upper()
     signals: List[Dict[str, Any]] = []
-    for index in range(55, len(bars) - 2):
-        if ema20[index] is None or ema50[index] is None:
+    start_index = max(slow_period, pullback_period, rsi_period) + 1
+    for index in range(start_index, len(bars) - 2):
+        if fast_ema[index] is None or slow_ema[index] is None or pullback_ema[index] is None or rsi_series[index] is None:
             continue
-        trend_long = ema20[index] > ema50[index]
-        trend_short = ema20[index] < ema50[index]
-        pullback_long = bars[index].low <= ema20[index] <= bars[index].close
-        pullback_short = bars[index].high >= ema20[index] >= bars[index].close
-        if direction == "LONG" and trend_long and pullback_long:
-            signals.append(_signal(index + 1, direction, "H4_TREND_PULLBACK", {"ema20": ema20[index], "ema50": ema50[index]}))
-        if direction == "SHORT" and trend_short and pullback_short:
-            signals.append(_signal(index + 1, direction, "H4_TREND_PULLBACK", {"ema20": ema20[index], "ema50": ema50[index]}))
+        trend_long = fast_ema[index] > slow_ema[index]
+        trend_short = fast_ema[index] < slow_ema[index]
+        pullback_long = bars[index].low <= pullback_ema[index] <= bars[index].close
+        pullback_short = bars[index].high >= pullback_ema[index] >= bars[index].close
+        if direction == "LONG" and trend_long and pullback_long and rsi_series[index] >= long_rsi_min:
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "H4_TREND_PULLBACK",
+                    {"fastEma": fast_ema[index], "slowEma": slow_ema[index], "pullbackEma": pullback_ema[index], "rsi": rsi_series[index]},
+                )
+            )
+        if direction == "SHORT" and trend_short and pullback_short and rsi_series[index] <= short_rsi_max:
+            signals.append(
+                _signal(
+                    index + 1,
+                    direction,
+                    "H4_TREND_PULLBACK",
+                    {"fastEma": fast_ema[index], "slowEma": slow_ema[index], "pullbackEma": pullback_ema[index], "rsi": rsi_series[index]},
+                )
+            )
     return signals
+
+
+def _indicator_cfg(strategy: Dict[str, Any], key: str) -> Dict[str, Any]:
+    indicators = strategy.get("indicators") if isinstance(strategy.get("indicators"), dict) else {}
+    return indicators.get(key) if isinstance(indicators.get(key), dict) else {}
+
+
+def _int_param(config: Dict[str, Any], key: str, default: int, low: int, high: int) -> int:
+    try:
+        value = int(float(config.get(key, default)))
+    except Exception:
+        value = default
+    return max(low, min(high, value))
+
+
+def _float_param(config: Dict[str, Any], key: str, default: float, low: float, high: float) -> float:
+    try:
+        value = float(config.get(key, default))
+    except Exception:
+        value = default
+    return max(low, min(high, value))
+
+
+def _hour_window(start_hour: int, end_hour: int) -> set[int]:
+    start = int(start_hour) % 24
+    end = int(end_hour) % 24
+    if start <= end:
+        return set(range(start, end + 1))
+    return set(range(start, 24)) | set(range(0, end + 1))
 
 
 def _signal(index: int, direction: str, reason: str, evidence: Dict[str, Any]) -> Dict[str, Any]:
@@ -459,6 +610,7 @@ def _parity_vector(strategy: Dict[str, Any], bars: List[Bar], signals: List[Dict
     entry_cfg = strategy.get("entry") if isinstance(strategy.get("entry"), dict) else {}
     exit_cfg = strategy.get("exit") if isinstance(strategy.get("exit"), dict) else {}
     risk_cfg = strategy.get("risk") if isinstance(strategy.get("risk"), dict) else {}
+    indicators = strategy.get("indicators") if isinstance(strategy.get("indicators"), dict) else {}
     return {
         "schema": "quantgod.strategy_parity_vector.v1",
         "strategyFamily": strategy.get("strategyFamily"),
@@ -471,6 +623,15 @@ def _parity_vector(strategy: Dict[str, Any], bars: List[Bar], signals: List[Dict
             "buyBand": rsi_cfg.get("buyBand"),
             "sellBand": rsi_cfg.get("sellBand"),
             "crossbackThreshold": rsi_cfg.get("crossbackThreshold"),
+        },
+        "familyParameters": {
+            "ma": indicators.get("ma") if isinstance(indicators.get("ma"), dict) else {},
+            "bollinger": indicators.get("bollinger") if isinstance(indicators.get("bollinger"), dict) else {},
+            "macd": indicators.get("macd") if isinstance(indicators.get("macd"), dict) else {},
+            "supportResistance": indicators.get("supportResistance") if isinstance(indicators.get("supportResistance"), dict) else {},
+            "tokyoRange": indicators.get("tokyoRange") if isinstance(indicators.get("tokyoRange"), dict) else {},
+            "nightReversion": indicators.get("nightReversion") if isinstance(indicators.get("nightReversion"), dict) else {},
+            "h4Pullback": indicators.get("h4Pullback") if isinstance(indicators.get("h4Pullback"), dict) else {},
         },
         "exit": {
             "breakevenDelayR": exit_cfg.get("breakevenDelayR"),

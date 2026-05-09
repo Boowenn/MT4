@@ -180,10 +180,20 @@ def select_strategy_candidate(runtime_dir: Path) -> Dict[str, Any]:
 
 
 def _strategy_summary(strategy_json: Dict[str, Any]) -> Dict[str, Any]:
-    rsi = ((strategy_json.get("indicators") or {}).get("rsi") or {})
+    indicators = strategy_json.get("indicators") if isinstance(strategy_json.get("indicators"), dict) else {}
+    rsi = indicators.get("rsi") if isinstance(indicators.get("rsi"), dict) else {}
     exit_plan = strategy_json.get("exit") if isinstance(strategy_json.get("exit"), dict) else {}
     risk = strategy_json.get("risk") if isinstance(strategy_json.get("risk"), dict) else {}
     entry = strategy_json.get("entry") if isinstance(strategy_json.get("entry"), dict) else {}
+    family_parameters = {
+        "ma": indicators.get("ma") if isinstance(indicators.get("ma"), dict) else {},
+        "bollinger": indicators.get("bollinger") if isinstance(indicators.get("bollinger"), dict) else {},
+        "macd": indicators.get("macd") if isinstance(indicators.get("macd"), dict) else {},
+        "supportResistance": indicators.get("supportResistance") if isinstance(indicators.get("supportResistance"), dict) else {},
+        "tokyoRange": indicators.get("tokyoRange") if isinstance(indicators.get("tokyoRange"), dict) else {},
+        "nightReversion": indicators.get("nightReversion") if isinstance(indicators.get("nightReversion"), dict) else {},
+        "h4Pullback": indicators.get("h4Pullback") if isinstance(indicators.get("h4Pullback"), dict) else {},
+    }
     return {
         "seedId": strategy_json.get("seedId"),
         "strategyId": strategy_json.get("strategyId"),
@@ -200,6 +210,7 @@ def _strategy_summary(strategy_json: Dict[str, Any]) -> Dict[str, Any]:
             "buyBand": float(rsi.get("buyBand", 34)),
             "crossbackThreshold": float(rsi.get("crossbackThreshold", 0.8)),
         },
+        "familyParameters": family_parameters,
         "exit": {
             "breakevenDelayR": float(exit_plan.get("breakevenDelayR", 1.0)),
             "trailStartR": float(exit_plan.get("trailStartR", 1.5)),
@@ -217,6 +228,16 @@ def _strategy_summary(strategy_json: Dict[str, Any]) -> Dict[str, Any]:
 def _build_ea_text(contract: Dict[str, Any]) -> str:
     strategy = contract["strategy"]
     rsi = strategy["rsi"]
+    family_params = strategy.get("familyParameters") if isinstance(strategy.get("familyParameters"), dict) else {}
+    ma = family_params.get("ma") if isinstance(family_params.get("ma"), dict) else {}
+    bollinger = family_params.get("bollinger") if isinstance(family_params.get("bollinger"), dict) else {}
+    macd = family_params.get("macd") if isinstance(family_params.get("macd"), dict) else {}
+    support_resistance = (
+        family_params.get("supportResistance") if isinstance(family_params.get("supportResistance"), dict) else {}
+    )
+    tokyo_range = family_params.get("tokyoRange") if isinstance(family_params.get("tokyoRange"), dict) else {}
+    night_reversion = family_params.get("nightReversion") if isinstance(family_params.get("nightReversion"), dict) else {}
+    h4_pullback = family_params.get("h4Pullback") if isinstance(family_params.get("h4Pullback"), dict) else {}
     exit_plan = strategy["exit"]
     risk = strategy["risk"]
     values = {
@@ -237,6 +258,42 @@ def _build_ea_text(contract: Dict[str, Any]) -> str:
         "rsiTimeframe": rsi.get("timeframe"),
         "rsiBuyBand": rsi.get("buyBand"),
         "rsiCrossbackThreshold": rsi.get("crossbackThreshold"),
+        "familyParameters": family_params,
+        "maTimeframe": ma.get("timeframe"),
+        "maFastPeriod": ma.get("fastPeriod"),
+        "maSlowPeriod": ma.get("slowPeriod"),
+        "bbTimeframe": bollinger.get("timeframe"),
+        "bbPeriod": bollinger.get("period"),
+        "bbDeviations": bollinger.get("deviations"),
+        "bbReclaimBufferPips": bollinger.get("reclaimBufferPips"),
+        "macdTimeframe": macd.get("timeframe"),
+        "macdFastPeriod": macd.get("fastPeriod"),
+        "macdSlowPeriod": macd.get("slowPeriod"),
+        "macdSignalPeriod": macd.get("signalPeriod"),
+        "macdMinHistogramAbs": macd.get("minHistogramAbs"),
+        "srTimeframe": support_resistance.get("timeframe"),
+        "srLookbackBars": support_resistance.get("lookbackBars"),
+        "srBreakoutBufferPips": support_resistance.get("breakoutBufferPips"),
+        "tokyoTimeframe": tokyo_range.get("timeframe"),
+        "tokyoRangeStartHourUtc": tokyo_range.get("rangeStartHourUtc"),
+        "tokyoRangeEndHourUtc": tokyo_range.get("rangeEndHourUtc"),
+        "tokyoTradeStartHourUtc": tokyo_range.get("tradeStartHourUtc"),
+        "tokyoTradeEndHourUtc": tokyo_range.get("tradeEndHourUtc"),
+        "tokyoLookbackBars": tokyo_range.get("lookbackBars"),
+        "tokyoBufferPips": tokyo_range.get("bufferPips"),
+        "nightTimeframe": night_reversion.get("timeframe"),
+        "nightStartHourUtc": night_reversion.get("startHourUtc"),
+        "nightEndHourUtc": night_reversion.get("endHourUtc"),
+        "nightBollingerPeriod": night_reversion.get("bollingerPeriod"),
+        "nightDeviations": night_reversion.get("deviations"),
+        "nightEntryBufferPips": night_reversion.get("entryBufferPips"),
+        "h4Timeframe": h4_pullback.get("timeframe"),
+        "h4FastEmaPeriod": h4_pullback.get("fastEmaPeriod"),
+        "h4SlowEmaPeriod": h4_pullback.get("slowEmaPeriod"),
+        "h4PullbackEmaPeriod": h4_pullback.get("pullbackEmaPeriod"),
+        "h4RsiPeriod": h4_pullback.get("rsiPeriod"),
+        "h4LongRsiMin": h4_pullback.get("longRsiMin"),
+        "h4ShortRsiMax": h4_pullback.get("shortRsiMax"),
         "breakevenDelayR": exit_plan.get("breakevenDelayR"),
         "trailStartR": exit_plan.get("trailStartR"),
         "mfeGivebackPct": exit_plan.get("mfeGivebackPct"),

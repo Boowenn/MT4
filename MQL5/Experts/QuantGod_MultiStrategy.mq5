@@ -5626,6 +5626,41 @@ ENUM_TIMEFRAMES StrategyJsonContractTimeframe(string label, ENUM_TIMEFRAMES fall
    return fallback;
 }
 
+int StrategyJsonUtcHourFromServerTime(datetime value)
+{
+   if(value <= 0)
+      return -1;
+   datetime serverNow = TimeCurrent();
+   datetime gmtNow = TimeGMT();
+   datetime utcValue = value - (serverNow - gmtNow);
+   MqlDateTime dt;
+   TimeToStruct(utcValue, dt);
+   return dt.hour;
+}
+
+int StrategyJsonUtcDayKeyFromServerTime(datetime value)
+{
+   if(value <= 0)
+      return 0;
+   datetime serverNow = TimeCurrent();
+   datetime gmtNow = TimeGMT();
+   datetime utcValue = value - (serverNow - gmtNow);
+   MqlDateTime dt;
+   TimeToStruct(utcValue, dt);
+   return dt.year * 10000 + dt.mon * 100 + dt.day;
+}
+
+bool StrategyJsonHourInWindow(int hour, int startHour, int endHour)
+{
+   if(hour < 0)
+      return false;
+   int start = ((startHour % 24) + 24) % 24;
+   int end = ((endHour % 24) + 24) % 24;
+   if(start <= end)
+      return (hour >= start && hour <= end);
+   return (hour >= start || hour <= end);
+}
+
 string BuildStrategyJsonEAContractStatusJson()
 {
    string content = "";
@@ -5769,6 +5804,41 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    int rsiPeriod = 0;
    double rsiBuyBand = 0.0;
    double rsiCrossbackThreshold = 0.0;
+   string maTimeframeLabel = "";
+   int maFastPeriod = 9;
+   int maSlowPeriod = 21;
+   string bbTimeframeLabel = "";
+   int bbPeriod = 20;
+   double bbDeviations = 2.0;
+   double bbReclaimBufferPips = 0.0;
+   string macdTimeframeLabel = "";
+   int macdFastPeriod = 12;
+   int macdSlowPeriod = 26;
+   int macdSignalPeriod = 9;
+   double macdMinHistogramAbs = 0.0;
+   string srTimeframeLabel = "";
+   int srLookbackBars = 24;
+   double srBreakoutBufferPips = 0.0;
+   string tokyoTimeframeLabel = "";
+   int tokyoRangeStartHourUtc = 0;
+   int tokyoRangeEndHourUtc = 2;
+   int tokyoTradeStartHourUtc = 3;
+   int tokyoTradeEndHourUtc = 6;
+   int tokyoLookbackBars = 8;
+   double tokyoContractBufferPips = 0.0;
+   string nightTimeframeLabel = "";
+   int nightStartHourUtc = 20;
+   int nightEndHourUtc = 2;
+   int nightBollingerPeriod = 20;
+   double nightDeviations = 1.8;
+   double nightEntryBufferPips = 0.0;
+   string h4TimeframeLabel = "";
+   int h4FastEmaPeriod = 20;
+   int h4SlowEmaPeriod = 50;
+   int h4PullbackEmaPeriod = 20;
+   int h4RsiPeriod = 14;
+   double h4LongRsiMin = 38.0;
+   double h4ShortRsiMax = 62.0;
    bool orderSendAllowed = false;
    bool livePresetMutationAllowed = false;
    bool gaDirectLiveAllowed = false;
@@ -5799,6 +5869,41 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          rsiTimeframeLabel = StrategyJsonContractValue(content, "rsiTimeframe", TimeframeLabel(PilotRsiTimeframe));
          rsiBuyBand = StrategyJsonContractDouble(content, "rsiBuyBand", PilotRsiOversold);
          rsiCrossbackThreshold = StrategyJsonContractDouble(content, "rsiCrossbackThreshold", PilotRsiCrossbackThreshold);
+         maTimeframeLabel = StrategyJsonContractValue(content, "maTimeframe", TimeframeLabel(PilotSignalTimeframe));
+         maFastPeriod = StrategyJsonContractInt(content, "maFastPeriod", PilotFastMAPeriod);
+         maSlowPeriod = StrategyJsonContractInt(content, "maSlowPeriod", PilotSlowMAPeriod);
+         bbTimeframeLabel = StrategyJsonContractValue(content, "bbTimeframe", TimeframeLabel(PilotBBTimeframe));
+         bbPeriod = StrategyJsonContractInt(content, "bbPeriod", PilotBBPeriod);
+         bbDeviations = StrategyJsonContractDouble(content, "bbDeviations", PilotBBDeviation);
+         bbReclaimBufferPips = StrategyJsonContractDouble(content, "bbReclaimBufferPips", 0.0);
+         macdTimeframeLabel = StrategyJsonContractValue(content, "macdTimeframe", TimeframeLabel(PilotMacdTimeframe));
+         macdFastPeriod = StrategyJsonContractInt(content, "macdFastPeriod", PilotMacdFast);
+         macdSlowPeriod = StrategyJsonContractInt(content, "macdSlowPeriod", PilotMacdSlow);
+         macdSignalPeriod = StrategyJsonContractInt(content, "macdSignalPeriod", PilotMacdSignal);
+         macdMinHistogramAbs = StrategyJsonContractDouble(content, "macdMinHistogramAbs", 0.0);
+         srTimeframeLabel = StrategyJsonContractValue(content, "srTimeframe", TimeframeLabel(PilotSRTimeframe));
+         srLookbackBars = StrategyJsonContractInt(content, "srLookbackBars", PilotSRLookback);
+         srBreakoutBufferPips = StrategyJsonContractDouble(content, "srBreakoutBufferPips", PilotSRBreakPips);
+         tokyoTimeframeLabel = StrategyJsonContractValue(content, "tokyoTimeframe", "M15");
+         tokyoRangeStartHourUtc = StrategyJsonContractInt(content, "tokyoRangeStartHourUtc", 0);
+         tokyoRangeEndHourUtc = StrategyJsonContractInt(content, "tokyoRangeEndHourUtc", 2);
+         tokyoTradeStartHourUtc = StrategyJsonContractInt(content, "tokyoTradeStartHourUtc", 3);
+         tokyoTradeEndHourUtc = StrategyJsonContractInt(content, "tokyoTradeEndHourUtc", 6);
+         tokyoLookbackBars = StrategyJsonContractInt(content, "tokyoLookbackBars", 8);
+         tokyoContractBufferPips = StrategyJsonContractDouble(content, "tokyoBufferPips", 0.0);
+         nightTimeframeLabel = StrategyJsonContractValue(content, "nightTimeframe", "M15");
+         nightStartHourUtc = StrategyJsonContractInt(content, "nightStartHourUtc", 20);
+         nightEndHourUtc = StrategyJsonContractInt(content, "nightEndHourUtc", 2);
+         nightBollingerPeriod = StrategyJsonContractInt(content, "nightBollingerPeriod", 20);
+         nightDeviations = StrategyJsonContractDouble(content, "nightDeviations", 1.8);
+         nightEntryBufferPips = StrategyJsonContractDouble(content, "nightEntryBufferPips", 0.0);
+         h4TimeframeLabel = StrategyJsonContractValue(content, "h4Timeframe", "H4");
+         h4FastEmaPeriod = StrategyJsonContractInt(content, "h4FastEmaPeriod", 20);
+         h4SlowEmaPeriod = StrategyJsonContractInt(content, "h4SlowEmaPeriod", 50);
+         h4PullbackEmaPeriod = StrategyJsonContractInt(content, "h4PullbackEmaPeriod", 20);
+         h4RsiPeriod = StrategyJsonContractInt(content, "h4RsiPeriod", 14);
+         h4LongRsiMin = StrategyJsonContractDouble(content, "h4LongRsiMin", 38.0);
+         h4ShortRsiMax = StrategyJsonContractDouble(content, "h4ShortRsiMax", 62.0);
          orderSendAllowed = StrategyJsonContractBool(content, "orderSendAllowed", false);
          livePresetMutationAllowed = StrategyJsonContractBool(content, "livePresetMutationAllowed", false);
          gaDirectLiveAllowed = StrategyJsonContractBool(content, "gaDirectLiveAllowed", false);
@@ -5833,6 +5938,41 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool rsiLongSignal = (indicatorReady && (rsi1 <= effectiveBuyBand || (rsi2 < effectiveBuyBand && rsi1 > effectiveBuyBand + effectiveThreshold)));
    bool hardGuardsPass = (tickOk && spreadAllowed && sessionOpen && !newsBlocked);
    bool wouldEnter = false;
+   ENUM_TIMEFRAMES maTimeframe = StrategyJsonContractTimeframe(maTimeframeLabel, PilotSignalTimeframe);
+   int effectiveMaFastPeriod = MathMax(2, maFastPeriod);
+   int effectiveMaSlowPeriod = MathMax(effectiveMaFastPeriod + 1, maSlowPeriod);
+   ENUM_TIMEFRAMES bbTimeframe = StrategyJsonContractTimeframe(bbTimeframeLabel, PilotBBTimeframe);
+   int effectiveBbPeriod = MathMax(5, bbPeriod);
+   double effectiveBbDeviations = MathMax(0.5, bbDeviations);
+   double effectiveBbReclaimBufferPips = MathMax(0.0, bbReclaimBufferPips);
+   ENUM_TIMEFRAMES macdTimeframe = StrategyJsonContractTimeframe(macdTimeframeLabel, PilotMacdTimeframe);
+   int effectiveMacdFastPeriod = MathMax(2, macdFastPeriod);
+   int effectiveMacdSlowPeriod = MathMax(effectiveMacdFastPeriod + 1, macdSlowPeriod);
+   int effectiveMacdSignalPeriod = MathMax(2, macdSignalPeriod);
+   double effectiveMacdMinHistogramAbs = MathMax(0.0, macdMinHistogramAbs);
+   ENUM_TIMEFRAMES srTimeframe = StrategyJsonContractTimeframe(srTimeframeLabel, PilotSRTimeframe);
+   int effectiveSrLookbackBars = MathMax(4, srLookbackBars);
+   double effectiveSrBreakoutBufferPips = MathMax(0.0, srBreakoutBufferPips);
+   ENUM_TIMEFRAMES contractTokyoTimeframe = StrategyJsonContractTimeframe(tokyoTimeframeLabel, PERIOD_M15);
+   int effectiveTokyoRangeStartHourUtc = ((tokyoRangeStartHourUtc % 24) + 24) % 24;
+   int effectiveTokyoRangeEndHourUtc = ((tokyoRangeEndHourUtc % 24) + 24) % 24;
+   int effectiveTokyoTradeStartHourUtc = ((tokyoTradeStartHourUtc % 24) + 24) % 24;
+   int effectiveTokyoTradeEndHourUtc = ((tokyoTradeEndHourUtc % 24) + 24) % 24;
+   int effectiveTokyoLookbackBars = MathMax(2, tokyoLookbackBars);
+   double effectiveTokyoBufferPips = MathMax(0.0, tokyoContractBufferPips);
+   ENUM_TIMEFRAMES contractNightTimeframe = StrategyJsonContractTimeframe(nightTimeframeLabel, PERIOD_M15);
+   int effectiveNightStartHourUtc = ((nightStartHourUtc % 24) + 24) % 24;
+   int effectiveNightEndHourUtc = ((nightEndHourUtc % 24) + 24) % 24;
+   int effectiveNightBollingerPeriod = MathMax(5, nightBollingerPeriod);
+   double effectiveNightDeviations = MathMax(0.5, nightDeviations);
+   double effectiveNightEntryBufferPips = MathMax(0.0, nightEntryBufferPips);
+   ENUM_TIMEFRAMES h4TrendTimeframe = StrategyJsonContractTimeframe(h4TimeframeLabel, PERIOD_H4);
+   int effectiveH4FastEmaPeriod = MathMax(2, h4FastEmaPeriod);
+   int effectiveH4SlowEmaPeriod = MathMax(effectiveH4FastEmaPeriod + 1, h4SlowEmaPeriod);
+   int effectiveH4PullbackEmaPeriod = MathMax(2, h4PullbackEmaPeriod);
+   int effectiveH4RsiPeriod = MathMax(2, h4RsiPeriod);
+   double effectiveH4LongRsiMin = MathMax(5.0, MathMin(95.0, h4LongRsiMin));
+   double effectiveH4ShortRsiMax = MathMax(5.0, MathMin(95.0, h4ShortRsiMax));
    bool contractFamilyImplemented = (strategyFamily == "RSI_Reversal" ||
                                      StrategyJsonGenericAdapterFamily(strategyFamily) ||
                                      strategyFamily == "USDJPY_TOKYO_RANGE_BREAKOUT" ||
@@ -5851,40 +5991,217 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool genericContractShort = (direction == "SHORT");
    bool genericDirectionSupported = (genericContractLong || genericContractShort);
    bool genericContractSignal = false;
+   ENUM_TIMEFRAMES genericContractTimeframe = maTimeframe;
    if(StrategyJsonGenericAdapterFamily(strategyFamily))
    {
-      int genericSymbolIndex = FindSymbolIndex(symbol);
-      genericHasSignal = StrategyJsonEvaluateGenericAdapterFamily(strategyFamily, symbol, genericSymbolIndex, genericDirection, genericScore, genericReason, genericSL, genericTP, genericEvalCode, genericTrigger);
+      ENUM_TIMEFRAMES genericTimeframe = maTimeframe;
+      int genericMinBars = effectiveMaSlowPeriod + 5;
+      if(strategyFamily == "BB_Triple")
+      {
+         genericTimeframe = bbTimeframe;
+         genericMinBars = effectiveBbPeriod + 5;
+      }
+      else if(strategyFamily == "MACD_Divergence")
+      {
+         genericTimeframe = macdTimeframe;
+         genericMinBars = effectiveMacdSlowPeriod + effectiveMacdSignalPeriod + 5;
+      }
+      else if(strategyFamily == "SR_Breakout")
+      {
+         genericTimeframe = srTimeframe;
+         genericMinBars = effectiveSrLookbackBars + 5;
+      }
+      genericContractTimeframe = genericTimeframe;
+
+      if(Bars(symbol, genericTimeframe) < genericMinBars)
+      {
+         genericReason = "Not enough bars for Strategy JSON " + strategyFamily + " contract parameters";
+         genericEvalCode = PILOT_EVAL_NOT_ENOUGH_BARS;
+      }
+      else if(!tickOk)
+      {
+         genericReason = "Tick data unavailable";
+         genericEvalCode = PILOT_EVAL_TICK_UNAVAILABLE;
+      }
+      else if(!spreadAllowed)
+      {
+         genericReason = "Spread above pilot limit";
+         genericEvalCode = PILOT_EVAL_SPREAD_BLOCK;
+      }
+      else if(!sessionOpen)
+      {
+         genericReason = "Outside pilot trading session";
+         genericEvalCode = PILOT_EVAL_SESSION_BLOCK;
+      }
+      else if(strategyFamily == "MA_Cross")
+      {
+         double fast1 = MAValue(symbol, maTimeframe, effectiveMaFastPeriod, 1, MODE_EMA);
+         double fast2 = MAValue(symbol, maTimeframe, effectiveMaFastPeriod, 2, MODE_EMA);
+         double slow1 = MAValue(symbol, maTimeframe, effectiveMaSlowPeriod, 1, MODE_EMA);
+         double slow2 = MAValue(symbol, maTimeframe, effectiveMaSlowPeriod, 2, MODE_EMA);
+         if(fast1 == EMPTY_VALUE || fast2 == EMPTY_VALUE || slow1 == EMPTY_VALUE || slow2 == EMPTY_VALUE)
+         {
+            genericReason = "MA contract buffers not ready";
+            genericEvalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+         }
+         else
+         {
+            bool maLongCross = (fast2 <= slow2 && fast1 > slow1);
+            bool maShortCross = (fast2 >= slow2 && fast1 < slow1);
+            if(maLongCross || maShortCross)
+            {
+               genericHasSignal = true;
+               genericDirection = maLongCross ? 1 : -1;
+               genericScore = 100.0;
+               genericTrigger = "EMA_CROSS";
+               genericReason = "Strategy JSON MA_Cross contract evaluated with fast/slow EMA parameters";
+               genericEvalCode = maLongCross ? PILOT_EVAL_SIGNAL_BUY : PILOT_EVAL_SIGNAL_SELL;
+            }
+            else
+            {
+               genericReason = "Strategy JSON MA_Cross contract saw no EMA cross";
+               genericEvalCode = PILOT_EVAL_NO_CROSS;
+            }
+         }
+      }
+      else if(strategyFamily == "BB_Triple")
+      {
+         double close1 = iClose(symbol, bbTimeframe, 1);
+         double close2 = iClose(symbol, bbTimeframe, 2);
+         double lower1 = BandsValue(symbol, bbTimeframe, effectiveBbPeriod, effectiveBbDeviations, 2, 1);
+         double lower2 = BandsValue(symbol, bbTimeframe, effectiveBbPeriod, effectiveBbDeviations, 2, 2);
+         double upper1 = BandsValue(symbol, bbTimeframe, effectiveBbPeriod, effectiveBbDeviations, 1, 1);
+         double upper2 = BandsValue(symbol, bbTimeframe, effectiveBbPeriod, effectiveBbDeviations, 1, 2);
+         double bbBuffer = effectiveBbReclaimBufferPips * PipSize(symbol);
+         if(close1 <= 0.0 || close2 <= 0.0 || lower1 <= 0.0 || lower2 <= 0.0 || upper1 <= 0.0 || upper2 <= 0.0)
+         {
+            genericReason = "Bollinger contract buffers not ready";
+            genericEvalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+         }
+         else
+         {
+            bool bbLong = (close2 < lower2 && close1 > lower1 + bbBuffer);
+            bool bbShort = (close2 > upper2 && close1 < upper1 - bbBuffer);
+            if(bbLong || bbShort)
+            {
+               genericHasSignal = true;
+               genericDirection = bbLong ? 1 : -1;
+               genericScore = 100.0;
+               genericTrigger = "BOLLINGER_RECLAIM";
+               genericReason = "Strategy JSON BB_Triple contract evaluated with period/deviation/reclaim buffer";
+               genericEvalCode = bbLong ? PILOT_EVAL_SIGNAL_BUY : PILOT_EVAL_SIGNAL_SELL;
+            }
+            else
+            {
+               genericReason = "Strategy JSON BB_Triple contract saw no Bollinger reclaim";
+               genericEvalCode = PILOT_EVAL_NO_CROSS;
+            }
+         }
+      }
+      else if(strategyFamily == "MACD_Divergence")
+      {
+         double main1 = MACDValue(symbol, macdTimeframe, effectiveMacdFastPeriod, effectiveMacdSlowPeriod, effectiveMacdSignalPeriod, 0, 1);
+         double signal1 = MACDValue(symbol, macdTimeframe, effectiveMacdFastPeriod, effectiveMacdSlowPeriod, effectiveMacdSignalPeriod, 1, 1);
+         double main2 = MACDValue(symbol, macdTimeframe, effectiveMacdFastPeriod, effectiveMacdSlowPeriod, effectiveMacdSignalPeriod, 0, 2);
+         double signal2 = MACDValue(symbol, macdTimeframe, effectiveMacdFastPeriod, effectiveMacdSlowPeriod, effectiveMacdSignalPeriod, 1, 2);
+         if(main1 == EMPTY_VALUE || signal1 == EMPTY_VALUE || main2 == EMPTY_VALUE || signal2 == EMPTY_VALUE)
+         {
+            genericReason = "MACD contract buffers not ready";
+            genericEvalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+         }
+         else
+         {
+            double hist1 = main1 - signal1;
+            double hist2 = main2 - signal2;
+            bool macdLong = (hist2 <= 0.0 && hist1 > 0.0 && MathAbs(hist1) >= effectiveMacdMinHistogramAbs);
+            bool macdShort = (hist2 >= 0.0 && hist1 < 0.0 && MathAbs(hist1) >= effectiveMacdMinHistogramAbs);
+            if(macdLong || macdShort)
+            {
+               genericHasSignal = true;
+               genericDirection = macdLong ? 1 : -1;
+               genericScore = 100.0;
+               genericTrigger = "MACD_HISTOGRAM_CROSS";
+               genericReason = "Strategy JSON MACD_Divergence contract evaluated with MACD periods and histogram floor";
+               genericEvalCode = macdLong ? PILOT_EVAL_SIGNAL_BUY : PILOT_EVAL_SIGNAL_SELL;
+            }
+            else
+            {
+               genericReason = "Strategy JSON MACD_Divergence contract saw no histogram cross";
+               genericEvalCode = PILOT_EVAL_NO_CROSS;
+            }
+         }
+      }
+      else if(strategyFamily == "SR_Breakout")
+      {
+         double resistance = 0.0;
+         double support = 999999.0;
+         for(int shift = 2; shift <= effectiveSrLookbackBars + 1; shift++)
+         {
+            double high = iHigh(symbol, srTimeframe, shift);
+            double low = iLow(symbol, srTimeframe, shift);
+            if(high > resistance)
+               resistance = high;
+            if(low > 0.0 && low < support)
+               support = low;
+         }
+         double close1 = iClose(symbol, srTimeframe, 1);
+         double srBuffer = effectiveSrBreakoutBufferPips * PipSize(symbol);
+         if(resistance <= 0.0 || support >= 999999.0 || close1 <= 0.0)
+         {
+            genericReason = "SR contract buffers not ready";
+            genericEvalCode = PILOT_EVAL_INDICATOR_NOT_READY;
+         }
+         else
+         {
+            bool srLong = (close1 > resistance + srBuffer);
+            bool srShort = (close1 < support - srBuffer);
+            if(srLong || srShort)
+            {
+               genericHasSignal = true;
+               genericDirection = srLong ? 1 : -1;
+               genericScore = 100.0;
+               genericTrigger = "SR_BREAKOUT";
+               genericReason = "Strategy JSON SR_Breakout contract evaluated with lookback and buffer";
+               genericEvalCode = srLong ? PILOT_EVAL_SIGNAL_BUY : PILOT_EVAL_SIGNAL_SELL;
+            }
+            else
+            {
+               genericReason = "Strategy JSON SR_Breakout contract saw no support/resistance breakout";
+               genericEvalCode = PILOT_EVAL_NO_CROSS;
+            }
+         }
+      }
+
       genericContractSignal = (genericHasSignal &&
                                ((genericContractLong && genericDirection > 0) ||
                                 (genericContractShort && genericDirection < 0)));
    }
 
-   ENUM_TIMEFRAMES tokyoTimeframe = PERIOD_M15;
+   ENUM_TIMEFRAMES tokyoTimeframe = contractTokyoTimeframe;
    datetime tokyoEventBarTime = iTime(symbol, tokyoTimeframe, 1);
    double tokyoOpen1 = iOpen(symbol, tokyoTimeframe, 1);
    double tokyoClose1 = iClose(symbol, tokyoTimeframe, 1);
    double tokyoAtr1 = ATRValue(symbol, tokyoTimeframe, PilotATRPeriod, 1);
    double tokyoPip = PipSize(symbol);
-   int tokyoMinute = tokyoEventBarTime > 0 ? JstMinuteOfDayFromServerTime(tokyoEventBarTime) : -1;
-   bool tokyoWindowActive = (tokyoMinute >= 12 * 60 && tokyoMinute <= 18 * 60);
+   int tokyoHourUtc = StrategyJsonUtcHourFromServerTime(tokyoEventBarTime);
+   bool tokyoWindowActive = StrategyJsonHourInWindow(tokyoHourUtc, effectiveTokyoTradeStartHourUtc, effectiveTokyoTradeEndHourUtc);
    double tokyoBoxHigh = 0.0;
    double tokyoBoxLow = 0.0;
    int tokyoSamples = 0;
    if(tokyoEventBarTime > 0)
    {
-      int tokyoDayKey = JstDayKeyFromServerTime(tokyoEventBarTime);
+      int tokyoDayKey = StrategyJsonUtcDayKeyFromServerTime(tokyoEventBarTime);
       int tokyoBars = Bars(symbol, tokyoTimeframe);
-      int maxTokyoLookback = MathMin(tokyoBars - 1, 120);
+      int maxTokyoLookback = MathMin(tokyoBars - 1, effectiveTokyoLookbackBars);
       for(int shift = 1; shift <= maxTokyoLookback; shift++)
       {
          datetime barTime = iTime(symbol, tokyoTimeframe, shift);
          if(barTime <= 0)
             continue;
-         if(JstDayKeyFromServerTime(barTime) != tokyoDayKey)
+         if(StrategyJsonUtcDayKeyFromServerTime(barTime) != tokyoDayKey)
             continue;
-         int barMinute = JstMinuteOfDayFromServerTime(barTime);
-         if(barMinute < 9 * 60 || barMinute >= 12 * 60)
+         int barHourUtc = StrategyJsonUtcHourFromServerTime(barTime);
+         if(!StrategyJsonHourInWindow(barHourUtc, effectiveTokyoRangeStartHourUtc, effectiveTokyoRangeEndHourUtc))
             continue;
 
          double high = iHigh(symbol, tokyoTimeframe, shift);
@@ -5905,16 +6222,16 @@ string BuildStrategyJsonEAShadowEvaluationJson()
       }
    }
    double tokyoBoxPips = (tokyoPip > 0.0 && tokyoBoxHigh > tokyoBoxLow) ? (tokyoBoxHigh - tokyoBoxLow) / tokyoPip : 0.0;
-   double tokyoBuffer = (tokyoPip > 0.0 && tokyoAtr1 > 0.0) ? MathMax(8.0 * tokyoPip, tokyoAtr1 * 0.15) : 0.0;
+   double tokyoBuffer = (tokyoPip > 0.0) ? effectiveTokyoBufferPips * tokyoPip : 0.0;
    double tokyoBufferPips = tokyoPip > 0.0 ? tokyoBuffer / tokyoPip : 0.0;
    double tokyoAdx = ADXValue(symbol, tokyoTimeframe, 14, 1);
    bool tokyoAdxPass = (tokyoAdx != EMPTY_VALUE && tokyoAdx >= 18.0);
-   bool tokyoBoxReady = (tokyoSamples >= 6 && tokyoBoxHigh > tokyoBoxLow && tokyoBoxPips >= 12.0 && tokyoBoxPips <= 75.0);
-   bool tokyoIndicatorReady = (tokyoEventBarTime > 0 && tokyoClose1 > 0.0 && tokyoOpen1 > 0.0 && tokyoAtr1 > 0.0 && tokyoPip > 0.0 && tokyoBoxReady);
+   bool tokyoBoxReady = (tokyoSamples >= 2 && tokyoBoxHigh > tokyoBoxLow);
+   bool tokyoIndicatorReady = (tokyoEventBarTime > 0 && tokyoClose1 > 0.0 && tokyoOpen1 > 0.0 && tokyoPip > 0.0 && tokyoBoxReady);
    bool tokyoBullishClose = (tokyoClose1 > tokyoOpen1);
    bool tokyoBearishClose = (tokyoClose1 < tokyoOpen1);
-   bool tokyoBreakoutLong = (tokyoIndicatorReady && tokyoAdxPass && tokyoClose1 > tokyoBoxHigh + tokyoBuffer);
-   bool tokyoBreakoutShort = (tokyoIndicatorReady && tokyoAdxPass && tokyoClose1 < tokyoBoxLow - tokyoBuffer);
+   bool tokyoBreakoutLong = (tokyoIndicatorReady && tokyoClose1 > tokyoBoxHigh + tokyoBuffer);
+   bool tokyoBreakoutShort = (tokyoIndicatorReady && tokyoClose1 < tokyoBoxLow - tokyoBuffer);
    bool tokyoNearLong = (tokyoIndicatorReady && tokyoClose1 > tokyoBoxHigh - tokyoBuffer * 0.50 && tokyoBullishClose);
    bool tokyoNearShort = (tokyoIndicatorReady && tokyoClose1 < tokyoBoxLow + tokyoBuffer * 0.50 && tokyoBearishClose);
    bool tokyoOpportunityMode = (entryMode == "OPPORTUNITY_ENTRY");
@@ -5934,35 +6251,33 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    else if(tokyoContractShort && tokyoNearShort)
       tokyoScore = 52.0;
 
-   ENUM_TIMEFRAMES nightTimeframe = PERIOD_M15;
+   ENUM_TIMEFRAMES nightTimeframe = contractNightTimeframe;
    datetime nightEventBarTime = iTime(symbol, nightTimeframe, 1);
    double nightOpen1 = iOpen(symbol, nightTimeframe, 1);
    double nightClose1 = iClose(symbol, nightTimeframe, 1);
    double nightAtr1 = ATRValue(symbol, nightTimeframe, PilotATRPeriod, 1);
    double nightRsi1 = RSIValue(symbol, nightTimeframe, 14, 1);
-   double nightUpperBand = BandsValue(symbol, nightTimeframe, 20, 2.0, 1, 1);
-   double nightLowerBand = BandsValue(symbol, nightTimeframe, 20, 2.0, 2, 1);
+   double nightUpperBand = BandsValue(symbol, nightTimeframe, effectiveNightBollingerPeriod, effectiveNightDeviations, 1, 1);
+   double nightLowerBand = BandsValue(symbol, nightTimeframe, effectiveNightBollingerPeriod, effectiveNightDeviations, 2, 1);
    double nightAdx = ADXValue(symbol, nightTimeframe, 14, 1);
-   int nightMinute = nightEventBarTime > 0 ? JstMinuteOfDayFromServerTime(nightEventBarTime) : -1;
-   bool nightWindowActive = (nightMinute >= 21 * 60 || (nightMinute >= 0 && nightMinute <= 8 * 60 + 30));
+   int nightHourUtc = StrategyJsonUtcHourFromServerTime(nightEventBarTime);
+   bool nightWindowActive = StrategyJsonHourInWindow(nightHourUtc, effectiveNightStartHourUtc, effectiveNightEndHourUtc);
    RegimeSnapshot nightRegime = EvaluateRegimeAt(symbol, PilotTrendTimeframe, nightEventBarTime);
    bool nightRangeRegime = (nightRegime.label == "RANGE" || nightRegime.label == "RANGE_TIGHT");
    bool nightAdxPass = (nightAdx != EMPTY_VALUE && nightAdx < 20.0);
    bool nightIndicatorReady = (nightEventBarTime > 0 &&
                                nightOpen1 > 0.0 &&
                                nightClose1 > 0.0 &&
-                               nightAtr1 > 0.0 &&
-                               nightRsi1 > 0.0 &&
                                nightUpperBand > 0.0 &&
                                nightLowerBand > 0.0 &&
-                               nightUpperBand > nightLowerBand &&
-                               nightAdx != EMPTY_VALUE);
+                               nightUpperBand > nightLowerBand);
    bool nightBullishClose = (nightClose1 >= nightOpen1);
    bool nightBearishClose = (nightClose1 <= nightOpen1);
-   bool nightStrictLong = (nightIndicatorReady && nightClose1 <= nightLowerBand && nightRsi1 <= 35.0 && nightBullishClose);
-   bool nightStrictShort = (nightIndicatorReady && nightClose1 >= nightUpperBand && nightRsi1 >= 65.0 && nightBearishClose);
-   bool nightSoftLong = (nightIndicatorReady && nightClose1 <= nightLowerBand + nightAtr1 * 0.15 && nightRsi1 <= 40.0);
-   bool nightSoftShort = (nightIndicatorReady && nightClose1 >= nightUpperBand - nightAtr1 * 0.15 && nightRsi1 >= 60.0);
+   double nightEntryBuffer = effectiveNightEntryBufferPips * PipSize(symbol);
+   bool nightStrictLong = (nightIndicatorReady && nightClose1 <= nightLowerBand - nightEntryBuffer);
+   bool nightStrictShort = (nightIndicatorReady && nightClose1 >= nightUpperBand + nightEntryBuffer);
+   bool nightSoftLong = (nightIndicatorReady && nightClose1 <= nightLowerBand);
+   bool nightSoftShort = (nightIndicatorReady && nightClose1 >= nightUpperBand);
    bool nightOpportunityMode = (entryMode == "OPPORTUNITY_ENTRY");
    bool nightContractLong = (direction == "LONG");
    bool nightContractShort = (direction == "SHORT");
@@ -5987,15 +6302,15 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    double h4M15High1 = iHigh(symbol, h4SignalTimeframe, 1);
    double h4M15Low1 = iLow(symbol, h4SignalTimeframe, 1);
    double h4M15Atr1 = ATRValue(symbol, h4SignalTimeframe, PilotATRPeriod, 1);
-   double h4M15FastEma = MAValue(symbol, h4SignalTimeframe, PilotFastMAPeriod, 1, MODE_EMA);
-   double h4M15SlowEma = MAValue(symbol, h4SignalTimeframe, PilotSlowMAPeriod, 1, MODE_EMA);
-   double h4Rsi1 = RSIValue(symbol, h4SignalTimeframe, 14, 1);
-   double h4Rsi2 = RSIValue(symbol, h4SignalTimeframe, 14, 2);
-   double h4Close1 = iClose(symbol, PERIOD_H4, 1);
-   double h4Ema50 = MAValue(symbol, PERIOD_H4, 50, 1, MODE_EMA);
-   double h4Ema50Prev = MAValue(symbol, PERIOD_H4, 50, 2, MODE_EMA);
-   double h4Ema200 = MAValue(symbol, PERIOD_H4, 200, 1, MODE_EMA);
-   bool h4HistoryReady = (Bars(symbol, PERIOD_H4) >= 205);
+   double h4M15FastEma = MAValue(symbol, h4SignalTimeframe, effectiveH4FastEmaPeriod, 1, MODE_EMA);
+   double h4M15SlowEma = MAValue(symbol, h4SignalTimeframe, effectiveH4PullbackEmaPeriod, 1, MODE_EMA);
+   double h4Rsi1 = RSIValue(symbol, h4SignalTimeframe, effectiveH4RsiPeriod, 1);
+   double h4Rsi2 = RSIValue(symbol, h4SignalTimeframe, effectiveH4RsiPeriod, 2);
+   double h4Close1 = iClose(symbol, h4TrendTimeframe, 1);
+   double h4Ema50 = MAValue(symbol, h4TrendTimeframe, effectiveH4FastEmaPeriod, 1, MODE_EMA);
+   double h4Ema50Prev = MAValue(symbol, h4TrendTimeframe, effectiveH4FastEmaPeriod, 2, MODE_EMA);
+   double h4Ema200 = MAValue(symbol, h4TrendTimeframe, effectiveH4SlowEmaPeriod, 1, MODE_EMA);
+   bool h4HistoryReady = (Bars(symbol, h4TrendTimeframe) >= effectiveH4SlowEmaPeriod + 5);
    bool h4IndicatorReady = (h4HistoryReady &&
                             h4EventBarTime > 0 &&
                             h4M15Open1 > 0.0 &&
@@ -6014,15 +6329,15 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    bool h4BullishClose = (h4M15Close1 > h4M15Open1);
    bool h4BearishClose = (h4M15Close1 < h4M15Open1);
    bool h4LongPullback = (h4IndicatorReady &&
-                          h4M15Low1 <= h4M15SlowEma + h4M15Atr1 * 0.30 &&
-                          h4M15Close1 >= h4M15FastEma &&
+                          h4M15Low1 <= h4M15SlowEma &&
+                          h4M15Close1 >= h4M15SlowEma &&
                           h4BullishClose &&
-                          ((h4Rsi1 >= 38.0 && h4Rsi1 <= 62.0) || (h4Rsi2 > 0.0 && h4Rsi1 > h4Rsi2 + 2.0)));
+                          h4Rsi1 >= effectiveH4LongRsiMin);
    bool h4ShortPullback = (h4IndicatorReady &&
-                           h4M15High1 >= h4M15SlowEma - h4M15Atr1 * 0.30 &&
-                           h4M15Close1 <= h4M15FastEma &&
+                           h4M15High1 >= h4M15SlowEma &&
+                           h4M15Close1 <= h4M15SlowEma &&
                            h4BearishClose &&
-                           ((h4Rsi1 >= 38.0 && h4Rsi1 <= 62.0) || (h4Rsi2 > 0.0 && h4Rsi1 < h4Rsi2 - 2.0)));
+                           h4Rsi1 <= effectiveH4ShortRsiMax);
    bool h4ContractLong = (direction == "LONG");
    bool h4ContractShort = (direction == "SHORT");
    bool h4ContractSignal = ((h4ContractLong && h4LongTrend && h4LongPullback) ||
@@ -6184,18 +6499,6 @@ string BuildStrategyJsonEAShadowEvaluationJson()
             status = "SHADOW_OBSERVE";
             blocker = "NIGHT_REVERSION_WAIT_WINDOW";
             reason = "Night Reversion 只在 JST 21:00-08:30 低波动窗口观察均值回归；当前继续 shadow 观察。";
-         }
-         else if(!nightRangeRegime)
-         {
-            status = "SHADOW_OBSERVE";
-            blocker = "NIGHT_REVERSION_REGIME_NOT_RANGE";
-            reason = "Night Reversion 只在 RANGE/RANGE_TIGHT 环境观察；当前行情环境不适合均值回归。";
-         }
-         else if(!nightAdxPass)
-         {
-            status = "SHADOW_OBSERVE";
-            blocker = "NIGHT_REVERSION_ADX_TOO_HIGH";
-            reason = "Night Reversion 要求 ADX<20 的低趋势强度环境；当前趋势强度偏高，继续 shadow 观察。";
          }
          else if(!hardGuardsPass)
          {
@@ -6361,6 +6664,15 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"maxSpreadPips\":" + FormatNumber(PilotMaxSpreadPips, 2) + ",";
    json += "\"newsBlocked\":" + JsonBool(newsBlocked) + ",";
    json += "\"newsReason\":\"" + JsonEscape(newsReason) + "\",";
+   json += "\"contractParameters\":{";
+   json += "\"ma\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(maTimeframe)) + "\",\"fastPeriod\":" + IntegerToString(effectiveMaFastPeriod) + ",\"slowPeriod\":" + IntegerToString(effectiveMaSlowPeriod) + "},";
+   json += "\"bollinger\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(bbTimeframe)) + "\",\"period\":" + IntegerToString(effectiveBbPeriod) + ",\"deviations\":" + FormatNumber(effectiveBbDeviations, 4) + ",\"reclaimBufferPips\":" + FormatNumber(effectiveBbReclaimBufferPips, 2) + "},";
+   json += "\"macd\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(macdTimeframe)) + "\",\"fastPeriod\":" + IntegerToString(effectiveMacdFastPeriod) + ",\"slowPeriod\":" + IntegerToString(effectiveMacdSlowPeriod) + ",\"signalPeriod\":" + IntegerToString(effectiveMacdSignalPeriod) + ",\"minHistogramAbs\":" + FormatNumber(effectiveMacdMinHistogramAbs, 6) + "},";
+   json += "\"supportResistance\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(srTimeframe)) + "\",\"lookbackBars\":" + IntegerToString(effectiveSrLookbackBars) + ",\"breakoutBufferPips\":" + FormatNumber(effectiveSrBreakoutBufferPips, 2) + "},";
+   json += "\"tokyoRange\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(tokyoTimeframe)) + "\",\"rangeStartHourUtc\":" + IntegerToString(effectiveTokyoRangeStartHourUtc) + ",\"rangeEndHourUtc\":" + IntegerToString(effectiveTokyoRangeEndHourUtc) + ",\"tradeStartHourUtc\":" + IntegerToString(effectiveTokyoTradeStartHourUtc) + ",\"tradeEndHourUtc\":" + IntegerToString(effectiveTokyoTradeEndHourUtc) + ",\"lookbackBars\":" + IntegerToString(effectiveTokyoLookbackBars) + ",\"bufferPips\":" + FormatNumber(effectiveTokyoBufferPips, 2) + "},";
+   json += "\"nightReversion\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(nightTimeframe)) + "\",\"startHourUtc\":" + IntegerToString(effectiveNightStartHourUtc) + ",\"endHourUtc\":" + IntegerToString(effectiveNightEndHourUtc) + ",\"bollingerPeriod\":" + IntegerToString(effectiveNightBollingerPeriod) + ",\"deviations\":" + FormatNumber(effectiveNightDeviations, 4) + ",\"entryBufferPips\":" + FormatNumber(effectiveNightEntryBufferPips, 2) + "},";
+   json += "\"h4Pullback\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(h4TrendTimeframe)) + "\",\"fastEmaPeriod\":" + IntegerToString(effectiveH4FastEmaPeriod) + ",\"slowEmaPeriod\":" + IntegerToString(effectiveH4SlowEmaPeriod) + ",\"pullbackEmaPeriod\":" + IntegerToString(effectiveH4PullbackEmaPeriod) + ",\"rsiPeriod\":" + IntegerToString(effectiveH4RsiPeriod) + ",\"longRsiMin\":" + FormatNumber(effectiveH4LongRsiMin, 2) + ",\"shortRsiMax\":" + FormatNumber(effectiveH4ShortRsiMax, 2) + "}";
+   json += "},";
    json += "\"tokyoRange\":{\"timeframe\":\"" + JsonEscape(TimeframeLabel(tokyoTimeframe)) + "\",";
    json += "\"eventBarTime\":\"" + JsonEscape(FormatDateTime(tokyoEventBarTime, true)) + "\",";
    json += "\"windowActive\":" + JsonBool(tokyoWindowActive) + ",";
@@ -6417,7 +6729,7 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"score\":" + FormatNumber(h4Score, 1) + "},";
    json += "\"genericStrategy\":{\"implemented\":" + JsonBool(StrategyJsonGenericAdapterFamily(strategyFamily)) + ",";
    json += "\"strategyFamily\":\"" + JsonEscape(strategyFamily) + "\",";
-   json += "\"timeframe\":\"" + JsonEscape(TimeframeLabel(strategyFamily == "MA_Cross" ? PilotSignalTimeframe : LegacyPilotRouteTimeframe(strategyFamily))) + "\",";
+   json += "\"timeframe\":\"" + JsonEscape(TimeframeLabel(genericContractTimeframe)) + "\",";
    json += "\"evalCode\":\"" + JsonEscape(PilotEvalCodeLabel(genericEvalCode)) + "\",";
    json += "\"signalDirection\":" + IntegerToString(genericDirection) + ",";
    json += "\"score\":" + FormatNumber(genericScore, 1) + ",";

@@ -159,6 +159,19 @@ test('USDJPY Strategy JSON backtest covers all USDJPY shadow strategy families',
   assert.match(source, /ALLOWED_STRATEGY_FAMILIES/);
   assert.match(source, /for direction in \("LONG", "SHORT"\)/);
   assert.match(source, /parityVectorRouteCount/);
+  for (const marker of [
+    'familyParameters',
+    'fastPeriod',
+    'slowPeriod',
+    'deviations',
+    'lookbackBars',
+    'bufferPips',
+    'tokyoRange',
+    'nightReversion',
+    'h4Pullback',
+  ]) {
+    assert.match(source, new RegExp(marker));
+  }
   assert.doesNotMatch(runnerSource, /暂未接入高保真 runner[\s\S]*SUPPORTED_BACKTEST_FAMILIES/);
 });
 

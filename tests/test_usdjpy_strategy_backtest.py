@@ -9,7 +9,12 @@ from unittest.mock import patch
 
 from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES
 from tools.strategy_ga.fitness import evidence_metrics, score_seed
+from tools.strategy_ga.mutation import mutate_seed
+from tools.strategy_ga.population import build_population
+from tools.strategy_ga.seed_generator import exploration_seed_pool
+from tools.strategy_json.fingerprint import strategy_fingerprint
 from tools.strategy_json.schema import base_strategy_seed
+from tools.strategy_json.validator import validate_strategy_json
 from tools.usdjpy_strategy_backtest.history_sync import sync_historical_klines
 from tools.usdjpy_strategy_backtest.historical_news import classify_historical_news, load_historical_news_events
 from tools.usdjpy_strategy_backtest.report import build_sample, run_backtest, status
@@ -170,6 +175,49 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
                     self.assertIn("netR", report["metrics"])
                     self.assertNotIn("暂未接入", str(report.get("reasonZh")))
 
+    def test_strategy_json_family_parameters_are_validated_and_exposed_to_parity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            build_sample(runtime_dir, overwrite=True)
+            seed = base_strategy_seed("BT-FAMILY-PARAMS", family="MA_Cross", direction="LONG")
+            seed["indicators"]["ma"] = {"timeframe": "H1", "fastPeriod": 5, "slowPeriod": 34}
+
+            validation = validate_strategy_json(seed)
+            self.assertTrue(validation["valid"], validation)
+            report = run_backtest(runtime_dir, seed, write=False)
+            parity = report["engine"]["parityVector"]
+
+            self.assertEqual(parity["familyParameters"]["ma"]["fastPeriod"], 5)
+            self.assertEqual(parity["familyParameters"]["ma"]["slowPeriod"], 34)
+            self.assertIn("signalCount", parity)
+
+    def test_strategy_json_rejects_invalid_family_specific_parameters(self):
+        seed = base_strategy_seed("BT-BAD-MA", family="MA_Cross", direction="LONG")
+        seed["indicators"]["ma"] = {"timeframe": "H1", "fastPeriod": 55, "slowPeriod": 21}
+
+        validation = validate_strategy_json(seed)
+
+        self.assertFalse(validation["valid"])
+        self.assertEqual(validation["blockerCode"], "PARAM_RANGE_INVALID")
+        self.assertIn("fastPeriod", validation["reasonZh"])
+
+    def test_ga_exploration_and_mutation_change_family_specific_parameters(self):
+        seed = exploration_seed_pool(8, 8)[0]
+        mutated = mutate_seed(seed, "MUT-FAMILY-PARAMS", generation=9, offset=4)
+
+        self.assertIn("ma", seed["indicators"])
+        self.assertIn("tokyoRange", seed["indicators"])
+        self.assertIn("nightReversion", seed["indicators"])
+        self.assertIn("h4Pullback", seed["indicators"])
+        self.assertNotEqual(
+            seed["indicators"]["ma"]["fastPeriod"],
+            mutated["indicators"]["ma"]["fastPeriod"],
+        )
+        self.assertNotEqual(
+            seed["indicators"]["supportResistance"]["lookbackBars"],
+            mutated["indicators"]["supportResistance"]["lookbackBars"],
+        )
+
     def test_backtest_loads_latest_sqlite_window_when_history_expands(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)
@@ -239,6 +287,43 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertEqual(score["walkForward"]["seedId"], seed["seedId"])
             self.assertIn("walkForwardPenalty", score)
             self.assertIn("walkForwardStabilityBonus", score)
+
+    def test_ga_expands_search_space_when_no_elite_survives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            first = build_population(1, [], runtime_dir=runtime_dir)
+            second = build_population(2, [], runtime_dir=runtime_dir)
+            third = build_population(3, [], runtime_dir=runtime_dir)
+
+            self.assertTrue(any(seed.get("source") == "EXPLORATION_GRID" for seed in second))
+            self.assertTrue(any(seed.get("explorationMode") == "NO_ELITE_EXPAND_SEARCH" for seed in second))
+            first_fingerprints = {strategy_fingerprint(seed) for seed in first}
+            second_fingerprints = {strategy_fingerprint(seed) for seed in second}
+            third_fingerprints = {strategy_fingerprint(seed) for seed in third}
+            self.assertFalse(second_fingerprints.issubset(first_fingerprints))
+            self.assertNotEqual(second_fingerprints, third_fingerprints)
+
+    def test_ga_mutates_best_rejected_seed_when_no_elite_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            ga_dir = runtime_dir / "ga"
+            ga_dir.mkdir(parents=True)
+            parent = base_strategy_seed("PARENT-REJECTED", family="RSI_Reversal", direction="LONG")
+            row = {
+                "generation": 1,
+                "rank": 1,
+                "fitness": -0.5,
+                "blockerCode": "WALK_FORWARD_UNSTABLE",
+                "strategyJson": parent,
+            }
+            (ga_dir / "QuantGod_GACandidateRuns.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+            population = build_population(2, [], runtime_dir=runtime_dir)
+            mutation = next((seed for seed in population if seed.get("source") == "EXPLORATION_MUTATION"), None)
+
+            self.assertIsNotNone(mutation)
+            self.assertEqual(mutation["parentSeedId"], parent["seedId"])
+            self.assertEqual(mutation["explorationMode"], "NO_ELITE_EXPAND_SEARCH")
 
     def test_history_sync_pulls_incremental_usdjpy_bars_from_mt5(self):
         class FakeMT5(types.SimpleNamespace):

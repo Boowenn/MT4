@@ -4,9 +4,16 @@ from copy import deepcopy
 from typing import Any, Dict
 
 from .schema import (
+    DEFAULT_BOLLINGER,
     DEFAULT_ENTRY_CONDITIONS,
     DEFAULT_EXIT,
+    DEFAULT_H4_PULLBACK,
+    DEFAULT_MA,
+    DEFAULT_MACD,
+    DEFAULT_NIGHT_REVERSION,
     DEFAULT_RSI,
+    DEFAULT_SUPPORT_RESISTANCE,
+    DEFAULT_TOKYO_RANGE,
     FOCUS_SYMBOL,
     SAFETY_BOUNDARY,
     SCHEMA_VERSION,
@@ -25,11 +32,21 @@ def normalize_strategy_json(seed: Dict[str, Any]) -> Dict[str, Any]:
     data["lane"] = data.get("lane") or "MT5_SHADOW"
     data["strategyFamily"] = data.get("strategyFamily") or "RSI_Reversal"
     data["direction"] = str(data.get("direction") or "LONG").upper()
-    data["timeframes"] = data.get("timeframes") if isinstance(data.get("timeframes"), list) else ["M1", "M15", "H1"]
+    data["timeframes"] = data.get("timeframes") if isinstance(data.get("timeframes"), list) else ["M1", "M15", "H1", "H4"]
 
     indicators = _safe_dict(data.get("indicators"))
     rsi = {**DEFAULT_RSI, **_safe_dict(indicators.get("rsi"))}
     indicators["rsi"] = rsi
+    indicators["ma"] = {**DEFAULT_MA, **_safe_dict(indicators.get("ma"))}
+    indicators["bollinger"] = {**DEFAULT_BOLLINGER, **_safe_dict(indicators.get("bollinger"))}
+    indicators["macd"] = {**DEFAULT_MACD, **_safe_dict(indicators.get("macd"))}
+    indicators["supportResistance"] = {
+        **DEFAULT_SUPPORT_RESISTANCE,
+        **_safe_dict(indicators.get("supportResistance")),
+    }
+    indicators["tokyoRange"] = {**DEFAULT_TOKYO_RANGE, **_safe_dict(indicators.get("tokyoRange"))}
+    indicators["nightReversion"] = {**DEFAULT_NIGHT_REVERSION, **_safe_dict(indicators.get("nightReversion"))}
+    indicators["h4Pullback"] = {**DEFAULT_H4_PULLBACK, **_safe_dict(indicators.get("h4Pullback"))}
     data["indicators"] = indicators
 
     entry = _safe_dict(data.get("entry"))
@@ -50,4 +67,3 @@ def normalize_strategy_json(seed: Dict[str, Any]) -> Dict[str, Any]:
             safety[key] = False
     data["safety"] = safety
     return data
-

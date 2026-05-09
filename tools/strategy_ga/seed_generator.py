@@ -39,6 +39,132 @@ def initial_seed_pool(population_size: int = 16) -> List[Dict[str, Any]]:
     return seeds
 
 
+def exploration_seed_pool(generation_number: int, population_size: int = 16) -> List[Dict[str, Any]]:
+    """Create deterministic wide-search seeds when no elite survived.
+
+    The point of this pool is to avoid repeatedly scoring the same weak first
+    population. It stays inside Strategy JSON safety limits, but fans out RSI,
+    exit, and risk-pip parameters across all MT5 shadow families.
+    """
+    families = [
+        "RSI_Reversal",
+        "MA_Cross",
+        "BB_Triple",
+        "MACD_Divergence",
+        "SR_Breakout",
+        "USDJPY_TOKYO_RANGE_BREAKOUT",
+        "USDJPY_NIGHT_REVERSION_SAFE",
+        "USDJPY_H4_TREND_PULLBACK",
+    ]
+    periods = [7, 9, 14, 21, 28, 34]
+    buy_bands = [24, 28, 30, 32, 34, 36, 38, 40, 42]
+    crossbacks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5]
+    breakevens = [0.4, 0.7, 1.0, 1.3, 1.6]
+    trails = [0.8, 1.1, 1.5, 2.0, 2.5]
+    givebacks = [0.4, 0.5, 0.6, 0.7, 0.8]
+    hold_bars = [3, 4, 6, 8, 10, 12]
+    risk_pips = [5.0, 7.5, 10.0, 12.5, 15.0, 20.0]
+    opportunity_multipliers = [0.2, 0.35, 0.5, 0.75]
+    ma_fast_periods = [5, 8, 9, 13, 21]
+    ma_slow_periods = [18, 21, 34, 55, 89]
+    bb_periods = [14, 18, 20, 24, 30]
+    bb_deviations = [1.6, 1.8, 2.0, 2.2, 2.5]
+    macd_fast_periods = [8, 10, 12, 15]
+    macd_slow_periods = [21, 26, 34, 45]
+    macd_signal_periods = [5, 7, 9, 12]
+    sr_lookbacks = [12, 18, 24, 36, 48, 72]
+    breakout_buffers = [0.0, 1.0, 2.0, 3.5, 5.0]
+    tokyo_trade_windows = [(2, 5), (3, 6), (4, 7)]
+    night_windows = [(20, 2), (21, 3), (22, 4)]
+    h4_fast_periods = [13, 20, 34]
+    h4_slow_periods = [50, 89, 144]
+    h4_pullback_periods = [13, 20, 34]
+
+    seeds: List[Dict[str, Any]] = []
+    phase_base = max(0, generation_number - 2) * max(1, population_size)
+    for index in range(population_size):
+        phase = phase_base + index
+        family = families[phase % len(families)]
+        direction = "LONG" if (phase // len(families)) % 2 == 0 else "SHORT"
+        seed = base_strategy_seed(f"GA-USDJPY-G{generation_number:04d}-X{index + 1:04d}", family=family, direction=direction)
+        seed["source"] = "EXPLORATION_GRID"
+        seed["explorationMode"] = "NO_ELITE_EXPAND_SEARCH"
+        seed["explorationReasonZh"] = "上一代没有 elite，Agent 自动扩大 Strategy JSON 参数搜索空间。"
+        seed["strategyId"] = f"USDJPY_{family.upper()}_{direction}_EXPLORE_{generation_number:03d}_{index + 1:03d}"
+
+        rsi = seed.setdefault("indicators", {}).setdefault("rsi", {})
+        indicators = seed.setdefault("indicators", {})
+        exit_cfg = seed.setdefault("exit", {})
+        risk = seed.setdefault("risk", {})
+        rsi["period"] = periods[phase % len(periods)]
+        rsi["buyBand"] = buy_bands[(phase // len(periods)) % len(buy_bands)]
+        rsi["crossbackThreshold"] = crossbacks[(phase // (len(periods) * len(buy_bands))) % len(crossbacks)]
+        rsi["timeframe"] = ["M15", "H1", "M5"][phase % 3]
+        ma = indicators.setdefault("ma", {})
+        ma_fast = ma_fast_periods[phase % len(ma_fast_periods)]
+        ma_slow = ma_slow_periods[(phase // 2) % len(ma_slow_periods)]
+        ma["fastPeriod"] = min(ma_fast, ma_slow - 1)
+        ma["slowPeriod"] = ma_slow
+        ma["timeframe"] = ["M15", "H1", "M5"][phase % 3]
+        bollinger = indicators.setdefault("bollinger", {})
+        bollinger["period"] = bb_periods[phase % len(bb_periods)]
+        bollinger["deviations"] = bb_deviations[(phase // 2) % len(bb_deviations)]
+        bollinger["reclaimBufferPips"] = breakout_buffers[(phase // 3) % len(breakout_buffers)]
+        bollinger["timeframe"] = ["M15", "H1", "M5"][phase % 3]
+        macd = indicators.setdefault("macd", {})
+        macd_fast = macd_fast_periods[phase % len(macd_fast_periods)]
+        macd_slow = macd_slow_periods[(phase // 2) % len(macd_slow_periods)]
+        macd["fastPeriod"] = min(macd_fast, macd_slow - 1)
+        macd["slowPeriod"] = macd_slow
+        macd["signalPeriod"] = macd_signal_periods[(phase // 3) % len(macd_signal_periods)]
+        macd["minHistogramAbs"] = [0.0, 0.0005, 0.001, 0.002][phase % 4]
+        macd["timeframe"] = ["M15", "H1", "M5"][phase % 3]
+        support_resistance = indicators.setdefault("supportResistance", {})
+        support_resistance["lookbackBars"] = sr_lookbacks[phase % len(sr_lookbacks)]
+        support_resistance["breakoutBufferPips"] = breakout_buffers[(phase // 2) % len(breakout_buffers)]
+        support_resistance["timeframe"] = ["M15", "H1", "M5"][phase % 3]
+        tokyo = indicators.setdefault("tokyoRange", {})
+        tokyo_start, tokyo_end = tokyo_trade_windows[phase % len(tokyo_trade_windows)]
+        tokyo["tradeStartHourUtc"] = tokyo_start
+        tokyo["tradeEndHourUtc"] = tokyo_end
+        tokyo["rangeStartHourUtc"] = max(0, tokyo_start - 3)
+        tokyo["rangeEndHourUtc"] = max(0, tokyo_start - 1)
+        tokyo["lookbackBars"] = [6, 8, 12, 16][phase % 4]
+        tokyo["bufferPips"] = breakout_buffers[(phase // 4) % len(breakout_buffers)]
+        tokyo["timeframe"] = "M15"
+        night = indicators.setdefault("nightReversion", {})
+        night_start, night_end = night_windows[phase % len(night_windows)]
+        night["startHourUtc"] = night_start
+        night["endHourUtc"] = night_end
+        night["bollingerPeriod"] = bb_periods[(phase // 2) % len(bb_periods)]
+        night["deviations"] = [1.4, 1.6, 1.8, 2.0, 2.2][phase % 5]
+        night["entryBufferPips"] = [0.0, 0.5, 1.0, 1.5][phase % 4]
+        night["timeframe"] = "M15"
+        h4 = indicators.setdefault("h4Pullback", {})
+        h4_fast = h4_fast_periods[phase % len(h4_fast_periods)]
+        h4_slow = h4_slow_periods[(phase // 2) % len(h4_slow_periods)]
+        h4["fastEmaPeriod"] = min(h4_fast, h4_slow - 1)
+        h4["slowEmaPeriod"] = h4_slow
+        h4["pullbackEmaPeriod"] = h4_pullback_periods[(phase // 3) % len(h4_pullback_periods)]
+        h4["rsiPeriod"] = periods[(phase // 4) % len(periods)]
+        h4["longRsiMin"] = [35, 38, 42, 46][phase % 4]
+        h4["shortRsiMax"] = [54, 58, 62, 66][phase % 4]
+        h4["timeframe"] = "H4"
+        exit_cfg["breakevenDelayR"] = breakevens[(phase // 2) % len(breakevens)]
+        exit_cfg["trailStartR"] = trails[(phase // 3) % len(trails)]
+        exit_cfg["mfeGivebackPct"] = givebacks[(phase // 5) % len(givebacks)]
+        exit_cfg["timeStopBars"] = {
+            "M15": hold_bars[phase % len(hold_bars)],
+            "H1": hold_bars[(phase // 2) % len(hold_bars)],
+        }
+        risk["riskPips"] = risk_pips[(phase // 3) % len(risk_pips)]
+        risk["opportunityLotMultiplier"] = opportunity_multipliers[(phase // 4) % len(opportunity_multipliers)]
+        risk["stage"] = "SHADOW"
+        risk["maxLot"] = min(2.0, float(risk.get("maxLot", 2.0)))
+        seeds.append(seed)
+    return seeds
+
+
 def clone_seed(seed: Dict[str, Any], seed_id: str, source: str) -> Dict[str, Any]:
     cloned = deepcopy(seed)
     cloned["seedId"] = seed_id

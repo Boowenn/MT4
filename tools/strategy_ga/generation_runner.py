@@ -258,6 +258,8 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
     elites = [row for row in candidates if row.get("status") == "ELITE_SELECTED"][: elite_count()]
     blocker_counts = Counter(str(row.get("blockerCode") or "PASSED") for row in candidates)
     best = candidates[0] if candidates else {}
+    exploration_count = sum(1 for row in candidates if str(row.get("source") or "").startswith("EXPLORATION"))
+    no_elite_exploration = generation_number > 1 and exploration_count > 0 and not _existing_elites(runtime_dir)
     generation = {
         "schema": "quantgod.ga.generation.v1",
         "agentVersion": AGENT_VERSION,
@@ -275,8 +277,15 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
         "bestStrategy": best.get("strategyId"),
         "avgFitness": round(sum(float(row.get("fitness", 0)) for row in candidates) / max(1, len(candidates)), 4),
         "blockedCount": sum(1 for row in candidates if row.get("blockerCode")),
-        "mutationCount": sum(1 for row in candidates if row.get("source") == "MUTATION"),
-        "crossoverCount": sum(1 for row in candidates if row.get("source") == "CROSSOVER"),
+        "mutationCount": sum(1 for row in candidates if row.get("source") in {"MUTATION", "EXPLORATION_MUTATION"}),
+        "crossoverCount": sum(1 for row in candidates if row.get("source") in {"CROSSOVER", "EXPLORATION_CROSSOVER"}),
+        "explorationMode": "NO_ELITE_EXPAND_SEARCH" if no_elite_exploration else "ELITE_GUIDED",
+        "explorationSeedCount": exploration_count,
+        "explorationReasonZh": (
+            "上一代没有 elite，Agent 已自动扩大参数网格、Case Memory 和 rejected seed mutation 搜索空间。"
+            if no_elite_exploration
+            else "存在 elite 时优先沿 elite lineage 做 mutation / crossover。"
+        ),
         "caseMemorySeedCount": sum(1 for row in candidates if row.get("source") == "CASE_MEMORY"),
         "strategyBacktest": backtest_stats,
         "walkForward": walk_forward_stats,
@@ -318,7 +327,11 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
         "completedGenerations": generation_number,
         "blockedCandidates": generation["blockedCount"],
         "eliteCount": len(elites),
-        "nextAction": f"基于 {len(elites)} 个 elite 生成第 {generation_number + 1} 代候选",
+        "nextAction": (
+            f"当前 0 个 elite；下一代继续扩大参数网格、Case Memory 和 rejected seed mutation 搜索"
+            if not elites
+            else f"基于 {len(elites)} 个 elite 生成第 {generation_number + 1} 代候选"
+        ),
         "singleSourceOfTruth": "USDJPY_STRATEGY_JSON_GA_TRACE",
         "strategyBacktestRequired": True,
         "safety": dict(SAFETY_BOUNDARY),

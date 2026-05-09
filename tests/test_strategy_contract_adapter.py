@@ -14,6 +14,7 @@ from tools.strategy_contract_adapter.schema import (
     EA_SHADOW_EVALUATION_STATUS_FILE,
 )
 from tools.strategy_ga.fitness import score_seed
+from tools.strategy_ga.schema import CANDIDATE_RUNS_FILE, ga_dir
 from tools.strategy_ga.seed_generator import case_memory_seed_pool
 from tools.strategy_json.schema import base_strategy_seed
 from tools.usdjpy_evidence_os.case_memory import build_case_memory
@@ -37,6 +38,73 @@ class StrategyContractAdapterTests(unittest.TestCase):
             self.assertIn("orderSendAllowed=false", ea_text)
             self.assertIn("shadowOnly=true", ea_text)
             self.assertIn("strategyFamily=RSI_Reversal", ea_text)
+            self.assertIn("familyParameters=", ea_text)
+            self.assertIn("maFastPeriod=", ea_text)
+            self.assertIn("bbDeviations=", ea_text)
+            self.assertIn("macdFastPeriod=", ea_text)
+            self.assertIn("srLookbackBars=", ea_text)
+            self.assertIn("tokyoTradeStartHourUtc=", ea_text)
+            self.assertIn("nightBollingerPeriod=", ea_text)
+            self.assertIn("h4FastEmaPeriod=", ea_text)
+
+    def test_contract_preserves_family_specific_parameters_for_ea_shadow_adapter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            seed = base_strategy_seed("GA-USDJPY-FAMILY-PARAMS", family="USDJPY_TOKYO_RANGE_BREAKOUT")
+            indicators = seed["indicators"]
+            indicators["ma"]["fastPeriod"] = 13
+            indicators["ma"]["slowPeriod"] = 34
+            indicators["bollinger"]["period"] = 24
+            indicators["bollinger"]["deviations"] = 2.35
+            indicators["macd"]["fastPeriod"] = 8
+            indicators["macd"]["slowPeriod"] = 21
+            indicators["macd"]["signalPeriod"] = 5
+            indicators["supportResistance"]["lookbackBars"] = 48
+            indicators["tokyoRange"]["tradeStartHourUtc"] = 4
+            indicators["tokyoRange"]["bufferPips"] = 1.5
+            indicators["nightReversion"]["bollingerPeriod"] = 28
+            indicators["nightReversion"]["entryBufferPips"] = 0.75
+            indicators["h4Pullback"]["fastEmaPeriod"] = 30
+            indicators["h4Pullback"]["slowEmaPeriod"] = 80
+
+            ga_path = ga_dir(runtime) / CANDIDATE_RUNS_FILE
+            ga_path.parent.mkdir(parents=True, exist_ok=True)
+            ga_path.write_text(
+                json.dumps(
+                    {
+                        "seedId": seed["seedId"],
+                        "status": "PROMOTED_TO_SHADOW",
+                        "promotionStage": "FAST_SHADOW",
+                        "fitness": 9.0,
+                        "strategyJson": seed,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = build_strategy_contract(runtime, write=True)
+            family_parameters = payload["contract"]["strategy"]["familyParameters"]
+            ea_text = (runtime / CONTRACT_EA_FILE).read_text(encoding="utf-8")
+
+            self.assertEqual(family_parameters["ma"]["fastPeriod"], 13)
+            self.assertEqual(family_parameters["tokyoRange"]["tradeStartHourUtc"], 4)
+            self.assertEqual(family_parameters["h4Pullback"]["slowEmaPeriod"], 80)
+            self.assertIn("maFastPeriod=13", ea_text)
+            self.assertIn("maSlowPeriod=34", ea_text)
+            self.assertIn("bbPeriod=24", ea_text)
+            self.assertIn("bbDeviations=2.35", ea_text)
+            self.assertIn("macdFastPeriod=8", ea_text)
+            self.assertIn("macdSlowPeriod=21", ea_text)
+            self.assertIn("macdSignalPeriod=5", ea_text)
+            self.assertIn("srLookbackBars=48", ea_text)
+            self.assertIn("tokyoTradeStartHourUtc=4", ea_text)
+            self.assertIn("tokyoBufferPips=1.5", ea_text)
+            self.assertIn("nightBollingerPeriod=28", ea_text)
+            self.assertIn("nightEntryBufferPips=0.75", ea_text)
+            self.assertIn("h4FastEmaPeriod=30", ea_text)
+            self.assertIn("h4SlowEmaPeriod=80", ea_text)
 
     def test_status_reads_ea_ack_without_granting_execution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
