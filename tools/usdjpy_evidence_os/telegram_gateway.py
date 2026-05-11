@@ -7,7 +7,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -126,12 +126,18 @@ def dispatch_event(runtime_dir: Path, event: Dict[str, Any], send: bool = False)
     duplicate = event.get("eventId") in recent_ids
     rate_limited = _rate_limited(ledger)
     delivery = {"ok": False, "skipped": True, "reason": "send_not_requested"}
+    processed_at = utc_now_iso()
     if send and not duplicate and not rate_limited:
         delivery = _send_telegram(event.get("text", ""))
     elif duplicate:
         delivery = {"ok": False, "skipped": True, "reason": "duplicate_suppressed"}
     elif rate_limited:
         delivery = {"ok": False, "skipped": True, "reason": "rate_limited"}
+    delivery.setdefault("processedAtIso", processed_at)
+    if delivery.get("ok"):
+        delivery.setdefault("sentAtIso", processed_at)
+    elif delivery.get("skipped"):
+        delivery.setdefault("suppressedAtIso", processed_at)
     row = {
         **event,
         "duplicateSuppressed": duplicate,
@@ -211,6 +217,7 @@ def gateway_status(runtime_dir: Path) -> Dict[str, Any]:
     delivered_ids = {row.get("eventId") for row in delivered_rows}
     pending = [row for row in queue if row.get("eventId") not in delivered_ids]
     last = ledger[-1] if ledger else {}
+    observability = _delivery_observability(queue, ledger, pending)
     return {
         "ok": True,
         "schema": "quantgod.telegram_gateway_status.v1",
@@ -222,11 +229,125 @@ def gateway_status(runtime_dir: Path) -> Dict[str, Any]:
         "lastEventId": last.get("eventId"),
         "lastTopic": last.get("topic"),
         "lastDelivery": last.get("delivery"),
+        **observability,
         "pushAllowed": os.environ.get("QG_TELEGRAM_PUSH_ALLOWED", "0").strip() == "1",
         "commandsAllowed": os.environ.get("QG_TELEGRAM_COMMANDS_ALLOWED", "0").strip() == "1",
         "reasonZh": "独立 Telegram Gateway 当前可审计；负责去重、限频、投递 ledger，不接收命令。",
         "safety": dict(SAFETY_BOUNDARY),
     }
+
+
+def _delivery_observability(queue: List[Dict[str, Any]], ledger: List[Dict[str, Any]], pending: List[Dict[str, Any]]) -> Dict[str, Any]:
+    actual_sent_rows = [row for row in ledger if (row.get("delivery") or {}).get("ok") is True]
+    suppressed_rows = [
+        row
+        for row in ledger
+        if (row.get("delivery") or {}).get("skipped") is True and not (row.get("delivery") or {}).get("ok")
+    ]
+    failed_rows = [
+        row
+        for row in ledger
+        if row.get("delivery") and not (row.get("delivery") or {}).get("ok") and not (row.get("delivery") or {}).get("skipped")
+    ]
+    last_actual = actual_sent_rows[-1] if actual_sent_rows else {}
+    last_suppressed = suppressed_rows[-1] if suppressed_rows else {}
+    last_failure = failed_rows[-1] if failed_rows else {}
+    actual_delivery = last_actual.get("delivery") if isinstance(last_actual.get("delivery"), dict) else {}
+    suppressed_delivery = last_suppressed.get("delivery") if isinstance(last_suppressed.get("delivery"), dict) else {}
+    failure_delivery = last_failure.get("delivery") if isinstance(last_failure.get("delivery"), dict) else {}
+    sent_count_by_topic = _count_by_topic(actual_sent_rows)
+    suppressed_count_by_topic = _count_by_topic(suppressed_rows)
+    pending_by_topic = _count_by_topic(pending)
+    latest_by_topic = _latest_delivery_by_topic(ledger)
+    rate_limited = _rate_limited_rows(ledger)
+    next_eligible = _next_eligible_send_at() if rate_limited else None
+    if pending:
+        state_zh = "有待投递消息"
+    elif last_suppressed and suppressed_delivery.get("reason") == "duplicate_suppressed":
+        state_zh = "最近报告已去重"
+    elif last_suppressed and suppressed_delivery.get("reason") == "rate_limited":
+        state_zh = "最近投递被限频"
+    elif actual_sent_rows:
+        state_zh = "最近已真实发送"
+    elif queue:
+        state_zh = "队列已处理"
+    else:
+        state_zh = "等待新报告"
+    return {
+        "deliveryObservability": {
+            "stateZh": state_zh,
+            "actualSentCount": len(actual_sent_rows),
+            "suppressedCount": len(suppressed_rows),
+            "failedCount": len(failed_rows),
+            "lastActualSentAtIso": _delivery_time(last_actual, actual_delivery, ("sentAtIso", "processedAtIso")),
+            "lastActualSentTopic": last_actual.get("topic"),
+            "lastSuppressedAtIso": _delivery_time(last_suppressed, suppressed_delivery, ("suppressedAtIso", "processedAtIso")),
+            "lastSuppressedTopic": last_suppressed.get("topic"),
+            "lastSuppressedReason": suppressed_delivery.get("reason"),
+            "lastFailureAtIso": _delivery_time(last_failure, failure_delivery, ("processedAtIso",)),
+            "lastFailureTopic": last_failure.get("topic"),
+            "lastFailureReason": failure_delivery.get("reason") or failure_delivery.get("error"),
+            "sentCountByTopic": sent_count_by_topic,
+            "suppressedCountByTopic": suppressed_count_by_topic,
+            "pendingByTopic": pending_by_topic,
+            "latestByTopic": latest_by_topic,
+            "nextEligibleSendAtIso": next_eligible,
+        },
+        "lastActualSentAtIso": _delivery_time(last_actual, actual_delivery, ("sentAtIso", "processedAtIso")),
+        "lastSuppressedAtIso": _delivery_time(last_suppressed, suppressed_delivery, ("suppressedAtIso", "processedAtIso")),
+        "lastSuppressedReason": suppressed_delivery.get("reason"),
+        "suppressedCount": len(suppressed_rows),
+        "sentCountByTopic": sent_count_by_topic,
+        "pendingByTopic": pending_by_topic,
+        "nextEligibleSendAtIso": next_eligible,
+    }
+
+
+def _count_by_topic(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for row in rows:
+        topic = str(row.get("topic") or "UNKNOWN")
+        counts[topic] = counts.get(topic, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _delivery_time(row: Dict[str, Any], delivery: Dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        if delivery.get(key):
+            return str(delivery.get(key))
+    for key in ("createdAt", "createdAtIso", "generatedAtIso"):
+        if row.get(key):
+            return str(row.get(key))
+    return None
+
+
+def _latest_delivery_by_topic(ledger: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    latest: Dict[str, Dict[str, Any]] = {}
+    for row in ledger:
+        topic = str(row.get("topic") or "UNKNOWN")
+        delivery = row.get("delivery") if isinstance(row.get("delivery"), dict) else {}
+        latest[topic] = {
+            "eventId": row.get("eventId"),
+            "deliveryOk": bool(delivery.get("ok")),
+            "reason": delivery.get("reason") or delivery.get("error"),
+            "processedAtIso": _delivery_time(row, delivery, ("sentAtIso", "suppressedAtIso", "processedAtIso")),
+        }
+    return latest
+
+
+def _rate_limited_rows(ledger: List[Dict[str, Any]]) -> bool:
+    current_hour = utc_now_iso()[:13]
+    sent = [
+        row
+        for row in ledger[-200:]
+        if (row.get("delivery") or {}).get("ok") and str(row.get("createdAt") or "").startswith(current_hour)
+    ]
+    return len(sent) >= MAX_EVENTS_PER_RUN
+
+
+def _next_eligible_send_at() -> str:
+    next_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    return next_hour.isoformat().replace("+00:00", "Z")
 
 
 def polymarket_retune_to_chinese_text(plan: Dict[str, Any]) -> str:

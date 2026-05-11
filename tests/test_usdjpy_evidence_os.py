@@ -16,6 +16,7 @@ from tools.usdjpy_evidence_os.report import build_evidence_os
 from tools.usdjpy_evidence_os.telegram_gateway import (
     build_notification_event,
     collect_scheduled_events,
+    dispatch_event,
     dispatch_pending,
     enqueue_event,
     gateway_status,
@@ -776,6 +777,33 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertGreaterEqual(status["ledgerCount"], 1)
             self.assertFalse(status["commandsAllowed"])
             self.assertTrue((runtime_dir / "notifications" / "QuantGod_TelegramGatewayLedger.jsonl").exists())
+
+    def test_telegram_gateway_reports_delivery_observability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            event = build_notification_event(
+                "unit_test",
+                "DAILY_AUTOPILOT_V2_REPORT",
+                "INFO",
+                "【QuantGod 测试】真实发送与去重都要可审计。",
+            )
+            with patch("tools.usdjpy_evidence_os.telegram_gateway._send_telegram") as sender:
+                sender.return_value = {"ok": True, "telegram": {"ok": True}}
+                first = dispatch_event(runtime_dir, event, send=True)
+                second = dispatch_event(runtime_dir, event, send=True)
+
+            self.assertTrue(first["delivery"]["ok"])
+            self.assertEqual(second["delivery"]["reason"], "duplicate_suppressed")
+            status = gateway_status(runtime_dir)
+            observability = status["deliveryObservability"]
+            self.assertEqual(status["deliveredCount"], 1)
+            self.assertEqual(status["suppressedCount"], 1)
+            self.assertEqual(observability["actualSentCount"], 1)
+            self.assertEqual(observability["suppressedCount"], 1)
+            self.assertEqual(observability["lastSuppressedReason"], "duplicate_suppressed")
+            self.assertEqual(status["sentCountByTopic"]["DAILY_AUTOPILOT_V2_REPORT"], 1)
+            self.assertTrue(status["lastActualSentAtIso"])
+            self.assertTrue(status["lastSuppressedAtIso"])
 
     def test_telegram_gateway_collects_scheduled_operator_reports(self):
         with tempfile.TemporaryDirectory() as tmp:

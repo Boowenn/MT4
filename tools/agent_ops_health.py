@@ -237,6 +237,7 @@ def _polymarket_health(runtime_dir: Path) -> Dict[str, Any]:
 def _telegram_health(runtime_dir: Path) -> Dict[str, Any]:
     status_payload = gateway_status(runtime_dir)
     latest = _latest_delivery(runtime_dir)
+    observability = status_payload.get("deliveryObservability") if isinstance(status_payload.get("deliveryObservability"), dict) else {}
     queue_rows = read_jsonl_tail(gateway_queue_path(runtime_dir), limit=500)
     pending_count = _as_int(status_payload.get("pendingCount"), len(queue_rows))
     delivered_count = _as_int(status_payload.get("deliveredCount"), 0)
@@ -274,6 +275,14 @@ def _telegram_health(runtime_dir: Path) -> Dict[str, Any]:
         "lastDeliveryOk": latest_ok if latest else None,
         "lastDeliveryReason": latest_reason or None,
         "lastDeliveryAtIso": latest.get("sentAtIso"),
+        "deliveryObservability": observability,
+        "lastActualSentAtIso": status_payload.get("lastActualSentAtIso") or observability.get("lastActualSentAtIso"),
+        "lastSuppressedAtIso": status_payload.get("lastSuppressedAtIso") or observability.get("lastSuppressedAtIso"),
+        "lastSuppressedReason": status_payload.get("lastSuppressedReason") or observability.get("lastSuppressedReason"),
+        "suppressedCount": _as_int(status_payload.get("suppressedCount") or observability.get("suppressedCount"), 0),
+        "sentCountByTopic": status_payload.get("sentCountByTopic") or observability.get("sentCountByTopic") or {},
+        "pendingByTopic": status_payload.get("pendingByTopic") or observability.get("pendingByTopic") or {},
+        "nextEligibleSendAtIso": status_payload.get("nextEligibleSendAtIso") or observability.get("nextEligibleSendAtIso"),
         "detailZh": detail,
     }
 
