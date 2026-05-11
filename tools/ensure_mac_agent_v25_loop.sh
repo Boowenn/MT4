@@ -176,15 +176,18 @@ restart_loop() {
 }
 
 ensure_once() {
-  local age reason
+  local age reason session_count
   age="$(status_age_seconds)"
-  if screen_running && [[ "$age" -le "$STALE_SECONDS" ]]; then
+  session_count="$(matching_screen_sessions | wc -l | tr -d ' ')"
+  if [[ "$session_count" == "1" && "$age" -le "$STALE_SECONDS" ]]; then
     write_supervisor_status "NOOP" "Agent v2.5 后台循环在线，心跳新鲜。" "$age"
     echo "Agent v2.5 loop is healthy: screen=$SCREEN_NAME heartbeatAge=${age}s runtime=$RUNTIME_DIR"
     return 0
   fi
 
-  if screen_running; then
+  if [[ "$session_count" -gt 1 ]]; then
+    reason="Agent v2.5 后台循环出现重复 screen，已自动清理并只保留一个。"
+  elif [[ "$session_count" == "1" ]]; then
     reason="Agent v2.5 后台循环心跳过旧，已自动重启。"
   else
     reason="Agent v2.5 后台循环 screen 不存在，已自动拉起。"

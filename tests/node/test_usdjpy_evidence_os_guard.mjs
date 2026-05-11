@@ -109,6 +109,7 @@ test('Mac Agent loop sends scheduled reports through the Telegram Gateway collec
   assert.match(source, /quantgod-agent-v25-supervisor/);
   assert.match(source, /ensure_mac_agent_v25_loop\.sh --loop/);
   assert.match(source, /matching_screen_sessions/);
+  assert.match(source, /出现重复 screen/);
   assert.match(source, /screen -S "\$session" -X quit/);
   assert.doesNotMatch(source, /run_daily_autopilot_v2\.py[\s\S]*telegram-text[\s\S]*--send/);
 });
