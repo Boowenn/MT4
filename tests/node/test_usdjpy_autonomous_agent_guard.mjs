@@ -31,8 +31,42 @@ test('autonomous agent keeps hard safety boundaries', () => {
   assert.match(patch, /executionStage/);
   assert.match(patch, /liveMutationAllowed/);
   assert.match(patch, /stageMaxLot/);
+  assert.match(patch, /QuantGod_AutonomousConfigPatch_EA\.txt/);
+  assert.match(patch, /newsHardBypassAllowed/);
+  assert.match(patch, /runtimeFreshnessBypassAllowed/);
+  assert.match(patch, /fastlaneBypassAllowed/);
   assert.match(rollback, /consecutiveLosses/);
   assert.match(rollback, /dailyLossR/);
+});
+
+test('MT5 EA reads autonomous config patch through a narrow runtime adapter', () => {
+  const ea = read('MQL5/Experts/QuantGod_MultiStrategy.mq5');
+
+  for (const marker of [
+    'EnableAutonomousConfigPatchRuntimeAdapter',
+    'AutonomousConfigPatchRuntimeFile',
+    'QuantGod_AutonomousConfigPatch_EA.txt',
+    'QuantGod_AutonomousConfigPatchEAStatus.json',
+    'appliedPatchId',
+    'activeParameters',
+    'rejectedFields',
+    'AutonomousPatchEffectiveRsiBuyBand',
+    'AutonomousPatchEffectiveRsiCrossbackThreshold',
+    'AutonomousPatchEffectiveStageLotCap',
+    'g_autonomousPatchBreakevenDelayR',
+    'g_autonomousPatchTrailStartR',
+    'g_autonomousPatchMfeGivebackPct',
+  ]) {
+    assert.match(ea, new RegExp(marker));
+  }
+  assert.match(ea, /symbol != "USDJPYc"/);
+  assert.match(ea, /strategy != "RSI_Reversal"/);
+  assert.match(ea, /direction != "LONG"/);
+  assert.match(ea, /newsBypassAllowed \|\| runtimeBypassAllowed \|\| fastlaneBypassAllowed/);
+  assert.match(ea, /maxLot <= 0\.0 \|\| maxLot > 2\.0/);
+  assert.match(ea, /stageMaxLot < 0\.0 \|\| stageMaxLot > 2\.0/);
+  assert.match(ea, /PATCH_REJECTED/);
+  assert.match(ea, /PATCH_ACTIVE/);
 });
 
 test('strategy lab exposes walk-forward and autonomous endpoints only', () => {

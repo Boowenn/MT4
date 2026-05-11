@@ -27,10 +27,56 @@ except ModuleNotFoundError:  # pragma: no cover
 
 def _changes_for_variant(variant: str) -> Dict[str, Any]:
     if variant == "relaxed_entry_v1":
-        return {"rsiBuyCrossbackThreshold": 34}
+        return {"rsiBuyBand": 34, "rsiCrossbackThreshold": 0.0}
     if variant == "let_profit_run_v1":
-        return {"breakevenDelayR": 1.0, "mfeGivebackPct": 0.6}
+        return {"breakevenDelayR": 1.0, "trailStartR": 1.5, "mfeGivebackPct": 0.6}
     return {}
+
+
+def _patch_id(stage: str, generated_at_iso: str) -> str:
+    safe_timestamp = generated_at_iso.replace(":", "").replace("-", "").replace("Z", "")
+    return f"agent-{FOCUS_SYMBOL}-RSI-LONG-{stage}-{safe_timestamp}"
+
+
+def _format_ea_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _build_ea_runtime_patch_text(payload: Dict[str, Any]) -> str:
+    changes = payload.get("changes") or {}
+    limits = payload.get("limits") or {}
+    safety = payload.get("safety") or {}
+    rows = {
+        "schema": "quantgod.autonomous_config_patch_ea.v1",
+        "patchId": payload.get("patchId", ""),
+        "generatedAtIso": payload.get("generatedAtIso", ""),
+        "symbol": payload.get("symbol", FOCUS_SYMBOL),
+        "strategy": payload.get("strategy", "RSI_Reversal"),
+        "direction": payload.get("direction", "LONG"),
+        "executionStage": payload.get("executionStage", ""),
+        "stage": payload.get("stage", ""),
+        "patchWritable": bool(payload.get("patchWritable")),
+        "autoAppliedByAgent": bool(payload.get("autoAppliedByAgent")),
+        "requiresAutonomousGovernance": bool(payload.get("requiresAutonomousGovernance")),
+        "liveMutationAllowed": bool(payload.get("liveMutationAllowed")),
+        "orderSendAllowed": bool(safety.get("orderSendAllowed")),
+        "livePresetMutationAllowed": bool(safety.get("livePresetMutationAllowed")),
+        "newsHardBypassAllowed": False,
+        "runtimeFreshnessBypassAllowed": False,
+        "fastlaneBypassAllowed": False,
+        "maxLot": limits.get("maxLot", 2.0),
+        "stageMaxLot": limits.get("stageMaxLot", 0.0),
+        "rsiBuyBand": changes.get("rsiBuyBand", ""),
+        "rsiCrossbackThreshold": changes.get("rsiCrossbackThreshold", ""),
+        "breakevenDelayR": changes.get("breakevenDelayR", ""),
+        "trailStartR": changes.get("trailStartR", ""),
+        "mfeGivebackPct": changes.get("mfeGivebackPct", ""),
+    }
+    return "\n".join(f"{key}={_format_ea_value(value)}" for key, value in rows.items()) + "\n"
 
 
 def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, Any]:
@@ -45,10 +91,12 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
             changes.update(_changes_for_variant(str(item.get("variant") or "")))
     patch_writable = bool(allowed and changes and stage != ROLLBACK_PAUSED)
     auto_applied = bool(patch_writable and stage in {STAGE_TESTER_ONLY, STAGE_PAPER_LIVE_SIM, STAGE_MICRO_LIVE, STAGE_LIVE_LIMITED})
+    generated_at_iso = utc_now_iso()
     payload = {
         "ok": True,
         "schema": SCHEMA_PATCH,
-        "generatedAtIso": utc_now_iso(),
+        "generatedAtIso": generated_at_iso,
+        "patchId": _patch_id(str(stage), generated_at_iso),
         "symbol": FOCUS_SYMBOL,
         "strategy": "RSI_Reversal",
         "direction": "LONG",
@@ -85,4 +133,5 @@ def build_config_patch(runtime_dir: Path, *, write: bool = False) -> Dict[str, A
         out = runtime_dir / "agent"
         out.mkdir(parents=True, exist_ok=True)
         (out / "QuantGod_AutonomousConfigPatch.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        (runtime_dir / "QuantGod_AutonomousConfigPatch_EA.txt").write_text(_build_ea_runtime_patch_text(payload), encoding="utf-8")
     return payload

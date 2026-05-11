@@ -61,10 +61,15 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
 
         plan = review["iterationPlan"]
         self.assertEqual(review["status"], "COPY_TRADING_RETUNE_REQUIRED")
+        self.assertEqual(review["operatorStatusLabel"], "Agent 已生成跟单重调方案")
+        self.assertEqual(review["agentRetuneStatus"], "RETUNE_PLAN_READY_SHADOW_ONLY")
+        self.assertTrue(review["completedByAgent"])
+        self.assertTrue(plan["completedByAgent"])
         self.assertIn("全市场模块", review["summary"])
         self.assertIn("politics", plan["copyUniverse"])
         self.assertIn("crypto", plan["copyUniverse"])
         self.assertTrue(any(item["key"] == "copy_archive_all_market_whitelist_v2" for item in plan["candidateVariants"]))
+        self.assertIn("结算样本不少于 200 笔", plan["acceptanceCriteriaZh"])
         self.assertIn("cash_scaled_pnl_not_positive", plan["capitalResult"]["blockers"])
 
 

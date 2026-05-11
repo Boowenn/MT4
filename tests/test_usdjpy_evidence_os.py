@@ -620,7 +620,7 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertEqual(parity["deepParity"]["mql5Ea"]["rsi"]["signalDirection"], "BUY")
             self.assertEqual(parity["deepParity"]["hardMismatches"], [])
 
-    def test_independent_telegram_gateway_queues_dedupes_and_dispatches(self):
+    def test_independent_telegram_gateway_queues_dedupes_and_keeps_dry_run_pending(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)
             event = build_notification_event(
@@ -635,8 +635,11 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertEqual(second["queued"], 0)
             dispatched = dispatch_pending(runtime_dir, send=False)
             self.assertEqual(dispatched["dispatchedCount"], 1)
+            self.assertEqual(dispatched["pendingCount"], 1)
             status = gateway_status(runtime_dir)
-            self.assertEqual(status["pendingCount"], 0)
+            self.assertEqual(status["pendingCount"], 1)
+            self.assertEqual(status["deliveredCount"], 0)
+            self.assertGreaterEqual(status["ledgerCount"], 1)
             self.assertFalse(status["commandsAllowed"])
             self.assertTrue((runtime_dir / "notifications" / "QuantGod_TelegramGatewayLedger.jsonl").exists())
 

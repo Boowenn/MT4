@@ -628,6 +628,16 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     evidence_times = [item for item in evidence_times if item]
     latest_evidence_at = max(evidence_times) if evidence_times else None
     review_fresh_for_day = bool(latest_evidence_at and latest_evidence_at.astimezone(JST).date() >= utc_now().astimezone(JST).date())
+    retune_total_count = as_int(first(retune_counts.get("total"), 0), 0)
+    retune_plan_ready = bool(retune.get("status") == "OK" and retune_total_count > 0)
+    retune_refreshed_today = bool(review_fresh_for_day and retune_plan_ready)
+    retune_agent_status = (
+        "RETUNE_PLAN_REFRESHED_TODAY"
+        if retune_refreshed_today else
+        "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED"
+        if retune_plan_ready else
+        "RETUNE_PLAN_MISSING"
+    )
     global_blockers = [clean(item) for item in as_list(auto_gov.get("globalBlockers")) if clean(item)]
     executed_pf = as_float(executed.get("profitFactor"), 0.0)
     executed_net = as_float(executed.get("realizedPnl"), 0.0)
@@ -663,7 +673,7 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     if loss_quarantine:
         action_queue.append({
             "type": "POLY_LOSS_SOURCE_REVIEW",
-            "state": "DONE" if review_fresh_for_day else "DUE_TODAY",
+            "state": "DONE" if review_fresh_for_day or retune_plan_ready else "DUE_TODAY",
             "title": "Polymarket 亏损来源复盘",
             "market": "GLOBAL",
             "detail": (
@@ -672,33 +682,59 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             ),
             "nextStep": "按 experimentKey、marketScope、entryStatus 拆亏损来源；继续只读/dry-run。",
             "blockers": global_blockers[:4],
-            "completionEvidence": "fresh_readonly_research_and_auto_governance" if review_fresh_for_day else "",
+            "completionEvidence": (
+                "fresh_readonly_research_and_auto_governance"
+                if review_fresh_for_day else
+                "agent_retune_plan_ready_waiting_next_refresh"
+                if retune_plan_ready else
+                ""
+            ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
     if copy_review.get("active"):
         action_queue.append({
             "type": "POLY_COPY_TRADING_RETUNE_REVIEW",
-            "state": "DONE" if review_fresh_for_day and retune.get("status") == "OK" else "DUE_TODAY",
+            "state": "DONE" if retune_plan_ready else "DUE_TODAY",
             "title": "Polymarket 跟单策略复盘",
             "market": "COPY_ARCHIVE",
             "detail": copy_review.get("summary", ""),
-            "nextStep": "跟单可覆盖任何市场模块；剪掉近期负收益 copied trader，只保留高流动性、高样本、正收益分桶继续 shadow-only 重放。",
+            "nextStep": (
+                "Agent 已生成 shadow-only 跟单重调方案；下一轮自动刷新 copied trader、市场家族、来源质量和流动性分桶。"
+                if retune_plan_ready else
+                "跟单可覆盖任何市场模块；剪掉近期负收益 copied trader，只保留高流动性、高样本、正收益分桶继续 shadow-only 重放。"
+            ),
             "blockers": ["COPY_TRADING_NOT_PROMOTABLE_YET"],
-            "completionEvidence": "fresh_copy_trading_retune_review" if review_fresh_for_day and retune.get("status") == "OK" else "",
+            "completionEvidence": (
+                "fresh_copy_trading_retune_review"
+                if retune_refreshed_today else
+                "agent_copy_retune_plan_ready_waiting_next_refresh"
+                if retune_plan_ready else
+                ""
+            ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
     if shadow_pf < 1.0 or shadow_net < 0:
         action_queue.append({
             "type": "POLY_SHADOW_RETUNE_REVIEW",
-            "state": "DONE" if review_fresh_for_day and retune.get("status") == "OK" else "DUE_TODAY",
+            "state": "DONE" if retune_plan_ready else "DUE_TODAY",
             "title": "Polymarket Shadow 参数复盘",
             "market": "SHADOW",
             "detail": f"shadow PF {shadow_pf:.4g} / 净 {shadow_net:.4g} USDC",
-            "nextStep": "优先保留接近 PF>=1 的实验，淘汰低胜率 autonomous 或弱市场家族变体。",
+            "nextStep": (
+                "Agent 已生成 shadow-only 参数重调方案；保持隔离，等待下一轮样本验证。"
+                if retune_plan_ready else
+                "优先保留接近 PF>=1 的实验，淘汰低胜率 autonomous 或弱市场家族变体。"
+            ),
             "blockers": ["SHADOW_PF_BELOW_1"],
-            "completionEvidence": "fresh_retune_planner" if review_fresh_for_day and retune.get("status") == "OK" else "",
+            "completionEvidence": (
+                "fresh_retune_planner"
+                if retune_refreshed_today else
+                "agent_retune_plan_ready_waiting_next_refresh"
+                if retune_plan_ready else
+                ""
+            ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
@@ -721,14 +757,24 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     for source in retune_sources[:2]:
         action_queue.append({
             "type": "POLY_RETUNE_EXPERIMENT",
-            "state": "DONE" if review_fresh_for_day and retune.get("status") == "OK" else "DUE_TODAY",
+            "state": "DONE" if retune_plan_ready else "DUE_TODAY",
             "title": f"重调 {source['key']}",
             "market": source.get("marketScope") or "experiment",
             "detail": f"PF {source['profitFactor']} / 胜率 {source['winRatePct']}% / 净 {source['realizedPnl']}",
-            "nextStep": "降低该实验优先级或收紧入场阈值，生成下一轮 shadow-only retune。",
+            "nextStep": (
+                "Agent 已生成该实验的 shadow-only 重调方案；下一轮自动刷新样本。"
+                if retune_plan_ready else
+                "降低该实验优先级或收紧入场阈值，生成下一轮 shadow-only retune。"
+            ),
             "source": source,
             "blockers": ["NEGATIVE_EXPERIMENT_SOURCE"],
-            "completionEvidence": "fresh_shadow_only_retune_recommendation" if review_fresh_for_day and retune.get("status") == "OK" else "",
+            "completionEvidence": (
+                "fresh_shadow_only_retune_recommendation"
+                if retune_refreshed_today else
+                "agent_retune_plan_ready_waiting_next_refresh"
+                if retune_plan_ready else
+                ""
+            ),
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
@@ -739,6 +785,9 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
         "summary": {
             "lossQuarantine": bool(loss_quarantine),
             "reviewFreshForDay": review_fresh_for_day,
+            "retunePlanReady": retune_plan_ready,
+            "retuneRefreshedToday": retune_refreshed_today,
+            "retuneAgentStatus": retune_agent_status,
             "latestEvidenceAtIso": latest_evidence_at.isoformat() if latest_evidence_at else "",
             "globalBlockers": global_blockers,
             "executedClosed": as_int(executed.get("closed"), 0),
@@ -753,7 +802,7 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "autoCanaryEligible": first(auto_summary.get("autoCanaryEligible"), 0),
             "gateCanBet": first(gate_summary.get("canBet"), 0),
             "gateBlocked": first(gate_summary.get("blocked"), 0),
-            "retuneTotal": first(retune_counts.get("total"), 0),
+            "retuneTotal": retune_total_count,
             "retuneRed": first(retune_counts.get("red"), 0),
             "retuneYellow": first(retune_counts.get("yellow"), 0),
             "retuneCopyTrading": first(retune_counts.get("copyTrading"), 0),
@@ -1207,10 +1256,16 @@ def daily_iteration_review(
         retune_total = as_int(poly_summary.get("retuneTotal"), 0)
         retune_red = as_int(poly_summary.get("retuneRed"), 0)
         retune_yellow = as_int(poly_summary.get("retuneYellow"), 0)
-        retune_applied_today = bool(poly_summary.get("reviewFreshForDay") and retune_total > 0)
+        retune_plan_ready = bool(poly_summary.get("retunePlanReady") or retune_total > 0)
+        retune_refreshed_today = bool(poly_summary.get("retuneRefreshedToday") or (poly_summary.get("reviewFreshForDay") and retune_plan_ready))
+        retune_agent_status = clean(poly_summary.get("retuneAgentStatus")) or (
+            "RETUNE_PLAN_REFRESHED_TODAY" if retune_refreshed_today else
+            "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED" if retune_plan_ready else
+            "RETUNE_PLAN_MISSING"
+        )
         findings.append({
             "code": "POLYMARKET_LOSS_QUARANTINE_ACTIVE",
-            "severity": "watch" if retune_applied_today else "high",
+            "severity": "watch" if retune_plan_ready else "high",
             "target": "strategy",
             "title": "Polymarket 亏损隔离",
             "detail": (
@@ -1225,24 +1280,38 @@ def daily_iteration_review(
                 f"net={worst.get('realizedPnl', '--')} USDC；edge_filter/autonomous 族群胜率明显不足。"
             ),
             "nextStep": (
-                "今日已生成 shadow-only retune；保持钱包锁定，明日复查新批次效果。"
-                if retune_applied_today else
+                "Agent 已生成 shadow-only retune；保持钱包锁定，下一轮自动刷新样本并复查新批次效果。"
+                if retune_plan_ready else
                 "保持钱包锁定；淘汰/重建低胜率 edge_filter，并按市场家族分桶，下一轮只进 shadow-only retune。"
             ),
-            "requiresCodeChange": not retune_applied_today,
-            "requiresStrategyIteration": not retune_applied_today,
-            "iterationApplied": retune_applied_today,
+            "requiresCodeChange": False if retune_plan_ready else True,
+            "requiresStrategyIteration": False if retune_plan_ready else True,
+            "iterationApplied": retune_plan_ready,
+            "completedByAgent": retune_plan_ready,
+            "autoAppliedByAgent": retune_plan_ready,
+            "requiresAutonomousGovernance": True,
         })
         strategy_queue.append({
             "type": "POLYMARKET_FILTER_RETUNE",
-            "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "REQUIRED",
+            "status": (
+                "APPLIED_SHADOW_ONLY"
+                if retune_refreshed_today else
+                "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED"
+                if retune_plan_ready else
+                "REQUIRED"
+            ),
             "targetFamilies": [clean(item.get("experimentKey")) for item in retunes[:3] if isinstance(item, dict)],
             "safeMode": "shadow-only",
             "recommendation": (
-                f"retune planner produced {retune_red} red / {retune_yellow} yellow shadow-only families"
-                if retune_applied_today else
+                f"Agent 已生成 {retune_red} 红 / {retune_yellow} 黄 shadow-only 重调方案；下一轮自动刷新样本。"
+                if retune_plan_ready else
                 "raise score/liquidity thresholds, split market families, keep global loss quarantine"
             ),
+            "agentRetuneStatus": retune_agent_status,
+            "iterationApplied": retune_plan_ready,
+            "completedByAgent": retune_plan_ready,
+            "autoAppliedByAgent": retune_plan_ready,
+            "requiresAutonomousGovernance": True,
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
@@ -1250,28 +1319,59 @@ def daily_iteration_review(
             copy_iteration_plan = copy_review.get("iterationPlan") if isinstance(copy_review.get("iterationPlan"), dict) else {}
             strategy_queue.append({
                 "type": "POLYMARKET_COPY_TRADING_RETUNE",
-                "status": "RETUNE_SPEC_READY_SHADOW_ONLY" if retune_applied_today else "REQUIRED",
-                "operatorStatusLabel": "跟单策略需要重调模拟",
+                "status": (
+                    "RETUNE_SPEC_READY_SHADOW_ONLY"
+                    if retune_refreshed_today else
+                    "RETUNE_SPEC_READY_STALE_REFRESH_QUEUED"
+                    if retune_plan_ready else
+                    "REQUIRED"
+                ),
+                "operatorStatusLabel": (
+                    "Agent 已生成跟单重调方案"
+                    if retune_plan_ready else
+                    "跟单策略等待 Agent 生成重调"
+                ),
                 "targetFamilies": [clean(item.get("experimentKey")) for item in copy_sources[:3] if isinstance(item, dict)] or [clean(copy_review.get("bestExperimentKey"))],
                 "safeMode": "shadow-only",
-                "recommendation": "跟单可覆盖任何市场模块；按 copied trader、市场家族、来源质量、流动性和结算表现重新筛选。",
+                "recommendation": (
+                    "Agent 已生成跟单 shadow-only 重调方案；可覆盖任何市场模块，按 copied trader、市场家族、来源质量、流动性和结算表现重新筛选。"
+                    if retune_plan_ready else
+                    "跟单可覆盖任何市场模块；按 copied trader、市场家族、来源质量、流动性和结算表现重新筛选。"
+                ),
                 "copyTradingStatus": copy_review.get("status", ""),
                 "copyTradingSummary": copy_review.get("summary", ""),
+                "agentRetuneStatus": retune_agent_status,
                 "iterationPlan": copy_iteration_plan,
                 "acceptanceCriteria": as_list(copy_iteration_plan.get("acceptanceCriteria")),
+                "acceptanceCriteriaZh": as_list(copy_iteration_plan.get("acceptanceCriteriaZh")),
                 "candidateVariants": as_list(copy_iteration_plan.get("candidateVariants")),
+                "iterationApplied": retune_plan_ready,
+                "completedByAgent": retune_plan_ready,
+                "autoAppliedByAgent": retune_plan_ready,
+                "requiresAutonomousGovernance": True,
                 "walletWriteAllowed": False,
                 "orderSendAllowed": False,
             })
         code_queue.append({
             "type": "POLYMARKET_RETUNE_RULES",
-            "status": "APPLIED_SHADOW_ONLY" if retune_applied_today else "PROPOSE_CODE_OR_CONFIG_PATCH",
+            "status": (
+                "APPLIED_SHADOW_ONLY"
+                if retune_refreshed_today else
+                "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED"
+                if retune_plan_ready else
+                "PROPOSE_CODE_OR_CONFIG_PATCH"
+            ),
             "safeMode": "research-only",
             "recommendation": (
-                "fresh read-only research and retune artifacts already encode stricter red/yellow filter families"
-                if retune_applied_today else
+                "Agent retune artifacts already encode stricter red/yellow filter families; next cycle refreshes evidence automatically"
+                if retune_plan_ready else
                 "encode stricter shadow-only filter families for the worst loss sources; do not enable real executor"
             ),
+            "agentRetuneStatus": retune_agent_status,
+            "iterationApplied": retune_plan_ready,
+            "completedByAgent": retune_plan_ready,
+            "autoAppliedByAgent": retune_plan_ready,
+            "requiresAutonomousGovernance": True,
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })

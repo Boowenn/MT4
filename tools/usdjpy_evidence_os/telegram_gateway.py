@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -46,18 +47,25 @@ def dispatch_text(
 
 def dispatch_event(runtime_dir: Path, event: Dict[str, Any], send: bool = False) -> Dict[str, Any]:
     ledger = gateway_ledger_path(runtime_dir)
-    recent_ids = {row.get("eventId") for row in read_jsonl_tail(ledger, 200)}
+    recent_ids = {
+        row.get("eventId")
+        for row in read_jsonl_tail(ledger, 200)
+        if _delivery_counts_as_processed(row)
+    }
     duplicate = event.get("eventId") in recent_ids
     rate_limited = _rate_limited(ledger)
-    delivery = {"ok": False, "skipped": True, "reason": "send_disabled"}
+    delivery = {"ok": False, "skipped": True, "reason": "send_not_requested"}
     if send and not duplicate and not rate_limited:
         delivery = _send_telegram(event.get("text", ""))
+    elif duplicate:
+        delivery = {"ok": False, "skipped": True, "reason": "duplicate_suppressed"}
     elif rate_limited:
         delivery = {"ok": False, "skipped": True, "reason": "rate_limited"}
     row = {
         **event,
         "duplicateSuppressed": duplicate,
         "rateLimited": rate_limited,
+        "sendRequested": bool(send),
         "delivery": delivery,
     }
     append_jsonl(ledger, [row])
@@ -93,15 +101,20 @@ def enqueue_event(runtime_dir: Path, event: Dict[str, Any]) -> Dict[str, Any]:
 
 def dispatch_pending(runtime_dir: Path, send: bool = False, limit: int = MAX_EVENTS_PER_RUN) -> Dict[str, Any]:
     queue = read_jsonl_tail(gateway_queue_path(runtime_dir), 1000)
-    ledger_ids = {row.get("eventId") for row in read_jsonl_tail(gateway_ledger_path(runtime_dir), 2000)}
+    ledger_ids = {
+        row.get("eventId")
+        for row in read_jsonl_tail(gateway_ledger_path(runtime_dir), 2000)
+        if _delivery_counts_as_processed(row)
+    }
     pending = [row for row in queue if row.get("eventId") not in ledger_ids]
     dispatched = []
     for event in pending[: max(1, min(int(limit), MAX_EVENTS_PER_RUN))]:
         dispatched.append(dispatch_event(runtime_dir, event, send=send))
     status = gateway_status(runtime_dir)
+    post_dispatch_pending = status.get("pendingCount", max(0, len(pending)))
     status.update(
         {
-            "pendingCount": max(0, len(pending) - len(dispatched)),
+            "pendingCount": post_dispatch_pending,
             "dispatchedCount": len(dispatched),
             "sendRequested": bool(send),
             "dispatchResults": dispatched[-5:],
@@ -115,7 +128,8 @@ def dispatch_pending(runtime_dir: Path, send: bool = False, limit: int = MAX_EVE
 def gateway_status(runtime_dir: Path) -> Dict[str, Any]:
     queue = read_jsonl_tail(gateway_queue_path(runtime_dir), 1000)
     ledger = read_jsonl_tail(gateway_ledger_path(runtime_dir), 1000)
-    delivered_ids = {row.get("eventId") for row in ledger}
+    delivered_rows = [row for row in ledger if _delivery_counts_as_processed(row)]
+    delivered_ids = {row.get("eventId") for row in delivered_rows}
     pending = [row for row in queue if row.get("eventId") not in delivered_ids]
     last = ledger[-1] if ledger else {}
     return {
@@ -123,7 +137,8 @@ def gateway_status(runtime_dir: Path) -> Dict[str, Any]:
         "schema": "quantgod.telegram_gateway_status.v1",
         "agentVersion": AGENT_VERSION,
         "queuedCount": len(queue),
-        "deliveredCount": len(ledger),
+        "ledgerCount": len(ledger),
+        "deliveredCount": len(delivered_rows),
         "pendingCount": len(pending),
         "lastEventId": last.get("eventId"),
         "lastTopic": last.get("topic"),
@@ -151,7 +166,46 @@ def _send_telegram(text: str) -> Dict[str, Any]:
             payload = json.loads(resp.read().decode("utf-8"))
             return {"ok": bool(payload.get("ok")), "telegram": payload}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        curl_result = _send_telegram_with_curl(token, chat_id, text[:3900])
+        if curl_result.get("ok"):
+            curl_result["urllibFallbackReason"] = str(exc)
+            return curl_result
+        return {"ok": False, "error": str(exc), "curlFallback": curl_result}
+
+
+def _send_telegram_with_curl(token: str, chat_id: str, text: str) -> Dict[str, Any]:
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        result = subprocess.run(
+            [
+                "curl",
+                "--silent",
+                "--show-error",
+                "--max-time",
+                "20",
+                "--request",
+                "POST",
+                url,
+                "--data-urlencode",
+                f"chat_id={chat_id}",
+                "--data-urlencode",
+                f"text={text}",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=25,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"curl_failed: {type(exc).__name__}: {exc}"}
+    if result.returncode != 0:
+        return {"ok": False, "error": f"curl_exit_{result.returncode}: {result.stderr.strip()[:300]}"}
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "curl_returned_non_json", "body": result.stdout[:300]}
+    return {"ok": bool(payload.get("ok")), "telegram": payload, "transport": "curl"}
 
 
 def _rate_limited(ledger: Path) -> bool:
@@ -163,3 +217,8 @@ def _rate_limited(ledger: Path) -> bool:
         if (row.get("delivery") or {}).get("ok") and str(row.get("createdAt") or "").startswith(current_hour)
     ]
     return len(sent) >= MAX_EVENTS_PER_RUN
+
+
+def _delivery_counts_as_processed(row: Dict[str, Any]) -> bool:
+    delivery = row.get("delivery") or {}
+    return bool(delivery.get("ok"))

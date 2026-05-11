@@ -51,6 +51,8 @@ def build_polymarket_shadow_lane(runtime_dir: Path, *, write: bool = False) -> D
     copy_review = review.get("copyTradingReview") if isinstance(review.get("copyTradingReview"), dict) else {}
     stage = _stage(summary, copy_review)
     copy_metrics = copy_review.get("bestMetrics") if isinstance(copy_review.get("bestMetrics"), dict) else {}
+    retune_plan_ready = bool(summary.get("retunePlanReady") or (copy_review.get("iterationPlan") or {}).get("completedByAgent"))
+    retune_agent_status = str(summary.get("retuneAgentStatus") or copy_review.get("agentRetuneStatus") or "")
     payload = {
         "ok": True,
         "schema": "quantgod.polymarket_shadow_lane.v1",
@@ -70,6 +72,8 @@ def build_polymarket_shadow_lane(runtime_dir: Path, *, write: bool = False) -> D
             "copyNetUSDC": copy_metrics.get("realizedPnl", 0),
             "retuneRed": summary.get("retuneRed", 0),
             "retuneYellow": summary.get("retuneYellow", 0),
+            "retunePlanReady": retune_plan_ready,
+            "retuneAgentStatus": retune_agent_status,
             "todoCount": summary.get("todoCount", 0),
         },
         "actionQueue": review.get("actionQueue", []),
@@ -85,7 +89,9 @@ def build_polymarket_shadow_lane(runtime_dir: Path, *, write: bool = False) -> D
             "noteZh": "Polymarket 继续模拟跟单和事件风险；不连接真实钱包，不下注，不赎回。",
         },
         "reasonZh": (
-            "模拟账本仍为负期望，继续隔离和重调。"
+            "模拟账本仍为负期望；Agent 已生成 shadow-only 重调方案，继续隔离真钱并等待下一轮样本。"
+            if stage == STAGE_QUARANTINED and retune_plan_ready else
+            "模拟账本仍为负期望，继续隔离并等待 Agent 生成 shadow-only 重调。"
             if stage == STAGE_QUARANTINED else
             "可作为事件风险上下文，但仍不触碰真钱钱包。"
             if stage == STAGE_PAPER_CONTEXT else
@@ -97,4 +103,3 @@ def build_polymarket_shadow_lane(runtime_dir: Path, *, write: bool = False) -> D
         out.mkdir(parents=True, exist_ok=True)
         (out / "QuantGod_PolymarketShadowLane.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
-

@@ -118,6 +118,21 @@ def _build_steps(runtime_dir: Path, repo_root: Path, *, bootstrap_samples: bool)
             "allowWarn": True,
         },
         {
+            "id": "polymarket_retune_planner",
+            "lane": "POLYMARKET_SHADOW",
+            "action": "BUILD_POLYMARKET_SHADOW_RETUNE_PLAN",
+            "summaryZh": "自动生成 Polymarket shadow-only 跟单重调方案，并清理已完成黄字待办。",
+            "command": [
+                py,
+                "tools/build_polymarket_retune_planner.py",
+                *runtime_arg,
+                "--dashboard-dir",
+                str(repo_root / "Dashboard"),
+            ],
+            "timeoutSeconds": 120,
+            "allowWarn": True,
+        },
+        {
             "id": "bar_replay",
             "lane": "MT5_SHADOW",
             "action": "RUN_CAUSAL_BAR_REPLAY",

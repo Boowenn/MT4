@@ -327,7 +327,7 @@ def copy_source_toolkit() -> list[dict[str, str]]:
         {
             "source": "Manual watchlist",
             "mode": "human-curated-shadow-only",
-            "use": "人工加入观察名单后，只跑模拟账本；达到恢复门槛也只进入人工确认。",
+            "use": "本地观察名单只作为只读来源；达到门槛也只进入 shadow / paper-context 自动治理，不连接真钱钱包。",
         },
     ]
 
@@ -341,7 +341,13 @@ def copy_iteration_plan(
     experiment = str(best.get("experimentKey") or "copy_archive_shadow")
     scope = str(best.get("marketScope") or "unknown")
     blockers = list(capital_simulation.get("restoreLiveReviewBlockers") or [])
+    status = "RETUNE_PLAN_READY_SHADOW_ONLY" if needs_retune else "SHADOW_WATCH_READY"
     return {
+        "status": status,
+        "statusZh": "Agent 已生成跟单重调方案" if needs_retune else "跟单模拟观察",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
+        "requiresAutonomousGovernance": True,
         "retuneRequired": bool(needs_retune),
         "currentExperimentKey": experiment,
         "currentMarketScope": scope,
@@ -350,9 +356,9 @@ def copy_iteration_plan(
             f"PF {safe_number(metrics.get('profitFactor')):.4g}，胜率 {safe_number(metrics.get('winRatePct')):.2f}%，"
             f"账本净值 {safe_number(metrics.get('realizedPnl')):.4g} USDC；"
             + (
-                "还不能证明跟单策略有可恢复真钱的稳定 edge。"
+                "Agent 已生成 shadow-only 重调方案，下一轮自动扩展来源并重新筛选；真钱钱包继续隔离。"
                 if needs_retune else
-                "已达到观察门槛，但真钱恢复仍需人工确认钱包、限额和隔离边界。"
+                "已达到观察门槛，但仍只进入 shadow / paper-context 自动治理，不连接真钱钱包。"
             )
         ),
         "copyUniverse": [
@@ -390,6 +396,13 @@ def copy_iteration_plan(
             "cashScaledPnlUSDC > 0",
             "no single market family contributes more than 45% of positive evidence",
         ],
+        "acceptanceCriteriaZh": [
+            "结算样本不少于 200 笔",
+            "Profit Factor 不低于 1.10",
+            "胜率不低于 52%",
+            "按真实可用资金折算后净值必须为正",
+            "正收益证据不能由单一市场家族贡献超过 45%",
+        ],
         "capitalResult": {
             "cashScaledPnlUSDC": capital_simulation.get("cashScaledPnlUSDC"),
             "estimatedReturnPct": capital_simulation.get("estimatedReturnPct"),
@@ -397,9 +410,9 @@ def copy_iteration_plan(
             "blockers": blockers,
         },
         "nextAction": (
-            "生成上述 shadow-only retune 批次；通过前禁止真钱下注、钱包写入或自动恢复执行。"
+            "Agent 已生成上述 shadow-only retune 批次；下一轮自动刷新样本和筛选来源，禁止真钱下注、钱包写入或自动恢复执行。"
             if needs_retune else
-            "保持 shadow watch；若连续批次仍通过，再进入人工恢复复核。"
+            "保持 shadow watch；若连续批次仍通过，也只进入 paper-context 自动治理，不恢复真钱。"
         ),
     }
 
@@ -431,12 +444,16 @@ def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str
     scope = str(best.get("marketScope") or "unknown")
     return {
         "status": "COPY_TRADING_RETUNE_REQUIRED" if needs_retune else "COPY_TRADING_SHADOW_WATCH",
-        "operatorStatusLabel": "需要重调跟单筛选" if needs_retune else "跟单模拟观察",
+        "agentRetuneStatus": "RETUNE_PLAN_READY_SHADOW_ONLY" if needs_retune else "SHADOW_WATCH_READY",
+        "operatorStatusLabel": "Agent 已生成跟单重调方案" if needs_retune else "跟单模拟观察",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
+        "requiresAutonomousGovernance": True,
         "active": True,
         "summary": (
             f"正在模拟跟单策略，当前最佳样本来自 {scope}："
             f"样本 {closed}，PF {pf:.4g}，胜率 {win_rate:.2f}%，账本净值 {pnl:.4g} USDC；"
-            "下一轮会扩展到全市场模块并重新筛选来源。"
+            "Agent 已生成下一轮全市场模块 shadow 重调方案，会自动扩展来源并重新筛选。"
         ),
         "bestExperimentKey": best.get("experimentKey", ""),
         "bestMetrics": metrics,
@@ -453,7 +470,7 @@ def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str
             (
                 "达到 PF >= 1.10、胜率 >= 52%、样本 >= 200、按当前资金估算净收益为正之前，不进入真钱恢复复核。"
                 if not capital_simulation.get("restoreLiveReviewEligible") else
-                "跟单结果已达到恢复复核门槛；仍需人工确认钱包、限额、隔离和单笔风险。"
+                "跟单结果已达到观察门槛；仍只进入 shadow / paper-context 自动治理，不连接真钱钱包。"
             ),
         ],
     }
@@ -555,9 +572,9 @@ def build_plan(research: dict[str, Any]) -> dict[str, Any]:
         "copyTradingReview": copy_review,
         "recommendations": recommendations,
         "nextActions": [
-            "Keep all Polymarket retunes shadow-only while executed and shadow evidence are negative.",
-            "Start with red/yellow routes: rebuild filters, collect fresh shadow results, then compare by route family.",
-            "Do not restore live canary or autonomous betting from this planner; it is a research queue only.",
+            "当执行和影子证据仍为负时，所有 Polymarket 重调只进入 shadow-only。",
+            "Agent 从红/黄路线开始自动重建筛选器、刷新影子样本，并按市场家族比较。",
+            "此规划器不会恢复真钱 canary，也不会启动自动下注；只写研究队列。",
         ],
     }
 

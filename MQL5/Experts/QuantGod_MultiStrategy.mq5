@@ -148,6 +148,8 @@ input int    UsdJpyKlineExportMaxBarsPerTimeframe = 700000;
 input bool   EnableStrategyJsonEAContractAdapter = true;
 input string StrategyJsonEAContractFile = "QuantGod_StrategyJsonEAContract_EA.txt";
 input int    StrategyJsonEAContractShadowEvalEverySeconds = 60;
+input bool   EnableAutonomousConfigPatchRuntimeAdapter = true;
+input string AutonomousConfigPatchRuntimeFile = "QuantGod_AutonomousConfigPatch_EA.txt";
 
 string g_symbols[];
 string g_focusSymbol = "";
@@ -167,6 +169,22 @@ string g_strategyKeys[8] =
 };
 
 CTrade g_trade;
+
+bool   g_autonomousPatchLoaded = false;
+bool   g_autonomousPatchRuntimeActive = false;
+string g_autonomousPatchStatus = "WAITING_PATCH";
+string g_autonomousPatchReasonZh = "等待 Agent 生成 Autonomous Config Patch。";
+string g_autonomousPatchAppliedPatchId = "";
+string g_autonomousPatchExecutionStage = "";
+string g_autonomousPatchRejectedItems = "";
+double g_autonomousPatchRsiBuyBand = 0.0;
+double g_autonomousPatchRsiCrossbackThreshold = 0.0;
+double g_autonomousPatchBreakevenDelayR = 0.0;
+double g_autonomousPatchTrailStartR = 0.0;
+double g_autonomousPatchMfeGivebackPct = 0.0;
+double g_autonomousPatchStageMaxLot = 0.0;
+double g_autonomousPatchMaxLot = 0.0;
+string g_autonomousConfigPatchStatusJson = "{}";
 
 struct SymbolSnapshot
 {
@@ -3522,11 +3540,14 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
 
    MqlTick tick;
    ZeroMemory(tick);
-   if(!CommonLegacyPilotPrecheck(symbol, PilotRsiTimeframe, MathMax(30, PilotRsiPeriod + 5), tick, reason, evalCode))
+   int effectiveRsiPeriod = PilotRsiPeriod;
+   double effectiveRsiOversold = AutonomousPatchEffectiveRsiBuyBand((double)PilotRsiOversold);
+   double effectiveCrossbackThreshold = AutonomousPatchEffectiveRsiCrossbackThreshold(MathMax(0.0, PilotRsiCrossbackThreshold));
+   if(!CommonLegacyPilotPrecheck(symbol, PilotRsiTimeframe, MathMax(30, effectiveRsiPeriod + 5), tick, reason, evalCode))
       return false;
 
-   double rsi1 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 1);
-   double rsi2 = RSIValue(symbol, PilotRsiTimeframe, PilotRsiPeriod, 2);
+   double rsi1 = RSIValue(symbol, PilotRsiTimeframe, effectiveRsiPeriod, 1);
+   double rsi2 = RSIValue(symbol, PilotRsiTimeframe, effectiveRsiPeriod, 2);
    double lowerBand = BandsValue(symbol, PilotRsiTimeframe, 20, 2.0, 2, 1);
    double upperBand = BandsValue(symbol, PilotRsiTimeframe, 20, 2.0, 1, 1);
    double close1 = iClose(symbol, PilotRsiTimeframe, 1);
@@ -3538,10 +3559,10 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
       return false;
    }
 
-   double crossbackThreshold = MathMax(0.0, PilotRsiCrossbackThreshold);
-   bool exactBuyReversal = (rsi2 < PilotRsiOversold && rsi1 > PilotRsiOversold + crossbackThreshold);
+   double crossbackThreshold = MathMax(0.0, effectiveCrossbackThreshold);
+   bool exactBuyReversal = (rsi2 < effectiveRsiOversold && rsi1 > effectiveRsiOversold + crossbackThreshold);
    bool exactSellReversal = (rsi2 > PilotRsiOverbought && rsi1 < PilotRsiOverbought - crossbackThreshold);
-   bool buyReversal = (rsi1 <= PilotRsiOversold || exactBuyReversal);
+   bool buyReversal = (rsi1 <= effectiveRsiOversold || exactBuyReversal);
    bool sellReversal = (rsi1 >= PilotRsiOverbought || exactSellReversal);
    double tolerance = MathMax(0.0, PilotRsiBandTolerancePct);
    bool buyBand = (close1 <= lowerBand * (1.0 + tolerance));
@@ -3579,6 +3600,9 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
       tpPrice = NormalizeDouble(tick.ask + stopDistance * PilotRewardRatio, digits);
       trigger = "RSI2 H1 oversold/crossback with lower Bollinger touch";
       reason = "USDJPY RSI_Reversal H1 buy setup ported from MT4";
+      if(g_autonomousPatchRuntimeActive)
+         reason += " | Agent patch active: rsiBuyBand=" + FormatNumber(effectiveRsiOversold, 1) +
+                   " crossback=" + FormatNumber(crossbackThreshold, 2);
       evalCode = PILOT_EVAL_SIGNAL_BUY;
       return true;
    }
@@ -3597,7 +3621,11 @@ bool EvaluatePilotRsiH1Signal(string symbol, int &direction, double &score, stri
    if(buyScore >= sellScore)
    {
       score = buyScore;
-      reason = "RSI H1 BUY bias " + FormatNumber(buyScore, 0) + "/100 | reversal=" + BoolLabel(buyReversal) + " band=" + BoolLabel(buyBand);
+      reason = "RSI H1 BUY bias " + FormatNumber(buyScore, 0) + "/100 | reversal=" + BoolLabel(buyReversal) +
+               " band=" + BoolLabel(buyBand);
+      if(g_autonomousPatchRuntimeActive)
+         reason += " | agentPatch rsiBuyBand=" + FormatNumber(effectiveRsiOversold, 1) +
+                   " crossback=" + FormatNumber(crossbackThreshold, 2);
    }
    else
    {
@@ -4149,7 +4177,10 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
       return false;
    }
 
-   double volume = NormalizeVolumeForSymbol(symbol, PilotLotSize);
+   double requestedVolume = PilotLotSize;
+   if(strategyKey == "RSI_Reversal" && direction > 0)
+      requestedVolume = AutonomousPatchEffectiveStageLotCap(requestedVolume);
+   double volume = NormalizeVolumeForSymbol(symbol, requestedVolume);
    g_trade.SetExpertMagicNumber(PilotMagic);
    g_trade.SetDeviationInPoints(PilotDeviationPoints);
    g_trade.SetTypeFillingBySymbol(symbol);
@@ -4605,6 +4636,7 @@ void ManagePilotBreakevenStops()
       double trailingStartPips = isRsiPosition ? MathMax(0.0, PilotRsiTrailingStartPips) : MathMax(0.0, PilotTrailingStartPips);
       double trailingDistancePips = isRsiPosition ? MathMax(0.0, PilotRsiTrailingDistancePips) : MathMax(0.0, PilotTrailingDistancePips);
       double trailingStepPips = isRsiPosition ? MathMax(0.1, PilotRsiTrailingStepPips) : MathMax(0.1, PilotTrailingStepPips);
+      double patchRiskPips = AutonomousPatchRiskPipsForPosition(symbol, positionType, openPrice, currentSL);
       double favorablePips = 0.0;
       double targetSL = 0.0;
       bool shouldModify = false;
@@ -4617,6 +4649,15 @@ void ManagePilotBreakevenStops()
       if(positionType == POSITION_TYPE_BUY)
       {
          favorablePips = (tick.bid - openPrice) / pip;
+         if(isRsiPosition && g_autonomousPatchRuntimeActive && patchRiskPips > 0.0)
+         {
+            if(g_autonomousPatchBreakevenDelayR > 0.0)
+               breakevenTriggerPips = patchRiskPips * g_autonomousPatchBreakevenDelayR;
+            if(g_autonomousPatchTrailStartR > 0.0)
+               trailingStartPips = patchRiskPips * g_autonomousPatchTrailStartR;
+            if(g_autonomousPatchMfeGivebackPct > 0.0 && favorablePips > 0.0)
+               trailingDistancePips = MathMax(trailingStepPips, favorablePips * g_autonomousPatchMfeGivebackPct);
+         }
          if(breakevenOn && favorablePips >= breakevenTriggerPips)
             targetSL = NormalizeDouble(openPrice + lockPips * pip, digits);
          if(trailingOn && favorablePips >= trailingStartPips)
@@ -4637,6 +4678,15 @@ void ManagePilotBreakevenStops()
       else if(positionType == POSITION_TYPE_SELL)
       {
          favorablePips = (openPrice - tick.ask) / pip;
+         if(isRsiPosition && g_autonomousPatchRuntimeActive && patchRiskPips > 0.0)
+         {
+            if(g_autonomousPatchBreakevenDelayR > 0.0)
+               breakevenTriggerPips = patchRiskPips * g_autonomousPatchBreakevenDelayR;
+            if(g_autonomousPatchTrailStartR > 0.0)
+               trailingStartPips = patchRiskPips * g_autonomousPatchTrailStartR;
+            if(g_autonomousPatchMfeGivebackPct > 0.0 && favorablePips > 0.0)
+               trailingDistancePips = MathMax(trailingStepPips, favorablePips * g_autonomousPatchMfeGivebackPct);
+         }
          if(breakevenOn && favorablePips >= breakevenTriggerPips)
             targetSL = NormalizeDouble(openPrice - lockPips * pip, digits);
          if(trailingOn && favorablePips >= trailingStartPips)
@@ -5535,6 +5585,198 @@ int StrategyJsonContractInt(string content, string key, int fallback = 0)
    if(StringLen(value) <= 0)
       return fallback;
    return (int)StringToInteger(value);
+}
+
+void AutonomousPatchAddRejectedField(string field, string &items)
+{
+   if(StringLen(items) > 0)
+      items += ",";
+   items += "\"" + JsonEscape(field) + "\"";
+}
+
+bool AutonomousPatchStageMayAffectLiveRuntime(string stage)
+{
+   return (stage == "MICRO_LIVE" || stage == "LIVE_LIMITED");
+}
+
+double AutonomousPatchClampDouble(double value, double minValue, double maxValue, double fallback)
+{
+   if(!MathIsValidNumber(value) || value <= 0.0)
+      return fallback;
+   return MathMax(minValue, MathMin(maxValue, value));
+}
+
+string RefreshAutonomousConfigPatchRuntimeAdapter()
+{
+   g_autonomousPatchLoaded = false;
+   g_autonomousPatchRuntimeActive = false;
+   g_autonomousPatchStatus = "WAITING_PATCH";
+   g_autonomousPatchReasonZh = "等待 Agent 生成 Autonomous Config Patch。";
+   g_autonomousPatchAppliedPatchId = "";
+   g_autonomousPatchExecutionStage = "";
+   g_autonomousPatchRejectedItems = "";
+   g_autonomousPatchRsiBuyBand = 0.0;
+   g_autonomousPatchRsiCrossbackThreshold = 0.0;
+   g_autonomousPatchBreakevenDelayR = 0.0;
+   g_autonomousPatchTrailStartR = 0.0;
+   g_autonomousPatchMfeGivebackPct = 0.0;
+   g_autonomousPatchStageMaxLot = 0.0;
+   g_autonomousPatchMaxLot = 0.0;
+
+   if(!EnableAutonomousConfigPatchRuntimeAdapter)
+   {
+      g_autonomousPatchStatus = "DISABLED";
+      g_autonomousPatchReasonZh = "EA Autonomous Config Patch runtime adapter 已关闭。";
+   }
+   else
+   {
+      string content = StrategyJsonContractReadAll(AutonomousConfigPatchRuntimeFile);
+      if(StringLen(content) > 0)
+      {
+         g_autonomousPatchLoaded = true;
+         string schema = StrategyJsonContractValue(content, "schema", "");
+         string symbol = StrategyJsonContractValue(content, "symbol", "");
+         string strategy = StrategyJsonContractValue(content, "strategy", "");
+         string direction = StrategyJsonContractValue(content, "direction", "");
+         string stage = StrategyJsonContractValue(content, "executionStage", StrategyJsonContractValue(content, "stage", ""));
+         bool patchWritable = StrategyJsonContractBool(content, "patchWritable", false);
+         bool autoAppliedByAgent = StrategyJsonContractBool(content, "autoAppliedByAgent", false);
+         bool requiresGovernance = StrategyJsonContractBool(content, "requiresAutonomousGovernance", false);
+         bool liveMutationAllowed = StrategyJsonContractBool(content, "liveMutationAllowed", false);
+         bool orderSendAllowed = StrategyJsonContractBool(content, "orderSendAllowed", false);
+         bool presetMutationAllowed = StrategyJsonContractBool(content, "livePresetMutationAllowed", false);
+         bool newsBypassAllowed = StrategyJsonContractBool(content, "newsHardBypassAllowed", false);
+         bool runtimeBypassAllowed = StrategyJsonContractBool(content, "runtimeFreshnessBypassAllowed", false);
+         bool fastlaneBypassAllowed = StrategyJsonContractBool(content, "fastlaneBypassAllowed", false);
+         double maxLot = StrategyJsonContractDouble(content, "maxLot", 0.0);
+         double stageMaxLot = StrategyJsonContractDouble(content, "stageMaxLot", 0.0);
+         double rsiBuyBand = StrategyJsonContractDouble(content, "rsiBuyBand", 0.0);
+         double rsiCrossbackThreshold = StrategyJsonContractDouble(content, "rsiCrossbackThreshold", 0.0);
+         double breakevenDelayR = StrategyJsonContractDouble(content, "breakevenDelayR", 0.0);
+         double trailStartR = StrategyJsonContractDouble(content, "trailStartR", 0.0);
+         double mfeGivebackPct = StrategyJsonContractDouble(content, "mfeGivebackPct", 0.0);
+
+         g_autonomousPatchAppliedPatchId = StrategyJsonContractValue(content, "patchId", "");
+         g_autonomousPatchExecutionStage = stage;
+
+         if(schema != "quantgod.autonomous_config_patch_ea.v1")
+            AutonomousPatchAddRejectedField("schema", g_autonomousPatchRejectedItems);
+         if(symbol != "USDJPYc")
+            AutonomousPatchAddRejectedField("symbol", g_autonomousPatchRejectedItems);
+         if(strategy != "RSI_Reversal")
+            AutonomousPatchAddRejectedField("strategy", g_autonomousPatchRejectedItems);
+         if(direction != "LONG")
+            AutonomousPatchAddRejectedField("direction", g_autonomousPatchRejectedItems);
+         bool stageMayAffectLive = AutonomousPatchStageMayAffectLiveRuntime(stage);
+         if(stageMayAffectLive && !patchWritable)
+            AutonomousPatchAddRejectedField("patchWritable", g_autonomousPatchRejectedItems);
+         if(stageMayAffectLive && !autoAppliedByAgent)
+            AutonomousPatchAddRejectedField("autoAppliedByAgent", g_autonomousPatchRejectedItems);
+         if(!requiresGovernance)
+            AutonomousPatchAddRejectedField("requiresAutonomousGovernance", g_autonomousPatchRejectedItems);
+         if(liveMutationAllowed || orderSendAllowed || presetMutationAllowed)
+            AutonomousPatchAddRejectedField("execution_permissions", g_autonomousPatchRejectedItems);
+         if(newsBypassAllowed || runtimeBypassAllowed || fastlaneBypassAllowed)
+            AutonomousPatchAddRejectedField("hard_gate_bypass", g_autonomousPatchRejectedItems);
+         if(maxLot <= 0.0 || maxLot > 2.0)
+            AutonomousPatchAddRejectedField("maxLot", g_autonomousPatchRejectedItems);
+         if(stageMaxLot < 0.0 || stageMaxLot > 2.0)
+            AutonomousPatchAddRejectedField("stageMaxLot", g_autonomousPatchRejectedItems);
+         if(rsiBuyBand > 0.0 && (rsiBuyBand < 5.0 || rsiBuyBand > 45.0))
+            AutonomousPatchAddRejectedField("rsiBuyBand", g_autonomousPatchRejectedItems);
+         if(rsiCrossbackThreshold < 0.0 || rsiCrossbackThreshold > 20.0)
+            AutonomousPatchAddRejectedField("rsiCrossbackThreshold", g_autonomousPatchRejectedItems);
+         if(breakevenDelayR > 0.0 && (breakevenDelayR < 0.2 || breakevenDelayR > 3.0))
+            AutonomousPatchAddRejectedField("breakevenDelayR", g_autonomousPatchRejectedItems);
+         if(trailStartR > 0.0 && (trailStartR < 0.3 || trailStartR > 5.0))
+            AutonomousPatchAddRejectedField("trailStartR", g_autonomousPatchRejectedItems);
+         if(mfeGivebackPct > 0.0 && (mfeGivebackPct < 0.10 || mfeGivebackPct > 0.90))
+            AutonomousPatchAddRejectedField("mfeGivebackPct", g_autonomousPatchRejectedItems);
+
+         if(StringLen(g_autonomousPatchRejectedItems) > 0)
+         {
+            g_autonomousPatchStatus = "PATCH_REJECTED";
+            g_autonomousPatchReasonZh = "Agent patch 含有越权或越界字段，EA 已拒绝运行时生效。";
+         }
+         else if(!stageMayAffectLive)
+         {
+            g_autonomousPatchStatus = "PATCH_OBSERVED_ONLY";
+            g_autonomousPatchReasonZh = "Agent patch 已同步，但当前阶段不是 MICRO_LIVE/LIVE_LIMITED；EA 只记录，不改变实盘运行参数。";
+         }
+         else
+         {
+            g_autonomousPatchRuntimeActive = true;
+            g_autonomousPatchStatus = "PATCH_ACTIVE";
+            g_autonomousPatchReasonZh = "Agent patch 已通过白名单校验，EA 将仅对白名单 RSI/出场/阶段仓位上限参数生效。";
+            g_autonomousPatchRsiBuyBand = AutonomousPatchClampDouble(rsiBuyBand, 5.0, 45.0, 0.0);
+            g_autonomousPatchRsiCrossbackThreshold = MathMax(0.0, MathMin(20.0, rsiCrossbackThreshold));
+            g_autonomousPatchBreakevenDelayR = AutonomousPatchClampDouble(breakevenDelayR, 0.2, 3.0, 0.0);
+            g_autonomousPatchTrailStartR = AutonomousPatchClampDouble(trailStartR, 0.3, 5.0, 0.0);
+            g_autonomousPatchMfeGivebackPct = AutonomousPatchClampDouble(mfeGivebackPct, 0.10, 0.90, 0.0);
+            g_autonomousPatchStageMaxLot = MathMax(0.0, MathMin(2.0, stageMaxLot));
+            g_autonomousPatchMaxLot = MathMax(0.0, MathMin(2.0, maxLot));
+         }
+      }
+   }
+
+   string json = "{";
+   json += "\"schema\":\"quantgod.autonomous_config_patch_ea_status.v1\",";
+   json += "\"updatedAt\":\"" + JsonEscape(FormatDateTime(TimeLocal(), true)) + "\",";
+   json += "\"enabled\":" + JsonBool(EnableAutonomousConfigPatchRuntimeAdapter) + ",";
+   json += "\"loaded\":" + JsonBool(g_autonomousPatchLoaded) + ",";
+   json += "\"runtimeActive\":" + JsonBool(g_autonomousPatchRuntimeActive) + ",";
+   json += "\"status\":\"" + JsonEscape(g_autonomousPatchStatus) + "\",";
+   json += "\"reasonZh\":\"" + JsonEscape(g_autonomousPatchReasonZh) + "\",";
+   json += "\"patchFile\":\"" + JsonEscape(AutonomousConfigPatchRuntimeFile) + "\",";
+   json += "\"appliedPatchId\":\"" + JsonEscape(g_autonomousPatchAppliedPatchId) + "\",";
+   json += "\"executionStage\":\"" + JsonEscape(g_autonomousPatchExecutionStage) + "\",";
+   json += "\"rejectedFields\":[" + g_autonomousPatchRejectedItems + "],";
+   json += "\"activeParameters\":{";
+   json += "\"rsiBuyBand\":" + FormatNumber(g_autonomousPatchRsiBuyBand, 4) + ",";
+   json += "\"rsiCrossbackThreshold\":" + FormatNumber(g_autonomousPatchRsiCrossbackThreshold, 4) + ",";
+   json += "\"breakevenDelayR\":" + FormatNumber(g_autonomousPatchBreakevenDelayR, 4) + ",";
+   json += "\"trailStartR\":" + FormatNumber(g_autonomousPatchTrailStartR, 4) + ",";
+   json += "\"mfeGivebackPct\":" + FormatNumber(g_autonomousPatchMfeGivebackPct, 4) + ",";
+   json += "\"stageMaxLot\":" + FormatNumber(g_autonomousPatchStageMaxLot, 2) + ",";
+   json += "\"maxLot\":" + FormatNumber(g_autonomousPatchMaxLot, 2);
+   json += "},";
+   json += "\"safety\":{\"usdJpyOnly\":true,\"rsiLongOnly\":true,\"maxLotCap\":2.0,\"newsHardBypassAllowed\":false,\"runtimeFreshnessBypassAllowed\":false,\"fastlaneBypassAllowed\":false,\"orderSendAllowedByPatch\":false,\"livePresetMutationAllowed\":false}";
+   json += "}";
+   g_autonomousConfigPatchStatusJson = json;
+   return json;
+}
+
+double AutonomousPatchEffectiveRsiBuyBand(double fallback)
+{
+   if(g_autonomousPatchRuntimeActive && g_autonomousPatchRsiBuyBand > 0.0)
+      return g_autonomousPatchRsiBuyBand;
+   return fallback;
+}
+
+double AutonomousPatchEffectiveRsiCrossbackThreshold(double fallback)
+{
+   if(g_autonomousPatchRuntimeActive)
+      return g_autonomousPatchRsiCrossbackThreshold;
+   return fallback;
+}
+
+double AutonomousPatchEffectiveStageLotCap(double fallback)
+{
+   if(g_autonomousPatchRuntimeActive && g_autonomousPatchStageMaxLot > 0.0)
+      return MathMin(fallback, g_autonomousPatchStageMaxLot);
+   return fallback;
+}
+
+double AutonomousPatchRiskPipsForPosition(string symbol, long positionType, double openPrice, double currentSL)
+{
+   double pip = PipSize(symbol);
+   if(pip <= 0.0 || openPrice <= 0.0 || currentSL <= 0.0)
+      return 0.0;
+   if(positionType == POSITION_TYPE_BUY && currentSL < openPrice)
+      return (openPrice - currentSL) / pip;
+   if(positionType == POSITION_TYPE_SELL && currentSL > openPrice)
+      return (currentSL - openPrice) / pip;
+   return 0.0;
 }
 
 bool StrategyJsonContractModeAllowed(string mode)
@@ -8670,6 +8912,7 @@ void ExportDashboard(bool runExecutionLoop)
    string usdJpyRsiEntryDiagnosticsJson = BuildUsdJpyRsiEntryDiagnosticsJson();
    string strategyJsonEAContractStatusJson = BuildStrategyJsonEAContractStatusJson();
    string strategyJsonEAShadowEvaluationJson = BuildStrategyJsonEAShadowEvaluationJson();
+   string autonomousConfigPatchStatusJson = RefreshAutonomousConfigPatchRuntimeAdapter();
 
    string json = "{\r\n";
    json += "  \"timestamp\": \"" + FormatDateTime(TimeLocal(), true) + "\",\r\n";
@@ -8777,6 +9020,7 @@ void ExportDashboard(bool runExecutionLoop)
    json += "  \"usdJpyRsiEntryDiagnostics\": " + usdJpyRsiEntryDiagnosticsJson + ",\r\n";
    json += "  \"strategyJsonEaContract\": " + strategyJsonEAContractStatusJson + ",\r\n";
    json += "  \"strategyJsonEaShadowEvaluation\": " + strategyJsonEAShadowEvaluationJson + ",\r\n";
+   json += "  \"autonomousConfigPatchEaStatus\": " + autonomousConfigPatchStatusJson + ",\r\n";
    json += "  \"market\": {\r\n";
    json += "    \"symbol\": \"" + JsonEscape(g_focusSymbol) + "\",\r\n";
    json += "    \"bid\": " + FormatNumber(focusBid, (int)SymbolInfoInteger(g_focusSymbol, SYMBOL_DIGITS)) + ",\r\n";
@@ -8846,6 +9090,7 @@ void ExportDashboard(bool runExecutionLoop)
    WriteTextFile("QuantGod_USDJPYRsiEntryDiagnostics.json", usdJpyRsiEntryDiagnosticsJson);
    WriteTextFile(StrategyJsonEAContractStatusFileName(), strategyJsonEAContractStatusJson);
    WriteStrategyJsonEAShadowEvaluationFiles(strategyJsonEAShadowEvaluationJson);
+   WriteTextFile("QuantGod_AutonomousConfigPatchEAStatus.json", autonomousConfigPatchStatusJson);
    WriteTextFile("QuantGod_Dashboard.json", json);
    ExportShadowCsvs(snapshots, journal, closedTrades);
    UpdateShadowChartComment(tradeStatus, connected, accountLogin);
@@ -8961,6 +9206,7 @@ void OnDeinit(const int reason)
 void OnTick()
 {
    datetime now = TimeCurrent();
+   RefreshAutonomousConfigPatchRuntimeAdapter();
 
    // Risk-critical protections: every tick
    ManagePilotBreakevenStops();

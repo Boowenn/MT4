@@ -37,7 +37,7 @@ export QG_TELEGRAM_COMMANDS_ALLOWED="${QG_TELEGRAM_COMMANDS_ALLOWED:-0}"
 
 PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
 INTERVAL_SECONDS="${QG_AGENT_V25_INTERVAL_SECONDS:-300}"
-SEND_TELEGRAM="${QG_AGENT_V25_SEND_TELEGRAM:-0}"
+SEND_TELEGRAM="${QG_AGENT_V25_SEND_TELEGRAM:-${QG_TELEGRAM_PUSH_ALLOWED:-0}}"
 
 default_mt5_files_dir() {
   printf '%s\n' "$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Files"
@@ -94,6 +94,10 @@ run_once() {
     once \
     --write || echo "USDJPY live loop failed"
 
+  "$PYTHON_BIN" tools/build_polymarket_retune_planner.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$REPO_ROOT/Dashboard" || echo "Polymarket shadow retune planner failed"
+
   "$PYTHON_BIN" tools/run_daily_autopilot_v2.py \
     --runtime-dir "$RUNTIME_DIR" \
     --repo-root "$REPO_ROOT" \
@@ -108,6 +112,12 @@ run_once() {
       --refresh \
       --write \
       --send || echo "Daily Autopilot v2.5 Telegram push failed"
+
+    "$PYTHON_BIN" tools/run_telegram_gateway.py \
+      --runtime-dir "$RUNTIME_DIR" \
+      dispatch \
+      --send \
+      --limit 8 || echo "Telegram Gateway queued dispatch failed"
   fi
 
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] QuantGod Agent v2.5 cycle complete"

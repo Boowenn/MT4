@@ -718,6 +718,72 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("任何市场模块", iteration["strategyIterationQueue"][1]["recommendation"])
         self.assertFalse(codex["required"])
 
+    def test_daily_iteration_treats_existing_polymarket_retune_plan_as_agent_completed(self):
+        poly = {
+            "dailyReview": {
+                "summary": {
+                    "lossQuarantine": True,
+                    "reviewFreshForDay": False,
+                    "retunePlanReady": True,
+                    "retuneAgentStatus": "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED",
+                    "executedProfitFactor": 0.0145,
+                    "shadowProfitFactor": 0.7055,
+                    "quarantineCount": 45,
+                    "retuneTotal": 6,
+                    "retuneRed": 3,
+                    "retuneYellow": 2,
+                },
+                "topLossSources": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                    "profitFactor": 0.3956,
+                    "winRatePct": 19.35,
+                    "realizedPnl": -58.0649,
+                }],
+                "retuneSources": [{
+                    "experimentKey": "sports_edge_filter_shadow_v1",
+                }],
+                "copyTradingReview": {
+                    "active": True,
+                    "status": "COPY_TRADING_RETUNE_REQUIRED",
+                    "summary": "Agent 已生成跟单重调方案。",
+                    "bestExperimentKey": "copy_archive_all_markets_v1",
+                    "iterationPlan": {
+                        "completedByAgent": True,
+                        "candidateVariants": [{"key": "copy_archive_all_market_whitelist_v2"}],
+                    },
+                },
+                "copyRetuneSources": [{
+                    "experimentKey": "copy_archive_all_markets_v1",
+                    "routeFamily": "copy_archive",
+                }],
+            }
+        }
+        iteration = daily_review.daily_iteration_review(
+            {"date": "2026-05-01", "closedTrades": 2, "netUSC": 3.54},
+            [],
+            poly,
+            {"requiresCodexReview": False},
+            5,
+        )
+        codex = daily_review.codex_review_queue(
+            {"date": "2026-05-01", "closedTrades": 2, "netUSC": 3.54, "requiresReview": False},
+            [],
+            [],
+            {},
+            {},
+            {},
+            {"workerStatus": "OK"},
+            {"requiresCodexReview": False},
+            iteration,
+        )
+
+        self.assertEqual(iteration["status"], "REVIEW_COMPLETE_NO_CODE_CHANGE")
+        self.assertFalse(iteration["codexFollowupRequired"])
+        self.assertEqual(iteration["strategyIterationQueue"][0]["status"], "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED")
+        self.assertEqual(iteration["strategyIterationQueue"][1]["status"], "RETUNE_SPEC_READY_STALE_REFRESH_QUEUED")
+        self.assertTrue(iteration["strategyIterationQueue"][1]["completedByAgent"])
+        self.assertFalse(codex["required"])
+
     def test_completion_report_explains_finished_todos_and_recommendations(self):
         poly = {
             "dailyReview": {

@@ -48,6 +48,18 @@ class USDJPYAutonomousAgentTests(unittest.TestCase):
             self.assertEqual(state["centAccount"]["accountMode"], "cent")
             self.assertTrue((runtime / "agent" / "QuantGod_AutonomousPromotionDecision.json").exists())
             self.assertTrue((runtime / "agent" / "QuantGod_AutonomousConfigPatch.json").exists())
+            ea_patch = runtime / "QuantGod_AutonomousConfigPatch_EA.txt"
+            self.assertTrue(ea_patch.exists())
+            ea_text = ea_patch.read_text(encoding="utf-8")
+            self.assertIn("schema=quantgod.autonomous_config_patch_ea.v1", ea_text)
+            self.assertIn("symbol=USDJPYc", ea_text)
+            self.assertIn("strategy=RSI_Reversal", ea_text)
+            self.assertIn("direction=LONG", ea_text)
+            self.assertIn("liveMutationAllowed=false", ea_text)
+            self.assertIn("livePresetMutationAllowed=false", ea_text)
+            self.assertIn("newsHardBypassAllowed=false", ea_text)
+            self.assertIn("runtimeFreshnessBypassAllowed=false", ea_text)
+            self.assertIn("fastlaneBypassAllowed=false", ea_text)
             self.assertTrue((runtime / "agent" / "QuantGod_AutonomousAgentState.json").exists())
 
     def test_hard_rollback_fails_closed_without_runtime_quality(self) -> None:
