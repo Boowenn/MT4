@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.agent_ops_health import build_agent_ops_health
 from tools.strategy_ga.fitness import score_seed
@@ -68,6 +69,84 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             self.assertEqual(healthy["agentV25Loop"]["supervisorAction"], "NOOP")
             self.assertEqual(healthy["checks"][0]["key"], "agentV25Loop")
             self.assertTrue((runtime_dir / "agent" / "QuantGod_AgentOpsHealth.json").exists())
+
+    def test_agent_ops_health_keeps_polymarket_strategy_warn_out_of_system_health(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            heartbeat_dir = runtime_dir / "agent"
+            heartbeat_dir.mkdir(parents=True)
+            now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            (heartbeat_dir / "QuantGod_AgentV25LoopStatus.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.agent_v25_loop_status.v1",
+                        "generatedAtIso": now,
+                        "lastHeartbeatAtIso": now,
+                        "status": "COMPLETED",
+                        "screenName": "quantgod-agent-v25",
+                        "runtimeDir": str(runtime_dir),
+                        "intervalSeconds": 300,
+                        "sendTelegram": True,
+                        "commandsAllowed": False,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (heartbeat_dir / "QuantGod_AgentV25SupervisorStatus.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.agent_v25_supervisor_status.v1",
+                        "generatedAtIso": now,
+                        "action": "NOOP",
+                        "reasonZh": "Agent v2.5 后台循环在线，心跳新鲜。",
+                        "screenName": "quantgod-agent-v25",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("tools.agent_ops_health._daily_autopilot_health") as daily, patch(
+                "tools.agent_ops_health._telegram_health"
+            ) as telegram, patch("tools.agent_ops_health._polymarket_health") as polymarket:
+                daily.return_value = {
+                    "status": "PASS",
+                    "statusZh": "自动化健康",
+                    "lastRunAgeSeconds": 1,
+                    "failedStepCount": 0,
+                    "detailZh": "Daily Autopilot 正常。",
+                }
+                telegram.return_value = {
+                    "status": "PASS",
+                    "statusZh": "自动化健康",
+                    "pendingCount": 0,
+                    "pushAllowed": True,
+                    "commandsAllowed": False,
+                    "detailZh": "Telegram Gateway 正常。",
+                }
+                polymarket.return_value = {
+                    "status": "WARN",
+                    "statusZh": "需要观察",
+                    "stage": "QUARANTINED",
+                    "stageZh": "隔离",
+                    "retunePlanReady": True,
+                    "todoCount": 0,
+                    "retuneRed": 3,
+                    "retuneYellow": 2,
+                    "detailZh": "Polymarket 有 3 个红项 / 2 个黄项，仅进入 shadow retune。",
+                    "walletIntegrationAllowed": False,
+                    "polymarketRealMoneyAllowed": False,
+                }
+
+                health = build_agent_ops_health(runtime_dir, repo_root=Path(__file__).resolve().parents[1], write=False)
+
+            self.assertEqual(health["overallStatus"], "PASS")
+            self.assertEqual(health["systemStatus"], "PASS")
+            self.assertEqual(health["strategyStatus"], "WARN")
+            self.assertEqual(health["warnings"], [])
+            self.assertEqual(len(health["strategyWarnings"]), 1)
+            self.assertTrue(health["ok"])
 
     def test_execution_feedback_reads_live_mt5_files_dir_when_runtime_is_repo_local(self):
         old_mt5_files_dir = os.environ.get("QG_MT5_FILES_DIR")

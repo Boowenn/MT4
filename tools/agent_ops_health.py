@@ -80,10 +80,11 @@ def _status_zh(status: str) -> str:
     return mapping.get(str(status).upper(), "需要观察")
 
 
-def _check(key: str, label: str, status: str, detail: str, metric: Any = None) -> Dict[str, Any]:
+def _check(key: str, label: str, status: str, detail: str, metric: Any = None, category: str = "system") -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "key": key,
         "label": label,
+        "category": category,
         "status": status,
         "statusZh": _status_zh(status),
         "detailZh": detail,
@@ -284,29 +285,53 @@ def build_agent_ops_health(runtime_dir: Path, repo_root: Path | None = None, wri
     daily = _daily_autopilot_health(runtime_dir, repo_root)
     polymarket = _polymarket_health(runtime_dir)
     telegram = _telegram_health(runtime_dir)
-    checks = [
+    system_checks = [
         _check("agentV25Loop", "Agent v2.5 后台循环", agent_loop["status"], agent_loop["detailZh"], agent_loop.get("lastHeartbeatAgeSeconds")),
         _check("dailyAutopilot", "Daily Autopilot", daily["status"], daily["detailZh"], daily.get("lastRunAgeSeconds")),
-        _check("polymarketRetune", "Polymarket 跟单重调", polymarket["status"], polymarket["detailZh"], polymarket.get("todoCount")),
         _check("telegramGateway", "Telegram Gateway", telegram["status"], telegram["detailZh"], telegram.get("pendingCount")),
     ]
-    overall = _overall_status(checks)
-    blockers = [check["detailZh"] for check in checks if check.get("status") == "BLOCKED"]
-    warnings = [check["detailZh"] for check in checks if check.get("status") == "WARN"]
+    strategy_checks = [
+        _check(
+            "polymarketRetune",
+            "Polymarket 跟单重调",
+            polymarket["status"],
+            polymarket["detailZh"],
+            polymarket.get("todoCount"),
+            category="strategy",
+        ),
+    ]
+    checks = [*system_checks, *strategy_checks]
+    system_status = _overall_status(system_checks)
+    strategy_status = _overall_status(strategy_checks)
+    blockers = [check["detailZh"] for check in system_checks if check.get("status") == "BLOCKED"]
+    warnings = [check["detailZh"] for check in system_checks if check.get("status") == "WARN"]
+    strategy_blockers = [check["detailZh"] for check in strategy_checks if check.get("status") == "BLOCKED"]
+    strategy_warnings = [check["detailZh"] for check in strategy_checks if check.get("status") == "WARN"]
     payload: Dict[str, Any] = {
         "schema": SCHEMA,
         "agentVersion": AGENT_VERSION,
         "generatedAtIso": utc_now_iso(),
-        "overallStatus": overall,
-        "overallStatusZh": _status_zh(overall),
-        "ok": overall != "BLOCKED",
+        "overallStatus": system_status,
+        "overallStatusZh": _status_zh(system_status),
+        "systemStatus": system_status,
+        "systemStatusZh": _status_zh(system_status),
+        "strategyStatus": strategy_status,
+        "strategyStatusZh": _status_zh(strategy_status),
+        "ok": system_status != "BLOCKED",
+        "strategyOk": strategy_status != "BLOCKED",
         "agentV25Loop": agent_loop,
         "dailyAutopilot": daily,
         "polymarketRetune": polymarket,
         "telegramGateway": telegram,
+        "systemChecks": system_checks,
+        "strategyChecks": strategy_checks,
         "checks": checks,
         "blockers": blockers,
         "warnings": warnings,
+        "strategyBlockers": strategy_blockers,
+        "strategyWarnings": strategy_warnings,
+        "allBlockers": [*blockers, *strategy_blockers],
+        "allWarnings": [*warnings, *strategy_warnings],
         "safety": {
             **SAFETY_BOUNDARY,
             "agentOpsHealthOnly": True,

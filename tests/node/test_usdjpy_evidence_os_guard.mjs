@@ -79,6 +79,10 @@ test('evidence OS remains read-only and feeds GA scoring', () => {
   assert.match(source, /quantgod\.agent_v25_loop_status\.v1/);
   assert.match(source, /quantgod\.agent_v25_supervisor_status\.v1/);
   assert.match(source, /agentV25Loop/);
+  assert.match(source, /systemStatus/);
+  assert.match(source, /strategyStatus/);
+  assert.match(source, /systemChecks/);
+  assert.match(source, /strategyChecks/);
   assert.match(source, /QG_AGENT_V25_STALE_SECONDS/);
   assert.match(source, /QG_AGENT_V25_SUPERVISOR_INTERVAL_SECONDS/);
   assert.match(source, /polymarketRetune/);
