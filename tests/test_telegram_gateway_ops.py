@@ -1,10 +1,19 @@
+"""Tests for Telegram Gateway observability helpers."""
+
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.telegram_gateway_ops.status import build_gateway_ops_status, collect_gateway_ops
+from tools.telegram_gateway_ops.status import (
+    build_gateway_ops_status,
+    collect_gateway_ops,
+)
 from tools.telegram_gateway_ops.telegram_text import gateway_ops_to_chinese_text
-from tools.usdjpy_evidence_os.telegram_gateway import build_notification_event, dispatch_event, enqueue_event
+from tools.usdjpy_evidence_os.telegram_gateway import (
+    build_notification_event,
+    dispatch_event,
+    enqueue_event,
+)
 
 
 class TelegramGatewayOpsTests(unittest.TestCase):
@@ -31,7 +40,11 @@ class TelegramGatewayOpsTests(unittest.TestCase):
     def test_collect_gateway_ops_only_queues_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)
-            status = collect_gateway_ops(runtime_dir, repo_root=Path(__file__).resolve().parents[1], refresh=True)
+            status = collect_gateway_ops(
+                runtime_dir,
+                repo_root=Path(__file__).resolve().parents[1],
+                refresh=True,
+            )
             self.assertTrue(status["ok"])
             self.assertGreaterEqual(status["collectedCount"], 3)
             self.assertGreaterEqual(status["pendingCount"], 3)

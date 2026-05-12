@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Chinese text rendering for Telegram Gateway observability."""
 
 from typing import Any, Dict
 

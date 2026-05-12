@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const repo = process.cwd();
 
+// Keep the Gateway ops surface diff-friendly so GitHub reviews stay readable.
 function read(rel) {
   return fs.readFileSync(path.join(repo, rel), 'utf8');
 }
@@ -31,9 +32,15 @@ test('Telegram Gateway Ops exposes push-only observability routes', () => {
     'telegramCommandExecutionAllowed',
     'gatewayReceivesCommands',
   ]) {
-    assert.match(`${server}\n${routes}\n${runner}`, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(
+      `${server}\n${routes}\n${runner}`,
+      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    );
   }
-  assert.doesNotMatch(routes + runner, /OrderSend|OrderSendAsync|PositionClose|TRADE_ACTION_DEAL|CTrade/);
+  assert.doesNotMatch(
+    routes + runner,
+    /OrderSend|OrderSendAsync|PositionClose|TRADE_ACTION_DEAL|CTrade/,
+  );
   assert.doesNotMatch(routes + runner, /telegramCommandExecutionAllowed["']?\s*:\s*true/);
 });
 

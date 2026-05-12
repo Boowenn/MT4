@@ -1,16 +1,31 @@
 from __future__ import annotations
+"""Status builders for Telegram Gateway queue and ledger observability."""
 
 from pathlib import Path
 from typing import Any, Dict, List
 
 try:
-    from tools.usdjpy_evidence_os.schema import gateway_ledger_path, gateway_queue_path, gateway_status_path
-    from tools.usdjpy_evidence_os.telegram_gateway import collect_scheduled_events, gateway_status
     from tools.usdjpy_evidence_os.io_utils import utc_now_iso
+    from tools.usdjpy_evidence_os.schema import (
+        gateway_ledger_path,
+        gateway_queue_path,
+        gateway_status_path,
+    )
+    from tools.usdjpy_evidence_os.telegram_gateway import (
+        collect_scheduled_events,
+        gateway_status,
+    )
 except ModuleNotFoundError:  # pragma: no cover
-    from usdjpy_evidence_os.schema import gateway_ledger_path, gateway_queue_path, gateway_status_path
-    from usdjpy_evidence_os.telegram_gateway import collect_scheduled_events, gateway_status
     from usdjpy_evidence_os.io_utils import utc_now_iso
+    from usdjpy_evidence_os.schema import (
+        gateway_ledger_path,
+        gateway_queue_path,
+        gateway_status_path,
+    )
+    from usdjpy_evidence_os.telegram_gateway import (
+        collect_scheduled_events,
+        gateway_status,
+    )
 
 from .io_utils import count_by_topic, load_json, read_jsonl_tail
 from .schema import AGENT_VERSION, OPS_TOPICS, SAFETY, SCHEMA_OPS_STATUS
@@ -75,12 +90,20 @@ def build_gateway_ops_status(runtime_dir: Path) -> Dict[str, Any]:
             "queue": str(gateway_queue_path(runtime_dir)),
         },
         "managedTopics": list(OPS_TOPICS),
-        "reasonZh": "Telegram Gateway Ops 只做队列、去重、限频、失败和 topic 状态观测；不接收 Telegram 交易命令。",
+        "reasonZh": (
+            "Telegram Gateway Ops 只做队列、去重、限频、失败和 topic 状态观测；"
+            "不接收 Telegram 交易命令。"
+        ),
         "safety": dict(SAFETY),
     }
 
 
-def collect_gateway_ops(runtime_dir: Path, repo_root: Path | None = None, *, refresh: bool = True) -> Dict[str, Any]:
+def collect_gateway_ops(
+    runtime_dir: Path,
+    repo_root: Path | None = None,
+    *,
+    refresh: bool = True,
+) -> Dict[str, Any]:
     collect_status = collect_scheduled_events(Path(runtime_dir), repo_root=repo_root, refresh=refresh)
     status = build_gateway_ops_status(Path(runtime_dir))
     return {
@@ -99,6 +122,7 @@ def _delivery(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def _delivery_counts_as_processed(row: Dict[str, Any]) -> bool:
     delivery = _delivery(row)
+    # Only successful sends clear a queue item from the pending view.
     return bool(delivery.get("ok"))
 
 

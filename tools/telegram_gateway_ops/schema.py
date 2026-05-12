@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Schema constants for Telegram Gateway observability payloads."""
 
 from typing import Any, Dict, List
 

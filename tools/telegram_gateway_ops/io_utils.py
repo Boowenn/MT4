@@ -1,4 +1,5 @@
 from __future__ import annotations
+"""Small JSON helpers for Telegram Gateway observability."""
 
 import json
 from pathlib import Path
