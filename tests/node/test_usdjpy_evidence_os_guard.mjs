@@ -9,6 +9,13 @@ function read(rel) {
   return fs.readFileSync(path.join(repo, rel), 'utf8');
 }
 
+function listPythonFiles(relDir) {
+  const dir = path.join(repo, relDir);
+  return fs.readdirSync(dir)
+    .filter((name) => name.endsWith('.py'))
+    .map((name) => path.join(relDir, name));
+}
+
 test('USDJPY evidence OS API endpoints are exposed under USDJPY namespace', () => {
   const routes = read('Dashboard/usdjpy_strategy_lab_api_routes.js');
   for (const endpoint of [
@@ -25,6 +32,29 @@ test('USDJPY evidence OS API endpoints are exposed under USDJPY namespace', () =
     '/api/usdjpy-strategy-lab/agent-ops-health/status',
   ]) {
     assert.match(routes, new RegExp(endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('P4-2 parity and execution feedback sources stay readable', () => {
+  const files = [
+    ...listPythonFiles('tools/strategy_parity'),
+    ...listPythonFiles('tools/live_execution_feedback'),
+    'tools/run_strategy_parity.py',
+    'tools/run_live_execution_feedback.py',
+    'tools/usdjpy_evidence_os/parity.py',
+    'tools/usdjpy_evidence_os/execution_feedback.py',
+    'tools/daily_autopilot_v2/orchestrator.py',
+  ];
+  for (const file of files) {
+    const source = read(file);
+    const lines = source.split(/\r?\n/);
+    assert.ok(lines.length >= 5, `${file} should not be compressed to one line`);
+    lines.forEach((line, index) => {
+      assert.ok(line.length <= 160, `${file}:${index + 1} should not exceed 160 characters`);
+    });
+    assert.doesNotMatch(source, /^\s*from .* import .*def /m, `${file} looks compressed`);
+    assert.doesNotMatch(source, /^\s*import .*def /m, `${file} looks compressed`);
+    assert.doesNotMatch(source, /;\s*(def|class)\s+/m, `${file} contains compressed definitions`);
   }
 });
 

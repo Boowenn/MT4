@@ -404,11 +404,23 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
         mismatches.append("strategyFamily")
     if _normalize_direction(vector.get("direction")) != diag_direction:
         mismatches.append("direction")
-    if _present(vector_rsi.get("period")) and _present(diag_rsi.get("period")) and int(float(vector_rsi.get("period"))) != int(float(diag_rsi.get("period"))):
+    if (
+        _present(vector_rsi.get("period"))
+        and _present(diag_rsi.get("period"))
+        and int(float(vector_rsi.get("period"))) != int(float(diag_rsi.get("period")))
+    ):
         mismatches.append("rsi.period")
-    if _present(vector_rsi.get("timeframe")) and _present(diag_route.get("timeframe")) and str(vector_rsi.get("timeframe")).upper() != str(diag_route.get("timeframe")).upper():
+    if (
+        _present(vector_rsi.get("timeframe"))
+        and _present(diag_route.get("timeframe"))
+        and str(vector_rsi.get("timeframe")).upper() != str(diag_route.get("timeframe")).upper()
+    ):
         mismatches.append("rsi.timeframe")
-    if _present(vector_rsi.get("buyBand")) and _present(diag_rsi.get("oversold")) and abs(float(vector_rsi.get("buyBand")) - float(diag_rsi.get("oversold"))) > 5.0:
+    if (
+        _present(vector_rsi.get("buyBand"))
+        and _present(diag_rsi.get("oversold"))
+        and abs(float(vector_rsi.get("buyBand")) - float(diag_rsi.get("oversold"))) > 5.0
+    ):
         mismatches.append("rsi.buyBand/oversold")
     if _normalize_direction(diag_rsi.get("signalDirection")) not in {"", "NONE", _normalize_direction(vector.get("direction"))}:
         mismatches.append("signalDirection")
