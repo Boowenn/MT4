@@ -6,6 +6,7 @@ from statistics import mean, median
 from typing import Any
 
 from .io_utils import read_json, read_jsonl
+from .source_attribution import build_source_attribution, classify_source_tier
 
 REQUIRED_FIELDS = [
     "strategyId",
@@ -138,6 +139,7 @@ def audit_execution_feedback(runtime_dir: Path) -> dict[str, Any]:
     modes = Counter(_row_mode(row) for row in rows)
     events = Counter(_event_type(row) for row in rows)
     strategies = Counter(_strategy_id(row) for row in rows)
+    source_attribution = build_source_attribution(rows)
 
     by_strategy: dict[str, dict[str, Any]] = {}
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -152,6 +154,7 @@ def audit_execution_feedback(runtime_dir: Path) -> dict[str, Any]:
             "coreCoverage": strategy_core_coverage,
             "eventTypeCounts": dict(Counter(_event_type(row) for row in strategy_rows)),
             "modeCounts": dict(Counter(_row_mode(row) for row in strategy_rows)),
+            "sourceTierCounts": dict(Counter(classify_source_tier(row) for row in strategy_rows)),
         }
 
     status, coverage_grade, evidence_usability = _coverage_status(
@@ -178,6 +181,8 @@ def audit_execution_feedback(runtime_dir: Path) -> dict[str, Any]:
     top_missing = [field for field, count in missing_field_counts.items() if count > 0]
     if top_missing:
         recommendations.append("补齐缺失字段：" + ", ".join(top_missing[:5]))
+    if source_attribution.get("liveRealFillCount", 0) <= 0:
+        recommendations.append("执行反馈需要继续区分 live_real_fill 与 shadow/backfilled 样本")
     if not recommendations:
         recommendations.append("执行反馈覆盖率可用于生产观察")
 
@@ -200,6 +205,7 @@ def audit_execution_feedback(runtime_dir: Path) -> dict[str, Any]:
         "modeCounts": dict(modes),
         "eventTypeCounts": dict(events),
         "strategyCounts": dict(strategies),
+        "sourceAttribution": source_attribution,
         "strategyCoverage": by_strategy,
         "numericSummary": _numeric_summary(rows),
         "qualityReportStatus": report.get("status") or report.get("summary", {}).get("status"),

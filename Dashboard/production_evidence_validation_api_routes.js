@@ -67,6 +67,21 @@ async function handle(req, res, context) {
     sendJson(res, 200, payload);
     return;
   }
+  if (
+    req.method === 'GET' &&
+    (pathname === '/api/production-evidence-validation/burn-in' ||
+      pathname === '/api/production-evidence-validation/burn-in/status')
+  ) {
+    const refresh = requestUrl.includes('refresh=1') || requestUrl.includes('refresh=true');
+    const payload = await runPython(context.repoRoot, context.defaultRuntimeDir, 'burn-in', refresh ? ['--refresh'] : []);
+    sendJson(res, 200, payload);
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/production-evidence-validation/burn-in/run') {
+    const payload = await runPython(context.repoRoot, context.defaultRuntimeDir, 'burn-in', ['--write']);
+    sendJson(res, 200, payload);
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/production-evidence-validation/telegram-text') {
     const refresh = requestUrl.includes('refresh=1') || requestUrl.includes('refresh=true');
     const payload = await runPython(context.repoRoot, context.defaultRuntimeDir, 'telegram-text', refresh ? ['--refresh', '--write'] : []);

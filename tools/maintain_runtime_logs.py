@@ -126,15 +126,11 @@ def _read_jsonl_tail_bytes(path: Path, *, max_bytes: int, keep_lines: int) -> by
     if max_bytes <= 0 or keep_lines <= 0:
         return b""
     lines: deque[bytes] = deque()
-    total = 0
     with path.open("rb") as handle:
         for line in handle:
             lines.append(line)
-            total += len(line)
             while lines and len(lines) > keep_lines:
-                total -= len(lines.popleft())
-            while len(lines) > 1 and total > max_bytes:
-                total -= len(lines.popleft())
+                lines.popleft()
     return b"".join(lines)
 
 

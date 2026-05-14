@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gzip
+import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -31,7 +33,7 @@ def build_report(runtime_dir: Path, *, write: bool = True) -> dict[str, Any]:
     status = read_json(ga_dir / "QuantGod_GAStatus.json", {}) or {}
     latest_generation = read_json(ga_dir / "QuantGod_GAGenerationLatest.json", {}) or {}
     generation_ledger = read_jsonl(ga_dir / "QuantGod_GAGenerationLedger.jsonl", limit=5000)
-    candidate_runs = read_jsonl(ga_dir / "QuantGod_GACandidateRuns.jsonl", limit=20000)
+    candidate_runs = _candidate_runs(runtime_dir, ga_dir)
     elite_json = read_json(ga_dir / "QuantGod_GAEliteStrategies.json", {}) or {}
     lineage_json = read_json(ga_dir / "QuantGod_GALineage.json", {}) or {}
     blocker_json = read_json(ga_dir / "QuantGod_GABlockerSummary.json", {}) or {}
@@ -110,6 +112,42 @@ def build_report(runtime_dir: Path, *, write: bool = True) -> dict[str, Any]:
         write_json(report_path(runtime_dir), report)
         _append_ledger(runtime_dir, report)
     return report
+
+
+def _candidate_runs(runtime_dir: Path, ga_dir: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    rows.extend(_archived_candidate_runs(runtime_dir))
+    rows.extend(read_jsonl(ga_dir / "QuantGod_GACandidateRuns.jsonl", limit=20000))
+    deduped: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(rows):
+        key = "|".join(
+            str(row.get(name) or "")
+            for name in ("generation", "seedId", "candidateId", "strategyId", "fitness", "status")
+        )
+        if not key.replace("|", ""):
+            key = f"row-{index}"
+        deduped[key] = row
+    return list(deduped.values())
+
+
+def _archived_candidate_runs(runtime_dir: Path) -> list[dict[str, Any]]:
+    archive_dir = Path(runtime_dir) / "jsonl_archive"
+    rows: list[dict[str, Any]] = []
+    for path in sorted(archive_dir.glob("ga__QuantGod_GACandidateRuns.*.jsonl.gz")):
+        try:
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(payload, dict):
+                        rows.append(payload)
+        except Exception:
+            continue
+    return rows
 
 
 def read_report(runtime_dir: Path) -> dict[str, Any]:

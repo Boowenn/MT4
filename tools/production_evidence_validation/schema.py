@@ -7,6 +7,8 @@ LATEST_REPORT = "QuantGod_ProductionEvidenceValidationReport.json"
 STRATEGY_FAMILY_PARITY = "QuantGod_StrategyFamilyParityMatrix.json"
 EXECUTION_FEEDBACK_COVERAGE = "QuantGod_LiveExecutionFeedbackCoverage.json"
 GA_STABILITY_REPORT = "QuantGod_GAMultiGenerationStabilityReport.json"
+PRODUCTION_BURN_IN_REPORT = "QuantGod_ProductionBurnInReport.json"
+PRODUCTION_BURN_IN_LEDGER = "QuantGod_ProductionBurnInLedger.csv"
 
 REQUIRED_STRATEGY_FAMILIES = [
     "RSI_Reversal",

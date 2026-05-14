@@ -95,6 +95,7 @@ def _event_from_shadow(row: dict[str, Any], source: str) -> dict[str, Any] | Non
         "maeR": mae_r,
         "source": source,
         "sourceKind": "shadow_outcome",
+        "sourceTier": "strategy_shadow",
     }
     event["feedbackId"] = _fingerprint(event)
     return event if _complete(event) else None
@@ -134,6 +135,7 @@ def _event_from_close_history(row: dict[str, Any], source: str) -> dict[str, Any
         "exitReason": _text(row, "exitReason", "reason", default="UNKNOWN"),
         "source": source,
         "sourceKind": "close_history",
+        "sourceTier": "mt5_close_history",
     }
     event["feedbackId"] = _fingerprint(event)
     return event if _complete(event) else None
@@ -239,6 +241,7 @@ def _event_from_feedback(row: dict[str, Any], source: str) -> dict[str, Any] | N
         "exitReason": _text(row, "exitReason", default=""),
         "source": source,
         "sourceKind": "existing_feedback",
+        "sourceTier": _text(row, "sourceTier", "sourceAttribution", default="backfilled_history"),
     }
     event["feedbackId"] = _text(row, "feedbackId", default="") or _fingerprint(event)
     return event if _complete(event) else None
