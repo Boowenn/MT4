@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const files = [
+  'tools/run_mac_agent_v25_maintenance.py',
   'tools/run_production_evidence_validation.py',
   'tools/production_evidence_validation/schema.py',
   'tools/production_evidence_validation/io_utils.py',
@@ -30,10 +31,15 @@ test('P4-6 sources are readable and not compressed into one line', () => {
 });
 
 test('P4-9 exposes burn-in and source attribution markers', () => {
+  const maintenance = readFileSync('tools/run_mac_agent_v25_maintenance.py', 'utf8');
   const route = readFileSync('Dashboard/production_evidence_validation_api_routes.js', 'utf8');
   const burnIn = readFileSync('tools/production_evidence_validation/burn_in.py', 'utf8');
   const attribution = readFileSync('tools/production_evidence_validation/source_attribution.py', 'utf8');
   assert.ok(route.includes('/api/production-evidence-validation/burn-in'), 'missing burn-in API route');
+  assert.ok(maintenance.includes('build_agent_ops_health'), 'missing AgentOpsHealth refresh');
+  assert.ok(maintenance.includes('build_burn_in_report'), 'missing burn-in maintenance runner');
+  assert.ok(maintenance.includes('QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS'), 'missing burn-in throttle');
+  assert.ok(readFileSync('tools/run_mac_agent_v25_loop.sh', 'utf8').includes('--force-burn-in'));
   assert.ok(burnIn.includes('PRODUCTION_BURN_IN_REPORT'), 'missing burn-in report');
   assert.ok(burnIn.includes('PRODUCTION_BURN_IN_LEDGER'), 'missing burn-in ledger');
   for (const tier of ['live_real_fill', 'mt5_close_history', 'ea_shadow', 'strategy_shadow', 'backfilled_history']) {

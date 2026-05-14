@@ -123,6 +123,9 @@ test('evidence OS remains read-only and feeds GA scoring', () => {
   assert.match(source, /strategyChecks/);
   assert.match(source, /QG_AGENT_V25_STALE_SECONDS/);
   assert.match(source, /QG_AGENT_V25_SUPERVISOR_INTERVAL_SECONDS/);
+  assert.match(source, /run_mac_agent_v25_maintenance\.py/);
+  assert.match(source, /QG_AGENT_OPS_HEALTH_ENABLED/);
+  assert.match(source, /QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS/);
   assert.match(source, /polymarketRetune/);
   assert.match(source, /telegramGateway/);
   assert.match(source, /dailyAutopilot/);
@@ -148,6 +151,7 @@ test('Mac Agent loop sends scheduled reports through the Telegram Gateway collec
   assert.match(source, /write_loop_status/);
   assert.match(source, /QuantGod_AgentV25LoopStatus\.json/);
   assert.match(source, /QuantGod_AgentV25SupervisorStatus\.json/);
+  assert.match(source, /run_mac_agent_v25_maintenance\.py/);
   assert.match(source, /quantgod-agent-v25-supervisor/);
   assert.match(source, /ensure_mac_agent_v25_loop\.sh --loop/);
   assert.match(source, /matching_screen_sessions/);

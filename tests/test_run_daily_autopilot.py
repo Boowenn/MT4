@@ -281,12 +281,17 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("QG_AGENT_V25_INTERVAL_SECONDS", agent_loop)
         self.assertIn("QG_TELEGRAM_COMMANDS_ALLOWED", agent_loop)
         self.assertIn("QuantGod_AgentV25LoopStatus.json", agent_loop)
+        self.assertIn("run_mac_agent_v25_maintenance.py", agent_loop)
+        self.assertIn("QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS", agent_loop)
+        self.assertIn("--force-burn-in", agent_loop)
 
         supervisor = (repo_root / "tools" / "ensure_mac_agent_v25_loop.sh").read_text(encoding="utf-8")
         self.assertIn("QuantGod_AgentV25LoopStatus.json", supervisor)
         self.assertIn("QuantGod_AgentV25SupervisorStatus.json", supervisor)
         self.assertIn("QG_AGENT_V25_STALE_SECONDS", supervisor)
         self.assertIn("run_mac_agent_v25_loop.sh --loop", supervisor)
+        self.assertIn("run_mac_agent_v25_maintenance.py", supervisor)
+        self.assertIn("QG_AGENT_OPS_HEALTH_ENABLED", supervisor)
 
         launcher = (repo_root / "Start_QuantGod_mac.sh").read_text(encoding="utf-8")
         self.assertIn("quantgod-agent-v25-supervisor", launcher)

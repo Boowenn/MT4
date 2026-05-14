@@ -34,6 +34,12 @@ export QG_ACCOUNT_MODE="${QG_ACCOUNT_MODE:-cent}"
 export QG_ACCOUNT_CURRENCY_UNIT="${QG_ACCOUNT_CURRENCY_UNIT:-USC}"
 export QG_CENT_ACCOUNT_ACCELERATION="${QG_CENT_ACCOUNT_ACCELERATION:-1}"
 export QG_TELEGRAM_COMMANDS_ALLOWED="${QG_TELEGRAM_COMMANDS_ALLOWED:-0}"
+export QG_AGENT_OPS_HEALTH_ENABLED="${QG_AGENT_OPS_HEALTH_ENABLED:-1}"
+export QG_PRODUCTION_BURN_IN_ENABLED="${QG_PRODUCTION_BURN_IN_ENABLED:-1}"
+export QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS="${QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS:-300}"
+export QG_PRODUCTION_BURN_IN_SAMPLE_INTERVAL_MINUTES="${QG_PRODUCTION_BURN_IN_SAMPLE_INTERVAL_MINUTES:-5}"
+export QG_PRODUCTION_BURN_IN_WINDOW_HOURS="${QG_PRODUCTION_BURN_IN_WINDOW_HOURS:-72}"
+export QG_PRODUCTION_BURN_IN_MAX_STALE_MINUTES="${QG_PRODUCTION_BURN_IN_MAX_STALE_MINUTES:-15}"
 
 PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
 INTERVAL_SECONDS="${QG_AGENT_V25_INTERVAL_SECONDS:-300}"
@@ -111,6 +117,17 @@ target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", enco
 PY
 }
 
+run_maintenance() {
+  "$PYTHON_BIN" tools/run_mac_agent_v25_maintenance.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --repo-root "$REPO_ROOT" \
+    --burn-in-window-hours "$QG_PRODUCTION_BURN_IN_WINDOW_HOURS" \
+    --burn-in-sample-interval-minutes "$QG_PRODUCTION_BURN_IN_SAMPLE_INTERVAL_MINUTES" \
+    --burn-in-max-stale-minutes "$QG_PRODUCTION_BURN_IN_MAX_STALE_MINUTES" \
+    --burn-in-min-interval-seconds "$QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS" \
+    --force-burn-in || echo "Agent v2.5 maintenance failed"
+}
+
 MODE="--loop"
 if [[ "${1:-}" == "--once" ]]; then
   MODE="--once"
@@ -173,6 +190,7 @@ run_once() {
 
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] QuantGod Agent v2.5 cycle complete"
   write_loop_status "COMPLETED" "Agent v2.5 后台循环已完成一轮，等待下一次调度。"
+  run_maintenance
 }
 
 if [[ "$MODE" == "--once" ]]; then

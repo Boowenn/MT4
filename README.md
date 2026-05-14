@@ -103,6 +103,7 @@ Each cycle refreshes:
 3. USDJPY live-loop recovery status.
 4. Agent v2.5 daily todo and daily review.
 5. Optional Telegram push-only summary.
+6. AgentOpsHealth and P4-9 production burn-in evidence ledger.
 
 ## Local API
 
