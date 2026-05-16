@@ -27,7 +27,7 @@ from tools.usdjpy_strategy_backtest.schema import (
     report_path,
     trades_path,
 )
-from tools.usdjpy_strategy_backtest.sqlite_store import connect, count_bars, load_bars
+from tools.usdjpy_strategy_backtest.sqlite_store import Bar, connect, count_bars, load_bars, upsert_bars
 from tools.usdjpy_strategy_backtest.walk_forward import build_seed_walk_forward
 
 
@@ -288,6 +288,39 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertIn("walkForwardPenalty", score)
             self.assertIn("walkForwardStabilityBonus", score)
 
+    def test_seed_walk_forward_uses_family_timeframe_for_tokyo_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            build_sample(runtime_dir, overwrite=True)
+            start = datetime(2026, 4, 28, 0, 0, tzinfo=timezone.utc)
+            bars = []
+            price = 156.2
+            for index in range(360):
+                direction = -1 if index % 32 < 16 else 1
+                close = price + direction * 0.01
+                timestamp = (start + timedelta(minutes=15 * index)).isoformat().replace("+00:00", "Z")
+                bars.append(
+                    Bar(
+                        timestamp=timestamp,
+                        open=round(price, 5),
+                        high=round(max(price, close) + 0.03, 5),
+                        low=round(min(price, close) - 0.03, 5),
+                        close=round(close, 5),
+                        volume=1000 + index,
+                        spread=12,
+                    )
+                )
+                price = close
+            with connect(runtime_dir) as conn:
+                upsert_bars(conn, "M15", bars)
+            seed = base_strategy_seed("WF-TOKYO", family="USDJPY_TOKYO_RANGE_BREAKOUT", direction="SHORT")
+
+            report = build_seed_walk_forward(runtime_dir, seed, write=False)
+
+            self.assertEqual(report["primaryTimeframe"], "M15")
+            self.assertEqual(report["summary"]["primaryTimeframe"], "M15")
+            self.assertTrue(all(item["primaryTimeframe"] == "M15" for item in report["segments"]))
+
     def test_ga_expands_search_space_when_no_elite_survives(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)
@@ -331,6 +364,7 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             TIMEFRAME_M5 = "M5"
             TIMEFRAME_M15 = "M15"
             TIMEFRAME_H1 = "H1"
+            TIMEFRAME_H4 = "H4"
 
             def __init__(self):
                 super().__init__()
@@ -352,7 +386,7 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
 
             def copy_rates_range(self, symbol, timeframe, from_dt, to_dt):
                 self.calls.append((symbol, timeframe, from_dt, to_dt))
-                step = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}[timeframe]
+                step = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600, "H4": 14400}[timeframe]
                 rows = []
                 cursor = from_dt.astimezone(timezone.utc)
                 for index in range(12):
@@ -377,15 +411,15 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 runtime_dir = Path(tmp)
-                report = sync_historical_klines(runtime_dir, lookback_days=3, timeframes=("M1", "M5", "M15", "H1"))
+                report = sync_historical_klines(runtime_dir, lookback_days=3, timeframes=("M1", "M5", "M15", "H1", "H4"))
                 self.assertTrue(report["ok"], report)
                 self.assertEqual(report["source"], "MT5_COPY_RATES_RANGE")
                 self.assertEqual(report["sourceSymbol"], "USDJPYc")
                 self.assertTrue(history_sync_report_path(runtime_dir).exists())
-                self.assertGreaterEqual(len(fake.calls), 4)
-                self.assertEqual({call[1] for call in fake.calls}, {"M1", "M5", "M15", "H1"})
+                self.assertGreaterEqual(len(fake.calls), 5)
+                self.assertEqual({call[1] for call in fake.calls}, {"M1", "M5", "M15", "H1", "H4"})
                 with connect(runtime_dir) as conn:
-                    for timeframe in ("M1", "M5", "M15", "H1"):
+                    for timeframe in ("M1", "M5", "M15", "H1", "H4"):
                         self.assertGreater(count_bars(conn, timeframe), 0)
                 current = status(runtime_dir)
                 self.assertEqual(current["historySyncReport"]["schema"], "quantgod.usdjpy_historical_kline_sync_report.v1")

@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     sync = sub.add_parser("sync-klines")
     sync.add_argument("--months", type=int, default=int(os.environ.get("QG_USDJPY_HISTORY_MONTHS", "12")))
     sync.add_argument("--lookback-days", type=int, default=int(os.environ["QG_USDJPY_HISTORY_LOOKBACK_DAYS"]) if os.environ.get("QG_USDJPY_HISTORY_LOOKBACK_DAYS") else None)
-    sync.add_argument("--timeframes", default=os.environ.get("QG_USDJPY_HISTORY_TIMEFRAMES", "M1,M5,M15,H1"))
+    sync.add_argument("--timeframes", default=os.environ.get("QG_USDJPY_HISTORY_TIMEFRAMES", "M1,M5,M15,H1,H4"))
     sync.add_argument("--symbol", default=os.environ.get("QG_USDJPY_MT5_SYMBOL", "USDJPYc"))
     sync.add_argument("--terminal-path", default=os.environ.get("QG_MT5_TERMINAL_PATH", ""))
     sync.add_argument("--full-refresh", action="store_true")

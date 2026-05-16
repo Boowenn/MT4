@@ -21,14 +21,16 @@ from .sqlite_store import (
 )
 
 DEFAULT_HISTORY_TIMEFRAMES = ("M1", "M5", "M15", "H1")
-TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
+SUPPORTED_HISTORY_TIMEFRAMES = ("M1", "M5", "M15", "H1", "H4")
+TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600, "H4": 14400}
 MT5_TIMEFRAME_ATTRS = {
     "M1": "TIMEFRAME_M1",
     "M5": "TIMEFRAME_M5",
     "M15": "TIMEFRAME_M15",
     "H1": "TIMEFRAME_H1",
+    "H4": "TIMEFRAME_H4",
 }
-CHUNK_DAYS = {"M1": 21, "M5": 60, "M15": 120, "H1": 180}
+CHUNK_DAYS = {"M1": 21, "M5": 60, "M15": 120, "H1": 180, "H4": 372}
 MQL5_EXPORT_SOURCE = "MQL5_COPYRATES_EXPORT_FALLBACK"
 DEFAULT_MAX_LATEST_LAG_HOURS = 96
 
@@ -587,7 +589,7 @@ def _normalize_timeframes(timeframes: Iterable[str] | None) -> List[str]:
     selected: List[str] = []
     for item in raw:
         value = str(item).strip().upper()
-        if value in DEFAULT_HISTORY_TIMEFRAMES and value not in selected:
+        if value in SUPPORTED_HISTORY_TIMEFRAMES and value not in selected:
             selected.append(value)
     return selected or list(DEFAULT_HISTORY_TIMEFRAMES)
 

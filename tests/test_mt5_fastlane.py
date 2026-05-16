@@ -20,6 +20,69 @@ class Mt5FastLaneTests(unittest.TestCase):
             self.assertEqual(report["symbols"][0]["quality"], "FAST")
             self.assertTrue((Path(tmp) / "quality" / "QuantGod_MT5FastLaneQuality.json").exists())
 
+    def test_dashboard_timer_fallback_keeps_evidence_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "QuantGod_MT5_TimerHeartbeat.txt").write_text(
+                "localTime=2026.05.16 11:43:33\n"
+                "serverTime=2026.05.16 05:43:33\n"
+                "refreshIntervalSeconds=5\n",
+                encoding="utf-8",
+            )
+            (root / "QuantGod_Dashboard.json").write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026.05.16 11:43:41",
+                        "watchlist": "USDJPYc",
+                        "runtime": {
+                            "tradeStatus": "READY",
+                            "connected": True,
+                            "terminalConnected": True,
+                            "tickAgeSeconds": 1,
+                        },
+                        "market": {"symbol": "USDJPYc", "bid": 158.739, "ask": 158.741, "spread": 0.2},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                        "symbol": "USDJPYc",
+                        "strategy": "RSI_Reversal",
+                        "state": "WAITING_RSI_SIGNAL",
+                        "guards": {"spreadPips": 0.2},
+                        "rsi": {
+                            "rsiClosed1": 44.0,
+                            "rsiClosed2": 40.0,
+                            "atrClosed1": 0.12,
+                            "lowerBand": 158.1,
+                            "upperBand": 158.9,
+                            "closeClosed1": 158.5,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = build_quality_report(tmp, symbols=["USDJPYc"], write=False)
+
+            self.assertTrue(report["heartbeatFound"])
+            self.assertTrue(report["heartbeatFresh"])
+            self.assertTrue(report["dashboardFallback"])
+            self.assertIn("QuantGod_Dashboard.json", report["fallbackSources"])
+            self.assertEqual(report["heartbeatSource"], "QuantGod_MT5_TimerHeartbeat.txt")
+            self.assertEqual(report["symbols"][0]["quality"], "EA_DASHBOARD_OK")
+            self.assertTrue(report["symbols"][0]["dashboardFallback"])
+            self.assertEqual(report["symbols"][0]["tickRows"], 3)
+
+    def test_global_symbols_option_survives_subcommand_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(fastlane_main(["--runtime-dir", tmp, "--symbols", "EURJPYc", "sample"]), 0)
+            report = build_quality_report(tmp, symbols=["EURJPYc"], write=False)
+            self.assertEqual(report["symbols"][0]["symbol"], "EURJPYc")
+
     def test_safety_rejects_secrets_and_execution_flags(self) -> None:
         with self.assertRaises(ValueError):
             assert_safe_payload({"token": "x"})

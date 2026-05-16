@@ -107,6 +107,7 @@ test('MT5 EA exports USDJPY CopyRates CSVs for macOS history fallback', () => {
     'PERIOD_M5',
     'PERIOD_M15',
     'PERIOD_H1',
+    'PERIOD_H4',
   ]) {
     assert.match(ea, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }

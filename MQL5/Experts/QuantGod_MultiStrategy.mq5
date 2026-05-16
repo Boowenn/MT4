@@ -7212,6 +7212,7 @@ void ExportUsdJpyKlinesIfDue(bool force = false)
    totalRows += ExportUsdJpyKlineTimeframe(symbol, PERIOD_M5, "M5", fromTime, now, maxBars, items);
    totalRows += ExportUsdJpyKlineTimeframe(symbol, PERIOD_M15, "M15", fromTime, now, maxBars, items);
    totalRows += ExportUsdJpyKlineTimeframe(symbol, PERIOD_H1, "H1", fromTime, now, maxBars, items);
+   totalRows += ExportUsdJpyKlineTimeframe(symbol, PERIOD_H4, "H4", fromTime, now, maxBars, items);
 
    string manifest = "{\r\n";
    manifest += "  \"schema\": \"quantgod.mql5_kline_export_manifest.v1\",\r\n";
@@ -7229,7 +7230,7 @@ void ExportUsdJpyKlinesIfDue(bool force = false)
    WriteTextFile("backtest\\exported_klines\\QuantGod_USDJPY_KlineExportManifest.json", manifest);
    WriteTextFile("QuantGod_USDJPYKlineExportManifest.json", manifest);
    g_lastUsdJpyKlineExport = now;
-   Print("QuantGod USDJPY CopyRates exporter wrote ", totalRows, " bars across M1/M5/M15/H1.");
+   Print("QuantGod USDJPY CopyRates exporter wrote ", totalRows, " bars across M1/M5/M15/H1/H4.");
 }
 
 int PriceDigitsForSymbol(string symbol)

@@ -125,8 +125,20 @@ def build_seed_walk_forward(
 
 def _select_reference_timeframe(conn: Any, seed: Dict[str, Any]) -> str:
     indicators = seed.get("indicators") if isinstance(seed.get("indicators"), dict) else {}
+    family = str(seed.get("strategyFamily") or "")
+    cfg_key = {
+        "RSI_Reversal": "rsi",
+        "MA_Cross": "ma",
+        "BB_Triple": "bollinger",
+        "MACD_Divergence": "macd",
+        "SR_Breakout": "supportResistance",
+        "USDJPY_TOKYO_RANGE_BREAKOUT": "tokyoRange",
+        "USDJPY_NIGHT_REVERSION_SAFE": "nightReversion",
+        "USDJPY_H4_TREND_PULLBACK": "h4Pullback",
+    }.get(family, "rsi")
+    family_cfg = indicators.get(cfg_key) if isinstance(indicators.get(cfg_key), dict) else {}
     rsi = indicators.get("rsi") if isinstance(indicators.get("rsi"), dict) else {}
-    preferred = str(rsi.get("timeframe") or "H1").upper()
+    preferred = str(family_cfg.get("timeframe") or rsi.get("timeframe") or "H1").upper()
     candidates = [preferred, "H1", "M15", "M5", "M1", "H4", "D1"]
     seen = set()
     for timeframe in candidates:
