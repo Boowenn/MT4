@@ -5645,6 +5645,8 @@ string RefreshAutonomousConfigPatchRuntimeAdapter()
          bool patchWritable = StrategyJsonContractBool(content, "patchWritable", false);
          bool autoAppliedByAgent = StrategyJsonContractBool(content, "autoAppliedByAgent", false);
          bool requiresGovernance = StrategyJsonContractBool(content, "requiresAutonomousGovernance", false);
+         bool operatorApprovalRequired = StrategyJsonContractBool(content, "operatorApprovalRequired", false);
+         bool unattendedLiveExpansionAllowed = StrategyJsonContractBool(content, "unattendedLiveExpansionAllowed", false);
          bool liveMutationAllowed = StrategyJsonContractBool(content, "liveMutationAllowed", false);
          bool orderSendAllowed = StrategyJsonContractBool(content, "orderSendAllowed", false);
          bool presetMutationAllowed = StrategyJsonContractBool(content, "livePresetMutationAllowed", false);
@@ -5677,6 +5679,10 @@ string RefreshAutonomousConfigPatchRuntimeAdapter()
             AutonomousPatchAddRejectedField("autoAppliedByAgent", g_autonomousPatchRejectedItems);
          if(!requiresGovernance)
             AutonomousPatchAddRejectedField("requiresAutonomousGovernance", g_autonomousPatchRejectedItems);
+         if(operatorApprovalRequired)
+            AutonomousPatchAddRejectedField("operatorApprovalRequired", g_autonomousPatchRejectedItems);
+         if(stageMayAffectLive && !unattendedLiveExpansionAllowed)
+            AutonomousPatchAddRejectedField("unattendedLiveExpansionAllowed", g_autonomousPatchRejectedItems);
          if(liveMutationAllowed || orderSendAllowed || presetMutationAllowed)
             AutonomousPatchAddRejectedField("execution_permissions", g_autonomousPatchRejectedItems);
          if(newsBypassAllowed || runtimeBypassAllowed || fastlaneBypassAllowed)
@@ -5743,7 +5749,7 @@ string RefreshAutonomousConfigPatchRuntimeAdapter()
    json += "\"stageMaxLot\":" + FormatNumber(g_autonomousPatchStageMaxLot, 2) + ",";
    json += "\"maxLot\":" + FormatNumber(g_autonomousPatchMaxLot, 2);
    json += "},";
-   json += "\"safety\":{\"usdJpyOnly\":true,\"rsiLongOnly\":true,\"maxLotCap\":2.0,\"newsHardBypassAllowed\":false,\"runtimeFreshnessBypassAllowed\":false,\"fastlaneBypassAllowed\":false,\"orderSendAllowedByPatch\":false,\"livePresetMutationAllowed\":false}";
+   json += "\"safety\":{\"usdJpyOnly\":true,\"rsiLongOnly\":true,\"operatorApprovalRequired\":false,\"unattendedLiveExpansionAllowed\":true,\"maxLotCap\":2.0,\"newsHardBypassAllowed\":false,\"runtimeFreshnessBypassAllowed\":false,\"fastlaneBypassAllowed\":false,\"orderSendAllowedByPatch\":false,\"livePresetMutationAllowed\":false}";
    json += "}";
    g_autonomousConfigPatchStatusJson = json;
    return json;

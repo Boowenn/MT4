@@ -31,10 +31,10 @@ def autonomous_agent_to_chinese_text(payload: Dict[str, Any]) -> str:
             f"美分加速：{'开启' if cent.get('centAccountAcceleration') else '关闭'}。"
         ),
         f"阶段仓位上限：{_fmt(limits.get('stageMaxLot'), '0')} / 系统上限 {_fmt(limits.get('maxLot'), '2.0')}；2.0 只是上限，不是固定仓位。",
-        "审批模式：无需人工审批；必须通过机器硬风控与自动回滚。",
+        "审批模式：无需人工审批；扩大实盘范围必须通过 shadow→replay→walk-forward→硬风控。",
         "",
         "三车道：",
-        "- Live：USDJPYc / RSI_Reversal / LONG；只允许 MICRO_LIVE 或 LIVE_LIMITED。",
+        "- Live：USDJPYc；允许通过 autonomous governance 后进入 MICRO_LIVE 或 LIVE_LIMITED。",
         (
             f"- MT5 模拟：{_fmt(mt5_summary.get('routeCount'), '0')} 条路线；"
             f"快速模拟 {_fmt(mt5_summary.get('fastShadow'), '0')}；"
@@ -65,6 +65,6 @@ def autonomous_agent_to_chinese_text(payload: Dict[str, Any]) -> str:
         lines.append("- 当前未触发硬回滚。")
     lines.extend([
         "",
-        "底线：USDJPY-only；Polymarket 永远 shadow-only；DeepSeek 只解释；Telegram 不接交易命令；不会改源码或 live preset。",
+        "底线：USDJPY-only；Polymarket 永远 shadow-only；DeepSeek 只解释；Telegram 不接交易命令；Agent 只写 EA 白名单运行时 patch。",
     ])
     return "\n".join(lines)

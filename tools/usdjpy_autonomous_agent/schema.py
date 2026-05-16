@@ -46,8 +46,14 @@ HARD_SAFETY = {
     "focusSymbol": FOCUS_SYMBOL,
     "requiresAutonomousGovernance": True,
     "autoApplyAllowed": "stage_gated",
+    "operatorApprovalRequired": False,
+    "unattendedLiveExpansionAllowed": True,
+    "liveScopeExpansionMode": "autonomous_governance_stage_gated",
+    "agentMayExpandLiveScope": True,
     "agentMayWriteConfigPatch": True,
     "patchWritable": True,
+    # Keep direct broker and preset mutation disabled. The agent may only write
+    # the narrow runtime patch that the EA validates before applying.
     "liveMutationAllowed": False,
     "agentMayMutateSource": False,
     "agentMayMutateLivePreset": False,

@@ -31,9 +31,8 @@ def walk_forward_to_chinese_text(payload: Dict[str, Any]) -> str:
     lines.extend([
         "",
         "安全边界：",
-        "- 只做参数筛选和人工提案审查。",
+        "- 无需人工审批；通过自主治理门后可进入受控 live scope 扩展。",
         "- 不会下单、不会平仓、不会撤单、不会修改实盘 preset。",
         "- 后验结果只用于评分，不能反向决定当时是否入场。",
     ])
     return "\n".join(lines)
-

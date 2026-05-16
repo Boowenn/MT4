@@ -340,14 +340,16 @@ def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_g
             "highImpactEvent": news_gate.get("highImpactEvent"),
         },
         "todayForbiddenZh": [
-            "USDJPY SELL 实盘",
-            "非 RSI 实盘",
+            "未过 autonomous governance 的实盘扩展",
             "非 USDJPY 实盘",
             "Polymarket 钱包交易",
             "高冲击新闻窗口入场",
             "快通道或 runtime 陈旧时入场",
             "固定 2 手下单",
         ],
+        "operatorApprovalRequired": False,
+        "unattendedLiveExpansionAllowed": True,
+        "liveScopeExpansionMode": "autonomous_governance_stage_gated",
     }
 
 
@@ -368,6 +370,8 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], news
             "rollbackReasons": blockers,
             "patchWritable": bool(agent.get("patchWritable")),
             "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
+            "operatorApprovalRequired": False,
+            "unattendedLiveExpansionAllowed": True,
             "liveMutationAllowed": False,
         },
         "mt5ShadowLane": {
@@ -434,7 +438,7 @@ def _ga_todo_items(ga: Dict[str, Any]) -> List[Dict[str, Any]]:
             "completedByAgent": ran,
             "autoAppliedByAgent": ran,
             "requiresAutonomousGovernance": True,
-            "summaryZh": "Elite 只允许进入 shadow/tester/paper-live-sim；不会直接进入 MICRO_LIVE 或修改 live preset。",
+            "summaryZh": "Elite 可无人审批进入 shadow/tester/paper-live-sim；只有 autonomous governance 全通过后才允许扩大受控 live scope。",
         },
     ]
 
@@ -460,7 +464,7 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
             "promotionDecision": live_stage,
             "rollbackTriggered": rollback_triggered,
             "metrics": metrics,
-            "summaryZh": "Agent 已检查 USDJPY RSI LONG 实盘车道；硬风控未通过则自动回滚，未触发则等待 EA 自身守门。",
+            "summaryZh": "Agent 已检查 USDJPY 实盘车道；硬风控未通过则自动回滚，证据全通过时可无人审批扩大受控 live scope。",
         },
         {
             "id": "mt5_shadow_lane_iteration",
@@ -473,7 +477,7 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
             "promotionDecision": "FAST_SHADOW_OR_TESTER_ONLY",
             "rollbackTriggered": False,
             "metrics": _safe_dict(mt5_shadow.get("summary")),
-            "summaryZh": "Agent 已复盘多策略 shadow 排名；强策略可进入 fast-shadow/tester-only，不能抢实盘 RSI LONG 路线。",
+            "summaryZh": "Agent 已复盘多策略 shadow 排名；强策略可进入 fast-shadow/tester-only，并在 replay/walk-forward/硬风控全通过后无人审批晋级。",
         },
         {
             "id": "polymarket_shadow_lane_iteration",
@@ -649,6 +653,9 @@ def build_daily_autopilot_v2(
             "autoAppliedByAgent": bool(agent.get("autoAppliedByAgent")),
             "requiresAutonomousGovernance": True,
             "autoApplyAllowed": "stage_gated",
+            "operatorApprovalRequired": False,
+            "unattendedLiveExpansionAllowed": True,
+            "liveScopeExpansionMode": "autonomous_governance_stage_gated",
         },
         "lanes": lifecycle.get("lanes"),
         "centAccount": lifecycle.get("centAccount"),
@@ -658,6 +665,9 @@ def build_daily_autopilot_v2(
             "closeAllowed": False,
             "cancelAllowed": False,
             "liveMutationAllowed": False,
+            "operatorApprovalRequired": False,
+            "unattendedLiveExpansionAllowed": True,
+            "liveScopeExpansionMode": "autonomous_governance_stage_gated",
             "livePresetMutationAllowed": False,
             "polymarketRealMoneyAllowed": False,
             "telegramCommandExecutionAllowed": False,

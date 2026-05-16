@@ -13,6 +13,7 @@ from usdjpy_strategy_backtest.history_sync import build_history_production_statu
 from usdjpy_strategy_backtest.quality import build_quality_report, write_quality_report
 from usdjpy_strategy_backtest.report import build_sample, run_backtest, status
 from usdjpy_strategy_backtest.telegram_text import backtest_to_chinese_text
+from usdjpy_strategy_backtest.walk_forward import build_seed_walk_forward
 
 
 def load_env(path: Path) -> None:
@@ -69,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument("--max-latest-lag-hours", type=float, default=float(os.environ.get("QG_USDJPY_HISTORY_MAX_LAG_HOURS", "96")))
     run = sub.add_parser("run")
     run.add_argument("--write", action="store_true")
+    walk = sub.add_parser("walk-forward")
+    walk.add_argument("--write", action="store_true")
     sub.add_parser("status")
     sub.add_parser("quality")
     prod = sub.add_parser("production-status")
@@ -99,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "run":
         return emit(run_backtest(runtime_dir, load_strategy(args.strategy_json), write=True if args.write else True))
+    if args.command == "walk-forward":
+        return emit(build_seed_walk_forward(runtime_dir, load_strategy(args.strategy_json), write=args.write))
     if args.command == "status":
         return emit(status(runtime_dir))
     if args.command == "quality":

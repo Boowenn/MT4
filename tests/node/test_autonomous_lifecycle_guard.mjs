@@ -42,6 +42,8 @@ test('autonomous lifecycle keeps the three-lane safety model explicit', () => {
     'POLYMARKET_SHADOW',
     'polymarketRealMoneyAllowed',
     'liveMutationAllowed',
+    'operatorApprovalRequired',
+    'unattendedLiveExpansionAllowed',
   ]) {
     assert.match(lifecycle + mt5 + polymarket + daily + orchestrator, new RegExp(marker));
   }

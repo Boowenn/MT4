@@ -28,6 +28,8 @@ class AutonomousLifecycleTests(unittest.TestCase):
             self.assertEqual(payload["lanes"]["live"]["strategy"], "RSI_Reversal")
             self.assertEqual(payload["lanes"]["live"]["direction"], "LONG")
             self.assertFalse(payload["safety"]["orderSendAllowed"])
+            self.assertFalse(payload["safety"]["operatorApprovalRequired"])
+            self.assertTrue(payload["safety"]["unattendedLiveExpansionAllowed"])
             self.assertFalse(payload["safety"]["liveMutationAllowed"])
             self.assertFalse(payload["safety"]["polymarketRealMoneyAllowed"])
             self.assertIn("mt5Shadow", payload["lanes"])
@@ -44,6 +46,8 @@ class AutonomousLifecycleTests(unittest.TestCase):
 
             self.assertEqual(payload["lane"], "MT5_SHADOW")
             self.assertFalse(payload["safety"]["liveEligible"])
+            self.assertTrue(payload["safety"]["liveEligibleAfterStageGates"])
+            self.assertFalse(payload["safety"]["operatorApprovalRequired"])
             self.assertEqual(set(payload["strategyPool"]), set(DEFAULT_STRATEGIES))
             route_strategies = {row["strategy"] for row in payload["routes"]}
             self.assertTrue(set(DEFAULT_STRATEGIES).issubset(route_strategies))

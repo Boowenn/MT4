@@ -413,7 +413,7 @@ def _multi_strategy_coverage_matrix(bars_by_timeframe: Dict[str, List[Any]]) -> 
             "tradeRouteCount": len(trade_routes),
             "parityVectorRouteCount": sum(1 for row in rows if row.get("parityVectorPresent")),
         },
-        "reasonZh": "全部 USDJPY Strategy JSON 策略族已进入多策略回测覆盖矩阵；实盘仍只允许 RSI_Reversal LONG。",
+        "reasonZh": "全部 USDJPY Strategy JSON 策略族已进入多策略回测覆盖矩阵；通过 shadow→replay→walk-forward→硬风控后可无人审批进入受控 live scope。",
     }
 
 

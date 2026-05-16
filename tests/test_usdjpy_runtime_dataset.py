@@ -81,6 +81,8 @@ class USDJPYRuntimeDatasetTests(unittest.TestCase):
             self.assertEqual(proposal["autoApplyAllowed"], "stage_gated")
             self.assertNotIn("requiresManualReview", proposal)
             self.assertTrue(proposal["requiresAutonomousGovernance"])
+            self.assertFalse(proposal["safety"]["operatorApprovalRequired"])
+            self.assertTrue(proposal["safety"]["unattendedLiveExpansionAllowed"])
             self.assertTrue(proposal["completedByAgent"])
             self.assertTrue(proposal["autoAppliedByAgent"])
             self.assertFalse(proposal["safety"]["orderSendAllowed"])

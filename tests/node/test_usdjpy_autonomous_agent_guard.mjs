@@ -22,11 +22,14 @@ test('autonomous agent keeps hard safety boundaries', () => {
   }
   assert.match(schema, /"requiresAutonomousGovernance": True/);
   assert.match(schema, /"autoApplyAllowed": "stage_gated"/);
+  assert.match(schema, /"operatorApprovalRequired": False/);
+  assert.match(schema, /"unattendedLiveExpansionAllowed": True/);
   assert.match(schema, /"patchWritable": True/);
   assert.match(schema, /"liveMutationAllowed": False/);
   assert.match(schema, /"deepSeekCanApproveLive": False/);
   assert.match(schema, /"polymarketRealMoneyAllowed": False/);
   assert.match(patch, /patchWritable/);
+  assert.match(patch, /unattendedLiveExpansionAllowed/);
   assert.doesNotMatch(patch, /patchAllowed/);
   assert.match(patch, /executionStage/);
   assert.match(patch, /liveMutationAllowed/);
@@ -50,6 +53,8 @@ test('MT5 EA reads autonomous config patch through a narrow runtime adapter', ()
     'appliedPatchId',
     'activeParameters',
     'rejectedFields',
+    'operatorApprovalRequired',
+    'unattendedLiveExpansionAllowed',
     'AutonomousPatchEffectiveRsiBuyBand',
     'AutonomousPatchEffectiveRsiCrossbackThreshold',
     'AutonomousPatchEffectiveStageLotCap',

@@ -174,9 +174,13 @@ def build_mt5_shadow_lane(runtime_dir: Path, *, write: bool = False) -> Dict[str
         "safety": {
             "shadowOnly": True,
             "liveEligible": False,
+            "liveEligibleAfterStageGates": True,
+            "operatorApprovalRequired": False,
+            "unattendedLiveExpansionAllowed": True,
+            "liveScopeExpansionMode": "autonomous_governance_stage_gated",
             "orderSendAllowed": False,
             "livePresetMutationAllowed": False,
-            "noteZh": "MT5 Shadow 第一名不等于实盘第一名；实盘仍只允许 USDJPYc / RSI_Reversal / LONG。",
+            "noteZh": "MT5 Shadow 第一名不等于实盘第一名；只有 shadow→replay→walk-forward→硬风控全通过后，Agent 才能无人审批扩大受控实盘范围。",
         },
     }
     if write:

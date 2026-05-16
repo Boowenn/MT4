@@ -23,7 +23,7 @@ def _strategy_item(key: str) -> Dict[str, Any]:
             "coreIdea": "东京时间 09:00-12:00 建箱体，12:00-18:00 只记录突破或临界突破样本。",
             "entryLogic": "突破箱体高低点且 ADX 确认；临界突破也记入影子样本以加快学习。",
             "riskNotes": ["过滤点差", "箱体过窄/过宽不采样", "高影响 USD/JPY 新闻和疑似干预区只做观察"],
-            "promotionPath": ["Shadow outcome", "Strategy Tester", "ParamLab", "Governance", "manual approval"],
+            "promotionPath": ["Shadow outcome", "Strategy Tester", "ParamLab", "Autonomous Governance"],
         }
     elif key == "USDJPY_NIGHT_REVERSION_SAFE":
         item = {
@@ -34,7 +34,7 @@ def _strategy_item(key: str) -> Dict[str, Any]:
             "coreIdea": "低波动夜盘触碰布林带后记录均值回归机会，只允许机会级观察。",
             "entryLogic": "ADX<20、RANGE/RANGE_TIGHT、触碰布林带并配合 RSI 极值。",
             "riskNotes": ["政策大 K 禁用", "趋势行情禁用", "只做 opportunity 候选，不直接进实盘"],
-            "promotionPath": ["Shadow outcome", "walk-forward backtest", "autonomous governance gate"],
+            "promotionPath": ["Shadow outcome", "walk-forward backtest", "Autonomous Governance"],
         }
     else:
         item = {
@@ -44,8 +44,8 @@ def _strategy_item(key: str) -> Dict[str, Any]:
             "timeframes": ["M15", "H1", "H4"],
             "coreIdea": "H4 EMA50/200 定方向，M15 回踩 EMA20/50 后记录顺势恢复样本。",
             "entryLogic": "H4 趋势通过，M15 回踩后重新收回趋势方向并配合 RSI 恢复。",
-            "riskNotes": ["样本慢但更稳", "至少经过 Strategy Tester 和治理复核", "不绕过 RSI 现有实盘路线"],
-            "promotionPath": ["Shadow outcome", "Strategy Tester", "ParamLab", "Governance", "manual approval"],
+            "riskNotes": ["样本慢但更稳", "至少经过 Strategy Tester 和自主治理门", "不绕过 runtime / 快通道 / 新闻 / 回滚硬门"],
+            "promotionPath": ["Shadow outcome", "Strategy Tester", "ParamLab", "Autonomous Governance"],
         }
     item["symbol"] = FOCUS_SYMBOL
     item["dryRunOnly"] = True
