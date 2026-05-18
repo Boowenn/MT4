@@ -243,7 +243,8 @@ def quality_repair_seed_pool(runtime_dir: Path, generation_number: int, limit: i
     if limit <= 0:
         return []
     rows = _quality_repair_candidate_rows(runtime_dir)
-    rows = rows[: max(1, min(len(rows), max(2, (limit + 1) // 2)))]
+    parent_limit = min(len(rows), max(4, min(limit, 6)))
+    rows = rows[:parent_limit]
     seeds: List[Dict[str, Any]] = []
     offset = 1
     max_profile_count = max((len(_repair_profiles_for_row(row)) for row in rows), default=0)
@@ -298,6 +299,19 @@ def _quality_repair_candidate_rows(runtime_dir: Path) -> List[Dict[str, Any]]:
 def _balanced_quality_repair_rows(rows: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
     selected: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    family_priority = [
+        "RSI_Reversal",
+        "MACD_Divergence",
+        "USDJPY_H4_TREND_PULLBACK",
+    ]
+    for family in family_priority:
+        for row in rows:
+            seed = row.get("strategyJson") if isinstance(row.get("strategyJson"), dict) else {}
+            row_family = str(seed.get("strategyFamily") or row.get("strategyFamily") or "")
+            if row_family != family:
+                continue
+            if _append_balanced_row(selected, seen, row, limit):
+                break
     blocker_priority = [
         "WALK_FORWARD_UNSTABLE",
         "OVERFIT_RISK",
@@ -387,6 +401,24 @@ def _repair_profiles_for_row(row: Dict[str, Any]) -> List[str]:
                 "BB_SHORT_RECLAIM_FAST_EXIT",
                 "BB_SHORT_RECLAIM_WIDE_BAND",
             ]
+    elif family == "RSI_Reversal" and blocker in QUALITY_REPAIR_BLOCKERS:
+        family_profiles = [
+            "RSI_REVERSAL_STABILITY_REPAIR",
+            "RSI_REVERSAL_SAMPLE_EXPANDER",
+            "RSI_REVERSAL_FAST_EXIT",
+        ]
+    elif family == "MACD_Divergence" and blocker in QUALITY_REPAIR_BLOCKERS:
+        family_profiles = [
+            "MACD_HISTOGRAM_STABILIZER",
+            "MACD_SAMPLE_EXPANDER",
+            "MACD_FAST_EXIT",
+        ]
+    elif family == "USDJPY_H4_TREND_PULLBACK" and blocker in QUALITY_REPAIR_BLOCKERS:
+        family_profiles = [
+            "H4_PULLBACK_STABILIZER",
+            "H4_PULLBACK_SAMPLE_EXPANDER",
+            "H4_PULLBACK_FAST_EXIT",
+        ]
     elif family == "USDJPY_TOKYO_RANGE_BREAKOUT" and blocker in {
         "WALK_FORWARD_UNSTABLE",
         "INSUFFICIENT_SAMPLES",
@@ -465,6 +497,15 @@ def _apply_quality_profile(seed: Dict[str, Any], blocker: str, profile: str, off
 def _apply_family_quality_profile(seed: Dict[str, Any], profile: str, offset: int) -> bool:
     if profile.startswith("BB_SHORT"):
         _apply_bb_short_reclaim_profile(seed, profile, offset)
+        return True
+    if profile.startswith("RSI_REVERSAL"):
+        _apply_rsi_reversal_profile(seed, profile, offset)
+        return True
+    if profile.startswith("MACD_"):
+        _apply_macd_profile(seed, profile, offset)
+        return True
+    if profile.startswith("H4_PULLBACK"):
+        _apply_h4_pullback_profile(seed, profile, offset)
         return True
     if profile.startswith("TOKYO_RANGE"):
         _apply_tokyo_range_profile(seed, profile, offset)
@@ -581,6 +622,131 @@ def _apply_tokyo_range_profile(seed: Dict[str, Any], profile: str, offset: int) 
     risk["opportunityLotMultiplier"] = min(0.3, _num(risk.get("opportunityLotMultiplier"), 0.35))
 
 
+def _apply_rsi_reversal_profile(seed: Dict[str, Any], profile: str, offset: int) -> None:
+    indicators = seed.setdefault("indicators", {})
+    rsi = indicators.setdefault("rsi", {})
+    exit_cfg = seed.setdefault("exit", {})
+    risk = seed.setdefault("risk", {})
+    direction = str(seed.get("direction") or "LONG").upper()
+    if profile.endswith("SAMPLE_EXPANDER"):
+        rsi["timeframe"] = "M15"
+        rsi["period"] = max(7, min(16, int(_num(rsi.get("period"), 14) - 3 + (offset % 3))))
+        rsi["buyBand"] = max(26, min(42, _num(rsi.get("buyBand"), 34.0) + 2))
+        rsi["crossbackThreshold"] = round(max(0.1, min(1.1, _num(rsi.get("crossbackThreshold"), 0.8) - 0.25)), 2)
+        _set_exit(seed, hold_h1=4, hold_m15=7)
+        exit_cfg["trailStartR"] = 1.1
+        exit_cfg["mfeGivebackPct"] = 0.52
+        exit_cfg["breakevenDelayR"] = 0.75
+        risk["riskPips"] = max(14.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.4, _num(risk.get("opportunityLotMultiplier"), 0.35) + 0.05)
+    elif profile.endswith("FAST_EXIT"):
+        rsi["timeframe"] = "M15"
+        rsi["period"] = max(9, min(21, int(_num(rsi.get("period"), 14))))
+        rsi["buyBand"] = max(28, min(38, _num(rsi.get("buyBand"), 34.0)))
+        rsi["crossbackThreshold"] = round(max(0.3, min(1.4, _num(rsi.get("crossbackThreshold"), 0.8) + 0.1)), 2)
+        _set_exit(seed, hold_h1=2, hold_m15=3)
+        exit_cfg["trailStartR"] = 0.75
+        exit_cfg["mfeGivebackPct"] = 0.42
+        exit_cfg["breakevenDelayR"] = 0.45
+        risk["riskPips"] = max(16.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.3, _num(risk.get("opportunityLotMultiplier"), 0.35))
+    else:
+        rsi["timeframe"] = "H1" if offset % 2 else "M15"
+        rsi["period"] = max(12, min(24, int(_num(rsi.get("period"), 14) + 2)))
+        rsi["buyBand"] = max(28, min(36, _num(rsi.get("buyBand"), 34.0) - 1))
+        rsi["crossbackThreshold"] = round(max(0.5, min(1.5, _num(rsi.get("crossbackThreshold"), 0.8) + 0.2)), 2)
+        _set_exit(seed, hold_h1=3, hold_m15=4)
+        exit_cfg["trailStartR"] = 0.9
+        exit_cfg["mfeGivebackPct"] = 0.46
+        exit_cfg["breakevenDelayR"] = 0.55
+        risk["riskPips"] = max(18.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.32, _num(risk.get("opportunityLotMultiplier"), 0.35))
+    if direction == "SHORT":
+        rsi["sellBand"] = max(55, min(75, 100 - float(rsi.get("buyBand", 34))))
+
+
+def _apply_macd_profile(seed: Dict[str, Any], profile: str, offset: int) -> None:
+    indicators = seed.setdefault("indicators", {})
+    macd = indicators.setdefault("macd", {})
+    exit_cfg = seed.setdefault("exit", {})
+    risk = seed.setdefault("risk", {})
+    if profile.endswith("SAMPLE_EXPANDER"):
+        macd["timeframe"] = "M15"
+        _set_macd_periods(macd, fast=8 + (offset % 2) * 2, slow=21 + (offset % 3) * 3, signal=5 + (offset % 2) * 2)
+        macd["minHistogramAbs"] = 0.0
+        _set_exit(seed, hold_h1=4, hold_m15=7)
+        exit_cfg["trailStartR"] = 1.1
+        exit_cfg["mfeGivebackPct"] = 0.55
+        exit_cfg["breakevenDelayR"] = 0.75
+        risk["riskPips"] = max(14.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.38, _num(risk.get("opportunityLotMultiplier"), 0.35) + 0.03)
+    elif profile.endswith("FAST_EXIT"):
+        macd["timeframe"] = "M15"
+        _set_macd_periods(macd, fast=10, slow=26, signal=7)
+        macd["minHistogramAbs"] = round(max(0.0003, _num(macd.get("minHistogramAbs"), 0.0) + 0.0003), 4)
+        _set_exit(seed, hold_h1=2, hold_m15=3)
+        exit_cfg["trailStartR"] = 0.8
+        exit_cfg["mfeGivebackPct"] = 0.44
+        exit_cfg["breakevenDelayR"] = 0.45
+        risk["riskPips"] = max(16.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.3, _num(risk.get("opportunityLotMultiplier"), 0.35))
+    else:
+        macd["timeframe"] = "H1" if offset % 2 else "M15"
+        _set_macd_periods(macd, fast=12, slow=34, signal=9)
+        macd["minHistogramAbs"] = round(max(0.0005, _num(macd.get("minHistogramAbs"), 0.0) + 0.0005), 4)
+        _set_exit(seed, hold_h1=3, hold_m15=4)
+        exit_cfg["trailStartR"] = 0.95
+        exit_cfg["mfeGivebackPct"] = 0.48
+        exit_cfg["breakevenDelayR"] = 0.6
+        risk["riskPips"] = max(18.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.32, _num(risk.get("opportunityLotMultiplier"), 0.35))
+
+
+def _apply_h4_pullback_profile(seed: Dict[str, Any], profile: str, offset: int) -> None:
+    indicators = seed.setdefault("indicators", {})
+    h4 = indicators.setdefault("h4Pullback", {})
+    exit_cfg = seed.setdefault("exit", {})
+    risk = seed.setdefault("risk", {})
+    direction = str(seed.get("direction") or "LONG").upper()
+    if profile.endswith("SAMPLE_EXPANDER"):
+        h4["timeframe"] = "H1"
+        _set_h4_periods(h4, fast=13, slow=50, pullback=13, rsi=12)
+        h4["longRsiMin"] = 34
+        h4["shortRsiMax"] = 66
+        _set_exit(seed, hold_h1=5, hold_m15=8)
+        exit_cfg["trailStartR"] = 1.15
+        exit_cfg["mfeGivebackPct"] = 0.56
+        exit_cfg["breakevenDelayR"] = 0.8
+        risk["riskPips"] = max(20.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.35, _num(risk.get("opportunityLotMultiplier"), 0.35) + 0.03)
+    elif profile.endswith("FAST_EXIT"):
+        h4["timeframe"] = "H4"
+        _set_h4_periods(h4, fast=20, slow=50, pullback=20, rsi=14)
+        h4["longRsiMin"] = 40
+        h4["shortRsiMax"] = 60
+        _set_exit(seed, hold_h1=2, hold_m15=3)
+        exit_cfg["trailStartR"] = 0.85
+        exit_cfg["mfeGivebackPct"] = 0.45
+        exit_cfg["breakevenDelayR"] = 0.55
+        risk["riskPips"] = max(22.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.28, _num(risk.get("opportunityLotMultiplier"), 0.35))
+    else:
+        h4["timeframe"] = "H4"
+        _set_h4_periods(h4, fast=20, slow=89, pullback=20, rsi=14)
+        h4["longRsiMin"] = 42
+        h4["shortRsiMax"] = 58
+        _set_exit(seed, hold_h1=3, hold_m15=4)
+        exit_cfg["trailStartR"] = 1.0
+        exit_cfg["mfeGivebackPct"] = 0.5
+        exit_cfg["breakevenDelayR"] = 0.65
+        risk["riskPips"] = max(24.0, _num(risk.get("riskPips"), 10.0))
+        risk["opportunityLotMultiplier"] = min(0.3, _num(risk.get("opportunityLotMultiplier"), 0.35))
+    if direction == "SHORT":
+        h4["shortRsiMax"] = min(95, max(35, h4.get("shortRsiMax", 62)))
+    else:
+        h4["longRsiMin"] = min(65, max(5, h4.get("longRsiMin", 38)))
+
+
 def _set_exit(seed: Dict[str, Any], hold_h1: int, hold_m15: int) -> None:
     exit_cfg = seed.setdefault("exit", {})
     time_stop = exit_cfg.setdefault("timeStopBars", {})
@@ -639,6 +805,19 @@ def _set_family_timeframe(seed: Dict[str, Any], timeframe: str) -> None:
 def _set_ma_periods(ma: Dict[str, Any], fast: int, slow: int) -> None:
     ma["fastPeriod"] = max(2, min(80, int(fast)))
     ma["slowPeriod"] = max(ma["fastPeriod"] + 1, min(240, int(slow)))
+
+
+def _set_macd_periods(macd: Dict[str, Any], fast: int, slow: int, signal: int) -> None:
+    macd["fastPeriod"] = max(2, min(80, int(fast)))
+    macd["slowPeriod"] = max(macd["fastPeriod"] + 1, min(160, int(slow)))
+    macd["signalPeriod"] = max(2, min(80, int(signal)))
+
+
+def _set_h4_periods(h4: Dict[str, Any], fast: int, slow: int, pullback: int, rsi: int) -> None:
+    h4["fastEmaPeriod"] = max(2, min(120, int(fast)))
+    h4["slowEmaPeriod"] = max(h4["fastEmaPeriod"] + 1, min(240, int(slow)))
+    h4["pullbackEmaPeriod"] = max(2, min(120, int(pullback)))
+    h4["rsiPeriod"] = max(2, min(50, int(rsi)))
 
 
 def _tighten_time_window(tokyo: Dict[str, Any], offset: int) -> None:

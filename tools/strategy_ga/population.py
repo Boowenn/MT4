@@ -30,6 +30,13 @@ def elite_count() -> int:
         return DEFAULT_ELITE_COUNT
 
 
+def _num(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
 def _recent_rejected_seeds(runtime_dir: Path | None, limit: int = 4) -> List[Dict[str, Any]]:
     if runtime_dir is None:
         return []
@@ -49,7 +56,7 @@ def _recent_rejected_seeds(runtime_dir: Path | None, limit: int = 4) -> List[Dic
         if blocker in {"SAFETY_REJECTED", "DUPLICATE_STRATEGY", "HISTORY_PRODUCTION_NOT_READY"}:
             continue
         rows.append(row)
-    rows.sort(key=lambda item: (int(item.get("rank") or 9999), -float(item.get("fitness") or -999)))
+    rows.sort(key=_mutation_parent_sort_key)
     seeds: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
@@ -62,6 +69,29 @@ def _recent_rejected_seeds(runtime_dir: Path | None, limit: int = 4) -> List[Dic
         if len(seeds) >= limit:
             break
     return seeds
+
+
+def _mutation_parent_sort_key(row: Dict[str, Any]) -> tuple:
+    seed = row.get("strategyJson") if isinstance(row.get("strategyJson"), dict) else {}
+    breakdown = row.get("fitnessBreakdown") if isinstance(row.get("fitnessBreakdown"), dict) else {}
+    backtest = breakdown.get("strategyBacktest") if isinstance(breakdown.get("strategyBacktest"), dict) else {}
+    blocker = str(row.get("blockerCode") or "")
+    family = str(seed.get("strategyFamily") or row.get("strategyFamily") or "")
+    direction = str(seed.get("direction") or row.get("direction") or "").upper()
+    sample_count = int(_num(breakdown.get("sampleCount"), 0))
+    trade_count = int(_num(backtest.get("tradeCount"), 0))
+    quality_penalty = 0
+    if blocker == "STRATEGY_BACKTEST_NO_TRADES" or trade_count == 0:
+        quality_penalty += 10
+    if blocker == "INSUFFICIENT_SAMPLES" or sample_count < 5 or trade_count < 5:
+        quality_penalty += 5
+    if family == "BB_Triple" and direction == "SHORT" and quality_penalty:
+        quality_penalty += 10
+    return (
+        quality_penalty,
+        int(_num(row.get("rank"), 9999)),
+        -_num(row.get("fitness"), -999.0),
+    )
 
 
 def build_population(generation_number: int, previous_elites: List[Dict[str, Any]] | None = None, runtime_dir: Path | None = None) -> List[Dict[str, Any]]:

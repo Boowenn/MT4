@@ -10,7 +10,7 @@ from unittest.mock import patch
 from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES
 from tools.strategy_ga.fitness import evidence_metrics, score_seed
 from tools.strategy_ga.mutation import mutate_seed
-from tools.strategy_ga.population import build_population
+from tools.strategy_ga.population import _recent_rejected_seeds, build_population
 from tools.strategy_ga.seed_generator import exploration_seed_pool, quality_repair_seed_pool
 from tools.strategy_json.fingerprint import strategy_fingerprint
 from tools.strategy_json.schema import base_strategy_seed
@@ -358,6 +358,49 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertEqual(mutation["parentSeedId"], parent["seedId"])
             self.assertEqual(mutation["explorationMode"], "NO_ELITE_EXPAND_SEARCH")
 
+    def test_ga_mutation_parent_selection_deprioritizes_sparse_bb_short(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            ga_dir = runtime_dir / "ga"
+            ga_dir.mkdir(parents=True)
+            sparse_bb = base_strategy_seed("PARENT-BB-SPARSE", family="BB_Triple", direction="SHORT")
+            rsi_parent = base_strategy_seed("PARENT-RSI", family="RSI_Reversal", direction="LONG")
+            macd_parent = base_strategy_seed("PARENT-MACD", family="MACD_Divergence", direction="LONG")
+            rows = [
+                {
+                    "generation": 17,
+                    "rank": 1,
+                    "fitness": -3.1,
+                    "blockerCode": "STRATEGY_BACKTEST_NO_TRADES",
+                    "strategyJson": sparse_bb,
+                    "fitnessBreakdown": {"sampleCount": 5, "strategyBacktest": {"tradeCount": 0}},
+                },
+                {
+                    "generation": 17,
+                    "rank": 2,
+                    "fitness": -8.0,
+                    "blockerCode": "WALK_FORWARD_UNSTABLE",
+                    "strategyJson": rsi_parent,
+                    "fitnessBreakdown": {"sampleCount": 80, "strategyBacktest": {"tradeCount": 40}},
+                },
+                {
+                    "generation": 17,
+                    "rank": 3,
+                    "fitness": -9.0,
+                    "blockerCode": "WALK_FORWARD_UNSTABLE",
+                    "strategyJson": macd_parent,
+                    "fitnessBreakdown": {"sampleCount": 60, "strategyBacktest": {"tradeCount": 30}},
+                },
+            ]
+            (ga_dir / "QuantGod_GACandidateRuns.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            parents = _recent_rejected_seeds(runtime_dir, limit=2)
+
+            self.assertEqual([seed["seedId"] for seed in parents], ["PARENT-RSI", "PARENT-MACD"])
+
     def test_ga_quality_repair_targets_blocked_promising_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)
@@ -486,6 +529,44 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertGreaterEqual(tokyo["bufferPips"], 1.0)
             self.assertLessEqual(tokyo["tradeEndHourUtc"] - tokyo["tradeStartHourUtc"], 2)
             self.assertTrue(validate_strategy_json(repair)["valid"])
+
+    def test_ga_quality_repair_expands_rsi_macd_and_h4_templates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            ga_dir = runtime_dir / "ga"
+            ga_dir.mkdir(parents=True)
+            parents = [
+                base_strategy_seed("PARENT-RSI-QUALITY", family="RSI_Reversal", direction="LONG"),
+                base_strategy_seed("PARENT-MACD-QUALITY", family="MACD_Divergence", direction="LONG"),
+                base_strategy_seed("PARENT-H4-QUALITY", family="USDJPY_H4_TREND_PULLBACK", direction="SHORT"),
+            ]
+            rows = []
+            for index, parent in enumerate(parents, start=1):
+                rows.append(
+                    {
+                        "generation": 17,
+                        "rank": index,
+                        "fitness": -5.0 - index,
+                        "blockerCode": "WALK_FORWARD_UNSTABLE",
+                        "strategyJson": parent,
+                        "fitnessBreakdown": {
+                            "strategyBacktest": {"netR": -1.0, "tradeCount": 30 + index},
+                            "walkForward": {"summary": {"stabilityScore": 0.1}},
+                        },
+                    }
+                )
+            (ga_dir / "QuantGod_GACandidateRuns.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            repairs = quality_repair_seed_pool(runtime_dir, generation_number=18, limit=6)
+            profiles = {seed.get("qualityProfile") for seed in repairs}
+
+            self.assertIn("RSI_REVERSAL_STABILITY_REPAIR", profiles)
+            self.assertIn("MACD_HISTOGRAM_STABILIZER", profiles)
+            self.assertIn("H4_PULLBACK_STABILIZER", profiles)
+            self.assertTrue(all(validate_strategy_json(seed)["valid"] for seed in repairs))
 
     def test_history_sync_pulls_incremental_usdjpy_bars_from_mt5(self):
         class FakeMT5(types.SimpleNamespace):
