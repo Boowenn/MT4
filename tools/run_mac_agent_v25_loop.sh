@@ -45,6 +45,14 @@ PYTHON_BIN="${QG_PYTHON_BIN:-python3}"
 INTERVAL_SECONDS="${QG_AGENT_V25_INTERVAL_SECONDS:-300}"
 SEND_TELEGRAM="${QG_AGENT_V25_SEND_TELEGRAM:-${QG_TELEGRAM_PUSH_ALLOWED:-0}}"
 SCREEN_NAME="${QG_AGENT_V25_SCREEN:-quantgod-agent-v25}"
+AUTOPILOT_COMMAND="${QG_AGENT_V25_AUTOPILOT_COMMAND:-build}"
+case "$AUTOPILOT_COMMAND" in
+  build|run-cycle) ;;
+  *)
+    echo "Unsupported QG_AGENT_V25_AUTOPILOT_COMMAND=$AUTOPILOT_COMMAND; falling back to build"
+    AUTOPILOT_COMMAND="build"
+    ;;
+esac
 
 default_mt5_files_dir() {
   printf '%s\n' "$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Files"
@@ -212,8 +220,8 @@ run_once() {
   "$PYTHON_BIN" tools/run_daily_autopilot_v2.py \
     --runtime-dir "$RUNTIME_DIR" \
     --repo-root "$REPO_ROOT" \
-    build \
-    --write || echo "Daily Autopilot v2.5 build failed"
+    "$AUTOPILOT_COMMAND" \
+    --write || echo "Daily Autopilot v2.5 $AUTOPILOT_COMMAND failed"
 
   if [[ "$SEND_TELEGRAM" == "1" ]]; then
     "$PYTHON_BIN" tools/run_telegram_gateway.py \

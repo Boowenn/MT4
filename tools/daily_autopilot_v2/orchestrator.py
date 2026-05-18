@@ -180,6 +180,22 @@ def _build_steps(runtime_dir: Path, repo_root: Path, *, bootstrap_samples: bool)
             "command": [py, "tools/run_strategy_ga.py", *runtime_arg, "run-generation", "--write"],
             "timeoutSeconds": 180,
         },
+        {
+            "id": "ga_factory",
+            "lane": "MT5_SHADOW",
+            "action": "BUILD_GA_FACTORY_ARCHIVE",
+            "summaryZh": "归档 GA Factory state、lineage 和 graveyard，保持生产证据与最新 generation 对齐。",
+            "command": [py, "tools/run_strategy_ga_factory.py", *runtime_arg, "build", "--write"],
+            "timeoutSeconds": 120,
+        },
+        {
+            "id": "ga_multi_generation_stability",
+            "lane": "MT5_SHADOW",
+            "action": "BUILD_GA_MULTI_GENERATION_STABILITY",
+            "summaryZh": "刷新 GA 多代稳定性证据，用于 burn-in 和 production evidence。",
+            "command": [py, "tools/run_ga_multi_generation_stability.py", *runtime_arg, "build", "--write"],
+            "timeoutSeconds": 120,
+        },
     ]
     if bootstrap_samples:
         steps.insert(
