@@ -193,6 +193,45 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             else:
                 os.environ["QG_MT5_FILES_DIR"] = old_mt5_files_dir
 
+    def test_execution_feedback_recent_prefers_audited_ea_history_over_close_history_backfill(self):
+        old_mt5_files_dir = os.environ.get("QG_MT5_FILES_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as runtime_tmp, tempfile.TemporaryDirectory() as mt5_tmp:
+                runtime_dir = Path(runtime_tmp)
+                mt5_files = Path(mt5_tmp)
+                os.environ["QG_MT5_FILES_DIR"] = str(mt5_files)
+                (mt5_files / "QuantGod_LiveExecutionFeedbackHistory.jsonl").write_text(
+                    "\n".join(
+                        [
+                            '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"history-fill","eventType":"ORDER_FILL","eventTimeServer":"2026.05.11 11:00:12","symbol":"USDJPYc","side":"BUY","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","intentId":"history-position","fillPrice":157.144,"slippagePips":0,"latencyMs":0,"profitR":0,"mfeR":0,"maeR":0}',
+                            '{"schema":"quantgod.live_execution_feedback.v1","feedbackId":"history-close","eventType":"ORDER_CLOSE","eventTimeServer":"2026.05.11 11:37:59","symbol":"USDJPYc","side":"SELL","policyId":"USDJPY_LIVE_LOOP","strategyId":"RSI_Reversal","intentId":"history-position","fillPrice":156.936,"slippagePips":0,"latencyMs":0,"profitR":-0.0443,"mfeR":0.2,"maeR":-0.1,"exitReason":"HISTORY_EXIT"}',
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                (runtime_dir / "QuantGod_CloseHistory.csv").write_text(
+                    "\n".join(
+                        [
+                            "CloseTime,Symbol,Strategy,ClosePrice,NetProfit",
+                            "2026.05.19 12:00,USDJPYc,RSI_Reversal,158.123,0.00",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = build_execution_feedback(runtime_dir, write=False)
+                sources = {row["source"] for row in report["recentFeedback"]}
+
+                self.assertEqual(report["recentFeedback"][0]["feedbackId"], "history-close")
+                self.assertEqual(report["recentFeedback"][0]["profitR"], -0.0443)
+                self.assertIn("QuantGod_LiveExecutionFeedbackHistory.jsonl", sources)
+                self.assertNotIn("QuantGod_CloseHistory.csv", sources)
+        finally:
+            if old_mt5_files_dir is None:
+                os.environ.pop("QG_MT5_FILES_DIR", None)
+            else:
+                os.environ["QG_MT5_FILES_DIR"] = old_mt5_files_dir
+
     def test_parity_reads_live_mt5_rsi_diagnostics_when_runtime_is_repo_local(self):
         old_mt5_files_dir = os.environ.get("QG_MT5_FILES_DIR")
         try:

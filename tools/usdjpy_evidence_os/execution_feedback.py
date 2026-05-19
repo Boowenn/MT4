@@ -776,7 +776,40 @@ def _dedupe_feedback(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def _recent_feedback(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     execution_rows = [row for row in rows if _is_live_execution_row(row)]
-    return (execution_rows or rows)[-20:]
+    audited_execution_rows = [
+        row
+        for row in execution_rows
+        if isinstance(row.get("fieldPresence"), dict) and row["fieldPresence"].get("audited")
+    ]
+    candidates = audited_execution_rows or execution_rows or rows
+    if any(_feedback_time_key(row) for row in candidates):
+        return [
+            row
+            for _, row in sorted(
+                enumerate(candidates),
+                key=lambda item: (_feedback_time_key(item[1]) or "", item[0]),
+                reverse=True,
+            )[:20]
+        ]
+    return candidates[-20:]
+
+
+def _feedback_time_key(row: Dict[str, Any]) -> str:
+    value = _first(
+        row,
+        "fillTime",
+        "eventTimeServer",
+        "orderSendTime",
+        "entrySignalTime",
+        "generatedAtLocal",
+        "generatedAtServer",
+        "generatedAt",
+        "createdAt",
+    )
+    if not value:
+        return ""
+    text = str(value).strip()
+    return text[:19].replace("T", " ").replace(".", "-").replace("/", "-")
 
 
 def _spread_guard_context(runtime_dir: Path) -> Dict[str, Any]:
