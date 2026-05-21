@@ -1002,6 +1002,11 @@ def _shadow_row_summary(row: Dict[str, Any]) -> Dict[str, Any]:
         "spreadPips": row.get("spreadPips"),
         "rsiClosed1": row.get("rsiClosed1"),
         "rsiClosed2": row.get("rsiClosed2"),
+        "rsiMaxCrossbackRsi": row.get("rsiMaxCrossbackRsi"),
+        "rsiTriggerRule": row.get("rsiTriggerRule"),
+        "rsiCrossbackSignal": bool(row.get("rsiCrossbackSignal")),
+        "rsiMaxCrossbackPass": bool(row.get("rsiMaxCrossbackPass")),
+        "rsiRegimeFilter": row.get("rsiRegimeFilter") if isinstance(row.get("rsiRegimeFilter"), dict) else {},
         "rsiAdverseGuard": adverse_guard,
         "reasonZh": row.get("reasonZh"),
     }
@@ -1275,6 +1280,8 @@ def _unique_row_values(rows: List[Dict[str, Any]], key: str, limit: int = 10) ->
     seen: set[str] = set()
     for row in rows:
         value = row.get(key)
+        if value is None:
+            continue
         marker = str(value)
         if marker in seen:
             continue
@@ -1291,6 +1298,8 @@ def _unique_nested_row_values(rows: List[Dict[str, Any]], outer_key: str, inner_
     for row in rows:
         nested = row.get(outer_key) if isinstance(row.get(outer_key), dict) else {}
         value = nested.get(inner_key)
+        if value is None:
+            continue
         marker = str(value)
         if marker in seen:
             continue

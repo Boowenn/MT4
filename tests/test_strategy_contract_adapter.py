@@ -560,11 +560,8 @@ class StrategyContractAdapterTests(unittest.TestCase):
                     "timeframe": "H1",
                     "rsiBuyBand": 31.0,
                     "rsiCrossbackThreshold": 0.5,
-                    "rsiMaxCrossbackRsi": 39.0,
-                    "rsiTriggerRule": "BACKTEST_CROSSBACK_ONLY",
                     "rsiClosed1": 47.0,
                     "rsiClosed2": 49.0,
-                    "rsiRegimeFilter": {"loaded": True, "mode": "P4_10E_RSI_BEARISH_STRETCH", "pass": True},
                     "rsiAdverseGuard": {"loaded": True, "mode": "P4_10G_RSI_ADVERSE_EXCURSION", "rangePass": True},
                 },
                 {
