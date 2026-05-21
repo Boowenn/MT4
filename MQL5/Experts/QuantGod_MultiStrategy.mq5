@@ -5920,6 +5920,30 @@ bool StrategyJsonHourInWindow(int hour, int startHour, int endHour)
    return (hour >= start || hour <= end);
 }
 
+bool StrategyJsonHourInList(string rawHours, int hour)
+{
+   if(hour < 0)
+      return false;
+   if(StringLen(rawHours) <= 0)
+      return true;
+   string values[];
+   int count = StringSplit(rawHours, '|', values);
+   if(count <= 0)
+      return true;
+   for(int i = 0; i < count; i++)
+   {
+      string item = values[i];
+      StringReplace(item, " ", "");
+      if(StringLen(item) <= 0)
+         continue;
+      int parsed = (int)StringToInteger(item);
+      parsed = ((parsed % 24) + 24) % 24;
+      if(parsed == hour)
+         return true;
+   }
+   return false;
+}
+
 string BuildStrategyJsonEAContractStatusJson()
 {
    string content = "";
@@ -5939,6 +5963,10 @@ string BuildStrategyJsonEAContractStatusJson()
    int rsiPeriod = 0;
    double rsiBuyBand = 0.0;
    double rsiCrossbackThreshold = 0.0;
+   double rsiMaxCrossbackRsi = 0.0;
+   string rsiTriggerRule = "";
+   string rsiRegimeFilterMode = "";
+   string rsiRegimeFilterAllowedHoursUtc = "";
    double breakevenDelayR = 0.0;
    double trailStartR = 0.0;
    double mfeGivebackPct = 0.0;
@@ -5973,6 +6001,10 @@ string BuildStrategyJsonEAContractStatusJson()
          rsiTimeframe = StrategyJsonContractValue(content, "rsiTimeframe", "");
          rsiBuyBand = StrategyJsonContractDouble(content, "rsiBuyBand", 0.0);
          rsiCrossbackThreshold = StrategyJsonContractDouble(content, "rsiCrossbackThreshold", 0.0);
+         rsiMaxCrossbackRsi = StrategyJsonContractDouble(content, "rsiMaxCrossbackRsi", 100.0);
+         rsiTriggerRule = StrategyJsonContractValue(content, "rsiTriggerRule", "");
+         rsiRegimeFilterMode = StrategyJsonContractValue(content, "rsiRegimeFilterMode", "");
+         rsiRegimeFilterAllowedHoursUtc = StrategyJsonContractValue(content, "rsiRegimeFilterAllowedHoursUtc", "");
          breakevenDelayR = StrategyJsonContractDouble(content, "breakevenDelayR", 0.0);
          trailStartR = StrategyJsonContractDouble(content, "trailStartR", 0.0);
          mfeGivebackPct = StrategyJsonContractDouble(content, "mfeGivebackPct", 0.0);
@@ -6028,6 +6060,10 @@ string BuildStrategyJsonEAContractStatusJson()
    json += "\"rsiTimeframe\":\"" + JsonEscape(rsiTimeframe) + "\",";
    json += "\"rsiBuyBand\":" + FormatNumber(rsiBuyBand, 4) + ",";
    json += "\"rsiCrossbackThreshold\":" + FormatNumber(rsiCrossbackThreshold, 4) + ",";
+   json += "\"rsiMaxCrossbackRsi\":" + FormatNumber(rsiMaxCrossbackRsi, 4) + ",";
+   json += "\"rsiTriggerRule\":\"" + JsonEscape(rsiTriggerRule) + "\",";
+   json += "\"rsiRegimeFilter\":{\"mode\":\"" + JsonEscape(rsiRegimeFilterMode) + "\",";
+   json += "\"allowedHoursUtc\":\"" + JsonEscape(rsiRegimeFilterAllowedHoursUtc) + "\"},";
    json += "\"breakevenDelayR\":" + FormatNumber(breakevenDelayR, 4) + ",";
    json += "\"trailStartR\":" + FormatNumber(trailStartR, 4) + ",";
    json += "\"mfeGivebackPct\":" + FormatNumber(mfeGivebackPct, 4) + ",";
@@ -6064,6 +6100,19 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    int rsiPeriod = 0;
    double rsiBuyBand = 0.0;
    double rsiCrossbackThreshold = 0.0;
+   double rsiMaxCrossbackRsi = 100.0;
+   string rsiTriggerRule = "BACKTEST_CROSSBACK_ONLY";
+   string rsiRegimeFilterMode = "";
+   string rsiRegimeFilterAllowedHoursUtc = "";
+   int rsiRegimeFilterEmaFastPeriod = 20;
+   int rsiRegimeFilterEmaSlowPeriod = 50;
+   int rsiRegimeFilterSlopeLookbackBars = 3;
+   double rsiRegimeFilterMinFastMinusSlowPips = -500.0;
+   double rsiRegimeFilterMaxFastMinusSlowPips = 0.0;
+   double rsiRegimeFilterMinDistanceFromSlowPips = -260.0;
+   double rsiRegimeFilterMaxDistanceFromSlowPips = -50.0;
+   double rsiRegimeFilterMinSlowSlopePips = -45.0;
+   double rsiRegimeFilterMaxSlowSlopePips = -6.0;
    string rsiAdverseGuardMode = "";
    double rsiAdverseGuardMaxEarlyAdverseR = 0.0;
    double rsiAdverseGuardMaxEntryRangePips = 0.0;
@@ -6137,6 +6186,19 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          rsiTimeframeLabel = StrategyJsonContractValue(content, "rsiTimeframe", TimeframeLabel(PilotRsiTimeframe));
          rsiBuyBand = StrategyJsonContractDouble(content, "rsiBuyBand", PilotRsiOversold);
          rsiCrossbackThreshold = StrategyJsonContractDouble(content, "rsiCrossbackThreshold", PilotRsiCrossbackThreshold);
+         rsiMaxCrossbackRsi = StrategyJsonContractDouble(content, "rsiMaxCrossbackRsi", 100.0);
+         rsiTriggerRule = StrategyJsonContractValue(content, "rsiTriggerRule", "BACKTEST_CROSSBACK_ONLY");
+         rsiRegimeFilterMode = StrategyJsonContractValue(content, "rsiRegimeFilterMode", "");
+         rsiRegimeFilterAllowedHoursUtc = StrategyJsonContractValue(content, "rsiRegimeFilterAllowedHoursUtc", "");
+         rsiRegimeFilterEmaFastPeriod = StrategyJsonContractInt(content, "rsiRegimeFilterEmaFastPeriod", 20);
+         rsiRegimeFilterEmaSlowPeriod = StrategyJsonContractInt(content, "rsiRegimeFilterEmaSlowPeriod", 50);
+         rsiRegimeFilterSlopeLookbackBars = StrategyJsonContractInt(content, "rsiRegimeFilterSlopeLookbackBars", 3);
+         rsiRegimeFilterMinFastMinusSlowPips = StrategyJsonContractDouble(content, "rsiRegimeFilterMinFastMinusSlowPips", -500.0);
+         rsiRegimeFilterMaxFastMinusSlowPips = StrategyJsonContractDouble(content, "rsiRegimeFilterMaxFastMinusSlowPips", 0.0);
+         rsiRegimeFilterMinDistanceFromSlowPips = StrategyJsonContractDouble(content, "rsiRegimeFilterMinDistanceFromSlowPips", -260.0);
+         rsiRegimeFilterMaxDistanceFromSlowPips = StrategyJsonContractDouble(content, "rsiRegimeFilterMaxDistanceFromSlowPips", -50.0);
+         rsiRegimeFilterMinSlowSlopePips = StrategyJsonContractDouble(content, "rsiRegimeFilterMinSlowSlopePips", -45.0);
+         rsiRegimeFilterMaxSlowSlopePips = StrategyJsonContractDouble(content, "rsiRegimeFilterMaxSlowSlopePips", -6.0);
          rsiAdverseGuardMode = StrategyJsonContractValue(content, "rsiAdverseGuardMode", "");
          rsiAdverseGuardMaxEarlyAdverseR = StrategyJsonContractDouble(content, "rsiAdverseGuardMaxEarlyAdverseR", 0.0);
          rsiAdverseGuardMaxEntryRangePips = StrategyJsonContractDouble(content, "rsiAdverseGuardMaxEntryRangePips", 0.0);
@@ -6213,10 +6275,75 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    int effectiveRsiPeriod = rsiPeriod > 0 ? rsiPeriod : PilotRsiPeriod;
    double effectiveBuyBand = rsiBuyBand > 0.0 ? rsiBuyBand : PilotRsiOversold;
    double effectiveThreshold = MathMax(0.0, rsiCrossbackThreshold);
+   double effectiveMaxCrossbackRsi = rsiMaxCrossbackRsi > 0.0 ? rsiMaxCrossbackRsi : 100.0;
+   string effectiveRsiTriggerRule = StringLen(rsiTriggerRule) > 0 ? rsiTriggerRule : "BACKTEST_CROSSBACK_ONLY";
    double rsi1 = RSIValue(symbol, rsiTimeframe, effectiveRsiPeriod, 1);
    double rsi2 = RSIValue(symbol, rsiTimeframe, effectiveRsiPeriod, 2);
    bool indicatorReady = (rsi1 > 0.0 && rsi2 > 0.0);
-   bool rsiLongSignal = (indicatorReady && (rsi1 <= effectiveBuyBand || (rsi2 < effectiveBuyBand && rsi1 > effectiveBuyBand + effectiveThreshold)));
+   bool rsiCrossbackSignal = (indicatorReady && rsi2 <= effectiveBuyBand && rsi1 >= effectiveBuyBand + effectiveThreshold);
+   bool rsiMaxCrossbackPass = (indicatorReady && rsi1 <= effectiveMaxCrossbackRsi);
+   datetime rsiEventBarTime = iTime(symbol, rsiTimeframe, 1);
+   bool rsiRegimeFilterLoaded = (StringLen(rsiRegimeFilterMode) > 0 && ToUpperString(rsiRegimeFilterMode) != "OFF" && ToUpperString(rsiRegimeFilterMode) != "NONE");
+   bool rsiRegimeFilterReady = !rsiRegimeFilterLoaded;
+   bool rsiRegimeFilterPass = true;
+   string rsiRegimeFilterReason = rsiRegimeFilterLoaded ? "WAITING_REGIME_FILTER" : "DISABLED";
+   int rsiRegimeFilterHourUtc = StrategyJsonUtcHourFromServerTime(rsiEventBarTime > 0 ? rsiEventBarTime : CurrentServerTime());
+   bool rsiRegimeFilterHourPass = StrategyJsonHourInList(rsiRegimeFilterAllowedHoursUtc, rsiRegimeFilterHourUtc);
+   int effectiveRsiRegimeFastPeriod = MathMax(2, rsiRegimeFilterEmaFastPeriod);
+   int effectiveRsiRegimeSlowPeriod = MathMax(effectiveRsiRegimeFastPeriod + 1, rsiRegimeFilterEmaSlowPeriod);
+   int effectiveRsiRegimeSlopeLookbackBars = MathMax(1, rsiRegimeFilterSlopeLookbackBars);
+   double rsiRegimeFastMinusSlowPips = 0.0;
+   double rsiRegimeDistanceFromSlowPips = 0.0;
+   double rsiRegimeSlowSlopePips = 0.0;
+   double rsiRegimeClose = iClose(symbol, rsiTimeframe, 1);
+   double rsiRegimeFastEma = 0.0;
+   double rsiRegimeSlowEma = 0.0;
+   double rsiRegimeSlowEmaThen = 0.0;
+   if(rsiRegimeFilterLoaded)
+   {
+      rsiRegimeFilterPass = false;
+      rsiRegimeFilterReady = true;
+      if(!rsiRegimeFilterHourPass)
+      {
+         rsiRegimeFilterReason = "HOUR_FILTER";
+      }
+      else
+      {
+         double regimePip = PipSize(symbol);
+         rsiRegimeFastEma = MAValue(symbol, rsiTimeframe, effectiveRsiRegimeFastPeriod, 1, MODE_EMA);
+         rsiRegimeSlowEma = MAValue(symbol, rsiTimeframe, effectiveRsiRegimeSlowPeriod, 1, MODE_EMA);
+         rsiRegimeSlowEmaThen = MAValue(symbol, rsiTimeframe, effectiveRsiRegimeSlowPeriod, 1 + effectiveRsiRegimeSlopeLookbackBars, MODE_EMA);
+         if(regimePip <= 0.0 || rsiRegimeClose <= 0.0 || rsiRegimeFastEma <= 0.0 || rsiRegimeSlowEma <= 0.0 || rsiRegimeSlowEmaThen <= 0.0)
+         {
+            rsiRegimeFilterReady = false;
+            rsiRegimeFilterReason = "EMA_NOT_READY";
+         }
+         else
+         {
+            rsiRegimeFastMinusSlowPips = (rsiRegimeFastEma - rsiRegimeSlowEma) / regimePip;
+            rsiRegimeDistanceFromSlowPips = (rsiRegimeClose - rsiRegimeSlowEma) / regimePip;
+            rsiRegimeSlowSlopePips = (rsiRegimeSlowEma - rsiRegimeSlowEmaThen) / regimePip;
+            string upperRegimeMode = ToUpperString(rsiRegimeFilterMode);
+            if(upperRegimeMode == "P4_10E_RSI_BEARISH_STRETCH")
+            {
+               rsiRegimeFilterPass = (direction == "LONG" &&
+                                      rsiRegimeFastMinusSlowPips >= rsiRegimeFilterMinFastMinusSlowPips &&
+                                      rsiRegimeFastMinusSlowPips <= rsiRegimeFilterMaxFastMinusSlowPips &&
+                                      rsiRegimeDistanceFromSlowPips >= rsiRegimeFilterMinDistanceFromSlowPips &&
+                                      rsiRegimeDistanceFromSlowPips <= rsiRegimeFilterMaxDistanceFromSlowPips &&
+                                      rsiRegimeSlowSlopePips >= rsiRegimeFilterMinSlowSlopePips &&
+                                      rsiRegimeSlowSlopePips <= rsiRegimeFilterMaxSlowSlopePips);
+               rsiRegimeFilterReason = rsiRegimeFilterPass ? "PASS" : "BEARISH_STRETCH_FILTER";
+            }
+            else
+            {
+               rsiRegimeFilterPass = true;
+               rsiRegimeFilterReason = "UNSUPPORTED_MODE_PASS_THROUGH";
+            }
+         }
+      }
+   }
+   bool rsiLongSignal = (rsiCrossbackSignal && rsiMaxCrossbackPass && rsiRegimeFilterPass);
    bool rsiAdverseGuardLoaded = (StringLen(rsiAdverseGuardMode) > 0);
    bool rsiAdverseGuardRangeReady = false;
    bool rsiAdverseGuardRangePass = true;
@@ -6932,6 +7059,18 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          blocker = "RSI_ADVERSE_GUARD_RANGE_BLOCK";
          reason = "frozen RSI adverse guard 发现入场前波动范围偏大；EA 只记录 shadow 阻断，不影响实盘。";
       }
+      else if(rsiCrossbackSignal && !rsiMaxCrossbackPass)
+      {
+         status = "SHADOW_GUARD_BLOCKED";
+         blocker = "RSI_MAX_CROSSBACK_BLOCK";
+         reason = "EA 按 backtest/replay crossback-only 口径看到 crossback，但 maxCrossbackRsi 上限未通过；仅记录 shadow 阻断。";
+      }
+      else if(rsiCrossbackSignal && rsiMaxCrossbackPass && !rsiRegimeFilterPass)
+      {
+         status = "SHADOW_GUARD_BLOCKED";
+         blocker = "RSI_REGIME_FILTER_BLOCK";
+         reason = "EA 按 Strategy JSON RSI regimeFilter 阻断该 crossback；仅记录 shadow 阻断，不影响实盘。";
+      }
       else if(rsiLongSignal)
       {
          status = "SHADOW_WOULD_ENTER";
@@ -6976,6 +7115,30 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"rsiClosed2\":" + FormatNumber(rsi2, 4) + ",";
    json += "\"rsiBuyBand\":" + FormatNumber(effectiveBuyBand, 4) + ",";
    json += "\"rsiCrossbackThreshold\":" + FormatNumber(effectiveThreshold, 4) + ",";
+   json += "\"rsiMaxCrossbackRsi\":" + FormatNumber(effectiveMaxCrossbackRsi, 4) + ",";
+   json += "\"rsiTriggerRule\":\"" + JsonEscape(effectiveRsiTriggerRule) + "\",";
+   json += "\"rsiCrossbackSignal\":" + JsonBool(rsiCrossbackSignal) + ",";
+   json += "\"rsiMaxCrossbackPass\":" + JsonBool(rsiMaxCrossbackPass) + ",";
+   json += "\"rsiRegimeFilter\":{\"loaded\":" + JsonBool(rsiRegimeFilterLoaded) + ",";
+   json += "\"mode\":\"" + JsonEscape(rsiRegimeFilterMode) + "\",";
+   json += "\"allowedHoursUtc\":\"" + JsonEscape(rsiRegimeFilterAllowedHoursUtc) + "\",";
+   json += "\"hourUtc\":" + IntegerToString(rsiRegimeFilterHourUtc) + ",";
+   json += "\"hourPass\":" + JsonBool(rsiRegimeFilterHourPass) + ",";
+   json += "\"ready\":" + JsonBool(rsiRegimeFilterReady) + ",";
+   json += "\"pass\":" + JsonBool(rsiRegimeFilterPass) + ",";
+   json += "\"reason\":\"" + JsonEscape(rsiRegimeFilterReason) + "\",";
+   json += "\"emaFastPeriod\":" + IntegerToString(effectiveRsiRegimeFastPeriod) + ",";
+   json += "\"emaSlowPeriod\":" + IntegerToString(effectiveRsiRegimeSlowPeriod) + ",";
+   json += "\"slopeLookbackBars\":" + IntegerToString(effectiveRsiRegimeSlopeLookbackBars) + ",";
+   json += "\"fastMinusSlowPips\":" + FormatNumber(rsiRegimeFastMinusSlowPips, 2) + ",";
+   json += "\"distanceFromSlowPips\":" + FormatNumber(rsiRegimeDistanceFromSlowPips, 2) + ",";
+   json += "\"slowSlopePips\":" + FormatNumber(rsiRegimeSlowSlopePips, 2) + ",";
+   json += "\"minFastMinusSlowPips\":" + FormatNumber(rsiRegimeFilterMinFastMinusSlowPips, 2) + ",";
+   json += "\"maxFastMinusSlowPips\":" + FormatNumber(rsiRegimeFilterMaxFastMinusSlowPips, 2) + ",";
+   json += "\"minDistanceFromSlowPips\":" + FormatNumber(rsiRegimeFilterMinDistanceFromSlowPips, 2) + ",";
+   json += "\"maxDistanceFromSlowPips\":" + FormatNumber(rsiRegimeFilterMaxDistanceFromSlowPips, 2) + ",";
+   json += "\"minSlowSlopePips\":" + FormatNumber(rsiRegimeFilterMinSlowSlopePips, 2) + ",";
+   json += "\"maxSlowSlopePips\":" + FormatNumber(rsiRegimeFilterMaxSlowSlopePips, 2) + "},";
    json += "\"rsiAdverseGuard\":{\"loaded\":" + JsonBool(rsiAdverseGuardLoaded) + ",";
    json += "\"mode\":\"" + JsonEscape(rsiAdverseGuardMode) + "\",";
    json += "\"maxEarlyAdverseR\":" + FormatNumber(rsiAdverseGuardMaxEarlyAdverseR, 4) + ",";

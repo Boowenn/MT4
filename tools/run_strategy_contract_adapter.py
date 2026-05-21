@@ -14,6 +14,7 @@ from strategy_contract_adapter.builder import (
     build_strategy_contract,
     build_rsi_trigger_alignment_audit,
     read_strategy_contract_status,
+    refresh_active_strategy_contract,
 )
 from strategy_contract_adapter.telegram_text import contract_to_chinese_text
 from usdjpy_evidence_os.telegram_gateway import dispatch_text
@@ -57,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--seed-id")
     build.add_argument("--family")
     build.add_argument("--frozen-rsi", action="store_true")
+    sub.add_parser("refresh-active")
     frozen = sub.add_parser("build-frozen-rsi")
     frozen.add_argument("--observe", action="store_true")
     observe = sub.add_parser("rsi-shadow-observation")
@@ -96,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
                 force_frozen_rsi=args.frozen_rsi,
             )
         )
+    if args.command == "refresh-active":
+        return emit(refresh_active_strategy_contract(runtime_dir, write=True))
     if args.command == "build-frozen-rsi":
         payload = build_strategy_contract(runtime_dir, write=True, force_frozen_rsi=True)
         if args.observe:

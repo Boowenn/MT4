@@ -57,7 +57,13 @@ test('Strategy JSON contract backend writes only shadow/tester/paper adapter fil
     'rsi-opportunity-layer-audit',
     'RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE',
     'rsi-trigger-alignment-audit',
+    'refresh-active',
+    'refresh_active_strategy_contract',
     'force_frozen_rsi',
+    'rsiMaxCrossbackRsi',
+    'rsiTriggerRule',
+    'BACKTEST_CROSSBACK_ONLY',
+    'rsiRegimeFilterMode',
     'rsiAdverseGuardMode',
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -120,6 +126,12 @@ test('MQL5 adapter is read-only and cannot affect live execution', () => {
     'livePresetMutationAllowed',
     'wouldAffectLive',
     'rsiAdverseGuard',
+    'rsiMaxCrossbackRsi',
+    'rsiTriggerRule',
+    'BACKTEST_CROSSBACK_ONLY',
+    'rsiRegimeFilter',
+    'RSI_MAX_CROSSBACK_BLOCK',
+    'RSI_REGIME_FILTER_BLOCK',
     'RSI_ADVERSE_GUARD_RANGE_BLOCK',
   ]) {
     assert.match(block, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

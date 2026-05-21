@@ -325,6 +325,7 @@ def _strategy_summary(strategy_json: Dict[str, Any]) -> Dict[str, Any]:
     exit_plan = strategy_json.get("exit") if isinstance(strategy_json.get("exit"), dict) else {}
     risk = strategy_json.get("risk") if isinstance(strategy_json.get("risk"), dict) else {}
     entry = strategy_json.get("entry") if isinstance(strategy_json.get("entry"), dict) else {}
+    regime_filter = rsi.get("regimeFilter") if isinstance(rsi.get("regimeFilter"), dict) else {}
     family_parameters = {
         "ma": indicators.get("ma") if isinstance(indicators.get("ma"), dict) else {},
         "bollinger": indicators.get("bollinger") if isinstance(indicators.get("bollinger"), dict) else {},
@@ -350,6 +351,9 @@ def _strategy_summary(strategy_json: Dict[str, Any]) -> Dict[str, Any]:
             "timeframe": rsi.get("timeframe") or "H1",
             "buyBand": float(rsi.get("buyBand", 34)),
             "crossbackThreshold": float(rsi.get("crossbackThreshold", 0.8)),
+            "maxCrossbackRsi": float(rsi.get("maxCrossbackRsi", 100.0)),
+            "triggerRule": "BACKTEST_CROSSBACK_ONLY",
+            "regimeFilter": regime_filter,
             "adverseExcursionGuard": (
                 rsi.get("adverseExcursionGuard")
                 if isinstance(rsi.get("adverseExcursionGuard"), dict)
@@ -375,6 +379,7 @@ def _build_ea_text(contract: Dict[str, Any]) -> str:
     strategy = contract["strategy"]
     rsi = strategy["rsi"]
     adverse_guard = rsi.get("adverseExcursionGuard") if isinstance(rsi.get("adverseExcursionGuard"), dict) else {}
+    regime_filter = rsi.get("regimeFilter") if isinstance(rsi.get("regimeFilter"), dict) else {}
     family_params = strategy.get("familyParameters") if isinstance(strategy.get("familyParameters"), dict) else {}
     ma = family_params.get("ma") if isinstance(family_params.get("ma"), dict) else {}
     bollinger = family_params.get("bollinger") if isinstance(family_params.get("bollinger"), dict) else {}
@@ -406,6 +411,19 @@ def _build_ea_text(contract: Dict[str, Any]) -> str:
         "rsiTimeframe": rsi.get("timeframe"),
         "rsiBuyBand": rsi.get("buyBand"),
         "rsiCrossbackThreshold": rsi.get("crossbackThreshold"),
+        "rsiMaxCrossbackRsi": rsi.get("maxCrossbackRsi"),
+        "rsiTriggerRule": rsi.get("triggerRule") or "BACKTEST_CROSSBACK_ONLY",
+        "rsiRegimeFilterMode": regime_filter.get("mode"),
+        "rsiRegimeFilterAllowedHoursUtc": regime_filter.get("allowedHoursUtc"),
+        "rsiRegimeFilterEmaFastPeriod": regime_filter.get("emaFastPeriod"),
+        "rsiRegimeFilterEmaSlowPeriod": regime_filter.get("emaSlowPeriod"),
+        "rsiRegimeFilterSlopeLookbackBars": regime_filter.get("slopeLookbackBars"),
+        "rsiRegimeFilterMinFastMinusSlowPips": regime_filter.get("minFastMinusSlowPips"),
+        "rsiRegimeFilterMaxFastMinusSlowPips": regime_filter.get("maxFastMinusSlowPips"),
+        "rsiRegimeFilterMinDistanceFromSlowPips": regime_filter.get("minDistanceFromSlowPips"),
+        "rsiRegimeFilterMaxDistanceFromSlowPips": regime_filter.get("maxDistanceFromSlowPips"),
+        "rsiRegimeFilterMinSlowSlopePips": regime_filter.get("minSlowSlopePips"),
+        "rsiRegimeFilterMaxSlowSlopePips": regime_filter.get("maxSlowSlopePips"),
         "rsiAdverseGuardMode": adverse_guard.get("mode"),
         "rsiAdverseGuardMaxEarlyAdverseR": adverse_guard.get("maxEarlyAdverseR"),
         "rsiAdverseGuardMaxEntryRangePips": adverse_guard.get("maxEntryRangePips"),
@@ -571,6 +589,54 @@ def build_strategy_contract(
         ea_text = _build_ea_text(contract)
         for base in (runtime_dir, contract_dir(runtime_dir)):
             _write_json(base / CONTRACT_JSON_FILE, contract)
+            _write_json(base / CONTRACT_STATUS_FILE, status)
+            (base / CONTRACT_EA_FILE).write_text(ea_text, encoding="utf-8")
+    return status
+
+
+def refresh_active_strategy_contract(runtime_dir: Path, *, write: bool = True) -> Dict[str, Any]:
+    runtime_dir = Path(runtime_dir)
+    existing_status = _load_json(runtime_dir / CONTRACT_STATUS_FILE) or _load_json(
+        contract_dir(runtime_dir) / CONTRACT_STATUS_FILE
+    )
+    contract = existing_status.get("contract") if isinstance(existing_status.get("contract"), dict) else {}
+    if not contract:
+        contract = _load_json(runtime_dir / CONTRACT_JSON_FILE) or _load_json(contract_dir(runtime_dir) / CONTRACT_JSON_FILE)
+    strategy_json = contract.get("strategyJson") if isinstance(contract.get("strategyJson"), dict) else {}
+    if not strategy_json:
+        raise ValueError("Active Strategy JSON EA contract is missing strategyJson; cannot refresh without rotating seed.")
+    now = utc_now_iso()
+    refreshed_contract = {
+        **contract,
+        "ok": True,
+        "schema": CONTRACT_SCHEMA,
+        "agentVersion": AGENT_VERSION,
+        "generatedAt": now,
+        "singleSourceOfTruth": "STRATEGY_JSON_EA_CONTRACT_ADAPTER",
+        "fingerprint": strategy_fingerprint(strategy_json),
+        "strategy": _strategy_summary(strategy_json),
+        "strategyJson": strategy_json,
+        "safety": dict(SAFETY_BOUNDARY),
+    }
+    status = {
+        **existing_status,
+        "ok": True,
+        "schema": "quantgod.strategy_json_ea_contract_status.v1",
+        "agentVersion": AGENT_VERSION,
+        "updatedAt": now,
+        "status": "CONTRACT_REFRESHED" if write else "CONTRACT_REFRESH_PREVIEW",
+        "contract": refreshed_contract,
+        "eaStatus": _read_ea_status(runtime_dir),
+        "eaShadowEvaluation": _read_shadow_evaluation_status(runtime_dir),
+        "eaShadowEvaluationRecent": _read_shadow_evaluation_ledger(runtime_dir, limit=20),
+        "safety": dict(SAFETY_BOUNDARY),
+    }
+    if write:
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        contract_dir(runtime_dir).mkdir(parents=True, exist_ok=True)
+        ea_text = _build_ea_text(refreshed_contract)
+        for base in (runtime_dir, contract_dir(runtime_dir)):
+            _write_json(base / CONTRACT_JSON_FILE, refreshed_contract)
             _write_json(base / CONTRACT_STATUS_FILE, status)
             (base / CONTRACT_EA_FILE).write_text(ea_text, encoding="utf-8")
     return status
@@ -1139,6 +1205,7 @@ def _rsi_parameter_snapshot(rsi: Dict[str, Any]) -> Dict[str, Any]:
         "buyBand": rsi.get("buyBand"),
         "crossbackThreshold": rsi.get("crossbackThreshold"),
         "maxCrossbackRsi": rsi.get("maxCrossbackRsi"),
+        "triggerRule": rsi.get("triggerRule"),
         "regimeFilterMode": regime.get("mode"),
         "regimeFilterEnabled": _rsi_regime_filter_enabled(regime),
         "adverseExcursionGuard": (
@@ -1155,7 +1222,14 @@ def _rsi_trigger_parameter_parity(
         "timeframeValues": _unique_row_values(rows, "timeframe"),
         "buyBandValues": _unique_row_values(rows, "rsiBuyBand"),
         "crossbackThresholdValues": _unique_row_values(rows, "rsiCrossbackThreshold"),
+        "maxCrossbackRsiValues": _unique_row_values(rows, "rsiMaxCrossbackRsi"),
+        "triggerRuleValues": _unique_row_values(rows, "rsiTriggerRule"),
+        "regimeFilterModeValues": _unique_nested_row_values(rows, "rsiRegimeFilter", "mode"),
     }
+    regime = strategy_json_rsi.get("regimeFilter") if isinstance(strategy_json_rsi.get("regimeFilter"), dict) else {}
+    contract_regime = contract_rsi.get("regimeFilter") if isinstance(contract_rsi.get("regimeFilter"), dict) else {}
+    regime_enabled = _rsi_regime_filter_enabled(regime)
+    contract_regime_enabled = _rsi_regime_filter_enabled(contract_regime)
     contract_checks = {
         "period": _all_values_match(ledger_observed["periodValues"], contract_rsi.get("period")),
         "timeframe": _all_values_match(ledger_observed["timeframeValues"], contract_rsi.get("timeframe")),
@@ -1163,6 +1237,12 @@ def _rsi_trigger_parameter_parity(
         "crossbackThreshold": _all_values_match(
             ledger_observed["crossbackThresholdValues"], contract_rsi.get("crossbackThreshold")
         ),
+        "maxCrossbackRsi": _all_values_match(
+            ledger_observed["maxCrossbackRsiValues"], contract_rsi.get("maxCrossbackRsi")
+        ),
+        "triggerRule": _all_values_match(ledger_observed["triggerRuleValues"], contract_rsi.get("triggerRule")),
+        "regimeFilterMode": (not contract_regime_enabled)
+        or _all_values_match(ledger_observed["regimeFilterModeValues"], contract_regime.get("mode")),
     }
     strategy_contract_checks = {
         "period": _values_match(contract_rsi.get("period"), strategy_json_rsi.get("period")),
@@ -1171,6 +1251,10 @@ def _rsi_trigger_parameter_parity(
         "crossbackThreshold": _values_match(
             contract_rsi.get("crossbackThreshold"), strategy_json_rsi.get("crossbackThreshold")
         ),
+        "maxCrossbackRsi": _values_match(
+            contract_rsi.get("maxCrossbackRsi"), strategy_json_rsi.get("maxCrossbackRsi", 100.0)
+        ),
+        "regimeFilterMode": (not regime_enabled) or _values_match(contract_regime.get("mode"), regime.get("mode")),
     }
     return {
         "ledgerObserved": ledger_observed,
@@ -1191,6 +1275,22 @@ def _unique_row_values(rows: List[Dict[str, Any]], key: str, limit: int = 10) ->
     seen: set[str] = set()
     for row in rows:
         value = row.get(key)
+        marker = str(value)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        values.append(value)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def _unique_nested_row_values(rows: List[Dict[str, Any]], outer_key: str, inner_key: str, limit: int = 10) -> List[Any]:
+    values: List[Any] = []
+    seen: set[str] = set()
+    for row in rows:
+        nested = row.get(outer_key) if isinstance(row.get(outer_key), dict) else {}
+        value = nested.get(inner_key)
         marker = str(value)
         if marker in seen:
             continue
@@ -1248,7 +1348,9 @@ def _rsi_trigger_telemetry(rows: List[Dict[str, Any]], rsi: Dict[str, Any]) -> D
         capped_backtest_cross = backtest_cross and rsi1 <= max_crossback
         if backtest_cross and rsi1 > max_crossback:
             max_crossback_rejected += 1
-        ea_signal = direct_oversold or (rsi2 < buy_band and rsi1 > buy_band + threshold)
+        regime_filter = row.get("rsiRegimeFilter") if isinstance(row.get("rsiRegimeFilter"), dict) else {}
+        regime_pass = bool(regime_filter.get("pass", True))
+        ea_signal = capped_backtest_cross and regime_pass
         ledger = bool(row.get("rsiLongSignal"))
         current_at_or_below += int(direct_oversold)
         previous_at_or_below += int(rsi2 <= buy_band)
@@ -1316,7 +1418,8 @@ def _rsi_trigger_adapter_coverage(
     )
     regime_enabled = _rsi_regime_filter_enabled(regime)
     regime_propagated = (not regime_enabled) or bool(contract_regime)
-    rule_gap = True
+    contract_trigger_rule = str(contract_rsi.get("triggerRule") or "")
+    rule_gap = contract_trigger_rule != "BACKTEST_CROSSBACK_ONLY"
     material_gap = (not max_crossback_propagated) or (not regime_propagated) or bool(
         rule_gap
     )
@@ -1327,12 +1430,17 @@ def _rsi_trigger_adapter_coverage(
         gaps.append("maxCrossbackRsi 未进入 EA contract/ledger")
     if not regime_propagated:
         gaps.append("regimeFilter 未进入 EA contract/ledger")
-    if trigger_telemetry.get("eaDirectOversoldOnlyCount", 0):
+    if rule_gap and trigger_telemetry.get("eaDirectOversoldOnlyCount", 0):
         gaps.append("EA adapter 的 direct oversold 分支会产生 backtest crossback 之外的信号")
     return {
         "backtestRule": "previous_rsi <= buyBand && current_rsi >= buyBand + crossbackThreshold && current_rsi <= maxCrossbackRsi，再经过 regime/adverse guard。",
-        "eaAdapterRuleObserved": "rsiClosed1 <= buyBand OR (rsiClosed2 < buyBand && rsiClosed1 > buyBand + crossbackThreshold)，再经过 adverse range guard。",
+        "eaAdapterRuleObserved": (
+            "previous_rsi <= buyBand && current_rsi >= buyBand + crossbackThreshold && current_rsi <= maxCrossbackRsi，再经过 regime/adverse guard。"
+            if not rule_gap
+            else "rsiClosed1 <= buyBand OR (rsiClosed2 < buyBand && rsiClosed1 > buyBand + crossbackThreshold)，再经过 adverse range guard。"
+        ),
         "ruleShapeGapKnown": rule_gap,
+        "contractTriggerRule": contract_trigger_rule or None,
         "strategyJsonHasNonDefaultMaxCrossbackRsi": strategy_has_non_default_max_crossback,
         "maxCrossbackRsiPropagated": max_crossback_propagated,
         "strategyJsonRegimeFilterEnabled": regime_enabled,

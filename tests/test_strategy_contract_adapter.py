@@ -11,10 +11,12 @@ from tools.strategy_contract_adapter.builder import (
     build_strategy_contract,
     build_rsi_trigger_alignment_audit,
     read_strategy_contract_status,
+    refresh_active_strategy_contract,
 )
 from tools.strategy_contract_adapter.schema import (
     CONTRACT_EA_FILE,
     CONTRACT_JSON_FILE,
+    CONTRACT_STATUS_FILE,
     EA_STATUS_FILE,
     EA_SHADOW_EVALUATION_LEDGER_FILE,
     EA_SHADOW_EVALUATION_STATUS_FILE,
@@ -97,6 +99,8 @@ class StrategyContractAdapterTests(unittest.TestCase):
             self.assertIn("tokyoTradeStartHourUtc=", ea_text)
             self.assertIn("nightBollingerPeriod=", ea_text)
             self.assertIn("h4FastEmaPeriod=", ea_text)
+            self.assertIn("rsiMaxCrossbackRsi=", ea_text)
+            self.assertIn("rsiTriggerRule=BACKTEST_CROSSBACK_ONLY", ea_text)
 
     def test_contract_preserves_family_specific_parameters_for_ea_shadow_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -248,10 +252,49 @@ class StrategyContractAdapterTests(unittest.TestCase):
             self.assertEqual(contract["selectedSeedId"], "GA-USDJPY-FROZEN-RSI")
             self.assertEqual(contract["strategy"]["qualityProfile"], "RSI_REVERSAL_GUARDED_SAMPLE_RECOVERY")
             self.assertEqual(contract["strategy"]["rsi"]["adverseExcursionGuard"]["maxEntryRangePips"], 64)
+            self.assertEqual(contract["strategy"]["rsi"]["triggerRule"], "BACKTEST_CROSSBACK_ONLY")
             self.assertIn("qualityProfile=RSI_REVERSAL_GUARDED_SAMPLE_RECOVERY", ea_text)
             self.assertIn("rsiAdverseGuardMode=P4_10G_RSI_ADVERSE_EXCURSION", ea_text)
             self.assertIn("rsiAdverseGuardMaxEntryRangePips=64", ea_text)
+            self.assertIn("rsiMaxCrossbackRsi=", ea_text)
+            self.assertIn("rsiTriggerRule=BACKTEST_CROSSBACK_ONLY", ea_text)
             self.assertFalse(contract["safety"]["orderSendAllowed"])
+
+    def test_refresh_active_contract_preserves_seed_and_regenerates_rsi_adapter_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            frozen = self._write_frozen_rsi_lineage(runtime, seed_id="GA-USDJPY-G0077-C0002")
+            rsi = frozen["strategyJson"]["indicators"]["rsi"]
+            rsi["maxCrossbackRsi"] = 39.0
+            rsi["regimeFilter"] = {
+                "mode": "P4_10E_RSI_BEARISH_STRETCH",
+                "allowedHoursUtc": [0, 1, 2, 10, 11],
+                "emaFastPeriod": 20,
+                "emaSlowPeriod": 50,
+                "slopeLookbackBars": 3,
+            }
+            frozen_path = ga_dir(runtime) / FROZEN_RSI_LINEAGE_FILE
+            frozen_path.write_text(json.dumps(frozen, ensure_ascii=False), encoding="utf-8")
+            build_strategy_contract(runtime, write=True, force_frozen_rsi=True)
+            legacy_contract = json.loads((runtime / CONTRACT_JSON_FILE).read_text(encoding="utf-8"))
+            legacy_contract["strategy"]["rsi"].pop("maxCrossbackRsi", None)
+            legacy_contract["strategy"]["rsi"].pop("regimeFilter", None)
+            (runtime / CONTRACT_JSON_FILE).write_text(json.dumps(legacy_contract, ensure_ascii=False), encoding="utf-8")
+            legacy_status = json.loads((runtime / CONTRACT_STATUS_FILE).read_text(encoding="utf-8"))
+            legacy_status["contract"] = legacy_contract
+            (runtime / CONTRACT_STATUS_FILE).write_text(json.dumps(legacy_status, ensure_ascii=False), encoding="utf-8")
+
+            payload = refresh_active_strategy_contract(runtime, write=True)
+            contract = payload["contract"]
+            ea_text = (runtime / CONTRACT_EA_FILE).read_text(encoding="utf-8")
+
+            self.assertEqual(contract["selectedSeedId"], "GA-USDJPY-G0077-C0002")
+            self.assertEqual(contract["selectionSource"], "P4_10J_FROZEN_RSI_SEED")
+            self.assertEqual(contract["strategy"]["rsi"]["maxCrossbackRsi"], 39.0)
+            self.assertEqual(contract["strategy"]["rsi"]["regimeFilter"]["mode"], "P4_10E_RSI_BEARISH_STRETCH")
+            self.assertIn("rsiMaxCrossbackRsi=39.0", ea_text)
+            self.assertIn("rsiRegimeFilterMode=P4_10E_RSI_BEARISH_STRETCH", ea_text)
+            self.assertIn("rsiTriggerRule=BACKTEST_CROSSBACK_ONLY", ea_text)
 
     def test_forced_rotation_rejects_missing_family_without_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -517,8 +560,11 @@ class StrategyContractAdapterTests(unittest.TestCase):
                     "timeframe": "H1",
                     "rsiBuyBand": 31.0,
                     "rsiCrossbackThreshold": 0.5,
+                    "rsiMaxCrossbackRsi": 39.0,
+                    "rsiTriggerRule": "BACKTEST_CROSSBACK_ONLY",
                     "rsiClosed1": 47.0,
                     "rsiClosed2": 49.0,
+                    "rsiRegimeFilter": {"loaded": True, "mode": "P4_10E_RSI_BEARISH_STRETCH", "pass": True},
                     "rsiAdverseGuard": {"loaded": True, "mode": "P4_10G_RSI_ADVERSE_EXCURSION", "rangePass": True},
                 },
                 {
@@ -537,8 +583,11 @@ class StrategyContractAdapterTests(unittest.TestCase):
                     "timeframe": "H1",
                     "rsiBuyBand": 31.0,
                     "rsiCrossbackThreshold": 0.5,
+                    "rsiMaxCrossbackRsi": 39.0,
+                    "rsiTriggerRule": "BACKTEST_CROSSBACK_ONLY",
                     "rsiClosed1": 44.0,
                     "rsiClosed2": 46.0,
+                    "rsiRegimeFilter": {"loaded": True, "mode": "P4_10E_RSI_BEARISH_STRETCH", "pass": True},
                     "rsiAdverseGuard": {"loaded": True, "mode": "P4_10G_RSI_ADVERSE_EXCURSION", "rangePass": True},
                 },
             ]
@@ -551,13 +600,15 @@ class StrategyContractAdapterTests(unittest.TestCase):
             report = build_rsi_trigger_alignment_audit(runtime, write=True)
 
             self.assertEqual(report["phase"], "P4_10L_RSI_TRIGGER_ALIGNMENT_AUDIT")
-            self.assertEqual(report["status"], "WARN")
+            self.assertEqual(report["status"], "WATCH")
             self.assertTrue(report["parameterParity"]["contractToLedgerAllPass"])
+            self.assertTrue(report["parameterParity"]["strategyJsonToContractAllPass"])
             self.assertEqual(report["triggerTelemetry"]["currentAtOrBelowBuyBandCount"], 0)
             self.assertEqual(report["triggerTelemetry"]["backtestCrossbackCount"], 0)
             self.assertGreater(report["triggerTelemetry"]["rsiClosed1MinusBuyBandDistribution"]["min"], 5)
-            self.assertEqual(report["decision"]["label"], "RSI_FAR_FROM_BUY_BAND_WITH_ADAPTER_COVERAGE_GAP")
-            self.assertIn("RSI_TRIGGER_ADAPTER_COVERAGE_GAP", {blocker.get("code") for blocker in report["blockers"]})
+            self.assertEqual(report["decision"]["label"], "RSI_FAR_FROM_BUY_BAND")
+            self.assertFalse(report["adapterCoverage"]["materialCoverageGap"])
+            self.assertNotIn("RSI_TRIGGER_ADAPTER_COVERAGE_GAP", {blocker.get("code") for blocker in report["blockers"]})
             self.assertTrue((runtime / "strategy_contract" / RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE).exists())
 
     def test_ea_shadow_evaluation_feeds_case_memory_and_ga_seed_hint(self) -> None:
