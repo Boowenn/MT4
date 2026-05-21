@@ -12,6 +12,7 @@ from strategy_contract_adapter.builder import (
     build_rsi_opportunity_layer_audit,
     build_rsi_shadow_contract_observation,
     build_strategy_contract,
+    build_rsi_trigger_alignment_audit,
     read_strategy_contract_status,
 )
 from strategy_contract_adapter.telegram_text import contract_to_chinese_text
@@ -62,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     observe.add_argument("--write", action="store_true")
     opportunity_audit = sub.add_parser("rsi-opportunity-layer-audit")
     opportunity_audit.add_argument("--write", action="store_true")
+    trigger_audit = sub.add_parser("rsi-trigger-alignment-audit")
+    trigger_audit.add_argument("--write", action="store_true")
     text = sub.add_parser("telegram-text")
     text.add_argument("--refresh", action="store_true")
     text.add_argument("--send", action="store_true")
@@ -102,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         return emit(build_rsi_shadow_contract_observation(runtime_dir, write=args.write))
     if args.command == "rsi-opportunity-layer-audit":
         return emit(build_rsi_opportunity_layer_audit(runtime_dir, write=args.write))
+    if args.command == "rsi-trigger-alignment-audit":
+        return emit(build_rsi_trigger_alignment_audit(runtime_dir, write=args.write))
     if args.command == "telegram-text":
         payload = (
             build_strategy_contract(

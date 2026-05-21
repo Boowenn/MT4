@@ -32,6 +32,7 @@ from .schema import (
     FROZEN_RSI_LINEAGE_FILE,
     RSI_OPPORTUNITY_LAYER_AUDIT_REPORT_FILE,
     RSI_SHADOW_OBSERVATION_REPORT_FILE,
+    RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE,
     SAFETY_BOUNDARY,
     contract_dir,
     utc_now_iso,
@@ -724,6 +725,102 @@ def build_rsi_opportunity_layer_audit(runtime_dir: Path, *, write: bool = True) 
     return report
 
 
+def build_rsi_trigger_alignment_audit(runtime_dir: Path, *, write: bool = True) -> Dict[str, Any]:
+    runtime_dir = Path(runtime_dir)
+    lineage_file = _load_frozen_rsi_lineage(runtime_dir)
+    contract_status = _load_json(runtime_dir / CONTRACT_STATUS_FILE) or _load_json(
+        contract_dir(runtime_dir) / CONTRACT_STATUS_FILE
+    )
+    contract = contract_status.get("contract") if isinstance(contract_status.get("contract"), dict) else {}
+    if not contract:
+        contract = _load_json(runtime_dir / CONTRACT_JSON_FILE) or _load_json(contract_dir(runtime_dir) / CONTRACT_JSON_FILE)
+    frozen, lineage_source = _rsi_observation_lineage_snapshot(contract, lineage_file)
+    frozen_seed_id = str(frozen.get("selectedSeedId") or "")
+    frozen_fingerprint = str(frozen.get("selectedFingerprint") or "")
+    lineage_file_state = _lineage_file_state(lineage_file, frozen)
+    shadow_status = _read_shadow_evaluation_status(runtime_dir)
+    rows = _read_shadow_evaluation_ledger(runtime_dir, limit=4096)
+    if shadow_status:
+        rows.append(shadow_status)
+    matching = _dedupe_shadow_rows(
+        [row for row in rows if _row_matches_frozen_seed(row, frozen_seed_id, frozen_fingerprint)]
+    )
+    contract_rotated = bool(frozen_seed_id) and str(contract.get("selectedSeedId") or "") == frozen_seed_id
+    contract_strategy = contract.get("strategy") if isinstance(contract.get("strategy"), dict) else {}
+    contract_rsi = contract_strategy.get("rsi") if isinstance(contract_strategy.get("rsi"), dict) else {}
+    strategy_json = contract.get("strategyJson") if isinstance(contract.get("strategyJson"), dict) else {}
+    strategy_json_rsi = (
+        ((strategy_json.get("indicators") or {}).get("rsi") or {})
+        if isinstance(strategy_json.get("indicators"), dict)
+        else {}
+    )
+    rsi_source = strategy_json_rsi if strategy_json_rsi else contract_rsi
+    parameter_parity = _rsi_trigger_parameter_parity(matching, contract_rsi, strategy_json_rsi)
+    trigger_telemetry = _rsi_trigger_telemetry(matching, rsi_source)
+    adapter_coverage = _rsi_trigger_adapter_coverage(contract_rsi, strategy_json_rsi, trigger_telemetry)
+    reference_alignment = _rsi_trigger_reference_alignment(runtime_dir, frozen, lineage_file_state)
+    legacy_diagnostics = _rsi_legacy_diagnostics_summary(runtime_dir, rsi_source)
+    blockers: List[Dict[str, Any]] = []
+    if not frozen_seed_id:
+        blockers.append({"code": "NO_FROZEN_RSI_LINEAGE", "reasonZh": "缺少 P4-10I/P4-10J frozen RSI lineage 快照。"})
+    if not contract_rotated:
+        blockers.append({"code": "FROZEN_RSI_CONTRACT_NOT_ROTATED", "reasonZh": "EA contract 尚未轮换到 frozen RSI seed。"})
+    if not matching:
+        blockers.append({"code": "WAITING_FROZEN_RSI_SHADOW_LEDGER", "reasonZh": "等待 frozen RSI seed 的 EA shadow ledger 后再复核 RSI trigger。"})
+    if not parameter_parity.get("contractToLedgerAllPass"):
+        blockers.append({"code": "RSI_CONTRACT_LEDGER_PARAMETER_MISMATCH", "reasonZh": "EA ledger 的 RSI period/timeframe/buyBand/crossback 与 active contract 不一致。"})
+    if not parameter_parity.get("strategyJsonToContractAllPass"):
+        blockers.append({"code": "RSI_STRATEGY_JSON_CONTRACT_PARAMETER_MISMATCH", "reasonZh": "Strategy JSON 与 EA contract 的核心 RSI 参数不一致。"})
+    if adapter_coverage.get("materialCoverageGap"):
+        blockers.append({"code": "RSI_TRIGGER_ADAPTER_COVERAGE_GAP", "reasonZh": adapter_coverage.get("reasonZh")})
+    if trigger_telemetry.get("ledgerSignalMismatchCount"):
+        blockers.append({"code": "RSI_TRIGGER_RECOMPUTE_MISMATCH", "reasonZh": "按 ledger RSI 值重算的 EA trigger 与 rsiLongSignal 字段不一致。"})
+    status = _rsi_trigger_alignment_status(blockers, trigger_telemetry)
+    decision = _rsi_trigger_alignment_decision(parameter_parity, trigger_telemetry, adapter_coverage)
+    report = {
+        "ok": True,
+        "schema": "quantgod.rsi_trigger_alignment_audit.v1",
+        "generatedAt": utc_now_iso(),
+        "status": status,
+        "phase": "P4_10L_RSI_TRIGGER_ALIGNMENT_AUDIT",
+        "lineageSource": lineage_source,
+        "frozenSeedId": frozen_seed_id or None,
+        "frozenFingerprint": frozen_fingerprint or None,
+        "lineageFile": lineage_file_state,
+        "contractRotation": {
+            "selectedSeedId": contract.get("selectedSeedId"),
+            "selectionSource": contract.get("selectionSource"),
+            "forceFrozenRsi": bool(contract.get("forceFrozenRsi")),
+            "matchesFrozenSeed": contract_rotated,
+            "contractMode": contract.get("contractMode"),
+        },
+        "rsiParameters": {
+            "contract": _rsi_parameter_snapshot(contract_rsi),
+            "strategyJson": _rsi_parameter_snapshot(strategy_json_rsi),
+            "ledger": parameter_parity.get("ledgerObserved"),
+        },
+        "parameterParity": parameter_parity,
+        "triggerTelemetry": trigger_telemetry,
+        "adapterCoverage": adapter_coverage,
+        "referenceAlignment": reference_alignment,
+        "legacyDiagnostics": legacy_diagnostics,
+        "sampleWindow": {
+            "matchingRowCount": len(matching),
+            "sourceRowsInspected": len(rows),
+            "latest": _shadow_row_summary(_latest_shadow_row(matching)),
+            "statusCounts": dict(_status_counts(matching)),
+            "blockerCounts": _field_counts(matching, "blocker"),
+        },
+        "decision": decision,
+        "blockers": blockers,
+        "recommendationsZh": _rsi_trigger_alignment_recommendations(status, decision, blockers),
+        "safety": dict(SAFETY_BOUNDARY),
+    }
+    if write:
+        _write_json(contract_dir(runtime_dir) / RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE, report)
+    return report
+
+
 def _rsi_observation_lineage_snapshot(contract: Dict[str, Any], lineage_file: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     contract_lineage = (
         contract.get("frozenRsiLineage")
@@ -1032,6 +1129,394 @@ def _rsi_opportunity_layer_recommendations(
     if label == "SPREAD_TOO_WIDE_FOR_RESEARCH_LAYER":
         return ["继续等正常流动性窗口；这些样本连 research spread 口径都不可观察，不应用来否定 RSI seed。"]
     return ["继续收集 frozen RSI shadow ledger，直到能分清 research-spread-pass/live-blocked 与 no-signal。"]
+
+
+def _rsi_parameter_snapshot(rsi: Dict[str, Any]) -> Dict[str, Any]:
+    regime = rsi.get("regimeFilter") if isinstance(rsi.get("regimeFilter"), dict) else {}
+    return {
+        "period": rsi.get("period"),
+        "timeframe": rsi.get("timeframe"),
+        "buyBand": rsi.get("buyBand"),
+        "crossbackThreshold": rsi.get("crossbackThreshold"),
+        "maxCrossbackRsi": rsi.get("maxCrossbackRsi"),
+        "regimeFilterMode": regime.get("mode"),
+        "regimeFilterEnabled": _rsi_regime_filter_enabled(regime),
+        "adverseExcursionGuard": (
+            rsi.get("adverseExcursionGuard") if isinstance(rsi.get("adverseExcursionGuard"), dict) else {}
+        ),
+    }
+
+
+def _rsi_trigger_parameter_parity(
+    rows: List[Dict[str, Any]], contract_rsi: Dict[str, Any], strategy_json_rsi: Dict[str, Any]
+) -> Dict[str, Any]:
+    ledger_observed = {
+        "periodValues": _unique_row_values(rows, "rsiPeriod"),
+        "timeframeValues": _unique_row_values(rows, "timeframe"),
+        "buyBandValues": _unique_row_values(rows, "rsiBuyBand"),
+        "crossbackThresholdValues": _unique_row_values(rows, "rsiCrossbackThreshold"),
+    }
+    contract_checks = {
+        "period": _all_values_match(ledger_observed["periodValues"], contract_rsi.get("period")),
+        "timeframe": _all_values_match(ledger_observed["timeframeValues"], contract_rsi.get("timeframe")),
+        "buyBand": _all_values_match(ledger_observed["buyBandValues"], contract_rsi.get("buyBand")),
+        "crossbackThreshold": _all_values_match(
+            ledger_observed["crossbackThresholdValues"], contract_rsi.get("crossbackThreshold")
+        ),
+    }
+    strategy_contract_checks = {
+        "period": _values_match(contract_rsi.get("period"), strategy_json_rsi.get("period")),
+        "timeframe": _values_match(contract_rsi.get("timeframe"), strategy_json_rsi.get("timeframe")),
+        "buyBand": _values_match(contract_rsi.get("buyBand"), strategy_json_rsi.get("buyBand")),
+        "crossbackThreshold": _values_match(
+            contract_rsi.get("crossbackThreshold"), strategy_json_rsi.get("crossbackThreshold")
+        ),
+    }
+    return {
+        "ledgerObserved": ledger_observed,
+        "contractToLedgerChecks": contract_checks,
+        "contractToLedgerAllPass": bool(rows) and all(contract_checks.values()),
+        "strategyJsonToContractChecks": strategy_contract_checks,
+        "strategyJsonToContractAllPass": bool(strategy_json_rsi) and all(strategy_contract_checks.values()),
+        "reasonZh": (
+            "EA shadow ledger 的核心 RSI 参数与 active contract 一致。"
+            if bool(rows) and all(contract_checks.values())
+            else "EA shadow ledger 的核心 RSI 参数与 active contract 存在不一致或样本不足。"
+        ),
+    }
+
+
+def _unique_row_values(rows: List[Dict[str, Any]], key: str, limit: int = 10) -> List[Any]:
+    values: List[Any] = []
+    seen: set[str] = set()
+    for row in rows:
+        value = row.get(key)
+        marker = str(value)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        values.append(value)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def _all_values_match(values: List[Any], expected: Any) -> bool:
+    if not values:
+        return False
+    return all(_values_match(value, expected) for value in values)
+
+
+def _values_match(left: Any, right: Any, *, tolerance: float = 0.0001) -> bool:
+    if left is None or right is None:
+        return left is None and right is None
+    left_number = _safe_float(left, None)
+    right_number = _safe_float(right, None)
+    if left_number is not None and right_number is not None:
+        return abs(left_number - right_number) <= tolerance
+    return str(left) == str(right)
+
+
+def _rsi_trigger_telemetry(rows: List[Dict[str, Any]], rsi: Dict[str, Any]) -> Dict[str, Any]:
+    buy_band = _safe_float(rsi.get("buyBand"), 34.0) or 34.0
+    threshold = _safe_float(rsi.get("crossbackThreshold"), 0.8) or 0.0
+    max_crossback = _safe_float(rsi.get("maxCrossbackRsi"), 100.0)
+    if max_crossback is None:
+        max_crossback = 100.0
+    eligible_rows = [row for row in rows if _safe_float(row.get("rsiClosed1"), None) is not None and _safe_float(row.get("rsiClosed2"), None) is not None]
+    rsi1_values = [_safe_float(row.get("rsiClosed1"), None) for row in eligible_rows]
+    rsi2_values = [_safe_float(row.get("rsiClosed2"), None) for row in eligible_rows]
+    rsi1_values = [value for value in rsi1_values if value is not None]
+    rsi2_values = [value for value in rsi2_values if value is not None]
+    distances = [value - buy_band for value in rsi1_values]
+    current_at_or_below = 0
+    previous_at_or_below = 0
+    backtest_crossback = 0
+    ea_adapter_signal = 0
+    ea_direct_oversold_only = 0
+    ledger_signal = 0
+    mismatch = 0
+    max_crossback_rejected = 0
+    near_counts = {"within1": 0, "within3": 0, "within5": 0, "within10": 0}
+    for row in eligible_rows:
+        rsi1 = _safe_float(row.get("rsiClosed1"), None)
+        rsi2 = _safe_float(row.get("rsiClosed2"), None)
+        if rsi1 is None or rsi2 is None:
+            continue
+        direct_oversold = rsi1 <= buy_band
+        backtest_cross = rsi2 <= buy_band and rsi1 >= buy_band + threshold
+        capped_backtest_cross = backtest_cross and rsi1 <= max_crossback
+        if backtest_cross and rsi1 > max_crossback:
+            max_crossback_rejected += 1
+        ea_signal = direct_oversold or (rsi2 < buy_band and rsi1 > buy_band + threshold)
+        ledger = bool(row.get("rsiLongSignal"))
+        current_at_or_below += int(direct_oversold)
+        previous_at_or_below += int(rsi2 <= buy_band)
+        backtest_crossback += int(capped_backtest_cross)
+        ea_adapter_signal += int(ea_signal)
+        ea_direct_oversold_only += int(direct_oversold and not capped_backtest_cross)
+        ledger_signal += int(ledger)
+        mismatch += int(ledger != ea_signal)
+        distance = rsi1 - buy_band
+        if 0 <= distance <= 1:
+            near_counts["within1"] += 1
+        if 0 <= distance <= 3:
+            near_counts["within3"] += 1
+        if 0 <= distance <= 5:
+            near_counts["within5"] += 1
+        if 0 <= distance <= 10:
+            near_counts["within10"] += 1
+    return {
+        "rowCount": len(rows),
+        "rsiValueRowCount": len(eligible_rows),
+        "buyBand": buy_band,
+        "crossbackThreshold": threshold,
+        "maxCrossbackRsi": max_crossback,
+        "rsiClosed1Distribution": _distribution(rsi1_values),
+        "rsiClosed2Distribution": _distribution(rsi2_values),
+        "rsiClosed1MinusBuyBandDistribution": _distribution(distances),
+        "currentAtOrBelowBuyBandCount": current_at_or_below,
+        "previousAtOrBelowBuyBandCount": previous_at_or_below,
+        "backtestCrossbackCount": backtest_crossback,
+        "maxCrossbackRejectedCount": max_crossback_rejected,
+        "eaAdapterSignalRecomputedCount": ea_adapter_signal,
+        "eaDirectOversoldOnlyCount": ea_direct_oversold_only,
+        "ledgerRsiSignalCount": ledger_signal,
+        "ledgerSignalMismatchCount": mismatch,
+        "nearBuyBandCounts": near_counts,
+        "reasonZh": _rsi_trigger_telemetry_reason(len(eligible_rows), current_at_or_below, backtest_crossback, distances),
+    }
+
+
+def _rsi_trigger_telemetry_reason(
+    row_count: int, current_at_or_below_count: int, backtest_crossback_count: int, distances: List[float]
+) -> str:
+    if row_count <= 0:
+        return "没有可用 RSI telemetry 样本。"
+    if backtest_crossback_count > 0:
+        return "当前 MT5 RSI telemetry 已出现按 backtest/replay 规则可触发的 crossback。"
+    if current_at_or_below_count > 0:
+        return "当前 MT5 RSI telemetry 有 RSI 低于 buyBand，但尚未形成 backtest/replay crossback。"
+    min_distance = min(distances) if distances else None
+    if min_distance is not None and min_distance > 5:
+        return "当前 MT5 RSI telemetry 距 buyBand 仍较远，未触发更像行情状态而非点差掩盖。"
+    return "当前 MT5 RSI telemetry 接近 buyBand，但尚未形成 crossback。"
+
+
+def _rsi_trigger_adapter_coverage(
+    contract_rsi: Dict[str, Any], strategy_json_rsi: Dict[str, Any], trigger_telemetry: Dict[str, Any]
+) -> Dict[str, Any]:
+    strategy_max_crossback = _safe_float(strategy_json_rsi.get("maxCrossbackRsi"), None)
+    contract_max_crossback = _safe_float(contract_rsi.get("maxCrossbackRsi"), None)
+    regime = strategy_json_rsi.get("regimeFilter") if isinstance(strategy_json_rsi.get("regimeFilter"), dict) else {}
+    contract_regime = contract_rsi.get("regimeFilter") if isinstance(contract_rsi.get("regimeFilter"), dict) else {}
+    strategy_has_non_default_max_crossback = strategy_max_crossback is not None and abs(strategy_max_crossback - 100.0) > 0.0001
+    max_crossback_propagated = (not strategy_has_non_default_max_crossback) or _values_match(
+        strategy_max_crossback, contract_max_crossback
+    )
+    regime_enabled = _rsi_regime_filter_enabled(regime)
+    regime_propagated = (not regime_enabled) or bool(contract_regime)
+    rule_gap = True
+    material_gap = (not max_crossback_propagated) or (not regime_propagated) or bool(
+        rule_gap
+    )
+    gaps: List[str] = []
+    if rule_gap:
+        gaps.append("EA adapter trigger rule 不是 backtest/replay 的 crossback-only 口径")
+    if not max_crossback_propagated:
+        gaps.append("maxCrossbackRsi 未进入 EA contract/ledger")
+    if not regime_propagated:
+        gaps.append("regimeFilter 未进入 EA contract/ledger")
+    if trigger_telemetry.get("eaDirectOversoldOnlyCount", 0):
+        gaps.append("EA adapter 的 direct oversold 分支会产生 backtest crossback 之外的信号")
+    return {
+        "backtestRule": "previous_rsi <= buyBand && current_rsi >= buyBand + crossbackThreshold && current_rsi <= maxCrossbackRsi，再经过 regime/adverse guard。",
+        "eaAdapterRuleObserved": "rsiClosed1 <= buyBand OR (rsiClosed2 < buyBand && rsiClosed1 > buyBand + crossbackThreshold)，再经过 adverse range guard。",
+        "ruleShapeGapKnown": rule_gap,
+        "strategyJsonHasNonDefaultMaxCrossbackRsi": strategy_has_non_default_max_crossback,
+        "maxCrossbackRsiPropagated": max_crossback_propagated,
+        "strategyJsonRegimeFilterEnabled": regime_enabled,
+        "regimeFilterPropagated": regime_propagated,
+        "materialCoverageGap": material_gap,
+        "gaps": gaps,
+        "reasonZh": "；".join(gaps) if gaps else "当前样本未发现会改变本窗口结论的 adapter 覆盖缺口。",
+    }
+
+
+def _rsi_regime_filter_enabled(regime: Dict[str, Any]) -> bool:
+    return bool(regime) and str(regime.get("mode") or "OFF").upper() not in {"", "OFF", "NONE"}
+
+
+def _rsi_trigger_reference_alignment(
+    runtime_dir: Path, active_snapshot: Dict[str, Any], lineage_file_state: Dict[str, Any]
+) -> Dict[str, Any]:
+    closure = _load_json(runtime_dir / "production_validation" / "QuantGod_RSILineageClosureReport.json")
+    replay = _load_json(runtime_dir / "replay" / "usdjpy" / "QuantGod_USDJPYBarReplayReport.json")
+    backtest = _load_json(runtime_dir / "backtest" / "QuantGod_StrategyBacktestReport.json")
+    contract_replay = active_snapshot.get("replayAllPass")
+    contract_production = active_snapshot.get("productionEvidenceAllPass")
+    criteria = active_snapshot.get("criteria") if isinstance(active_snapshot.get("criteria"), dict) else {}
+    closure_criteria = closure.get("criteria") if isinstance(closure.get("criteria"), dict) else {}
+    replay_alignment = closure.get("replayAlignment") if isinstance(closure.get("replayAlignment"), dict) else {}
+    return {
+        "activeContractSnapshot": {
+            "selectedSeedId": active_snapshot.get("selectedSeedId"),
+            "selectedGeneration": active_snapshot.get("selectedGeneration"),
+            "criteria": criteria,
+            "replayAllPass": contract_replay,
+            "productionEvidenceAllPass": contract_production,
+        },
+        "rollingLineageFile": lineage_file_state,
+        "closureReport": {
+            "present": bool(closure),
+            "seedId": closure_criteria.get("seedId"),
+            "closureStage": closure.get("closureStage"),
+            "allPass": closure_criteria.get("allPass"),
+            "replayAlignment": replay_alignment,
+            "driftedFromActiveContract": bool(lineage_file_state.get("driftedFromActiveContract")),
+        },
+        "barReplayReport": {
+            "present": bool(replay),
+            "status": replay.get("status"),
+            "sampleCount": ((replay.get("summary") or {}).get("sampleCount") if isinstance(replay.get("summary"), dict) else None),
+            "currentEntryCount": (
+                (replay.get("summary") or {}).get("currentEntryCount") if isinstance(replay.get("summary"), dict) else None
+            ),
+            "generatedAtIso": replay.get("generatedAtIso"),
+        },
+        "strategyBacktestReport": {
+            "present": bool(backtest),
+            "seedId": backtest.get("seedId"),
+            "strategyId": backtest.get("strategyId"),
+            "timeframe": backtest.get("timeframe"),
+            "tradeCount": backtest.get("tradeCount"),
+            "signalCount": ((backtest.get("engine") or {}).get("signalCount") if isinstance(backtest.get("engine"), dict) else None),
+            "parityVectorRsi": (
+                (((backtest.get("engine") or {}).get("parityVector") or {}).get("rsi") or {})
+                if isinstance((backtest.get("engine") or {}).get("parityVector"), dict)
+                else {}
+            ),
+        },
+        "reasonZh": (
+            "当前 runtime closure/lineage 文件已滚动到新 seed；P4-10L 仍以 EA contract frozen snapshot 为 active seed 证据源。"
+            if lineage_file_state.get("driftedFromActiveContract")
+            else "当前 lineage 文件与 EA contract active seed 一致。"
+        ),
+    }
+
+
+def _rsi_legacy_diagnostics_summary(runtime_dir: Path, rsi_source: Dict[str, Any]) -> Dict[str, Any]:
+    diagnostics = _load_json(runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json")
+    inputs = diagnostics.get("inputs") if isinstance(diagnostics.get("inputs"), dict) else {}
+    rsi = diagnostics.get("rsi") if isinstance(diagnostics.get("rsi"), dict) else {}
+    if not diagnostics:
+        return {"present": False, "reasonZh": "未找到 legacy RSI diagnostics；P4-10L 主要使用 Strategy JSON shadow ledger。"}
+    comparisons = {
+        "periodMatchesContract": _values_match(rsi.get("period") or inputs.get("PilotRsiPeriod"), rsi_source.get("period")),
+        "timeframeMatchesContract": _values_match(
+            rsi.get("timeframe") or inputs.get("PilotRsiTimeframe"), rsi_source.get("timeframe")
+        ),
+        "buyBandMatchesContract": _values_match(
+            rsi.get("buyBandLevel") or rsi.get("oversold") or inputs.get("PilotRsiOversold"), rsi_source.get("buyBand")
+        ),
+        "crossbackMatchesContract": _values_match(
+            rsi.get("crossbackThreshold") or inputs.get("PilotRsiCrossbackThreshold"),
+            rsi_source.get("crossbackThreshold"),
+        ),
+    }
+    return {
+        "present": True,
+        "state": diagnostics.get("state"),
+        "generatedAtLocal": diagnostics.get("generatedAtLocal"),
+        "generatedAtServer": diagnostics.get("generatedAtServer"),
+        "diagnosticRoute": "LEGACY_PILOT_RSI",
+        "contractRoute": "STRATEGY_JSON_EA_SHADOW_CONTRACT",
+        "inputs": {
+            "period": rsi.get("period") or inputs.get("PilotRsiPeriod"),
+            "timeframe": rsi.get("timeframe") or inputs.get("PilotRsiTimeframe"),
+            "buyBandLevel": rsi.get("buyBandLevel") or rsi.get("oversold") or inputs.get("PilotRsiOversold"),
+            "crossbackThreshold": rsi.get("crossbackThreshold") or inputs.get("PilotRsiCrossbackThreshold"),
+            "rsiClosed1": rsi.get("rsiClosed1"),
+            "rsiClosed2": rsi.get("rsiClosed2"),
+        },
+        "matchesStrategyJsonContract": comparisons,
+        "allMatch": all(comparisons.values()),
+        "reasonZh": "legacy diagnostics 是 Pilot RSI 路线，不是 frozen Strategy JSON contract 的唯一证据源；若参数不同，不应直接用它否定 P4-10J/P4-10K。",
+    }
+
+
+def _rsi_trigger_alignment_status(blockers: List[Dict[str, Any]], telemetry: Dict[str, Any]) -> str:
+    hard = {
+        "NO_FROZEN_RSI_LINEAGE",
+        "FROZEN_RSI_CONTRACT_NOT_ROTATED",
+        "RSI_CONTRACT_LEDGER_PARAMETER_MISMATCH",
+        "RSI_STRATEGY_JSON_CONTRACT_PARAMETER_MISMATCH",
+        "RSI_TRIGGER_ADAPTER_COVERAGE_GAP",
+        "RSI_TRIGGER_RECOMPUTE_MISMATCH",
+    }
+    if any(blocker.get("code") in hard for blocker in blockers):
+        return "WARN"
+    if telemetry.get("ledgerRsiSignalCount", 0) > 0 or telemetry.get("backtestCrossbackCount", 0) > 0:
+        return "PASS"
+    return "WATCH"
+
+
+def _rsi_trigger_alignment_decision(
+    parameter_parity: Dict[str, Any], telemetry: Dict[str, Any], adapter_coverage: Dict[str, Any]
+) -> Dict[str, Any]:
+    if not parameter_parity.get("contractToLedgerAllPass"):
+        return {
+            "label": "RSI_PARAMETER_PARITY_FAIL",
+            "reasonZh": "EA ledger 里的 RSI period/timeframe/buyBand/crossback 与 active contract 不一致。",
+        }
+    if telemetry.get("ledgerSignalMismatchCount"):
+        return {
+            "label": "RSI_LEDGER_SIGNAL_RECOMPUTE_MISMATCH",
+            "reasonZh": "按 RSI telemetry 重算的 EA trigger 与 ledger rsiLongSignal 不一致。",
+        }
+    if telemetry.get("ledgerRsiSignalCount", 0) > 0:
+        return {"label": "RSI_SIGNAL_PRESENT", "reasonZh": "MT5 shadow ledger 已出现 RSI trigger。"}
+    if telemetry.get("backtestCrossbackCount", 0) > 0:
+        return {
+            "label": "BACKTEST_RULE_SIGNAL_PRESENT_BUT_LEDGER_BLOCKED",
+            "reasonZh": "按 backtest/replay crossback 规则已可触发，但 ledger 尚未出现 rsiLongSignal。",
+        }
+    distance = telemetry.get("rsiClosed1MinusBuyBandDistribution") if isinstance(telemetry.get("rsiClosed1MinusBuyBandDistribution"), dict) else {}
+    min_distance = _safe_float(distance.get("min"), None)
+    if min_distance is not None and min_distance > 5:
+        label = "RSI_FAR_FROM_BUY_BAND"
+        reason = "当前 MT5 H1 RSI 距 buyBand 至少超过 5 点，没触发主要是行情尚未到 frozen seed 的触发区。"
+        if adapter_coverage.get("materialCoverageGap"):
+            label = "RSI_FAR_FROM_BUY_BAND_WITH_ADAPTER_COVERAGE_GAP"
+            reason += " 但 EA adapter 仍有 maxCrossback/regime/trigger-rule 覆盖缺口，晋级前应修。"
+        return {"label": label, "reasonZh": reason}
+    if telemetry.get("nearBuyBandCounts", {}).get("within5", 0) > 0:
+        return {
+            "label": "RSI_NEAR_BAND_NO_CROSSBACK",
+            "reasonZh": "当前 RSI 已接近 buyBand，但尚未形成 backtest/replay crossback。",
+        }
+    return {"label": "RSI_TRIGGER_STILL_WAITING", "reasonZh": "当前样本未出现 RSI trigger，继续观察。"}
+
+
+def _rsi_trigger_alignment_recommendations(
+    status: str, decision: Dict[str, Any], blockers: List[Dict[str, Any]]
+) -> List[str]:
+    codes = {str(blocker.get("code") or "") for blocker in blockers}
+    if "RSI_CONTRACT_LEDGER_PARAMETER_MISMATCH" in codes or "RSI_STRATEGY_JSON_CONTRACT_PARAMETER_MISMATCH" in codes:
+        return ["先修 Strategy JSON → EA contract 参数 parity，再继续判断 frozen RSI 是否有效。"]
+    if "RSI_TRIGGER_ADAPTER_COVERAGE_GAP" in codes:
+        return [
+            "进入下一步 parity fix：让 Strategy JSON EA adapter 覆盖 maxCrossbackRsi / regimeFilter，并把 RSI trigger 规则收敛到 backtest/replay 的 crossback-only 口径。",
+            "在修复前继续观察可以证明行情是否到达 buyBand，但不能作为 shadow promotion 的完整 parity 证据。",
+        ]
+    label = str(decision.get("label") or "")
+    if label == "RSI_FAR_FROM_BUY_BAND":
+        return ["继续观察同一颗 seed；当前不是 trigger 参数过窄或点差掩盖，而是 H1 RSI 还没有接近 buyBand。"]
+    if label == "RSI_NEAR_BAND_NO_CROSSBACK":
+        return ["继续观察同一颗 seed，重点等 previous_rsi <= buyBand 且 current_rsi >= buyBand + crossbackThreshold。"]
+    if status == "PASS":
+        return ["保留 frozen seed，转回 P4-10K/P4-10J 观察 entry quality 与 adverse 样本。"]
+    return [str(blocker.get("reasonZh") or blocker.get("code")) for blocker in blockers] or ["继续观察同一颗 frozen RSI seed。"]
 
 
 def _entry_quality_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:

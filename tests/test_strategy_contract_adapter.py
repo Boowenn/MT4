@@ -9,6 +9,7 @@ from tools.strategy_contract_adapter.builder import (
     build_rsi_opportunity_layer_audit,
     build_rsi_shadow_contract_observation,
     build_strategy_contract,
+    build_rsi_trigger_alignment_audit,
     read_strategy_contract_status,
 )
 from tools.strategy_contract_adapter.schema import (
@@ -20,6 +21,7 @@ from tools.strategy_contract_adapter.schema import (
     FROZEN_RSI_LINEAGE_FILE,
     RSI_OPPORTUNITY_LAYER_AUDIT_REPORT_FILE,
     RSI_SHADOW_OBSERVATION_REPORT_FILE,
+    RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE,
 )
 from tools.strategy_ga.fitness import score_seed
 from tools.strategy_ga.schema import CANDIDATE_RUNS_FILE, ga_dir
@@ -480,6 +482,83 @@ class StrategyContractAdapterTests(unittest.TestCase):
                 "RESEARCH_SPREAD_PASS_LIVE_SPREAD_BLOCKED_RSI_SIGNAL",
             )
             self.assertTrue((runtime / "strategy_contract" / RSI_OPPORTUNITY_LAYER_AUDIT_REPORT_FILE).exists())
+
+    def test_rsi_trigger_alignment_audit_checks_contract_params_and_rsi_distance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            frozen = self._write_frozen_rsi_lineage(runtime, seed_id="GA-USDJPY-G0077-C0002")
+            rsi = frozen["strategyJson"]["indicators"]["rsi"]
+            rsi["period"] = 20
+            rsi["timeframe"] = "H1"
+            rsi["buyBand"] = 31.0
+            rsi["crossbackThreshold"] = 0.5
+            rsi["maxCrossbackRsi"] = 39.0
+            rsi["regimeFilter"] = {
+                "mode": "P4_10E_RSI_BEARISH_STRETCH",
+                "allowedHoursUtc": [0, 1, 2],
+            }
+            frozen_path = ga_dir(runtime) / FROZEN_RSI_LINEAGE_FILE
+            frozen_path.write_text(json.dumps(frozen, ensure_ascii=False), encoding="utf-8")
+            build_strategy_contract(runtime, write=True, force_frozen_rsi=True)
+            rows = [
+                {
+                    "schema": "quantgod.strategy_json_ea_shadow_evaluation.v1",
+                    "evaluationId": "eval-g0077-rsi-far-1",
+                    "generatedAtLocal": "2026-05-20T00:00:00Z",
+                    "status": "SHADOW_GUARD_BLOCKED",
+                    "blocker": "SPREAD_BLOCK",
+                    "selectedSeedId": "GA-USDJPY-G0077-C0002",
+                    "fingerprint": "fp-frozen-rsi",
+                    "strategyFamily": "RSI_Reversal",
+                    "direction": "LONG",
+                    "indicatorReady": True,
+                    "rsiLongSignal": False,
+                    "rsiPeriod": 20,
+                    "timeframe": "H1",
+                    "rsiBuyBand": 31.0,
+                    "rsiCrossbackThreshold": 0.5,
+                    "rsiClosed1": 47.0,
+                    "rsiClosed2": 49.0,
+                    "rsiAdverseGuard": {"loaded": True, "mode": "P4_10G_RSI_ADVERSE_EXCURSION", "rangePass": True},
+                },
+                {
+                    "schema": "quantgod.strategy_json_ea_shadow_evaluation.v1",
+                    "evaluationId": "eval-g0077-rsi-far-2",
+                    "generatedAtLocal": "2026-05-20T00:05:00Z",
+                    "status": "SHADOW_GUARD_BLOCKED",
+                    "blocker": "SPREAD_BLOCK",
+                    "selectedSeedId": "GA-USDJPY-G0077-C0002",
+                    "fingerprint": "fp-frozen-rsi",
+                    "strategyFamily": "RSI_Reversal",
+                    "direction": "LONG",
+                    "indicatorReady": True,
+                    "rsiLongSignal": False,
+                    "rsiPeriod": 20,
+                    "timeframe": "H1",
+                    "rsiBuyBand": 31.0,
+                    "rsiCrossbackThreshold": 0.5,
+                    "rsiClosed1": 44.0,
+                    "rsiClosed2": 46.0,
+                    "rsiAdverseGuard": {"loaded": True, "mode": "P4_10G_RSI_ADVERSE_EXCURSION", "rangePass": True},
+                },
+            ]
+            (runtime / EA_SHADOW_EVALUATION_LEDGER_FILE).write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            (runtime / EA_SHADOW_EVALUATION_STATUS_FILE).write_text(json.dumps(rows[-1], ensure_ascii=False), encoding="utf-8")
+
+            report = build_rsi_trigger_alignment_audit(runtime, write=True)
+
+            self.assertEqual(report["phase"], "P4_10L_RSI_TRIGGER_ALIGNMENT_AUDIT")
+            self.assertEqual(report["status"], "WARN")
+            self.assertTrue(report["parameterParity"]["contractToLedgerAllPass"])
+            self.assertEqual(report["triggerTelemetry"]["currentAtOrBelowBuyBandCount"], 0)
+            self.assertEqual(report["triggerTelemetry"]["backtestCrossbackCount"], 0)
+            self.assertGreater(report["triggerTelemetry"]["rsiClosed1MinusBuyBandDistribution"]["min"], 5)
+            self.assertEqual(report["decision"]["label"], "RSI_FAR_FROM_BUY_BAND_WITH_ADAPTER_COVERAGE_GAP")
+            self.assertIn("RSI_TRIGGER_ADAPTER_COVERAGE_GAP", {blocker.get("code") for blocker in report["blockers"]})
+            self.assertTrue((runtime / "strategy_contract" / RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE).exists())
 
     def test_ea_shadow_evaluation_feeds_case_memory_and_ga_seed_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
