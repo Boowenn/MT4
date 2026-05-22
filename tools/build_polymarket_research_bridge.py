@@ -568,6 +568,19 @@ def unavailable_snapshot(polymarket_root: Path, db_path: Path, reason: str) -> d
         "risk": {"topEvents": [], "recentEvents": []},
         "recentJournal": [],
         "latestPnl": {},
+        "copyTraderDiscovery": {
+            "status": "SOURCE_UNAVAILABLE",
+            "active": False,
+            "currentTraderDiscovery": False,
+            "freshTraderRanking": False,
+            "archiveReplayOnly": False,
+            "reason": reason,
+            "reasonZh": "Polymarket 跟单交易员发现来源不可用，不能把旧样本当作当前强交易员筛选。",
+            "blockers": [reason],
+            "nextActions": [
+                "恢复只读 copied-trader / trade_journal 来源后，再生成跟单候选和 shadow 样本。",
+            ],
+        },
         "governance": {
             "decision": "RESEARCH_ONLY_SOURCE_UNAVAILABLE",
             "resumePolymarketExecution": False,
@@ -628,6 +641,28 @@ def latest_history_research_snapshot(con: sqlite3.Connection, db_path: Path) -> 
             "mutatesMt5": False,
         })
     snapshot["replayNote"] = "Replayed latest archived PolymarketResearch snapshot because the history DB has no trade_journal table."
+    snapshot["copyTraderDiscovery"] = {
+        "status": "SOURCE_MISSING_ARCHIVE_REPLAY_ONLY",
+        "active": False,
+        "currentTraderDiscovery": False,
+        "freshTraderRanking": False,
+        "archiveReplayOnly": True,
+        "source": "qd_polymarket_research_snapshots.raw_json",
+        "historyDbPath": str(db_path),
+        "archivedSnapshotGeneratedAtIso": str(row["generated_at"] or ""),
+        "reason": "The current history DB has no trade_journal table, so this bridge replayed an archived research snapshot instead of discovering current copied traders.",
+        "reasonZh": "当前 history DB 没有 trade_journal；这里只是在回放旧 copy_archive 研究快照，不是在发现、排名或跟踪新的强交易员。",
+        "blockers": [
+            "missing_trade_journal",
+            "archive_replay_only",
+            "no_current_copied_trader_discovery",
+        ],
+        "nextActions": [
+            "接入只读 copied-trader discovery worker，按公开强账户/授权来源生成当前 trader ranking。",
+            "把 traderId/sourceId、市场家族、流动性、结算 PnL、样本数和最近更新时间写入 shadow 候选账本。",
+            "retune planner 只能消费 fresh discovery 结果；旧 copy_archive 只能作为历史对照和隔离证据。",
+        ],
+    }
     return snapshot
 
 

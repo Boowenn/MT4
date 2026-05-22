@@ -19,6 +19,7 @@ from typing import Any
 DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
 RESEARCH_NAME = "QuantGod_PolymarketResearch.json"
+COPY_DISCOVERY_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
 OUTPUT_NAME = "QuantGod_PolymarketRetunePlanner.json"
 LEDGER_NAME = "QuantGod_PolymarketRetunePlanner.csv"
 
@@ -28,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime-dir", default=str(DEFAULT_RUNTIME_DIR))
     parser.add_argument("--dashboard-dir", default=str(DEFAULT_DASHBOARD_DIR))
     parser.add_argument("--research-path", default="")
+    parser.add_argument("--copy-discovery-path", default="")
     return parser.parse_args()
 
 
@@ -62,6 +64,15 @@ def atomic_write_text(path: Path, text: str) -> None:
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_optional_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return load_json(path)
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def metric_bucket(item: dict[str, Any]) -> dict[str, Any]:
@@ -303,7 +314,7 @@ def copy_capital_simulation(metrics: dict[str, Any], account: dict[str, Any]) ->
             "cash_scaled_pnl_not_positive" if cash_scaled_pnl <= 0 else "",
             ] if blocker
         ],
-        "note": "这是按当前只读资金规模做的 shadow accounting 估算，不会连接钱包、不会恢复真钱执行。",
+        "note": "这是按当前只读资金规模做的 shadow accounting 估算；真钱执行由自动证据门控决定，不需要人工批准。",
     }
 
 
@@ -311,7 +322,7 @@ def copy_source_toolkit() -> list[dict[str, str]]:
     return [
         {
             "source": "Telegram signals",
-            "mode": "operator-approved-channel-or-export-only",
+            "mode": "authorized-channel-or-export-only",
             "use": "只读取你授权的频道、机器人推送或导出的历史消息，把信号转成 shadow copy 样本。",
         },
         {
@@ -320,16 +331,210 @@ def copy_source_toolkit() -> list[dict[str, str]]:
             "use": "按历史结算表现、样本数、市场家族和流动性筛选可复制信号。",
         },
         {
-            "source": "QuantGod radar / AI score",
-            "mode": "local-evidence-fusion",
-            "use": "把外部跟单信号与本地雷达评分交叉验证，低置信度只记录为隔离证据。",
+            "source": "Public profile positions / activity",
+            "mode": "public-readonly",
+            "use": "读取强交易员当前持仓、已结算仓位和最近交易动作，生成 shadow 跟单候选。",
         },
         {
-            "source": "Manual watchlist",
-            "mode": "human-curated-shadow-only",
-            "use": "本地观察名单只作为只读来源；达到门槛也只进入 shadow / paper-context 自动治理，不连接真钱钱包。",
+            "source": "Local watchlist",
+            "mode": "local-readonly-source",
+            "use": "本地观察名单只作为只读来源；达到门槛后仍由自动证据门控决定是否进入 micro-live。",
         },
     ]
+
+
+def sort_copy_rows(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    copy_rows = [row for row in recommendations if row.get("routeFamily") == "copy_archive"]
+    copy_rows.sort(key=lambda row: (
+        safe_number((row.get("metrics") or {}).get("profitFactor"), -1.0),
+        safe_number((row.get("metrics") or {}).get("realizedPnl"), -9999.0),
+    ), reverse=True)
+    return copy_rows
+
+
+def copy_discovery_source_missing(research: dict[str, Any]) -> bool:
+    discovery = research.get("copyTraderDiscovery")
+    source = research.get("source") if isinstance(research.get("source"), dict) else {}
+    if isinstance(discovery, dict):
+        if discovery.get("currentTraderDiscovery") is False:
+            return True
+        if discovery.get("archiveReplayOnly"):
+            return True
+        status = str(discovery.get("status") or "")
+        if "SOURCE_MISSING" in status or "SOURCE_UNAVAILABLE" in status:
+            return True
+    return bool(source.get("archiveReplay") or research.get("status") == "OK_ARCHIVED_SNAPSHOT")
+
+
+def copy_discovery_missing_review(
+    recommendations: list[dict[str, Any]],
+    account: dict[str, Any],
+    research: dict[str, Any],
+) -> dict[str, Any]:
+    copy_rows = sort_copy_rows(recommendations)
+    best = copy_rows[0] if copy_rows else {}
+    metrics = best.get("metrics") or {}
+    discovery = research.get("copyTraderDiscovery") if isinstance(research.get("copyTraderDiscovery"), dict) else {}
+    archived_at = (
+        discovery.get("archivedSnapshotGeneratedAtIso")
+        or (research.get("source") or {}).get("archivedSnapshotGeneratedAtIso")
+        or ""
+    )
+    capital_simulation = copy_capital_simulation(metrics, account) if metrics else {}
+    return {
+        "status": "COPY_TRADER_DISCOVERY_SOURCE_MISSING",
+        "agentRetuneStatus": "COPY_TRADER_DISCOVERY_REQUIRED",
+        "operatorStatusLabel": "跟单来源缺失",
+        "completedByAgent": False,
+        "autoAppliedByAgent": False,
+        "requiresAutonomousGovernance": True,
+        "active": False,
+        "currentTraderDiscovery": False,
+        "freshTraderRanking": False,
+        "archiveReplayOnly": True,
+        "summary": (
+            "当前没有在发现、排名或跟踪新的强交易员；"
+            "现有 copy_archive 只是旧研究快照回放，不能当作本轮跟单来源或晋级依据。"
+        ),
+        "bestExperimentKey": "",
+        "archivedBestExperimentKey": best.get("experimentKey", ""),
+        "archivedBestMetrics": metrics,
+        "capitalSimulation": capital_simulation,
+        "sourceToolkit": copy_source_toolkit(),
+        "sourceDiagnostic": {
+            "researchStatus": research.get("status", ""),
+            "researchReplayNote": research.get("replayNote", ""),
+            "archivedSnapshotGeneratedAtIso": archived_at,
+            "blockers": discovery.get("blockers") or [
+                "missing_current_copied_trader_discovery",
+                "archive_replay_only",
+            ],
+        },
+        "primaryAction": "BUILD_COPY_TRADER_DISCOVERY_READONLY",
+        "shadowOnly": True,
+        "walletWriteAllowed": False,
+        "orderSendAllowed": False,
+        "nextActions": [
+            "先做只读 copied-trader discovery：发现公开强账户/授权来源，生成当前 trader ranking。",
+            "每个候选必须带 trader/source 标识、市场家族、流动性、结算样本、PF/胜率/PnL 和最近更新时间。",
+            "只有 fresh discovery 进入 shadow replay；旧 copy_archive 只能作为历史对照和隔离证据。",
+        ],
+    }
+
+
+def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    summary = discovery.get("summary") if isinstance(discovery.get("summary"), dict) else {}
+    policy = discovery.get("walletRiskPolicy") if isinstance(discovery.get("walletRiskPolicy"), dict) else {}
+    traders = [row for row in discovery.get("traders") or [] if isinstance(row, dict)]
+    candidates = [row for row in discovery.get("shadowCandidates") or [] if isinstance(row, dict)]
+    top = traders[0] if traders else {}
+    stats = top.get("closedStats") if isinstance(top.get("closedStats"), dict) else {}
+    best_metrics = {
+        "closed": safe_int(stats.get("closed")),
+        "wins": safe_int(stats.get("wins")),
+        "losses": safe_int(stats.get("losses")),
+        "realizedPnl": safe_number(stats.get("realizedPnl")),
+        "grossWin": safe_number(stats.get("grossWin")),
+        "grossLoss": safe_number(stats.get("grossLoss")),
+        "profitFactor": stats.get("profitFactor"),
+        "winRatePct": stats.get("winRatePct"),
+        "copyScore": safe_number(top.get("copyScore")),
+        "monthPnl": safe_number(top.get("monthPnl")),
+        "weekPnl": safe_number(top.get("weekPnl")),
+        "allPnl": safe_number(top.get("allPnl")),
+        "currentPositionCount": safe_int(top.get("currentPositionCount")),
+        "shadowCandidateCount": len(candidates),
+    }
+    capital_simulation = copy_capital_simulation(best_metrics, account) if top else {}
+    status = "COPY_TRADER_SHADOW_CANDIDATES_READY" if candidates else "COPY_TRADER_DISCOVERY_RUNNING_NO_CANDIDATES"
+    top_name = top.get("userName") or top.get("proxyWallet") or "unknown"
+    iteration_plan = {
+        "status": status,
+        "statusZh": "强交易员跟单候选已生成" if candidates else "强交易员发现已运行，等待可跟持仓",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
+        "requiresAutonomousGovernance": True,
+        "retuneRequired": not bool(candidates),
+        "currentExperimentKey": "copy_trader_discovery_shadow_v1",
+        "currentMarketScope": "all_markets_by_trader",
+        "diagnosis": (
+            f"已发现 {safe_int(summary.get('rankedTraders'))} 个公开强交易员，"
+            f"{safe_int(summary.get('eligibleTraders'))} 个通过 shadow 跟单资格，"
+            f"当前持仓候选 {len(candidates)} 个；Top trader {top_name}，"
+            f"copyScore {safe_number(top.get('copyScore')):.2f}。"
+        ),
+        "copyUniverse": [
+            "public_leaderboard",
+            "telegram_channel_wallet_monitor",
+            "current_positions",
+            "closed_positions",
+            "recent_activity",
+        ],
+        "candidateVariants": [
+            {
+                "key": "copy_trader_current_position_shadow_v1",
+                "goal": "只跟踪强交易员当前持仓，记录跟随延迟、价差、流动性和退出结果。",
+            },
+            {
+                "key": "copy_trader_settlement_replay_v1",
+                "goal": "用已结算 closed positions 验证每个 trader/source 的真实 PF、胜率和回撤。",
+            },
+            {
+                "key": "telegram_wallet_fusion_shadow_v1",
+                "goal": "把 Telegram 频道钱包/信号和公开 leaderboard 排名交叉验证，只保留共同通过的来源。",
+            },
+        ],
+        "acceptanceCriteria": [
+            "rankedTraders >= 20",
+            "eligibleTraders >= 5",
+            "shadowCandidateCount >= 20",
+            "copyScore >= 70 for promoted source",
+            "closed >= 30 and profitFactor >= 1.10 per trader/source",
+            "shadow replay net PnL > 0 after follow latency/slippage",
+        ],
+        "acceptanceCriteriaZh": [
+            "至少发现 20 个可比较交易员",
+            "至少 5 个交易员通过 shadow 跟单资格",
+            "当前持仓候选不少于 20 个",
+            "晋级来源 copyScore 不低于 70",
+            "单个 trader/source 已结算样本不少于 30 且 PF 不低于 1.10",
+            "计入跟随延迟和滑点后的 shadow replay 净值必须为正",
+        ],
+        "capitalResult": capital_simulation,
+        "nextAction": (
+            "把当前 shadowCandidates 写入跟单 replay/outcome ledger，先验证跟随延迟和退出结果；"
+            "验证门全部通过后由系统自动放开 micro-live，不需要人工批准。"
+        ),
+    }
+    return {
+        "status": status,
+        "agentRetuneStatus": status,
+        "operatorStatusLabel": "强交易员跟单候选已生成" if candidates else "强交易员发现运行中",
+        "completedByAgent": True,
+        "autoAppliedByAgent": True,
+        "requiresAutonomousGovernance": True,
+        "active": True,
+        "currentTraderDiscovery": True,
+        "freshTraderRanking": True,
+        "archiveReplayOnly": False,
+        "summary": iteration_plan["diagnosis"],
+        "bestExperimentKey": "copy_trader_discovery_shadow_v1",
+        "bestTrader": top,
+        "bestMetrics": best_metrics,
+        "capitalSimulation": capital_simulation,
+        "walletRiskPolicy": policy,
+        "iterationPlan": iteration_plan,
+        "sourceToolkit": copy_source_toolkit(),
+        "primaryAction": "WRITE_COPY_TRADER_SHADOW_REPLAY_LEDGER",
+        "shadowOnly": not bool(policy.get("realWalletExecutionAllowed")),
+        "walletWriteAllowed": bool(policy.get("walletWriteAllowed")),
+        "orderSendAllowed": bool(policy.get("orderSendAllowed")),
+        "nextActions": [
+            "强交易员是入口；市场本身不再独立生成实盘候选。",
+            "Telegram 频道作为只读来源并入 trader/source ranking，先 shadow 验证。",
+            "完成 discovery -> shadow replay -> walk-forward 后，系统按 walletRiskPolicy 自动判断是否放开真钱钱包。",
+        ],
+    }
 
 
 def copy_iteration_plan(
@@ -356,9 +561,9 @@ def copy_iteration_plan(
             f"PF {safe_number(metrics.get('profitFactor')):.4g}，胜率 {safe_number(metrics.get('winRatePct')):.2f}%，"
             f"账本净值 {safe_number(metrics.get('realizedPnl')):.4g} USDC；"
             + (
-                "Agent 已生成 shadow-only 重调方案，下一轮自动扩展来源并重新筛选；真钱钱包继续隔离。"
+                "Agent 已生成 shadow-only 重调方案，下一轮自动扩展来源并重新筛选；真钱钱包由自动证据门控决定。"
                 if needs_retune else
-                "已达到观察门槛，但仍只进入 shadow / paper-context 自动治理，不连接真钱钱包。"
+                "已达到观察门槛；下一步交给自动钱包门控判断是否进入 micro-live。"
             )
         ),
         "copyUniverse": [
@@ -410,19 +615,27 @@ def copy_iteration_plan(
             "blockers": blockers,
         },
         "nextAction": (
-            "Agent 已生成上述 shadow-only retune 批次；下一轮自动刷新样本和筛选来源，禁止真钱下注、钱包写入或自动恢复执行。"
+            "Agent 已生成上述 shadow-only retune 批次；下一轮自动刷新样本和筛选来源，达标后由系统自动恢复 micro-live。"
             if needs_retune else
-            "保持 shadow watch；若连续批次仍通过，也只进入 paper-context 自动治理，不恢复真钱。"
+            "保持 shadow watch；若连续批次仍通过，交给自动钱包门控决定是否恢复真钱 micro-live。"
         ),
     }
 
 
-def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str, Any]) -> dict[str, Any]:
-    copy_rows = [row for row in recommendations if row.get("routeFamily") == "copy_archive"]
-    copy_rows.sort(key=lambda row: (
-        safe_number((row.get("metrics") or {}).get("profitFactor"), -1.0),
-        safe_number((row.get("metrics") or {}).get("realizedPnl"), -9999.0),
-    ), reverse=True)
+def copy_trading_review(
+    recommendations: list[dict[str, Any]],
+    account: dict[str, Any],
+    research: dict[str, Any],
+    copy_discovery: dict[str, Any],
+) -> dict[str, Any]:
+    discovery_state = copy_discovery.get("copyTraderDiscovery") if isinstance(copy_discovery.get("copyTraderDiscovery"), dict) else {}
+    if discovery_state.get("currentTraderDiscovery") or copy_discovery.get("mode") == "POLYMARKET_COPY_TRADER_DISCOVERY_READONLY":
+        return copy_discovery_active_review(copy_discovery, account)
+
+    if copy_discovery_source_missing(research):
+        return copy_discovery_missing_review(recommendations, account, research)
+
+    copy_rows = sort_copy_rows(recommendations)
     if not copy_rows:
         return {
             "status": "NO_COPY_TRADING_SHADOW_EVIDENCE",
@@ -468,7 +681,7 @@ def copy_trading_review(recommendations: list[dict[str, Any]], account: dict[str
             "跟单策略继续 shadow-only：可跟任何市场模块，但只复制历史强交易员/强信号，不连接钱包。",
             "先剪掉近期负收益或样本不足的 copied trader，再按市场家族、来源质量和流动性分桶重放。",
             (
-                "达到 PF >= 1.10、胜率 >= 52%、样本 >= 200、按当前资金估算净收益为正之前，不进入真钱恢复复核。"
+                "达到 PF >= 1.10、胜率 >= 52%、样本 >= 200、按当前资金估算净收益为正之前，不进入真钱自动放行门。"
                 if not capital_simulation.get("restoreLiveReviewEligible") else
                 "跟单结果已达到观察门槛；仍只进入 shadow / paper-context 自动治理，不连接真钱钱包。"
             ),
@@ -499,7 +712,8 @@ def enrich_group(item: dict[str, Any], journal_groups: list[dict[str, Any]]) -> 
     return enriched
 
 
-def build_plan(research: dict[str, Any]) -> dict[str, Any]:
+def build_plan(research: dict[str, Any], copy_discovery: dict[str, Any] | None = None) -> dict[str, Any]:
+    copy_discovery = copy_discovery or {}
     groups = list(research.get("experimentGroups") or [])
     journal_groups = research.get("journalGroups") or []
     baseline_groups = [
@@ -534,13 +748,14 @@ def build_plan(research: dict[str, Any]) -> dict[str, Any]:
         blockers.append("executed_loss_quarantine")
     if safe_number(shadow.get("realizedPnl")) < 0:
         blockers.append("shadow_recovery_negative")
-    copy_review = copy_trading_review(recommendations, account)
+    copy_review = copy_trading_review(recommendations, account, research, copy_discovery)
 
     return {
         "generatedAtIso": utc_now_iso(),
         "mode": "POLYMARKET_RETUNE_PLANNER_SHADOW_ONLY",
         "status": "OK",
         "sourceResearchGeneratedAtIso": research.get("generatedAtIso", ""),
+        "sourceCopyDiscoveryGeneratedAtIso": copy_discovery.get("generatedAtIso", ""),
         "safety": {
             "shadowOnly": True,
             "placesOrders": False,
@@ -568,13 +783,15 @@ def build_plan(research: dict[str, Any]) -> dict[str, Any]:
             "green": sum(1 for item in recommendations if item["severity"] == "green"),
             "gray": sum(1 for item in recommendations if item["severity"] == "gray"),
             "copyTrading": sum(1 for item in recommendations if item["routeFamily"] == "copy_archive"),
+            "copyTraderDiscovery": safe_int((copy_discovery.get("summary") or {}).get("rankedTraders")),
+            "copyShadowCandidates": safe_int((copy_discovery.get("summary") or {}).get("shadowCandidates")),
         },
         "copyTradingReview": copy_review,
         "recommendations": recommendations,
         "nextActions": [
             "当执行和影子证据仍为负时，所有 Polymarket 重调只进入 shadow-only。",
             "Agent 从红/黄路线开始自动重建筛选器、刷新影子样本，并按市场家族比较。",
-            "此规划器不会恢复真钱 canary，也不会启动自动下注；只写研究队列。",
+            "此规划器只写研究队列；真钱是否启动由 walletRiskPolicy 自动门控决定。",
         ],
     }
 
@@ -661,9 +878,13 @@ def main() -> int:
     research_path = Path(args.research_path) if args.research_path else runtime_dir / RESEARCH_NAME
     if not research_path.exists() and dashboard_dir and (dashboard_dir / RESEARCH_NAME).exists():
         research_path = dashboard_dir / RESEARCH_NAME
+    copy_discovery_path = Path(args.copy_discovery_path) if args.copy_discovery_path else runtime_dir / COPY_DISCOVERY_NAME
+    if not copy_discovery_path.exists() and dashboard_dir and (dashboard_dir / COPY_DISCOVERY_NAME).exists():
+        copy_discovery_path = dashboard_dir / COPY_DISCOVERY_NAME
     try:
         research = load_json(research_path)
-        plan = build_plan(research)
+        copy_discovery = load_optional_json(copy_discovery_path)
+        plan = build_plan(research, copy_discovery)
     except Exception as exc:
         plan = unavailable_plan(f"{type(exc).__name__}: {str(exc)[:220]}", research_path)
     write_outputs(plan, runtime_dir, dashboard_dir)

@@ -2,7 +2,7 @@
 """Build the QuantGod daily review and safe iteration queue.
 
 The review consumes local QuantGod evidence files only. It may recommend
-tester-only work, simulation retunes, and human-reviewed live promotion, but it
+tester-only work, simulation retunes, and evidence-gated live promotion, but it
 never mutates live presets, starts order paths, sends orders, or changes wallet
 state.
 """
@@ -715,6 +715,24 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "walletWriteAllowed": False,
             "orderSendAllowed": False,
         })
+    elif clean(copy_review.get("status")) == "COPY_TRADER_DISCOVERY_SOURCE_MISSING":
+        action_queue.append({
+            "type": "POLY_COPY_TRADER_DISCOVERY_SOURCE_MISSING",
+            "state": "DUE_TODAY",
+            "title": "Polymarket 跟单来源缺失",
+            "market": "COPY_TRADER_DISCOVERY",
+            "detail": copy_review.get("summary", ""),
+            "nextStep": (
+                "先接入只读 copied-trader discovery，生成当前 trader/source ranking；"
+                "旧 copy_archive 只保留为历史对照，不能作为跟单晋级依据。"
+            ),
+            "blockers": (copy_review.get("sourceDiagnostic") or {}).get("blockers") or [
+                "COPY_TRADER_DISCOVERY_SOURCE_MISSING",
+            ],
+            "completionEvidence": "archive_replay_detected_no_current_trader_ranking",
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
     if shadow_pf < 1.0 or shadow_net < 0:
         action_queue.append({
             "type": "POLY_SHADOW_RETUNE_REVIEW",
@@ -1280,9 +1298,9 @@ def daily_iteration_review(
                 f"net={worst.get('realizedPnl', '--')} USDC；edge_filter/autonomous 族群胜率明显不足。"
             ),
             "nextStep": (
-                "Agent 已生成 shadow-only retune；保持钱包锁定，下一轮自动刷新样本并复查新批次效果。"
+                "Agent 已生成 shadow-only retune；下一轮自动刷新样本并由钱包证据门控判断是否恢复 micro-live。"
                 if retune_plan_ready else
-                "保持钱包锁定；淘汰/重建低胜率 edge_filter，并按市场家族分桶，下一轮只进 shadow-only retune。"
+                "淘汰/重建低胜率 edge_filter，并按市场家族分桶；未达证据门前钱包自动保持隔离。"
             ),
             "requiresCodeChange": False if retune_plan_ready else True,
             "requiresStrategyIteration": False if retune_plan_ready else True,
@@ -1551,7 +1569,7 @@ def build_completion_report(
                 f"executed PF {poly_summary.get('executedProfitFactor')}，shadow PF {poly_summary.get('shadowProfitFactor')}；"
                 f"最大亏损源 {worst_poly.get('experimentKey', '--')}。"
             ),
-            "impact": "保持真实钱包隔离；进入 shadow-only retune，不允许自动下注。",
+            "impact": "进入 shadow-only retune；真实钱包由自动证据门控放行或隔离。",
         })
         recommendations.append({
             "priority": "high",

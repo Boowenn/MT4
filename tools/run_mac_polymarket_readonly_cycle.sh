@@ -43,6 +43,7 @@ HISTORY_DIR="${QG_POLYMARKET_HISTORY_DIR:-./archive/polymarket/history}"
 HISTORY_DB="${QG_POLYMARKET_HISTORY_DB:-$HISTORY_DIR/QuantGod_PolymarketHistory.sqlite}"
 RUNTIME_SOURCE="${QG_MAC_RUNTIME_SOURCE:-auto}"
 MAC_MT5_FILES="$(mac_mt5_files_dir)"
+COPY_ONLY="${QG_POLYMARKET_COPY_ONLY:-true}"
 
 if [[ "$(uname -s)" == "Darwin" && -d "$MAC_MT5_FILES" ]]; then
   if [[ -z "${QG_RUNTIME_DIR+x}" && -z "${QG_MT5_FILES_DIR+x}" ]]; then
@@ -63,30 +64,72 @@ fi
 
 mkdir -p "$RUNTIME_DIR" "$DASHBOARD_DIR" "$HISTORY_DIR"
 
-export QG_POLYMARKET_REAL_EXECUTION=false
-export QG_POLYMARKET_CANARY_KILL_SWITCH=true
+export QG_POLYMARKET_REAL_EXECUTION="${QG_POLYMARKET_REAL_EXECUTION:-false}"
+export QG_POLYMARKET_CANARY_KILL_SWITCH="${QG_POLYMARKET_CANARY_KILL_SWITCH:-true}"
 
 echo "QuantGod Polymarket Mac read-only cycle"
 echo "Runtime: $RUNTIME_DIR"
 echo "Dashboard: $DASHBOARD_DIR"
 echo "History DB: $HISTORY_DB"
+echo "Copy-only mode: $COPY_ONLY"
 
-"$PYTHON_BIN" tools/run_polymarket_radar_worker_v2.py \
+"$PYTHON_BIN" tools/build_polymarket_copy_trader_discovery.py \
   --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \
-  --cycles "${QG_POLYMARKET_RADAR_WORKER_CYCLES:-1}" \
-  --interval-seconds 0 \
-  --queue-min-score "${QG_POLYMARKET_RADAR_QUEUE_MIN_SCORE:-45}"
+  --leaderboard-categories "${QG_POLYMARKET_COPY_CATEGORIES:-OVERALL,POLITICS,SPORTS,CRYPTO,ECONOMICS,TECH,FINANCE}" \
+  --leaderboard-periods "${QG_POLYMARKET_COPY_PERIODS:-MONTH,ALL,WEEK}" \
+  --leaderboard-limit "${QG_POLYMARKET_COPY_LEADERBOARD_LIMIT:-20}" \
+  --max-traders "${QG_POLYMARKET_COPY_MAX_TRADERS:-30}" \
+  --positions-limit "${QG_POLYMARKET_COPY_POSITIONS_LIMIT:-30}" \
+  --closed-limit "${QG_POLYMARKET_COPY_CLOSED_LIMIT:-50}" \
+  --activity-limit "${QG_POLYMARKET_COPY_ACTIVITY_LIMIT:-40}" \
+  --min-closed-positions "${QG_POLYMARKET_COPY_MIN_CLOSED:-8}" \
+  --min-current-value "${QG_POLYMARKET_COPY_MIN_CURRENT_VALUE:-50}" \
+  --min-shadow-score "${QG_POLYMARKET_COPY_MIN_SHADOW_SCORE:-60}" \
+  --telegram-export "${QG_POLYMARKET_TELEGRAM_EXPORT:-}" \
+  --telegram-bot-env "${QG_POLYMARKET_TELEGRAM_BOT_ENV:-$REPO_ROOT/.env.telegram.local}" \
+  --telegram-bot-updates-limit "${QG_POLYMARKET_TELEGRAM_BOT_UPDATES_LIMIT:-100}" \
+  --telegram-channel-name "${QG_POLYMARKET_TELEGRAM_CHANNEL_NAME:-预测市场内幕钱包监控}" \
+  --real-wallet-enabled "${QG_POLYMARKET_REAL_WALLET_ENABLED:-true}" \
+  --real-wallet-auto-unlock "${QG_POLYMARKET_REAL_WALLET_AUTO_UNLOCK:-true}" \
+  --real-wallet-require-telegram "${QG_POLYMARKET_REAL_WALLET_REQUIRE_TELEGRAM:-true}" \
+  --shadow-replay-path "${QG_POLYMARKET_COPY_SHADOW_REPLAY_PATH:-}" \
+  --walk-forward-path "${QG_POLYMARKET_COPY_WALK_FORWARD_PATH:-}" \
+  --min-shadow-replay-trades "${QG_POLYMARKET_COPY_MIN_SHADOW_REPLAY_TRADES:-30}" \
+  --min-shadow-profit-factor "${QG_POLYMARKET_COPY_MIN_SHADOW_PROFIT_FACTOR:-1.10}" \
+  --min-shadow-net-pnl-usdc "${QG_POLYMARKET_COPY_MIN_SHADOW_NET_PNL_USDC:-0.01}" \
+  --min-walk-forward-batches "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_BATCHES:-3}" \
+  --min-walk-forward-pass-rate-pct "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_PASS_RATE_PCT:-60}" \
+  --max-validation-age-hours "${QG_POLYMARKET_COPY_MAX_VALIDATION_AGE_HOURS:-168}" \
+  --real-wallet-take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-35}" \
+  --real-wallet-stop-loss-pct "${QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT:-18}" \
+  --real-wallet-trailing-stop-pct "${QG_POLYMARKET_REAL_WALLET_TRAILING_STOP_PCT:-12}" \
+  --real-wallet-max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-1}" \
+  --real-wallet-max-daily-loss-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC:-2}" \
+  --real-wallet-max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}" \
+  --real-wallet-min-entry-price "${QG_POLYMARKET_REAL_WALLET_MIN_ENTRY_PRICE:-0.04}" \
+  --real-wallet-max-entry-price "${QG_POLYMARKET_REAL_WALLET_MAX_ENTRY_PRICE:-0.90}"
 
-"$PYTHON_BIN" tools/analyze_polymarket_single_market.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]]; then
+  "$PYTHON_BIN" tools/run_polymarket_radar_worker_v2.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR" \
+    --cycles "${QG_POLYMARKET_RADAR_WORKER_CYCLES:-1}" \
+    --interval-seconds 0 \
+    --queue-min-score "${QG_POLYMARKET_RADAR_QUEUE_MIN_SCORE:-45}"
 
-"$PYTHON_BIN" tools/build_polymarket_history_db.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR" \
-  --history-dir "$HISTORY_DIR" \
-  --db-path "$HISTORY_DB"
+  "$PYTHON_BIN" tools/analyze_polymarket_single_market.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
+
+  "$PYTHON_BIN" tools/build_polymarket_history_db.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR" \
+    --history-dir "$HISTORY_DIR" \
+    --db-path "$HISTORY_DB"
+else
+  echo "Skipping legacy market-radar/AI/dry-run chain; Polymarket is copy-trader discovery only."
+fi
 
 "$PYTHON_BIN" tools/build_polymarket_research_bridge.py \
   --runtime-dir "$RUNTIME_DIR" \
@@ -97,37 +140,40 @@ echo "History DB: $HISTORY_DB"
 
 "$PYTHON_BIN" tools/build_polymarket_retune_planner.py \
   --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
-
-"$PYTHON_BIN" tools/score_polymarket_ai_v1.py \
-  --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \
-  --history-dir "$HISTORY_DIR" \
-  --db-path "$HISTORY_DB" \
-  --llm-mode "${QG_POLYMARKET_LLM_MODE:-off}"
+  --copy-discovery-path "$DASHBOARD_DIR/QuantGod_PolymarketCopyTraderDiscovery.json"
 
-"$PYTHON_BIN" tools/build_polymarket_cross_market_linkage.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]]; then
+  "$PYTHON_BIN" tools/score_polymarket_ai_v1.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR" \
+    --history-dir "$HISTORY_DIR" \
+    --db-path "$HISTORY_DB" \
+    --llm-mode "${QG_POLYMARKET_LLM_MODE:-off}"
 
-"$PYTHON_BIN" tools/build_polymarket_execution_gate.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+  "$PYTHON_BIN" tools/build_polymarket_cross_market_linkage.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
 
-"$PYTHON_BIN" tools/build_polymarket_dry_run_orders.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+  "$PYTHON_BIN" tools/build_polymarket_execution_gate.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
 
-"$PYTHON_BIN" tools/watch_polymarket_dry_run_outcomes.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+  "$PYTHON_BIN" tools/build_polymarket_dry_run_orders.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
 
-"$PYTHON_BIN" tools/build_polymarket_canary_executor_contract.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+  "$PYTHON_BIN" tools/watch_polymarket_dry_run_outcomes.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
 
-"$PYTHON_BIN" tools/build_polymarket_auto_governance.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR"
+  "$PYTHON_BIN" tools/build_polymarket_canary_executor_contract.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
 
-echo "Completed read-only Polymarket cycle. No real executor was started."
+  "$PYTHON_BIN" tools/build_polymarket_auto_governance.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR"
+fi
+
+echo "Completed read-only Polymarket copy-trader cycle. No real executor was started."

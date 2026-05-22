@@ -39,6 +39,7 @@ DEFAULT_LOCK_FILE = Path(__file__).resolve().parents[1] / "runtime" / "Polymarke
 
 GOVERNANCE_NAME = "QuantGod_PolymarketAutoGovernance.json"
 CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
+COPY_DISCOVERY_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
 OUTPUT_NAME = "QuantGod_PolymarketCanaryExecutorRun.json"
 ORDER_AUDIT_LEDGER = "QuantGod_PolymarketCanaryOrderAuditLedger.csv"
 POSITION_LEDGER = "QuantGod_PolymarketCanaryPositionLedger.csv"
@@ -75,6 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dashboard-dir", default=str(DEFAULT_DASHBOARD_DIR))
     parser.add_argument("--governance-path", default="")
     parser.add_argument("--canary-contract-path", default="")
+    parser.add_argument("--copy-discovery-path", default="")
     parser.add_argument("--lock-file", default=str(DEFAULT_LOCK_FILE))
     parser.add_argument("--max-orders", type=int, default=1)
     parser.add_argument("--default-limit-price", type=float, default=0.50)
@@ -100,11 +102,20 @@ def lock_file_ok(path: Path) -> bool:
     return "REAL_MONEY_CANARY_OK" in text
 
 
-def compact_env_state(lock_file: Path, plan_only: bool) -> dict[str, Any]:
+def compact_env_state(lock_file: Path, plan_only: bool, wallet_policy: dict[str, Any], wallet_policy_path: str) -> dict[str, Any]:
+    autonomous_policy_allowed = (
+        bool(wallet_policy.get("realWalletExecutionAllowed"))
+        and wallet_policy.get("humanApprovalRequired") is False
+        and wallet_policy.get("operatorApprovalRequired") is False
+        and bool(wallet_policy.get("autonomousUnlockAllowed"))
+    )
     return {
         "planOnlyForced": bool(plan_only),
         "realExecutionSwitch": env_bool("QG_POLYMARKET_REAL_EXECUTION"),
         "ackMatches": os.environ.get("QG_POLYMARKET_CANARY_ACK") == "REAL_MONEY_CANARY_OK",
+        "autonomousPolicyAllowed": autonomous_policy_allowed,
+        "autonomousPolicyPath": wallet_policy_path,
+        "autonomousPolicyStatus": wallet_policy.get("status", ""),
         "killSwitchOff": str(os.environ.get("QG_POLYMARKET_CANARY_KILL_SWITCH", "true")).strip().lower() == "false",
         "walletAdapter": os.environ.get("QG_POLYMARKET_WALLET_ADAPTER", ""),
         "privateKeyConfigured": bool(os.environ.get("QG_POLYMARKET_PRIVATE_KEY")),
@@ -121,11 +132,11 @@ def runtime_blockers(env_state: dict[str, Any]) -> list[str]:
         blockers.append("PLAN_ONLY_FORCED")
     if not env_state["realExecutionSwitch"]:
         blockers.append("REAL_EXECUTION_SWITCH_FALSE")
-    if not env_state["ackMatches"]:
+    if not env_state["ackMatches"] and not env_state["autonomousPolicyAllowed"]:
         blockers.append("CANARY_ACK_MISSING")
     if not env_state["killSwitchOff"]:
         blockers.append("CANARY_KILL_SWITCH_ON_OR_UNSET")
-    if not env_state["lockFileOk"]:
+    if not env_state["lockFileOk"] and not env_state["autonomousPolicyAllowed"]:
         blockers.append("REAL_MONEY_LOCK_FILE_MISSING")
     if env_state["walletAdapter"] != "isolated_clob":
         blockers.append("WALLET_ADAPTER_NOT_ISOLATED_CLOB")
@@ -314,8 +325,10 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     dashboard_dir = Path(args.dashboard_dir)
     governance, governance_path = read_json_candidate(GOVERNANCE_NAME, runtime_dir, dashboard_dir, args.governance_path)
     contract, contract_path = read_json_candidate(CANARY_CONTRACT_NAME, runtime_dir, dashboard_dir, args.canary_contract_path)
+    copy_discovery, copy_discovery_path = read_json_candidate(COPY_DISCOVERY_NAME, runtime_dir, dashboard_dir, args.copy_discovery_path)
+    wallet_policy = copy_discovery.get("walletRiskPolicy") if isinstance(copy_discovery.get("walletRiskPolicy"), dict) else {}
     lock_file = Path(args.lock_file)
-    env_state = compact_env_state(lock_file, args.plan_only)
+    env_state = compact_env_state(lock_file, args.plan_only, wallet_policy, copy_discovery_path)
     plans = build_plan(args, governance, contract, env_state)
     preflight_blockers = runtime_blockers(env_state)
     wallet_write_allowed = bool(plans) and not preflight_blockers and all(not plan.get("blockers") for plan in plans)
@@ -350,6 +363,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "sourceFiles": {
             GOVERNANCE_NAME: governance_path,
             CANARY_CONTRACT_NAME: contract_path,
+            COPY_DISCOVERY_NAME: copy_discovery_path,
         },
         "envPreflight": env_state,
         "preflightBlockers": preflight_blockers,
@@ -362,6 +376,8 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "walletWriteAllowed": wallet_write_allowed,
             "orderSendAllowed": order_send_allowed,
             "maxOrders": args.max_orders,
+            "walletPolicyStatus": wallet_policy.get("status", ""),
+            "walletPolicyRealExecutionAllowed": bool(wallet_policy.get("realWalletExecutionAllowed")),
         },
         "safety": {
             "readsPrivateKeyValueOnlyInsideFinalAdapter": bool(order_send_allowed),
@@ -371,6 +387,8 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "startsExecutorLoop": False,
             "mutatesMt5": False,
             "requiresIndependentGovernanceRecheck": True,
+            "humanApprovalRequired": False,
+            "autonomousPolicyCanReplaceManualAck": bool(env_state.get("autonomousPolicyAllowed")),
         },
         "plannedOrders": public_plans,
         "ledgerFiles": {
