@@ -22,6 +22,8 @@ if [[ -f .env.local ]]; then
   load_env_file .env.local
 fi
 
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
 is_import_snapshot_dir() {
   local candidate="$1"
   [[ "$candidate" == *"runtime/mac_import/mt5_files_snapshot"* ]]
@@ -89,6 +91,9 @@ echo "Copy-only mode: $COPY_ONLY"
   --telegram-export "${QG_POLYMARKET_TELEGRAM_EXPORT:-}" \
   --telegram-bot-env "${QG_POLYMARKET_TELEGRAM_BOT_ENV:-$REPO_ROOT/.env.telegram.local}" \
   --telegram-bot-updates-limit "${QG_POLYMARKET_TELEGRAM_BOT_UPDATES_LIMIT:-100}" \
+  --telegram-telethon-env "${QG_POLYMARKET_TELETHON_ENV:-$REPO_ROOT/.env.telegram.local}" \
+  --telegram-telethon-session "${QG_POLYMARKET_TELETHON_SESSION:-}" \
+  --telegram-telethon-limit "${QG_POLYMARKET_TELETHON_LIMIT:-300}" \
   --telegram-channel-name "${QG_POLYMARKET_TELEGRAM_CHANNEL_NAME:-预测市场内幕钱包监控}" \
   --real-wallet-enabled "${QG_POLYMARKET_REAL_WALLET_ENABLED:-true}" \
   --real-wallet-auto-unlock "${QG_POLYMARKET_REAL_WALLET_AUTO_UNLOCK:-true}" \

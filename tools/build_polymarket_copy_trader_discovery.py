@@ -37,6 +37,11 @@ OUTPUT_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
 LEDGER_NAME = "QuantGod_PolymarketCopyTraderDiscovery.csv"
 DATA_API_BASE = "https://data-api.polymarket.com"
 WALLET_RE = re.compile(r"0x[a-fA-F0-9]{40}")
+TELEGRAM_TRADER_RE = re.compile(
+    r"(?P<user>[A-Za-z0-9_.-]{2,80})\s*\|\s*Rank\s*#(?P<rank>\d+)\s*\|\s*(?P<wallet>0x[a-fA-F0-9]{4,}(?:\.\.\.)?[a-fA-F0-9]{4,})",
+    re.IGNORECASE,
+)
+SIGNAL_SIDE_RE = re.compile(r"\b(?P<side>BUY|SELL)\s+(?P<outcome>[A-Za-z][A-Za-z0-9_ ./'-]{0,60})", re.IGNORECASE)
 DOCS = {
     "leaderboard": "https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings",
     "positions": "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
@@ -76,6 +81,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--telegram-export", default="")
     parser.add_argument("--telegram-bot-env", default=".env.telegram.local")
     parser.add_argument("--telegram-bot-updates-limit", type=int, default=100)
+    parser.add_argument("--telegram-telethon-env", default="")
+    parser.add_argument("--telegram-telethon-session", default="")
+    parser.add_argument("--telegram-telethon-limit", type=int, default=300)
     parser.add_argument("--telegram-channel-name", default="预测市场内幕钱包监控")
     parser.add_argument("--real-wallet-enabled", default="false")
     parser.add_argument("--real-wallet-auto-unlock", default="true")
@@ -290,6 +298,8 @@ def read_telegram_wallets(path_text: str, channel_name: str) -> dict[str, Any]:
         "path": path_text,
         "wallets": [],
         "walletCount": 0,
+        "signals": [],
+        "signalCount": 0,
         "filesRead": 0,
         "error": "",
         "nextAction": "导出 Telegram 频道消息或配置 Telethon 只读抓取后，提取内幕钱包/信号来源。",
@@ -307,17 +317,21 @@ def read_telegram_wallets(path_text: str, channel_name: str) -> dict[str, Any]:
         for suffix in ("*.json", "*.txt", "*.html", "*.htm", "*.csv"):
             files.extend(sorted(root.rglob(suffix))[:30])
     wallets: set[str] = set()
+    signals: list[dict[str, Any]] = []
     for file_path in files[:50]:
         try:
             text = file_path.read_text(encoding="utf-8", errors="ignore")[:5_000_000]
         except OSError:
             continue
         wallets.update(item.lower() for item in WALLET_RE.findall(text))
+        signals.extend(extract_telegram_signals([text], "telegram_export", channel_name))
         result["filesRead"] += 1
     result["wallets"] = sorted(wallets)
     result["walletCount"] = len(wallets)
-    result["active"] = bool(wallets)
-    if wallets:
+    result["signals"] = signals[:100]
+    result["signalCount"] = len(result["signals"])
+    result["active"] = bool(wallets or signals)
+    if wallets or signals:
         result["nextAction"] = "Telegram 导出已接入；这些钱包会和公开排行榜一起做强交易员排序。"
     else:
         result["error"] = "no_wallets_found_in_export"
@@ -355,11 +369,55 @@ def text_fragments(value: Any) -> list[str]:
         return parts
     if isinstance(value, dict):
         parts: list[str] = []
-        for key in ("text", "href", "url", "message", "caption"):
-            if key in value:
-                parts.extend(text_fragments(value.get(key)))
+        for item in value.values():
+            parts.extend(text_fragments(item))
         return parts
     return []
+
+
+def first_regex_number(pattern: str, text: str) -> float | None:
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return float(match.group(1).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_telegram_signals(fragments: list[str], source: str, channel_name: str) -> list[dict[str, Any]]:
+    signals: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for raw in fragments:
+        text = " ".join(str(raw or "").split())
+        if not text:
+            continue
+        side_match = SIGNAL_SIDE_RE.search(text)
+        amount = first_regex_number(r"Amount:\s*\$?([0-9,.]+)", text)
+        price = first_regex_number(r"Price:\s*([0-9.]+)\s*¢?", text)
+        for match in TELEGRAM_TRADER_RE.finditer(text):
+            wallet_text = match.group("wallet")
+            wallet_full = wallet_text.lower() if WALLET_RE.fullmatch(wallet_text) else ""
+            key = (match.group("user").lower(), str(match.group("rank")), wallet_text.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            signals.append(
+                {
+                    "source": source,
+                    "channelName": channel_name,
+                    "userName": match.group("user"),
+                    "rank": safe_int(match.group("rank")),
+                    "wallet": wallet_full,
+                    "walletPreview": wallet_text if not wallet_full else "",
+                    "side": side_match.group("side").upper() if side_match else "",
+                    "outcome": (side_match.group("outcome").strip() if side_match else "")[:80],
+                    "amountUSDC": round4(amount) if amount is not None else None,
+                    "priceCents": round4(price) if price is not None else None,
+                    "textPreview": text[:260],
+                }
+            )
+    return signals[:100]
 
 
 def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, timeout: float) -> dict[str, Any]:
@@ -374,6 +432,8 @@ def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, time
         "matchedUpdates": 0,
         "wallets": [],
         "walletCount": 0,
+        "signals": [],
+        "signalCount": 0,
         "channelTitles": [],
         "error": "",
         "nextAction": "把只读 bot 加入频道并允许接收 channel_post，或使用 Telegram 导出/Telethon user session。",
@@ -409,6 +469,7 @@ def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, time
     updates = payload.get("result") if isinstance(payload.get("result"), list) else []
     result["updates"] = len(updates)
     wallets: set[str] = set()
+    signals: list[dict[str, Any]] = []
     titles: set[str] = set()
     matched = 0
     for update in updates:
@@ -419,22 +480,180 @@ def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, time
         title = str(chat.get("title") or chat.get("username") or chat.get("type") or "")
         if title:
             titles.add(title)
-        text = "\n".join(text_fragments(message.get("text")) + text_fragments(message.get("caption")))
+        fragments = text_fragments(message)
+        text = "\n".join(fragments)
         if channel_name and title and channel_name not in title:
             continue
         matched += 1
         wallets.update(item.lower() for item in WALLET_RE.findall(text))
+        signals.extend(extract_telegram_signals(fragments, "telegram_bot_api", channel_name))
     result["matchedUpdates"] = matched
     result["channelTitles"] = sorted(titles)
     result["wallets"] = sorted(wallets)
     result["walletCount"] = len(wallets)
-    result["active"] = bool(wallets)
-    if wallets:
+    result["signals"] = signals[:100]
+    result["signalCount"] = len(result["signals"])
+    result["active"] = bool(wallets or signals)
+    if wallets or signals:
         result["nextAction"] = "Telegram Bot API 已读到频道钱包；这些钱包会和公开排行榜一起排序。"
     elif updates:
         result["error"] = "updates_present_but_no_matching_wallets"
     else:
         result["error"] = "no_bot_updates"
+    return result
+
+
+def read_telegram_telethon_history(
+    env_path: str,
+    session_path: str,
+    channel_name: str,
+    limit: int,
+    timeout: float,
+) -> dict[str, Any]:
+    env = read_env_values(env_path)
+    api_id = env.get("QG_TELEGRAM_API_ID") or env.get("TELEGRAM_API_ID") or ""
+    api_hash = env.get("QG_TELEGRAM_API_HASH") or env.get("TELEGRAM_API_HASH") or ""
+    session = (
+        session_path
+        or env.get("QG_TELETHON_SESSION")
+        or env.get("TELETHON_SESSION")
+        or str((Path(env_path).expanduser().parent if env_path else Path.cwd()) / "runtime" / "telegram" / "polymarket_channel")
+    )
+    entity_hint = (
+        env.get("QG_POLYMARKET_TELEGRAM_ENTITY")
+        or env.get("QG_POLYMARKET_TELEGRAM_CHANNEL")
+        or env.get("QG_POLYMARKET_TELEGRAM_CHANNEL_NAME")
+        or channel_name
+    )
+    result = {
+        "configured": bool(api_id and api_hash),
+        "mode": "telegram_telethon_user_session_readonly",
+        "active": False,
+        "envPath": env_path,
+        "sessionPath": session,
+        "entityHint": entity_hint,
+        "channelName": channel_name,
+        "messagesRead": 0,
+        "wallets": [],
+        "walletCount": 0,
+        "signals": [],
+        "signalCount": 0,
+        "matchedDialogs": [],
+        "signalPreviews": [],
+        "error": "",
+        "nextAction": "配置 QG_TELEGRAM_API_ID / QG_TELEGRAM_API_HASH 并登录 Telethon user session，读取频道历史。",
+    }
+    if not api_id or not api_hash:
+        result["error"] = "telethon_api_id_hash_missing"
+        return result
+    try:
+        import asyncio
+        from telethon import TelegramClient  # type: ignore
+    except Exception as exc:  # pragma: no cover - optional dependency
+        result["error"] = f"telethon_not_installed:{type(exc).__name__}"
+        result["nextAction"] = "运行 python3 -m pip install --user telethon 后，再登录 Telethon user session。"
+        return result
+
+    async def collect() -> dict[str, Any]:
+        wallets: set[str] = set()
+        previews: list[dict[str, Any]] = []
+        matched_dialogs: list[str] = []
+        client = TelegramClient(str(Path(session).expanduser()), int(api_id), api_hash)
+        await client.connect()
+        try:
+            if not await client.is_user_authorized():
+                return {
+                    "ok": False,
+                    "error": "telethon_session_not_authorized",
+                    "wallets": [],
+                    "signals": [],
+                    "messagesRead": 0,
+                    "matchedDialogs": [],
+                    "signalPreviews": [],
+                }
+            entity = None
+            try:
+                entity = await client.get_entity(entity_hint)
+            except Exception:
+                async for dialog in client.iter_dialogs(limit=300):
+                    title = str(getattr(dialog, "name", "") or "")
+                    if channel_name and channel_name in title:
+                        entity = dialog.entity
+                        matched_dialogs.append(title)
+                        break
+            if entity is None:
+                return {
+                    "ok": False,
+                    "error": "telethon_channel_not_found",
+                    "wallets": [],
+                    "signals": [],
+                    "messagesRead": 0,
+                    "matchedDialogs": matched_dialogs,
+                    "signalPreviews": [],
+                }
+            title = str(getattr(entity, "title", "") or getattr(entity, "username", "") or entity_hint)
+            if title:
+                matched_dialogs.append(title)
+            messages_read = 0
+            signals: list[dict[str, Any]] = []
+            async for message in client.iter_messages(entity, limit=max(1, min(2000, int(limit)))):
+                messages_read += 1
+                text = str(getattr(message, "raw_text", "") or "")
+                fragments = [text]
+                for attr in ("reply_markup", "entities"):
+                    value = getattr(message, attr, None)
+                    if not value:
+                        continue
+                    try:
+                        if hasattr(value, "to_dict"):
+                            fragments.extend(text_fragments(value.to_dict()))
+                        else:
+                            fragments.extend(text_fragments(value))
+                    except Exception:
+                        continue
+                joined = "\n".join(fragments)
+                found = [item.lower() for item in WALLET_RE.findall(joined)]
+                wallets.update(found)
+                signals.extend(extract_telegram_signals(fragments, "telegram_telethon", channel_name))
+                if found or "polymarket" in joined.lower() or "wallet" in joined.lower() or "钱包" in joined:
+                    previews.append(
+                        {
+                            "messageId": getattr(message, "id", None),
+                            "date": str(getattr(message, "date", "") or ""),
+                            "wallets": sorted(set(found))[:10],
+                            "textPreview": " ".join(joined.split())[:260],
+                        }
+                    )
+            return {
+                "ok": True,
+                "error": "",
+                "wallets": sorted(wallets),
+                "signals": signals[:100],
+                "messagesRead": messages_read,
+                "matchedDialogs": sorted(set(matched_dialogs)),
+                "signalPreviews": previews[:20],
+            }
+        finally:
+            await client.disconnect()
+
+    try:
+        collected = asyncio.run(asyncio.wait_for(collect(), timeout=max(5.0, float(timeout) * 2.0)))
+    except Exception as exc:  # pragma: no cover - network/session dependent
+        result["error"] = f"{type(exc).__name__}:{str(exc)[:180]}"
+        return result
+    result["messagesRead"] = safe_int(collected.get("messagesRead"))
+    result["matchedDialogs"] = collected.get("matchedDialogs") or []
+    result["signalPreviews"] = collected.get("signalPreviews") or []
+    result["wallets"] = collected.get("wallets") or []
+    result["walletCount"] = len(result["wallets"])
+    result["signals"] = collected.get("signals") or []
+    result["signalCount"] = len(result["signals"])
+    result["active"] = bool(result["wallets"] or result["signals"])
+    result["error"] = str(collected.get("error") or "")
+    if result["active"]:
+        result["nextAction"] = "Telethon user session 已读取频道历史；钱包会和公开排行榜一起排序。"
+    elif result["messagesRead"]:
+        result["nextAction"] = "Telethon 已读到频道消息，但未提取到完整钱包地址；继续解析信号文本或等待新消息。"
     return result
 
 
@@ -446,25 +665,38 @@ def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
         args.telegram_bot_updates_limit,
         args.request_timeout,
     )
-    wallets = sorted(set(str(item).lower() for item in (export.get("wallets") or []) + (bot.get("wallets") or [])))
-    configured = bool(export.get("configured") or bot.get("configured"))
-    errors = [str(item.get("error")) for item in (export, bot) if item.get("error")]
+    telethon_env = args.telegram_telethon_env or args.telegram_bot_env
+    telethon = read_telegram_telethon_history(
+        telethon_env,
+        args.telegram_telethon_session,
+        args.telegram_channel_name,
+        args.telegram_telethon_limit,
+        args.request_timeout,
+    )
+    sources = (export, bot, telethon)
+    wallets = sorted(set(str(item).lower() for source in sources for item in (source.get("wallets") or [])))
+    signals = [signal for source in sources for signal in (source.get("signals") or []) if isinstance(signal, dict)]
+    configured = bool(export.get("configured") or bot.get("configured") or telethon.get("configured"))
+    errors = [str(item.get("error")) for item in sources if item.get("error")]
     return {
         "channelName": args.telegram_channel_name,
         "configured": configured,
-        "mode": "telegram_export_or_bot_api_readonly",
-        "active": bool(wallets),
+        "mode": "telegram_export_bot_or_telethon_readonly",
+        "active": bool(wallets or signals),
         "wallets": wallets,
         "walletCount": len(wallets),
+        "signals": signals[:150],
+        "signalCount": len(signals[:150]),
         "sources": {
             "export": export,
             "botApi": bot,
+            "telethon": telethon,
         },
         "error": "|".join(errors),
         "nextAction": (
-            "Telegram 已接入并提取到钱包；进入强交易员排序。"
-            if wallets else
-            "Telegram App 里能看到频道不等于系统能读取；需要导出频道历史、把 bot 拉进频道，或配置 Telethon user session。"
+            "Telegram 已接入并提取到钱包/交易员信号；进入强交易员排序。"
+            if wallets or signals else
+            "Telegram App 里能看到频道不等于系统能读取；需要导出频道历史、把 bot 拉进频道，或登录 Telethon user session。"
         ),
     }
 
@@ -949,6 +1181,16 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     fetch_errors.append({"source": source, "error": f"{type(exc).__name__}:{str(exc)[:180]}"})
 
     telegram = read_telegram_sources(args)
+    telegram_signals = [item for item in (telegram.get("signals") or []) if isinstance(item, dict)]
+    signals_by_user: dict[str, list[dict[str, Any]]] = {}
+    signals_by_wallet: dict[str, list[dict[str, Any]]] = {}
+    for signal in telegram_signals:
+        user = str(signal.get("userName") or "").strip().lower()
+        wallet = str(signal.get("wallet") or "").strip().lower()
+        if user:
+            signals_by_user.setdefault(user, []).append(signal)
+        if wallet:
+            signals_by_wallet.setdefault(wallet, []).append(signal)
     for wallet in telegram.get("wallets") or []:
         bucket = wallet_map.setdefault(
             wallet,
@@ -964,6 +1206,20 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         )
         bucket["sourceKinds"].add("telegram_channel")
         bucket.setdefault("leaderboardSources", []).append("TELEGRAM_CHANNEL_WALLET")
+        if wallet in signals_by_wallet:
+            bucket.setdefault("telegramSignals", []).extend(signals_by_wallet[wallet][:10])
+
+    for bucket in wallet_map.values():
+        names = [
+            str(bucket.get("userName") or "").strip().lower(),
+            str(bucket.get("xUsername") or "").strip().lower(),
+        ]
+        matched_signals = [signal for name in names if name for signal in signals_by_user.get(name, [])]
+        if not matched_signals:
+            continue
+        bucket["sourceKinds"].add("telegram_channel")
+        bucket.setdefault("leaderboardSources", []).append("TELEGRAM_CHANNEL_TRADER_SIGNAL")
+        bucket.setdefault("telegramSignals", []).extend(matched_signals[:10])
 
     preselected = sorted(
         wallet_map.values(),
@@ -1053,6 +1309,8 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 "verifiedBadge": bool(entry.get("verifiedBadge")),
                 "sourceKinds": sorted(str(x) for x in entry.get("sourceKinds", set())),
                 "leaderboardSources": sorted(set(entry.get("leaderboardSources") or [])),
+                "telegramSignalCount": len(entry.get("telegramSignals") or []),
+                "telegramSignals": (entry.get("telegramSignals") or [])[:5],
                 "leaderboard": entry.get("leaderboard") or {},
                 "monthPnl": round4(month_metric(entry, "pnl")),
                 "monthVolume": round4(month_metric(entry, "volume")),
@@ -1147,6 +1405,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             "rankedTraders": len(traders),
             "eligibleTraders": eligible_count,
             "telegramWallets": safe_int(telegram.get("walletCount")),
+            "telegramSignals": safe_int(telegram.get("signalCount")),
             "currentPositions": sum(safe_int(row.get("currentPositionCount")) for row in traders),
             "shadowCandidates": len(shadow_candidates),
             "topTrader": (traders[0].get("userName") or traders[0].get("proxyWallet")) if traders else "",
@@ -1193,6 +1452,7 @@ def write_outputs(snapshot: dict[str, Any], targets: OutputTargets) -> None:
                 "recentRealizedPnl": stats.get("realizedPnl", 0),
                 "currentPositionCount": trader.get("currentPositionCount", 0),
                 "currentPositionValue": trader.get("currentPositionValue", 0),
+                "telegramSignalCount": trader.get("telegramSignalCount", 0),
                 "latestActivityIso": trader.get("latestActivityIso", ""),
                 "blockers": "|".join(trader.get("blockers") or []),
                 "warnings": "|".join(trader.get("warnings") or []),
@@ -1213,6 +1473,7 @@ def write_outputs(snapshot: dict[str, Any], targets: OutputTargets) -> None:
         "recentRealizedPnl",
         "currentPositionCount",
         "currentPositionValue",
+        "telegramSignalCount",
         "latestActivityIso",
         "blockers",
         "warnings",

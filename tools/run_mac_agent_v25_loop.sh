@@ -25,6 +25,7 @@ load_env_file "$REPO_ROOT/.env.auto.local"
 load_env_file "$REPO_ROOT/.env.telegram.local"
 load_env_file "$REPO_ROOT/.env.deepseek.local"
 
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export QG_FOCUS_SYMBOL="${QG_FOCUS_SYMBOL:-USDJPYc}"
 export QG_ALLOWED_SYMBOLS="${QG_ALLOWED_SYMBOLS:-USDJPYc}"
 export QG_DISABLE_NON_FOCUS_SYMBOLS="${QG_DISABLE_NON_FOCUS_SYMBOLS:-1}"
@@ -46,6 +47,8 @@ INTERVAL_SECONDS="${QG_AGENT_V25_INTERVAL_SECONDS:-60}"
 HEAVY_INTERVAL_SECONDS="${QG_AGENT_V25_HEAVY_INTERVAL_SECONDS:-1800}"
 TELEGRAM_TIMEOUT_SECONDS="${QG_AGENT_V25_TELEGRAM_TIMEOUT_SECONDS:-20}"
 SEND_TELEGRAM="${QG_AGENT_V25_SEND_TELEGRAM:-${QG_TELEGRAM_PUSH_ALLOWED:-0}}"
+FAST_TELEGRAM_GATEWAY="${QG_AGENT_V25_FAST_TELEGRAM_GATEWAY:-0}"
+HEAVY_TELEGRAM_GATEWAY="${QG_AGENT_V25_HEAVY_TELEGRAM_GATEWAY:-1}"
 SCREEN_NAME="${QG_AGENT_V25_SCREEN:-quantgod-agent-v25}"
 AUTOPILOT_COMMAND="${QG_AGENT_V25_AUTOPILOT_COMMAND:-build}"
 case "$AUTOPILOT_COMMAND" in
@@ -355,6 +358,24 @@ run_heavy_tasks() {
     "$AUTOPILOT_COMMAND" \
     --write || echo "Daily Autopilot v2.5 $AUTOPILOT_COMMAND failed"
 
+  if [[ "$HEAVY_TELEGRAM_GATEWAY" == "1" ]]; then
+    if [[ "$SEND_TELEGRAM" == "1" ]]; then
+      run_with_timeout "$TELEGRAM_TIMEOUT_SECONDS" "$PYTHON_BIN" tools/run_telegram_gateway.py \
+        --runtime-dir "$RUNTIME_DIR" \
+        --repo-root "$REPO_ROOT" \
+        run-once \
+        --refresh \
+        --send \
+        --limit 8 || echo "Telegram Gateway heavy dispatch failed or timed out"
+    else
+      run_with_timeout "$TELEGRAM_TIMEOUT_SECONDS" "$PYTHON_BIN" tools/run_telegram_gateway.py \
+        --runtime-dir "$RUNTIME_DIR" \
+        --repo-root "$REPO_ROOT" \
+        collect \
+        --refresh || echo "Telegram Gateway heavy collect failed or timed out"
+    fi
+  fi
+
   run_maintenance
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$HEAVY_STAMP_FILE"
   write_heavy_status "COMPLETED" "Strategy Lab/Spread gate audit/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务已完成或记录为可重试；快控制环继续独立刷新。"
@@ -402,7 +423,7 @@ run_once() {
     once \
     --write || echo "USDJPY live loop failed"
 
-  if [[ "$SEND_TELEGRAM" == "1" ]]; then
+  if [[ "$FAST_TELEGRAM_GATEWAY" == "1" && "$SEND_TELEGRAM" == "1" ]]; then
     run_with_timeout "$TELEGRAM_TIMEOUT_SECONDS" "$PYTHON_BIN" tools/run_telegram_gateway.py \
       --runtime-dir "$RUNTIME_DIR" \
       --repo-root "$REPO_ROOT" \
@@ -410,12 +431,14 @@ run_once() {
       --refresh \
       --send \
       --limit 8 || echo "Telegram Gateway queued dispatch failed or timed out"
-  else
+  elif [[ "$FAST_TELEGRAM_GATEWAY" == "1" ]]; then
     run_with_timeout "$TELEGRAM_TIMEOUT_SECONDS" "$PYTHON_BIN" tools/run_telegram_gateway.py \
       --runtime-dir "$RUNTIME_DIR" \
       --repo-root "$REPO_ROOT" \
       collect \
       --refresh || echo "Telegram Gateway scheduled collect failed or timed out"
+  else
+    echo "Telegram Gateway skipped in fast cycle; low-frequency heavy task owns it."
   fi
 
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] QuantGod Agent v2.5 fast cycle complete"

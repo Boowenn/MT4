@@ -25,6 +25,7 @@ load_env_file "$REPO_ROOT/.env.auto.local"
 load_env_file "$REPO_ROOT/.env.telegram.local"
 load_env_file "$REPO_ROOT/.env.deepseek.local"
 
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export QG_FOCUS_SYMBOL="${QG_FOCUS_SYMBOL:-USDJPYc}"
 export QG_ALLOWED_SYMBOLS="${QG_ALLOWED_SYMBOLS:-USDJPYc}"
 export QG_DISABLE_NON_FOCUS_SYMBOLS="${QG_DISABLE_NON_FOCUS_SYMBOLS:-1}"
