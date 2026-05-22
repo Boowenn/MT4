@@ -55,6 +55,13 @@ const JSON_ENDPOINTS = Object.freeze({
   '/api/research/entry-blockers': 'QuantGod_MT5EntryBlockers.json',
   '/api/dashboard/state': 'QuantGod_Dashboard.json',
   '/api/dashboard/backtest-summary': 'QuantGod_BacktestSummary.json',
+  '/api/polymarket/candidate-queue': 'QuantGod_PolymarketRadarCandidateQueue.json',
+  '/api/polymarket/dry-run-orders': 'QuantGod_PolymarketDryRunOrders.json',
+  '/api/polymarket/outcome-watcher': 'QuantGod_PolymarketDryRunOutcomeWatcher.json',
+  '/api/polymarket/execution-gate': 'QuantGod_PolymarketExecutionGate.json',
+  '/api/polymarket/history-db': 'QuantGod_PolymarketHistoryDb.json',
+  '/api/polymarket/research': 'QuantGod_PolymarketResearch.json',
+  '/api/polymarket/retune-planner': 'QuantGod_PolymarketRetunePlanner.json',
   '/api/polymarket/single-market-analysis': 'QuantGod_PolymarketSingleMarketAnalysis.json',
 });
 
@@ -85,6 +92,9 @@ const CSV_ENDPOINTS = Object.freeze({
   '/api/polymarket/canary-exit-ledger': 'QuantGod_PolymarketCanaryExitLedger.csv',
   '/api/polymarket/auto-governance-ledger': 'QuantGod_PolymarketAutoGovernanceLedger.csv',
   '/api/polymarket/cross-market-linkage-ledger': 'QuantGod_PolymarketCrossMarketLinkage.csv',
+  '/api/polymarket/dry-run-outcome-ledger': 'QuantGod_PolymarketDryRunOutcomeLedger.csv',
+  '/api/polymarket/execution-gate-ledger': 'QuantGod_PolymarketExecutionGateLedger.csv',
+  '/api/polymarket/research-ledger': 'QuantGod_PolymarketResearchLedger.csv',
   '/api/polymarket/single-market-analysis-ledger': 'QuantGod_PolymarketSingleMarketAnalysisLedger.csv',
   '/api/polymarket/radar-worker-ledger': 'QuantGod_PolymarketRadarWorkerV2.csv',
 });

@@ -346,7 +346,7 @@ run_heavy_tasks() {
     audit \
     --write || echo "USDJPY spread gate impact audit failed"
 
-  QG_DASHBOARD_FILES_DIR="${QG_POLYMARKET_HEAVY_DASHBOARD_DIR:-$RUNTIME_DIR}" \
+  QG_DASHBOARD_FILES_DIR="${QG_POLYMARKET_HEAVY_DASHBOARD_DIR:-$REPO_ROOT/Dashboard}" \
     bash tools/run_mac_polymarket_readonly_cycle.sh || echo "Polymarket readonly cycle failed"
 
   "$PYTHON_BIN" tools/run_daily_autopilot_v2.py \
