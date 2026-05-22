@@ -17,6 +17,7 @@ FROZEN_RSI_LINEAGE_FILE = "QuantGod_RSIFrozenEliteLineage.json"
 RSI_SHADOW_OBSERVATION_REPORT_FILE = "QuantGod_RSIShadowContractObservationReport.json"
 RSI_OPPORTUNITY_LAYER_AUDIT_REPORT_FILE = "QuantGod_RSIOpportunityLayerAuditReport.json"
 RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE = "QuantGod_RSITriggerAlignmentAuditReport.json"
+RSI_LIVE_WINDOW_RECONCILIATION_REPORT_FILE = "QuantGod_RSILiveWindowReconciliationReport.json"
 
 CONTRACT_MODE = "SHADOW_EVALUATION_ONLY"
 ALLOWED_CONTRACT_MODES = {

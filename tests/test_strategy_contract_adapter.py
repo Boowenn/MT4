@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tools.strategy_contract_adapter.builder import (
+    build_rsi_live_window_reconciliation,
     build_rsi_opportunity_layer_audit,
     build_rsi_shadow_contract_observation,
     build_strategy_contract,
@@ -21,6 +23,7 @@ from tools.strategy_contract_adapter.schema import (
     EA_SHADOW_EVALUATION_LEDGER_FILE,
     EA_SHADOW_EVALUATION_STATUS_FILE,
     FROZEN_RSI_LINEAGE_FILE,
+    RSI_LIVE_WINDOW_RECONCILIATION_REPORT_FILE,
     RSI_OPPORTUNITY_LAYER_AUDIT_REPORT_FILE,
     RSI_SHADOW_OBSERVATION_REPORT_FILE,
     RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE,
@@ -29,6 +32,7 @@ from tools.strategy_ga.fitness import score_seed
 from tools.strategy_ga.schema import CANDIDATE_RUNS_FILE, ga_dir
 from tools.strategy_ga.seed_generator import case_memory_seed_pool
 from tools.strategy_json.schema import base_strategy_seed
+from tools.usdjpy_strategy_backtest.sqlite_store import Bar, connect, upsert_bars
 from tools.usdjpy_evidence_os.case_memory import build_case_memory
 
 
@@ -607,6 +611,91 @@ class StrategyContractAdapterTests(unittest.TestCase):
             self.assertFalse(report["adapterCoverage"]["materialCoverageGap"])
             self.assertNotIn("RSI_TRIGGER_ADAPTER_COVERAGE_GAP", {blocker.get("code") for blocker in report["blockers"]})
             self.assertTrue((runtime / "strategy_contract" / RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE).exists())
+
+    def test_rsi_live_window_reconciliation_compares_historical_triggers_to_live_rsi_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            frozen = self._write_frozen_rsi_lineage(runtime, seed_id="GA-USDJPY-G0077-C0002")
+            rsi = frozen["strategyJson"]["indicators"]["rsi"]
+            rsi["period"] = 5
+            rsi["timeframe"] = "H1"
+            rsi["buyBand"] = 31.0
+            rsi["crossbackThreshold"] = 0.5
+            rsi["maxCrossbackRsi"] = 39.0
+            rsi.pop("regimeFilter", None)
+            frozen_path = ga_dir(runtime) / FROZEN_RSI_LINEAGE_FILE
+            frozen_path.write_text(json.dumps(frozen, ensure_ascii=False), encoding="utf-8")
+            build_strategy_contract(runtime, write=True, force_frozen_rsi=True)
+            start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+            close_pattern = [100, 99, 98, 97, 96, 95, 96, 97, 98, 97, 96, 95, 96, 97]
+            bars = []
+            for index in range(70):
+                close = float(close_pattern[index % len(close_pattern)])
+                bars.append(
+                    Bar(
+                        timestamp=(start + timedelta(hours=index)).isoformat().replace("+00:00", "Z"),
+                        open=close,
+                        high=close + 0.03,
+                        low=close - 0.03,
+                        close=close,
+                        volume=100,
+                        spread=8,
+                    )
+                )
+            with connect(runtime) as conn:
+                upsert_bars(conn, "H1", bars)
+            rows = [
+                {
+                    "schema": "quantgod.strategy_json_ea_shadow_evaluation.v1",
+                    "evaluationId": f"eval-live-far-{index}",
+                    "generatedAtLocal": f"2026-05-22T0{index}:00:00Z",
+                    "status": "SHADOW_GUARD_BLOCKED",
+                    "blocker": "SPREAD_BLOCK",
+                    "selectedSeedId": "GA-USDJPY-G0077-C0002",
+                    "fingerprint": "fp-frozen-rsi",
+                    "strategyFamily": "RSI_Reversal",
+                    "direction": "LONG",
+                    "indicatorReady": True,
+                    "rsiLongSignal": False,
+                    "rsiPeriod": 5,
+                    "timeframe": "H1",
+                    "rsiBuyBand": 31.0,
+                    "rsiCrossbackThreshold": 0.5,
+                    "rsiMaxCrossbackRsi": 39.0,
+                    "rsiTriggerRule": "BACKTEST_CROSSBACK_ONLY",
+                    "rsiClosed1": 50.0 + index,
+                    "rsiClosed2": 49.0 + index,
+                    "rsiCrossbackSignal": False,
+                    "rsiMaxCrossbackPass": False,
+                    "rsiAdverseGuard": {
+                        "loaded": True,
+                        "mode": "P4_10G_RSI_ADVERSE_EXCURSION",
+                        "rangePass": True,
+                    },
+                    "orderSendAllowed": False,
+                    "livePresetMutationAllowed": False,
+                    "gaDirectLiveAllowed": False,
+                }
+                for index in range(3)
+            ]
+            (runtime / EA_SHADOW_EVALUATION_LEDGER_FILE).write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            (runtime / EA_SHADOW_EVALUATION_STATUS_FILE).write_text(json.dumps(rows[-1], ensure_ascii=False), encoding="utf-8")
+
+            report = build_rsi_live_window_reconciliation(runtime, write=True)
+
+            self.assertEqual(report["phase"], "P4_10N_RSI_FROZEN_SEED_LIVE_WINDOW_RECONCILIATION")
+            self.assertEqual(report["status"], "WATCH")
+            self.assertTrue(report["historicalWindow"]["present"])
+            self.assertGreater(report["historicalWindow"]["triggerDistribution"]["fullTriggerBarCount"], 0)
+            self.assertEqual(report["liveWindow"]["triggerTelemetry"]["backtestCrossbackCount"], 0)
+            self.assertEqual(
+                report["reconciliation"]["label"],
+                "LIVE_WINDOW_RSI_REGIME_AWAY_FROM_BACKTEST_TRIGGER_ZONE",
+            )
+            self.assertTrue((runtime / "strategy_contract" / RSI_LIVE_WINDOW_RECONCILIATION_REPORT_FILE).exists())
 
     def test_ea_shadow_evaluation_feeds_case_memory_and_ga_seed_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

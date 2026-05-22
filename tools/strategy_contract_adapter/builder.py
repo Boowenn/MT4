@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -11,12 +12,20 @@ try:
     from strategy_json.normalizer import normalize_strategy_json
     from strategy_json.schema import ALLOWED_STRATEGY_FAMILIES, FOCUS_SYMBOL, base_strategy_seed
     from strategy_json.validator import validate_strategy_json
+    from usdjpy_strategy_backtest.indicators import ema_values, rsi_values
+    from usdjpy_strategy_backtest.schema import db_path as usdjpy_backtest_db_path
+    from usdjpy_strategy_backtest.sqlite_store import Bar, connect as connect_backtest, load_bars
+    from usdjpy_strategy_backtest.strategy_runner import run_strategy
 except ModuleNotFoundError:  # pragma: no cover - package import path for unittest
     from tools.strategy_ga.schema import CANDIDATE_RUNS_FILE, ELITE_FILE, ga_dir
     from tools.strategy_json.fingerprint import strategy_fingerprint
     from tools.strategy_json.normalizer import normalize_strategy_json
     from tools.strategy_json.schema import ALLOWED_STRATEGY_FAMILIES, FOCUS_SYMBOL, base_strategy_seed
     from tools.strategy_json.validator import validate_strategy_json
+    from tools.usdjpy_strategy_backtest.indicators import ema_values, rsi_values
+    from tools.usdjpy_strategy_backtest.schema import db_path as usdjpy_backtest_db_path
+    from tools.usdjpy_strategy_backtest.sqlite_store import Bar, connect as connect_backtest, load_bars
+    from tools.usdjpy_strategy_backtest.strategy_runner import run_strategy
 
 from .schema import (
     AGENT_VERSION,
@@ -30,6 +39,7 @@ from .schema import (
     EA_SHADOW_EVALUATION_LEDGER_FILE,
     EA_SHADOW_EVALUATION_STATUS_FILE,
     FROZEN_RSI_LINEAGE_FILE,
+    RSI_LIVE_WINDOW_RECONCILIATION_REPORT_FILE,
     RSI_OPPORTUNITY_LAYER_AUDIT_REPORT_FILE,
     RSI_SHADOW_OBSERVATION_REPORT_FILE,
     RSI_TRIGGER_ALIGNMENT_AUDIT_REPORT_FILE,
@@ -887,6 +897,94 @@ def build_rsi_trigger_alignment_audit(runtime_dir: Path, *, write: bool = True) 
     return report
 
 
+def build_rsi_live_window_reconciliation(runtime_dir: Path, *, write: bool = True) -> Dict[str, Any]:
+    runtime_dir = Path(runtime_dir)
+    lineage_file = _load_frozen_rsi_lineage(runtime_dir)
+    contract_status = _load_json(runtime_dir / CONTRACT_STATUS_FILE) or _load_json(
+        contract_dir(runtime_dir) / CONTRACT_STATUS_FILE
+    )
+    contract = contract_status.get("contract") if isinstance(contract_status.get("contract"), dict) else {}
+    if not contract:
+        contract = _load_json(runtime_dir / CONTRACT_JSON_FILE) or _load_json(contract_dir(runtime_dir) / CONTRACT_JSON_FILE)
+    frozen, lineage_source = _rsi_observation_lineage_snapshot(contract, lineage_file)
+    frozen_seed_id = str(frozen.get("selectedSeedId") or "")
+    frozen_fingerprint = str(frozen.get("selectedFingerprint") or "")
+    lineage_file_state = _lineage_file_state(lineage_file, frozen)
+    shadow_status = _read_shadow_evaluation_status(runtime_dir)
+    rows = _read_shadow_evaluation_ledger(runtime_dir, limit=12000)
+    if shadow_status:
+        rows.append(shadow_status)
+    matching = _dedupe_shadow_rows(
+        [row for row in rows if _row_matches_frozen_seed(row, frozen_seed_id, frozen_fingerprint)]
+    )
+    contract_rotated = bool(frozen_seed_id) and str(contract.get("selectedSeedId") or "") == frozen_seed_id
+    contract_strategy = contract.get("strategy") if isinstance(contract.get("strategy"), dict) else {}
+    contract_rsi = contract_strategy.get("rsi") if isinstance(contract_strategy.get("rsi"), dict) else {}
+    strategy_json = contract.get("strategyJson") if isinstance(contract.get("strategyJson"), dict) else {}
+    strategy_json_rsi = (
+        ((strategy_json.get("indicators") or {}).get("rsi") or {})
+        if isinstance(strategy_json.get("indicators"), dict)
+        else {}
+    )
+    rsi_source = strategy_json_rsi if strategy_json_rsi else contract_rsi
+    live_window = _rsi_live_window_telemetry(matching, rsi_source)
+    historical_window = _rsi_historical_window_telemetry(runtime_dir, strategy_json if strategy_json else contract.get("strategyJson", {}))
+    replay_reference = _rsi_trigger_reference_alignment(runtime_dir, frozen, lineage_file_state)
+    reconciliation = _rsi_live_window_reconciliation_decision(live_window, historical_window, frozen)
+    blockers: List[Dict[str, Any]] = []
+    if not frozen_seed_id:
+        blockers.append({"code": "NO_FROZEN_RSI_LINEAGE", "reasonZh": "缺少 P4-10I/P4-10J frozen RSI lineage 快照。"})
+    if not contract_rotated:
+        blockers.append({"code": "FROZEN_RSI_CONTRACT_NOT_ROTATED", "reasonZh": "EA contract 尚未锁定到当前要复核的 frozen RSI seed。"})
+    if not matching:
+        blockers.append({"code": "WAITING_FROZEN_RSI_SHADOW_LEDGER", "reasonZh": "等待 frozen RSI seed 的 live shadow telemetry 后再做窗口对齐。"})
+    if not historical_window.get("present"):
+        blockers.append({"code": "MISSING_HISTORICAL_BACKTEST_WINDOW", "reasonZh": historical_window.get("reasonZh")})
+    if historical_window.get("currentBacktest", {}).get("ok") and _safe_float(
+        historical_window.get("currentBacktest", {}).get("tradeCount"), 0.0
+    ) == 0 and _safe_float((frozen.get("criteria") or {}).get("tradeCount"), 0.0) >= 20:
+        blockers.append(
+            {
+                "code": "FROZEN_CRITERIA_NOT_REPRODUCED_ON_CURRENT_HISTORY",
+                "reasonZh": "active frozen seed 的历史窗口当前未复现 20+ trade 基线，需要先查历史窗口/数据源漂移。",
+            }
+        )
+    status = _rsi_live_window_reconciliation_status(blockers, reconciliation)
+    report = {
+        "ok": True,
+        "schema": "quantgod.rsi_live_window_reconciliation.v1",
+        "generatedAt": utc_now_iso(),
+        "status": status,
+        "phase": "P4_10N_RSI_FROZEN_SEED_LIVE_WINDOW_RECONCILIATION",
+        "lineageSource": lineage_source,
+        "frozenSeedId": frozen_seed_id or None,
+        "frozenFingerprint": frozen_fingerprint or None,
+        "lineageFile": lineage_file_state,
+        "contractRotation": {
+            "selectedSeedId": contract.get("selectedSeedId"),
+            "selectionSource": contract.get("selectionSource"),
+            "forceFrozenRsi": bool(contract.get("forceFrozenRsi")),
+            "matchesFrozenSeed": contract_rotated,
+            "contractMode": contract.get("contractMode"),
+        },
+        "rsiParameters": {
+            "contract": _rsi_parameter_snapshot(contract_rsi),
+            "strategyJson": _rsi_parameter_snapshot(strategy_json_rsi),
+        },
+        "frozenCriteria": frozen.get("criteria") if isinstance(frozen.get("criteria"), dict) else {},
+        "liveWindow": live_window,
+        "historicalWindow": historical_window,
+        "replayReference": replay_reference,
+        "reconciliation": reconciliation,
+        "blockers": blockers,
+        "recommendationsZh": _rsi_live_window_reconciliation_recommendations(status, reconciliation, blockers),
+        "safety": dict(SAFETY_BOUNDARY),
+    }
+    if write:
+        _write_json(contract_dir(runtime_dir) / RSI_LIVE_WINDOW_RECONCILIATION_REPORT_FILE, report)
+    return report
+
+
 def _rsi_observation_lineage_snapshot(contract: Dict[str, Any], lineage_file: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     contract_lineage = (
         contract.get("frozenRsiLineage")
@@ -1634,6 +1732,440 @@ def _rsi_trigger_alignment_recommendations(
     if status == "PASS":
         return ["保留 frozen seed，转回 P4-10K/P4-10J 观察 entry quality 与 adverse 样本。"]
     return [str(blocker.get("reasonZh") or blocker.get("code")) for blocker in blockers] or ["继续观察同一颗 frozen RSI seed。"]
+
+
+def _rsi_live_window_telemetry(rows: List[Dict[str, Any]], rsi: Dict[str, Any]) -> Dict[str, Any]:
+    telemetry = _rsi_trigger_telemetry(rows, rsi)
+    unique_pairs: set[str] = set()
+    hour_counts: Dict[str, int] = {}
+    regime_reasons: Dict[str, int] = {}
+    regime_pass_count = 0
+    guard_range_pass_count = 0
+    for row in rows:
+        rsi1 = _safe_float(row.get("rsiClosed1"), None)
+        rsi2 = _safe_float(row.get("rsiClosed2"), None)
+        if rsi1 is not None and rsi2 is not None:
+            unique_pairs.add(f"{rsi1:.4f}|{rsi2:.4f}")
+        regime = row.get("rsiRegimeFilter") if isinstance(row.get("rsiRegimeFilter"), dict) else {}
+        hour = regime.get("hourUtc")
+        if hour is not None:
+            key = str(hour)
+            hour_counts[key] = hour_counts.get(key, 0) + 1
+        reason = str(regime.get("reason") or "UNKNOWN")
+        regime_reasons[reason] = regime_reasons.get(reason, 0) + 1
+        regime_pass_count += int(bool(regime.get("pass")))
+        guard_range_pass_count += int(_rsi_guard_range_pass(row))
+    return {
+        "source": "MT5_STRATEGY_JSON_EA_SHADOW_LEDGER",
+        "matchingRowCount": len(rows),
+        "first": _shadow_row_summary(rows[0]) if rows else {},
+        "latest": _shadow_row_summary(_latest_shadow_row(rows)),
+        "statusCounts": dict(_status_counts(rows)),
+        "blockerCounts": _field_counts(rows, "blocker"),
+        "uniqueRsiPairCount": len(unique_pairs),
+        "hourUtcCounts": hour_counts,
+        "regimeReasonCounts": regime_reasons,
+        "regimePassCount": regime_pass_count,
+        "guardRangePassCount": guard_range_pass_count,
+        "liveSpreadAllowedCount": sum(1 for row in rows if bool(row.get("liveSpreadAllowed"))),
+        "shadowResearchSpreadAllowedCount": sum(1 for row in rows if bool(row.get("shadowResearchSpreadAllowed"))),
+        "wouldEnterCount": sum(1 for row in rows if bool(row.get("wouldEnter")) or row.get("status") == "SHADOW_WOULD_ENTER"),
+        "rsiSignalCount": sum(1 for row in rows if bool(row.get("rsiLongSignal"))),
+        "triggerTelemetry": telemetry,
+        "reasonZh": telemetry.get("reasonZh"),
+    }
+
+
+def _rsi_historical_window_telemetry(runtime_dir: Path, strategy_json: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(strategy_json, dict) or not strategy_json:
+        return {"present": False, "reasonZh": "active contract 没有 Strategy JSON 快照。"}
+    path = usdjpy_backtest_db_path(runtime_dir)
+    if not path.exists():
+        return {
+            "present": False,
+            "source": "USDJPY_SQLITE_BACKTEST",
+            "dbPath": str(path),
+            "reasonZh": "未找到 USDJPY SQLite backtest 数据库，不能对齐历史 RSI 触发窗口。",
+        }
+    rsi_cfg = ((strategy_json.get("indicators") or {}).get("rsi") or {})
+    timeframe = str(rsi_cfg.get("timeframe") or "H1").upper()
+    with connect_backtest(runtime_dir) as conn:
+        bars = load_bars(conn, timeframe, limit=5000)
+    if len(bars) < 40:
+        return {
+            "present": False,
+            "source": "USDJPY_SQLITE_BACKTEST",
+            "dbPath": str(path),
+            "timeframe": timeframe,
+            "barCount": len(bars),
+            "reasonZh": "历史 K 线不足，不能复核 frozen RSI 的 backtest 触发分布。",
+        }
+    run = run_strategy(strategy_json, {timeframe: bars})
+    trigger = _rsi_historical_trigger_distribution(strategy_json, bars)
+    metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else {}
+    engine = run.get("engine") if isinstance(run.get("engine"), dict) else {}
+    return {
+        "present": True,
+        "source": "USDJPY_SQLITE_BACKTEST",
+        "dbPath": str(path),
+        "timeframe": timeframe,
+        "barCount": len(bars),
+        "firstBar": bars[0].timestamp if bars else None,
+        "latestBar": bars[-1].timestamp if bars else None,
+        "currentBacktest": {
+            "ok": bool(run.get("ok")),
+            "seedId": (run.get("strategyJson") or {}).get("seedId") if isinstance(run.get("strategyJson"), dict) else strategy_json.get("seedId"),
+            "strategyId": (
+                (run.get("strategyJson") or {}).get("strategyId") if isinstance(run.get("strategyJson"), dict) else strategy_json.get("strategyId")
+            ),
+            "signalCount": engine.get("signalCount"),
+            "tradeCount": metrics.get("tradeCount"),
+            "netR": metrics.get("netR"),
+            "maxAdverseR": metrics.get("maxAdverseR"),
+            "reasonZh": run.get("reasonZh"),
+        },
+        "triggerDistribution": trigger,
+        "reasonZh": _rsi_historical_window_reason(trigger, metrics),
+    }
+
+
+def _rsi_historical_trigger_distribution(strategy_json: Dict[str, Any], bars: List[Bar]) -> Dict[str, Any]:
+    rsi_cfg = ((strategy_json.get("indicators") or {}).get("rsi") or {})
+    direction = str(strategy_json.get("direction") or "LONG").upper()
+    period = int(_safe_float(rsi_cfg.get("period"), 14.0) or 14)
+    buy_band = _safe_float(rsi_cfg.get("buyBand"), 34.0) or 34.0
+    threshold = _safe_float(rsi_cfg.get("crossbackThreshold"), 0.8) or 0.0
+    max_crossback = _safe_float(rsi_cfg.get("maxCrossbackRsi"), 100.0)
+    if max_crossback is None:
+        max_crossback = 100.0
+    regime_cfg = rsi_cfg.get("regimeFilter") if isinstance(rsi_cfg.get("regimeFilter"), dict) else {}
+    guard_cfg = rsi_cfg.get("adverseExcursionGuard") if isinstance(rsi_cfg.get("adverseExcursionGuard"), dict) else {}
+    closes = [bar.close for bar in bars]
+    rsi_series = rsi_values(closes, period)
+    fast_period = int(_safe_float(regime_cfg.get("emaFastPeriod"), 20.0) or 20)
+    slow_period = int(_safe_float(regime_cfg.get("emaSlowPeriod"), 50.0) or 50)
+    fast_ema = ema_values(closes, fast_period) if _rsi_regime_filter_enabled(regime_cfg) else []
+    slow_ema = ema_values(closes, slow_period) if _rsi_regime_filter_enabled(regime_cfg) else []
+    rsi1_values: List[float] = []
+    rsi2_values: List[float] = []
+    distances: List[float] = []
+    raw_crossback = 0
+    capped_crossback = 0
+    max_crossback_rejected = 0
+    regime_pass = 0
+    adverse_pass = 0
+    full_trigger = 0
+    runner_style = 0
+    current_at_or_below = 0
+    previous_at_or_below = 0
+    near_counts = {"within1": 0, "within3": 0, "within5": 0, "within10": 0}
+    regime_reasons: Dict[str, int] = {}
+    trigger_samples: List[Dict[str, Any]] = []
+    index = period + 1
+    while index < len(bars) - 2:
+        previous_rsi = rsi_series[index - 1] if index - 1 < len(rsi_series) else None
+        current_rsi = rsi_series[index] if index < len(rsi_series) else None
+        if previous_rsi is None or current_rsi is None:
+            index += 1
+            continue
+        rsi1 = float(current_rsi)
+        rsi2 = float(previous_rsi)
+        rsi1_values.append(rsi1)
+        rsi2_values.append(rsi2)
+        distance = rsi1 - buy_band
+        distances.append(distance)
+        current_at_or_below += int(rsi1 <= buy_band)
+        previous_at_or_below += int(rsi2 <= buy_band)
+        for key, width in (("within1", 1), ("within3", 3), ("within5", 5), ("within10", 10)):
+            if 0 <= distance <= width:
+                near_counts[key] += 1
+        long_cross = rsi2 <= buy_band and rsi1 >= buy_band + threshold
+        capped = long_cross and rsi1 <= max_crossback
+        if long_cross:
+            raw_crossback += 1
+        if long_cross and rsi1 > max_crossback:
+            max_crossback_rejected += 1
+        if capped:
+            capped_crossback += 1
+        regime = _rsi_historical_regime_decision(bars, index, direction, regime_cfg, fast_ema, slow_ema)
+        regime_reasons[str(regime.get("reason") or "PASS")] = regime_reasons.get(str(regime.get("reason") or "PASS"), 0) + 1
+        guard = _rsi_historical_adverse_guard_decision(bars, index, guard_cfg)
+        if capped and regime.get("allowed", True):
+            regime_pass += 1
+        if capped and regime.get("allowed", True) and guard.get("allowed", True):
+            adverse_pass += 1
+        is_full_trigger = direction == "LONG" and capped and regime.get("allowed", True) and guard.get("allowed", True)
+        if is_full_trigger:
+            full_trigger += 1
+            runner_style += 1
+            trigger_samples.append(
+                {
+                    "timestamp": bars[index].timestamp,
+                    "entryTimestamp": bars[index + 1].timestamp if index + 1 < len(bars) else None,
+                    "rsiClosed1": round(rsi1, 4),
+                    "rsiClosed2": round(rsi2, 4),
+                    "hourUtc": _hour_utc_from_timestamp(bars[index].timestamp),
+                    "regime": regime,
+                    "adverseGuard": guard,
+                }
+            )
+            index += 3
+        else:
+            index += 1
+    return {
+        "period": period,
+        "buyBand": buy_band,
+        "crossbackThreshold": threshold,
+        "maxCrossbackRsi": max_crossback,
+        "eligibleBarCount": len(rsi1_values),
+        "rsiClosed1Distribution": _distribution(rsi1_values),
+        "rsiClosed2Distribution": _distribution(rsi2_values),
+        "rsiClosed1MinusBuyBandDistribution": _distribution(distances),
+        "currentAtOrBelowBuyBandCount": current_at_or_below,
+        "previousAtOrBelowBuyBandCount": previous_at_or_below,
+        "rawCrossbackBarCount": raw_crossback,
+        "cappedCrossbackBarCount": capped_crossback,
+        "maxCrossbackRejectedBarCount": max_crossback_rejected,
+        "regimePassCrossbackBarCount": regime_pass,
+        "adverseRangePassCrossbackBarCount": adverse_pass,
+        "fullTriggerBarCount": full_trigger,
+        "runnerStyleEntrySignalCount": runner_style,
+        "nearBuyBandCounts": near_counts,
+        "regimeReasonCounts": regime_reasons,
+        "firstTrigger": trigger_samples[0] if trigger_samples else {},
+        "latestTrigger": trigger_samples[-1] if trigger_samples else {},
+        "triggerSamples": _edge_samples(trigger_samples, limit=8),
+    }
+
+
+def _edge_samples(values: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+    if len(values) <= limit:
+        return values
+    head = max(1, limit // 2)
+    tail = max(1, limit - head)
+    return values[:head] + values[-tail:]
+
+
+def _rsi_historical_regime_decision(
+    bars: List[Bar],
+    index: int,
+    direction: str,
+    regime_cfg: Dict[str, Any],
+    fast_ema: List[float | None],
+    slow_ema: List[float | None],
+) -> Dict[str, Any]:
+    if not _rsi_regime_filter_enabled(regime_cfg):
+        return {"enabled": False, "allowed": True, "reason": "OFF"}
+    mode = str(regime_cfg.get("mode") or "").upper()
+    allowed_hours = regime_cfg.get("allowedHoursUtc") if isinstance(regime_cfg.get("allowedHoursUtc"), list) else []
+    hour = _hour_utc_from_timestamp(bars[index].timestamp)
+    if allowed_hours and hour is not None and hour not in _allowed_hour_set(allowed_hours):
+        return {"enabled": True, "allowed": False, "mode": mode, "reason": "HOUR_FILTER", "hourUtc": hour}
+    if index >= len(fast_ema) or index >= len(slow_ema) or fast_ema[index] is None or slow_ema[index] is None:
+        return {"enabled": True, "allowed": False, "mode": mode, "reason": "EMA_NOT_READY", "hourUtc": hour}
+    lookback = int(_safe_float(regime_cfg.get("slopeLookbackBars"), 3.0) or 3)
+    lookback_index = max(0, index - max(1, lookback))
+    if slow_ema[lookback_index] is None:
+        return {"enabled": True, "allowed": False, "mode": mode, "reason": "SLOPE_NOT_READY", "hourUtc": hour}
+    pip_size = 0.01
+    slow_now = float(slow_ema[index] or 0.0)
+    fast_minus_slow = (float(fast_ema[index] or 0.0) - slow_now) / pip_size
+    distance_from_slow = (float(bars[index].close) - slow_now) / pip_size
+    slow_slope = (slow_now - float(slow_ema[lookback_index] or 0.0)) / pip_size
+    min_fast_minus_slow = _safe_float(regime_cfg.get("minFastMinusSlowPips"), -500.0) or -500.0
+    max_fast_minus_slow = _safe_float(regime_cfg.get("maxFastMinusSlowPips"), 0.0) or 0.0
+    min_distance = _safe_float(regime_cfg.get("minDistanceFromSlowPips"), -260.0) or -260.0
+    max_distance = _safe_float(regime_cfg.get("maxDistanceFromSlowPips"), -50.0) or -50.0
+    min_slope = _safe_float(regime_cfg.get("minSlowSlopePips"), -45.0) or -45.0
+    max_slope = _safe_float(regime_cfg.get("maxSlowSlopePips"), -6.0) or -6.0
+    allowed = True
+    reason = "PASS"
+    if mode == "P4_10E_RSI_BEARISH_STRETCH":
+        allowed = (
+            direction == "LONG"
+            and min_fast_minus_slow <= fast_minus_slow <= max_fast_minus_slow
+            and min_distance <= distance_from_slow <= max_distance
+            and min_slope <= slow_slope <= max_slope
+        )
+        if not allowed:
+            reason = "BEARISH_STRETCH_FILTER"
+    return {
+        "enabled": True,
+        "allowed": allowed,
+        "mode": mode,
+        "reason": reason,
+        "hourUtc": hour,
+        "fastMinusSlowPips": round(fast_minus_slow, 2),
+        "distanceFromSlowPips": round(distance_from_slow, 2),
+        "slowSlopePips": round(slow_slope, 2),
+    }
+
+
+def _rsi_historical_adverse_guard_decision(bars: List[Bar], index: int, guard_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    if not guard_cfg or str(guard_cfg.get("mode") or "OFF").upper() in {"", "OFF", "NONE"}:
+        return {"enabled": False, "allowed": True}
+    lookback = int(_safe_float(guard_cfg.get("rangeLookbackBars"), 4.0) or 4)
+    max_range = _safe_float(guard_cfg.get("maxEntryRangePips"), 60.0) or 60.0
+    start = max(0, index - max(1, lookback) + 1)
+    window = bars[start : index + 1]
+    entry_range = 0.0
+    if window:
+        entry_range = sum(max(0.0, float(bar.high) - float(bar.low)) / 0.01 for bar in window) / len(window)
+    return {
+        "enabled": True,
+        "allowed": entry_range <= max_range,
+        "mode": guard_cfg.get("mode"),
+        "entryRangePips": round(entry_range, 2),
+        "maxEntryRangePips": round(max_range, 2),
+    }
+
+
+def _allowed_hour_set(values: List[Any]) -> set[int]:
+    hours: set[int] = set()
+    for value in values:
+        try:
+            hour = int(float(value))
+        except Exception:
+            continue
+        if 0 <= hour <= 23:
+            hours.add(hour)
+    return hours
+
+
+def _hour_utc_from_timestamp(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    candidates = [
+        text.replace("Z", "+00:00"),
+        text.replace(".", "-").replace(" ", "T"),
+        text.replace(".", "-"),
+    ]
+    for candidate in candidates:
+        try:
+            return datetime.fromisoformat(candidate).hour
+        except Exception:
+            pass
+    for fmt in ("%Y.%m.%d %H:%M", "%Y.%m.%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).hour
+        except Exception:
+            pass
+    return None
+
+
+def _rsi_historical_window_reason(trigger: Dict[str, Any], metrics: Dict[str, Any]) -> str:
+    trade_count = int(_safe_float(metrics.get("tradeCount"), 0.0) or 0)
+    full_trigger_count = int(_safe_float(trigger.get("fullTriggerBarCount"), 0.0) or 0)
+    if trade_count >= 20 or full_trigger_count >= 20:
+        return "当前 SQLite 历史窗口仍能为 active frozen seed 复现 20+ RSI 触发/交易级别样本。"
+    if full_trigger_count > 0:
+        return "当前 SQLite 历史窗口仍能复现 RSI 触发，但样本低于 20；需要与 frozen criteria 对齐复核。"
+    return "当前 SQLite 历史窗口未复现 active frozen seed 的 RSI 触发，需要查历史窗口/行情结构漂移。"
+
+
+def _rsi_live_window_reconciliation_decision(
+    live_window: Dict[str, Any], historical_window: Dict[str, Any], frozen: Dict[str, Any]
+) -> Dict[str, Any]:
+    live_telemetry = live_window.get("triggerTelemetry") if isinstance(live_window.get("triggerTelemetry"), dict) else {}
+    historical_trigger = (
+        historical_window.get("triggerDistribution")
+        if isinstance(historical_window.get("triggerDistribution"), dict)
+        else {}
+    )
+    frozen_criteria = frozen.get("criteria") if isinstance(frozen.get("criteria"), dict) else {}
+    buy_band = _safe_float(live_telemetry.get("buyBand"), _safe_float(historical_trigger.get("buyBand"), 34.0))
+    live_signal_count = int(_safe_float(live_telemetry.get("ledgerRsiSignalCount"), 0.0) or 0)
+    live_crossback_count = int(_safe_float(live_telemetry.get("backtestCrossbackCount"), 0.0) or 0)
+    historical_full_trigger_count = int(_safe_float(historical_trigger.get("fullTriggerBarCount"), 0.0) or 0)
+    historical_runner_count = int(_safe_float(historical_trigger.get("runnerStyleEntrySignalCount"), 0.0) or 0)
+    frozen_trade_count = int(_safe_float(frozen_criteria.get("tradeCount"), 0.0) or 0)
+    live_distance = live_telemetry.get("rsiClosed1MinusBuyBandDistribution") if isinstance(
+        live_telemetry.get("rsiClosed1MinusBuyBandDistribution"), dict
+    ) else {}
+    historical_distance = historical_trigger.get("rsiClosed1MinusBuyBandDistribution") if isinstance(
+        historical_trigger.get("rsiClosed1MinusBuyBandDistribution"), dict
+    ) else {}
+    live_min_distance = _safe_float(live_distance.get("min"), None)
+    historical_min_distance = _safe_float(historical_distance.get("min"), None)
+    live_near_10 = int(_safe_float((live_telemetry.get("nearBuyBandCounts") or {}).get("within10"), 0.0) or 0)
+    if live_signal_count > 0 or live_crossback_count > 0:
+        return {
+            "label": "LIVE_WINDOW_RSI_TRIGGER_PRESENT",
+            "reasonZh": "当前 live shadow telemetry 已出现按 frozen seed 规则可解释的 RSI trigger，回到 P4-10J/P4-10K 观察 entry/adverse。",
+            "liveSignalCount": live_signal_count,
+            "liveCrossbackCount": live_crossback_count,
+            "historicalTriggerCount": historical_full_trigger_count,
+            "frozenTradeCount": frozen_trade_count,
+        }
+    if historical_window.get("present") and frozen_trade_count >= 20 and historical_runner_count <= 0:
+        return {
+            "label": "FROZEN_BACKTEST_WINDOW_NOT_REPRODUCED",
+            "reasonZh": "frozen criteria 声称 20+ trade，但当前 SQLite 历史窗口没有复现同类 RSI trigger；先查历史窗口或 lineage 数据源漂移。",
+            "liveMinDistanceFromBuyBand": live_min_distance,
+            "historicalMinDistanceFromBuyBand": historical_min_distance,
+            "historicalTriggerCount": historical_full_trigger_count,
+            "frozenTradeCount": frozen_trade_count,
+        }
+    if historical_window.get("present") and historical_full_trigger_count > 0 and live_min_distance is not None and buy_band is not None:
+        if live_near_10 <= 0 and live_min_distance > 10:
+            return {
+                "label": "LIVE_WINDOW_RSI_REGIME_AWAY_FROM_BACKTEST_TRIGGER_ZONE",
+                "reasonZh": "历史窗口能复现 frozen RSI 触发，但当前 live window 的 RSI 全程离 buyBand 超过 10 点；这是 live 行情结构暂时不在该 seed 的有效区。",
+                "liveMinDistanceFromBuyBand": live_min_distance,
+                "historicalMinDistanceFromBuyBand": historical_min_distance,
+                "historicalTriggerCount": historical_full_trigger_count,
+                "frozenTradeCount": frozen_trade_count,
+            }
+        if live_near_10 > 0:
+            return {
+                "label": "LIVE_WINDOW_NEAR_BAND_WAITING_CROSSBACK",
+                "reasonZh": "当前 live window 已接近 buyBand，但还没有形成 previous<=buyBand/current>=buyBand+threshold 的 crossback。",
+                "liveNearBuyBandWithin10Count": live_near_10,
+                "historicalTriggerCount": historical_full_trigger_count,
+                "frozenTradeCount": frozen_trade_count,
+            }
+    return {
+        "label": "LIVE_WINDOW_RECONCILIATION_INCOMPLETE",
+        "reasonZh": "live 与 historical 窗口证据仍不完整；继续保持 frozen seed，并补齐历史/telemetry 样本。",
+        "liveMinDistanceFromBuyBand": live_min_distance,
+        "historicalMinDistanceFromBuyBand": historical_min_distance,
+        "historicalTriggerCount": historical_full_trigger_count,
+        "frozenTradeCount": frozen_trade_count,
+    }
+
+
+def _rsi_live_window_reconciliation_status(
+    blockers: List[Dict[str, Any]], reconciliation: Dict[str, Any]
+) -> str:
+    hard = {
+        "NO_FROZEN_RSI_LINEAGE",
+        "FROZEN_RSI_CONTRACT_NOT_ROTATED",
+        "FROZEN_CRITERIA_NOT_REPRODUCED_ON_CURRENT_HISTORY",
+    }
+    if any(blocker.get("code") in hard for blocker in blockers):
+        return "WARN"
+    if str(reconciliation.get("label") or "") == "LIVE_WINDOW_RSI_TRIGGER_PRESENT":
+        return "PASS"
+    return "WATCH"
+
+
+def _rsi_live_window_reconciliation_recommendations(
+    status: str, reconciliation: Dict[str, Any], blockers: List[Dict[str, Any]]
+) -> List[str]:
+    codes = {str(blocker.get("code") or "") for blocker in blockers}
+    if "FROZEN_CRITERIA_NOT_REPRODUCED_ON_CURRENT_HISTORY" in codes:
+        return ["不要扩搜索；先复核 frozen seed 的历史窗口、SQLite 数据范围和 lineage 快照是否同源。"]
+    if "MISSING_HISTORICAL_BACKTEST_WINDOW" in codes:
+        return ["先补齐/同步 USDJPY SQLite H1 历史数据，再判断 G77 seed 是否与当前 live window 漂移。"]
+    label = str(reconciliation.get("label") or "")
+    if label == "LIVE_WINDOW_RSI_REGIME_AWAY_FROM_BACKTEST_TRIGGER_ZONE":
+        return ["继续保持同一颗 seed shadow-only；当前结论是 live 行情不在 RSI oversold/crossback 触发区，不是 EA/adapter 问题。"]
+    if label == "LIVE_WINDOW_NEAR_BAND_WAITING_CROSSBACK":
+        return ["继续观察同一颗 seed，重点等 crossback 成形，再回到 P4-10J 复核 entry quality / adverse。"]
+    if label == "LIVE_WINDOW_RSI_TRIGGER_PRESENT":
+        return ["转回 P4-10J/P4-10K，观察 SHADOW_WOULD_ENTER 与 post-entry adverse/MAE/maxAdverseR。"]
+    return [str(blocker.get("reasonZh") or blocker.get("code")) for blocker in blockers] or ["继续保持 frozen seed，并等待 live/replay 证据闭合。"]
 
 
 def _entry_quality_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
