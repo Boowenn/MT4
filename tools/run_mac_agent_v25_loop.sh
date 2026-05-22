@@ -310,7 +310,7 @@ run_heavy_tasks() {
   acquire_heavy_lock || return 0
   mkdir -p "$(dirname "$HEAVY_STAMP_FILE")"
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$HEAVY_STAMP_FILE"
-  write_heavy_status "RUNNING" "Strategy Lab/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务独立后台运行；快控制环不会等待它完成。"
+  write_heavy_status "RUNNING" "Strategy Lab/Spread gate audit/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务独立后台运行；快控制环不会等待它完成。"
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] QuantGod Agent v2.5 heavy tasks start"
 
   "$PYTHON_BIN" tools/run_usdjpy_strategy_lab.py \
@@ -323,6 +323,21 @@ run_heavy_tasks() {
     dry-run \
     --write || echo "USDJPY strategy lab dry-run failed"
 
+  spread_audit_args=(
+    --runtime-dir "$RUNTIME_DIR"
+    --thresholds "${QG_USDJPY_SPREAD_GATE_AUDIT_THRESHOLDS:-2.0,2.2,2.5}"
+  )
+  if [[ -n "${QG_USDJPY_SPREAD_GATE_AUDIT_START_DATE_JST:-}" ]]; then
+    spread_audit_args+=(--start-date-jst "$QG_USDJPY_SPREAD_GATE_AUDIT_START_DATE_JST")
+  fi
+  if [[ -n "${QG_USDJPY_SPREAD_GATE_AUDIT_END_DATE_JST:-}" ]]; then
+    spread_audit_args+=(--end-date-jst "$QG_USDJPY_SPREAD_GATE_AUDIT_END_DATE_JST")
+  fi
+  "$PYTHON_BIN" tools/run_usdjpy_spread_gate_audit.py \
+    "${spread_audit_args[@]}" \
+    audit \
+    --write || echo "USDJPY spread gate impact audit failed"
+
   QG_DASHBOARD_FILES_DIR="${QG_POLYMARKET_HEAVY_DASHBOARD_DIR:-$RUNTIME_DIR}" \
     bash tools/run_mac_polymarket_readonly_cycle.sh || echo "Polymarket readonly cycle failed"
 
@@ -334,7 +349,7 @@ run_heavy_tasks() {
 
   run_maintenance
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$HEAVY_STAMP_FILE"
-  write_heavy_status "COMPLETED" "Strategy Lab/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务已完成或记录为可重试；快控制环继续独立刷新。"
+  write_heavy_status "COMPLETED" "Strategy Lab/Spread gate audit/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务已完成或记录为可重试；快控制环继续独立刷新。"
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] QuantGod Agent v2.5 heavy tasks complete"
   release_heavy_lock
 }
@@ -350,7 +365,7 @@ maybe_start_heavy_tasks() {
     age=999999
   fi
   if [[ "$age" -lt "$HEAVY_INTERVAL_SECONDS" ]]; then
-    write_heavy_status "WAITING" "距离上次 Strategy Lab/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务 ${age}s，未达到 ${HEAVY_INTERVAL_SECONDS}s；本轮只跑快控制环。"
+    write_heavy_status "WAITING" "距离上次 Strategy Lab/Spread gate audit/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务 ${age}s，未达到 ${HEAVY_INTERVAL_SECONDS}s；本轮只跑快控制环。"
     return 0
   fi
   mkdir -p "$(dirname "$HEAVY_LOG_FILE")"
@@ -396,7 +411,7 @@ run_once() {
   fi
 
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] QuantGod Agent v2.5 fast cycle complete"
-  write_loop_status "COMPLETED" "Agent v2.5 快控制环已完成；Strategy Lab/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务低频独立调度。"
+  write_loop_status "COMPLETED" "Agent v2.5 快控制环已完成；Strategy Lab/Spread gate audit/Polymarket readonly cycle/Daily Autopilot/GA/evidence_os 重任务低频独立调度。"
   maybe_start_heavy_tasks
 }
 
