@@ -335,6 +335,14 @@ run_heavy_tasks() {
   fi
   "$PYTHON_BIN" tools/run_usdjpy_spread_gate_audit.py \
     "${spread_audit_args[@]}" \
+    backfill-candidates \
+    --write || echo "USDJPY Tokyo/H4 shadow candidate backfill failed"
+  "$PYTHON_BIN" tools/run_usdjpy_spread_gate_audit.py \
+    "${spread_audit_args[@]}" \
+    backfill-outcomes \
+    --write || echo "USDJPY Tokyo/H4 shadow outcome backfill failed"
+  "$PYTHON_BIN" tools/run_usdjpy_spread_gate_audit.py \
+    "${spread_audit_args[@]}" \
     audit \
     --write || echo "USDJPY spread gate impact audit failed"
 

@@ -7,7 +7,12 @@ import os
 import sys
 from pathlib import Path
 
-from usdjpy_spread_gate_audit import build_spread_gate_impact_audit, build_tokyo_h4_promotion_review
+from usdjpy_spread_gate_audit import (
+    backfill_tokyo_h4_shadow_candidate_ledger,
+    backfill_tokyo_h4_shadow_candidate_outcome_ledger,
+    build_spread_gate_impact_audit,
+    build_tokyo_h4_promotion_review,
+)
 
 
 def load_env(path: Path) -> None:
@@ -44,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--write", action="store_true")
     review = sub.add_parser("promotion-review")
     review.add_argument("--write", action="store_true")
+    backfill = sub.add_parser("backfill-candidates")
+    backfill.add_argument("--write", action="store_true")
+    outcome_backfill = sub.add_parser("backfill-outcomes")
+    outcome_backfill.add_argument("--write", action="store_true")
     args = parser.parse_args(argv)
     runtime_dir = Path(args.runtime_dir)
     thresholds = parse_thresholds(args.thresholds)
@@ -60,6 +69,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "promotion-review":
         return emit(
             build_tokyo_h4_promotion_review(
+                runtime_dir,
+                start_date_jst=args.start_date_jst,
+                end_date_jst=args.end_date_jst,
+                write=args.write,
+            )
+        )
+    if args.command == "backfill-candidates":
+        return emit(
+            backfill_tokyo_h4_shadow_candidate_ledger(
+                runtime_dir,
+                start_date_jst=args.start_date_jst,
+                end_date_jst=args.end_date_jst,
+                write=args.write,
+            )
+        )
+    if args.command == "backfill-outcomes":
+        return emit(
+            backfill_tokyo_h4_shadow_candidate_outcome_ledger(
                 runtime_dir,
                 start_date_jst=args.start_date_jst,
                 end_date_jst=args.end_date_jst,

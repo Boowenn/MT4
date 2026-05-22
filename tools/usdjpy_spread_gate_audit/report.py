@@ -20,6 +20,8 @@ except ModuleNotFoundError:  # pragma: no cover
 
 SCHEMA_AUDIT = "quantgod.usdjpy_spread_gate_impact_audit.v1"
 SCHEMA_PROMOTION = "quantgod.tokyo_h4_promotion_review.v2"
+SCHEMA_CANDIDATE_BACKFILL = "quantgod.tokyo_h4_shadow_candidate_backfill.v1"
+SCHEMA_OUTCOME_BACKFILL = "quantgod.tokyo_h4_shadow_candidate_outcome_backfill.v1"
 FOCUS_SYMBOL = "USDJPYc"
 TOKYO_FAMILY = "USDJPY_TOKYO_RANGE_BREAKOUT"
 H4_FAMILY = "USDJPY_H4_TREND_PULLBACK"
@@ -30,6 +32,48 @@ FAMILY_DIRECTIONS: Tuple[Tuple[str, str], ...] = (
     (H4_FAMILY, "SHORT"),
 )
 DEFAULT_THRESHOLDS = (2.0, 2.2, 2.5)
+CANDIDATE_LEDGER_FIELDS = [
+    "EventId",
+    "LabelTimeLocal",
+    "LabelTimeServer",
+    "EventBarTime",
+    "Symbol",
+    "CandidateRoute",
+    "Timeframe",
+    "CandidateDirection",
+    "CandidateScore",
+    "Regime",
+    "ReferencePrice",
+    "SpreadPips",
+    "NewsStatus",
+    "Trigger",
+    "Reason",
+]
+OUTCOME_LEDGER_FIELDS = [
+    "EventId",
+    "OutcomeLabelTimeLocal",
+    "OutcomeLabelTimeServer",
+    "EventBarTime",
+    "Symbol",
+    "CandidateRoute",
+    "Timeframe",
+    "CandidateDirection",
+    "CandidateScore",
+    "Regime",
+    "ReferencePrice",
+    "HorizonBars",
+    "HorizonMinutes",
+    "FutureClose",
+    "LongClosePips",
+    "ShortClosePips",
+    "LongMFEPips",
+    "LongMAEPips",
+    "ShortMFEPips",
+    "ShortMAEPips",
+    "DirectionalOutcome",
+    "BestOpportunity",
+    "OutcomeReason",
+]
 
 
 def build_spread_gate_impact_audit(
@@ -136,6 +180,7 @@ def build_tokyo_h4_promotion_review(
     opportunities = _dedupe_opportunities(eval_rows)
     shadow_strategy_rows = _load_latest_shadow_strategy_rows(runtime_dir)
     candidate_rows = _load_shadow_candidate_rows(runtime_dir, start_date_jst, end_date_jst)
+    outcome_counts = _tokyo_h4_candidate_outcome_counts(runtime_dir, candidate_rows)
     contract_params = _contract_family_parameters(runtime_dir)
     rows = []
     for family, direction in FAMILY_DIRECTIONS:
@@ -150,6 +195,7 @@ def build_tokyo_h4_promotion_review(
             shadow_strategy_rows,
             candidate_rows,
             opportunities,
+            outcome_counts,
         )
         rows.append(row)
     passed = [row for row in rows if row.get("recommendedStage") != "REMAIN_SHADOW"]
@@ -186,6 +232,184 @@ def build_tokyo_h4_promotion_review(
         _write_json(out_dir / "QuantGod_TokyoH4PromotionReview.json", payload)
         _write_promotion_csv(out_dir / "QuantGod_TokyoH4PromotionReviewSummary.csv", rows)
     return payload
+
+
+def backfill_tokyo_h4_shadow_candidate_ledger(
+    runtime_dir: Path,
+    *,
+    start_date_jst: str | None = None,
+    end_date_jst: str | None = None,
+    write: bool = False,
+) -> Dict[str, Any]:
+    runtime_dir = Path(runtime_dir)
+    start_date_jst, end_date_jst = _window(start_date_jst, end_date_jst)
+    eval_rows = _load_shadow_eval_rows(runtime_dir, start_date_jst, end_date_jst)
+    opportunities = _dedupe_opportunities(eval_rows)
+    ledger_path = runtime_dir / "QuantGod_ShadowCandidateLedger.csv"
+    existing_count, existing_event_ids, existing_keys = _candidate_ledger_identity(ledger_path)
+    appended_rows: List[Dict[str, Any]] = []
+    skipped: Dict[str, int] = defaultdict(int)
+
+    for item in opportunities:
+        family = str(item.get("family") or "")
+        direction = str(item.get("direction") or "").upper()
+        if family not in {TOKYO_FAMILY, H4_FAMILY}:
+            skipped["unsupportedFamily"] += 1
+            continue
+        if not item.get("sessionOpen"):
+            skipped["sessionClosed"] += 1
+            continue
+        if item.get("newsBlocked"):
+            skipped["newsBlocked"] += 1
+            continue
+        if not _shadow_research_spread_allowed(item):
+            skipped["spreadAboveShadowResearchCap"] += 1
+            continue
+
+        event_bar_time = _mt5_datetime_text(item.get("eventBarTime"))
+        label_time_local = _mt5_datetime_text(item.get("generatedAtLocal"))
+        label_time_server = _mt5_datetime_text(item.get("generatedAtServer") or item.get("generatedAtLocal"))
+        timeframe = str(item.get("timeframe") or "M15").upper()
+        symbol = str(item.get("symbol") or FOCUS_SYMBOL)
+        direction_label = "BUY" if direction == "LONG" else "SELL"
+        reference_price = _num(item.get("ask") if direction == "LONG" else item.get("bid"))
+        if not event_bar_time or reference_price <= 0.0:
+            skipped["missingEventOrReference"] += 1
+            continue
+
+        event_id = _candidate_event_id(symbol, timeframe, event_bar_time, family, direction_label)
+        identity = (family, direction, event_bar_time)
+        if event_id in existing_event_ids or identity in existing_keys:
+            skipped["alreadyPresent"] += 1
+            continue
+
+        row = {
+            "EventId": event_id,
+            "LabelTimeLocal": label_time_local,
+            "LabelTimeServer": label_time_server,
+            "EventBarTime": event_bar_time,
+            "Symbol": symbol,
+            "CandidateRoute": family,
+            "Timeframe": timeframe,
+            "CandidateDirection": direction_label,
+            "CandidateScore": f"{_num(item.get('score')):.1f}",
+            "Regime": "STRATEGY_JSON_SHADOW",
+            "ReferencePrice": f"{reference_price:.3f}",
+            "SpreadPips": f"{_num(item.get('spreadPips')):.1f}",
+            "NewsStatus": "CLEAR",
+            "Trigger": _candidate_trigger(family),
+            "Reason": "Strategy JSON shadow candidate backfill; outcome-only and never sends live orders",
+        }
+        appended_rows.append(row)
+        existing_event_ids.add(event_id)
+        existing_keys.add(identity)
+
+    if write and appended_rows:
+        _append_candidate_rows(ledger_path, appended_rows)
+
+    return {
+        "ok": True,
+        "schema": SCHEMA_CANDIDATE_BACKFILL,
+        "generatedAtIso": _utc_now(),
+        "symbol": FOCUS_SYMBOL,
+        "window": {
+            "startDateJst": start_date_jst,
+            "endDateJst": end_date_jst,
+            "inclusive": True,
+        },
+        "sourceFile": "QuantGod_StrategyJsonEAShadowEvaluationLedger.jsonl",
+        "targetFile": "QuantGod_ShadowCandidateLedger.csv",
+        "write": bool(write),
+        "shadowEvaluationRows": len(eval_rows),
+        "dedupedOpportunityCount": len(opportunities),
+        "existingCandidateRows": existing_count,
+        "appendedCandidateRows": len(appended_rows),
+        "skipped": dict(sorted(skipped.items())),
+        "safety": {
+            **dict(SAFETY_BOUNDARY),
+            "readOnlyAudit": not write,
+            "writesLivePreset": False,
+            "orderSendAllowed": False,
+            "livePresetMutationAllowed": False,
+        },
+    }
+
+
+def backfill_tokyo_h4_shadow_candidate_outcome_ledger(
+    runtime_dir: Path,
+    *,
+    start_date_jst: str | None = None,
+    end_date_jst: str | None = None,
+    write: bool = False,
+) -> Dict[str, Any]:
+    runtime_dir = Path(runtime_dir)
+    start_date_jst, end_date_jst = _window(start_date_jst, end_date_jst)
+    candidate_rows = [
+        row
+        for row in _load_shadow_candidate_rows(runtime_dir, start_date_jst, end_date_jst)
+        if str(row.get("CandidateRoute") or "") in {TOKYO_FAMILY, H4_FAMILY}
+    ]
+    bars = _load_m15_outcome_bars(runtime_dir)
+    bar_index = {row["timestamp"]: index for index, row in enumerate(bars)}
+    outcome_path = runtime_dir / "QuantGod_ShadowCandidateOutcomeLedger.csv"
+    existing = _outcome_ledger_identity(outcome_path)
+    appended_rows: List[Dict[str, Any]] = []
+    skipped: Dict[str, int] = defaultdict(int)
+
+    for candidate in candidate_rows:
+        event_id = str(candidate.get("EventId") or "")
+        event_time = _mt5_datetime_text(candidate.get("EventBarTime"))
+        event_index = bar_index.get(event_time)
+        if not event_id or event_index is None:
+            skipped["missingEventBar"] += 1
+            continue
+        reference_price = _num(candidate.get("ReferencePrice"))
+        if reference_price <= 0:
+            skipped["missingReferencePrice"] += 1
+            continue
+        for horizon in (1, 2, 4):
+            key = (event_id, str(horizon))
+            if key in existing:
+                skipped["alreadyPresent"] += 1
+                continue
+            row = _candidate_outcome_row(candidate, bars, event_index, horizon, reference_price)
+            if row:
+                appended_rows.append(row)
+                existing.add(key)
+            else:
+                skipped["futureBarsUnavailable"] += 1
+
+    if write and appended_rows:
+        _append_outcome_rows(outcome_path, appended_rows)
+
+    return {
+        "ok": True,
+        "schema": SCHEMA_OUTCOME_BACKFILL,
+        "generatedAtIso": _utc_now(),
+        "symbol": FOCUS_SYMBOL,
+        "window": {
+            "startDateJst": start_date_jst,
+            "endDateJst": end_date_jst,
+            "inclusive": True,
+        },
+        "sourceFiles": [
+            "QuantGod_ShadowCandidateLedger.csv",
+            "backtest/exported_klines/QuantGod_USDJPYc_M15_rates.csv",
+        ],
+        "targetFile": "QuantGod_ShadowCandidateOutcomeLedger.csv",
+        "write": bool(write),
+        "candidateRows": len(candidate_rows),
+        "m15Bars": len(bars),
+        "appendedOutcomeRows": len(appended_rows),
+        "skipped": dict(sorted(skipped.items())),
+        "safety": {
+            **dict(SAFETY_BOUNDARY),
+            "readOnlyAudit": not write,
+            "writesLivePreset": False,
+            "orderSendAllowed": False,
+            "livePresetMutationAllowed": False,
+        },
+    }
 
 
 def _window(start: str | None, end: str | None) -> Tuple[str, str]:
@@ -276,15 +500,27 @@ def _opportunities_from_eval(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     session_open = bool(row.get("sessionOpen", True))
     news_blocked = bool(row.get("newsBlocked", False))
     generated = row.get("generatedAtLocal")
+    generated_server = row.get("generatedAtServer") or generated
+    symbol = row.get("symbol") or FOCUS_SYMBOL
+    shared = {
+        "symbol": symbol,
+        "generatedAtServer": generated_server,
+        "shadowResearchSpreadAllowed": row.get("shadowResearchSpreadAllowed"),
+        "shadowResearchMaxSpreadPips": row.get("shadowResearchMaxSpreadPips"),
+        "bid": _num(row.get("bid")),
+        "ask": _num(row.get("ask")),
+    }
     h4 = row.get("h4Pullback") if isinstance(row.get("h4Pullback"), dict) else {}
     h4_dir = int(_num(h4.get("signalDirection")))
     if h4_dir:
         items.append(
             {
+                **shared,
                 "family": H4_FAMILY,
                 "direction": "LONG" if h4_dir > 0 else "SHORT",
                 "eventBarTime": str(h4.get("eventBarTime") or generated),
                 "generatedAtLocal": generated,
+                "timeframe": str(h4.get("signalTimeframe") or h4.get("timeframe") or "M15"),
                 "spreadPips": spread,
                 "score": _num(h4.get("score")),
                 "sessionOpen": session_open,
@@ -297,10 +533,12 @@ def _opportunities_from_eval(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     if tokyo_dir:
         items.append(
             {
+                **shared,
                 "family": TOKYO_FAMILY,
                 "direction": "LONG" if tokyo_dir > 0 else "SHORT",
                 "eventBarTime": str(tokyo.get("eventBarTime") or generated),
                 "generatedAtLocal": generated,
+                "timeframe": str(tokyo.get("timeframe") or "M15"),
                 "spreadPips": spread,
                 "score": _num(tokyo.get("score")),
                 "sessionOpen": session_open,
@@ -312,10 +550,12 @@ def _opportunities_from_eval(row: Dict[str, Any]) -> List[Dict[str, Any]]:
         direction = str(row.get("direction") or "LONG").upper()
         items.append(
             {
+                **shared,
                 "family": "RSI_Reversal",
                 "direction": direction,
                 "eventBarTime": str(row.get("generatedAtServer") or generated),
                 "generatedAtLocal": generated,
+                "timeframe": str(row.get("timeframe") or "H1"),
                 "spreadPips": spread,
                 "score": 70.0,
                 "sessionOpen": session_open,
@@ -455,6 +695,7 @@ def _promotion_row(
     shadow_strategy_rows: Dict[Tuple[str, str], Dict[str, Any]],
     candidate_rows: List[Dict[str, Any]],
     opportunities: List[Dict[str, Any]],
+    outcome_counts: Dict[Tuple[str, str], int],
 ) -> Dict[str, Any]:
     metrics = replay.get("metrics") if isinstance(replay.get("metrics"), dict) else {}
     wf_summary = wf.get("summary") if isinstance(wf.get("summary"), dict) else {}
@@ -469,7 +710,8 @@ def _promotion_row(
     replay_net = _round(_num(metrics.get("netR")))
     replay_pf = _round(_num(metrics.get("profitFactor")))
     replay_dd = _round(_num(metrics.get("maxDrawdownR")))
-    shadow_samples = int(_num(shadow.get("sampleCount")))
+    computed_outcome_samples = int(outcome_counts.get((family, direction), 0))
+    shadow_samples = max(int(_num(shadow.get("sampleCount"))), computed_outcome_samples)
     blockers = []
     if shadow_samples < 5 and len(route_candidates) < 5:
         blockers.append("SHADOW_EVIDENCE_INSUFFICIENT")
@@ -491,7 +733,8 @@ def _promotion_row(
         "direction": direction,
         "shadowPassed": not any(item.startswith("SHADOW_") for item in blockers),
         "shadowSamples": shadow_samples,
-        "shadowStage": shadow.get("promotionStage", ""),
+        "computedOutcomeSamples": computed_outcome_samples,
+        "shadowStage": shadow.get("promotionStage", "") or ("BACKFILLED_OUTCOME" if computed_outcome_samples else ""),
         "candidateLedgerCount": len(route_candidates),
         "shadowJsonOpportunityCount": len(route_opps),
         "replayTrades": replay_trades,
@@ -585,6 +828,231 @@ def _load_shadow_candidate_rows(runtime_dir: Path, start: str, end: str) -> List
             if start <= date <= end:
                 rows.append(row)
     return rows
+
+
+def _candidate_ledger_identity(path: Path) -> Tuple[int, set[str], set[Tuple[str, str, str]]]:
+    if not path.exists():
+        return 0, set(), set()
+    event_ids: set[str] = set()
+    keys: set[Tuple[str, str, str]] = set()
+    rows = 0
+    with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
+        for row in csv.DictReader(handle):
+            rows += 1
+            event_id = str(row.get("EventId") or "")
+            if event_id:
+                event_ids.add(event_id)
+            family = str(row.get("CandidateRoute") or "")
+            direction = _direction_from_candidate(row.get("CandidateDirection"))
+            event_bar_time = _mt5_datetime_text(row.get("EventBarTime"))
+            if family and direction and event_bar_time:
+                keys.add((family, direction, event_bar_time))
+    return rows, event_ids, keys
+
+
+def _shadow_research_spread_allowed(item: Dict[str, Any]) -> bool:
+    flag = item.get("shadowResearchSpreadAllowed")
+    if isinstance(flag, bool):
+        return flag
+    if isinstance(flag, str) and flag.strip():
+        return flag.strip().lower() in {"true", "1", "yes", "y"}
+    max_spread = _num(item.get("shadowResearchMaxSpreadPips"), 3.0)
+    if max_spread <= 0:
+        max_spread = 3.0
+    return _num(item.get("spreadPips")) <= max_spread
+
+
+def _mt5_datetime_text(value: Any) -> str:
+    text = str(value or "").strip().replace("T", " ").replace("-", ".")
+    if not text:
+        return ""
+    return text[:19]
+
+
+def _candidate_event_id(symbol: str, timeframe: str, event_bar_time: str, family: str, direction_label: str) -> str:
+    epoch = _mt5_datetime_epoch(event_bar_time)
+    event_key = str(epoch) if epoch > 0 else event_bar_time.replace(".", "").replace(" ", "").replace(":", "")
+    return f"{symbol}-{timeframe}-{event_key}-{family}-{direction_label}"
+
+
+def _mt5_datetime_epoch(value: str) -> int:
+    text = _mt5_datetime_text(value)
+    for fmt in ("%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M"):
+        try:
+            return int(datetime.strptime(text, fmt).replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            continue
+    return 0
+
+
+def _candidate_trigger(family: str) -> str:
+    if family == TOKYO_FAMILY:
+        return "Strategy JSON Tokyo Range shadow signal"
+    if family == H4_FAMILY:
+        return "Strategy JSON H4 Pullback shadow signal"
+    return "Strategy JSON shadow signal"
+
+
+def _append_candidate_rows(path: Path, rows: List[Dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size <= 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CANDIDATE_LEDGER_FIELDS, lineterminator="\r\n")
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
+
+
+def _load_m15_outcome_bars(runtime_dir: Path) -> List[Dict[str, Any]]:
+    path = runtime_dir / "backtest" / "exported_klines" / "QuantGod_USDJPYc_M15_rates.csv"
+    rows: List[Dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
+        for row in csv.DictReader(handle):
+            timestamp = _mt5_datetime_text(row.get("timestamp"))
+            if not timestamp:
+                continue
+            rows.append(
+                {
+                    "timestamp": timestamp,
+                    "open": _num(row.get("open")),
+                    "high": _num(row.get("high")),
+                    "low": _num(row.get("low")),
+                    "close": _num(row.get("close")),
+                }
+            )
+    return rows
+
+
+def _tokyo_h4_candidate_outcome_counts(
+    runtime_dir: Path,
+    candidate_rows: List[Dict[str, Any]],
+) -> Dict[Tuple[str, str], int]:
+    bars = _load_m15_outcome_bars(runtime_dir)
+    if not bars:
+        return {}
+    bar_index = {row["timestamp"]: index for index, row in enumerate(bars)}
+    counts: Dict[Tuple[str, str], int] = defaultdict(int)
+    for candidate in candidate_rows:
+        family = str(candidate.get("CandidateRoute") or "")
+        if family not in {TOKYO_FAMILY, H4_FAMILY}:
+            continue
+        direction = _direction_from_candidate(candidate.get("CandidateDirection"))
+        event_index = bar_index.get(_mt5_datetime_text(candidate.get("EventBarTime")))
+        reference_price = _num(candidate.get("ReferencePrice"))
+        if not direction or event_index is None or reference_price <= 0:
+            continue
+        for horizon in (1, 2, 4):
+            if _candidate_outcome_row(candidate, bars, event_index, horizon, reference_price):
+                counts[(family, direction)] += 1
+    return dict(counts)
+
+
+def _outcome_ledger_identity(path: Path) -> set[Tuple[str, str]]:
+    if not path.exists():
+        return set()
+    keys: set[Tuple[str, str]] = set()
+    with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
+        for row in csv.DictReader(handle):
+            event_id = str(row.get("EventId") or "")
+            horizon = str(row.get("HorizonBars") or "")
+            if event_id and horizon:
+                keys.add((event_id, horizon))
+    return keys
+
+
+def _candidate_outcome_row(
+    candidate: Dict[str, Any],
+    bars: List[Dict[str, Any]],
+    event_index: int,
+    horizon: int,
+    reference_price: float,
+) -> Dict[str, Any] | None:
+    future_index = event_index + horizon - 1
+    if future_index >= len(bars):
+        return None
+    window = bars[event_index : future_index + 1]
+    future_close = _num(bars[future_index].get("close"))
+    if future_close <= 0:
+        return None
+    pip = 0.01
+    max_high = max([reference_price] + [_num(row.get("high")) for row in window])
+    min_low = min([reference_price] + [_num(row.get("low")) for row in window if _num(row.get("low")) > 0])
+    long_close = (future_close - reference_price) / pip
+    short_close = (reference_price - future_close) / pip
+    long_mfe = (max_high - reference_price) / pip
+    long_mae = (reference_price - min_low) / pip
+    short_mfe = (reference_price - min_low) / pip
+    short_mae = (max_high - reference_price) / pip
+    direction = str(candidate.get("CandidateDirection") or "").upper()
+    now_local = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y.%m.%d %H:%M:%S")
+    now_server = datetime.now(timezone.utc).strftime("%Y.%m.%d %H:%M:%S")
+    return {
+        "EventId": candidate.get("EventId"),
+        "OutcomeLabelTimeLocal": now_local,
+        "OutcomeLabelTimeServer": now_server,
+        "EventBarTime": _mt5_datetime_text(candidate.get("EventBarTime")),
+        "Symbol": candidate.get("Symbol") or FOCUS_SYMBOL,
+        "CandidateRoute": candidate.get("CandidateRoute"),
+        "Timeframe": candidate.get("Timeframe") or "M15",
+        "CandidateDirection": direction,
+        "CandidateScore": candidate.get("CandidateScore") or "",
+        "Regime": candidate.get("Regime") or "",
+        "ReferencePrice": f"{reference_price:.3f}",
+        "HorizonBars": horizon,
+        "HorizonMinutes": horizon * 15,
+        "FutureClose": f"{future_close:.3f}",
+        "LongClosePips": f"{long_close:.1f}",
+        "ShortClosePips": f"{short_close:.1f}",
+        "LongMFEPips": f"{long_mfe:.1f}",
+        "LongMAEPips": f"{long_mae:.1f}",
+        "ShortMFEPips": f"{short_mfe:.1f}",
+        "ShortMAEPips": f"{short_mae:.1f}",
+        "DirectionalOutcome": _candidate_directional_outcome(direction, long_close, short_close),
+        "BestOpportunity": _candidate_best_opportunity(long_close, short_close),
+        "OutcomeReason": "Tokyo/H4 shadow candidate outcome backfill from exported M15 bars; does not alter live order gating",
+    }
+
+
+def _candidate_directional_outcome(direction: str, long_close: float, short_close: float) -> str:
+    neutral = 2.0
+    if direction == "BUY":
+        if long_close >= neutral:
+            return "WIN"
+        if long_close <= -neutral:
+            return "LOSS"
+        return "FLAT"
+    if direction == "SELL":
+        if short_close >= neutral:
+            return "WIN"
+        if short_close <= -neutral:
+            return "LOSS"
+        return "FLAT"
+    if long_close >= neutral and long_close >= short_close:
+        return "LONG_OPPORTUNITY"
+    if short_close >= neutral and short_close > long_close:
+        return "SHORT_OPPORTUNITY"
+    return "NEUTRAL_OPPORTUNITY"
+
+
+def _candidate_best_opportunity(long_close: float, short_close: float) -> str:
+    neutral = 2.0
+    if long_close >= neutral and long_close >= short_close:
+        return "LONG"
+    if short_close >= neutral and short_close > long_close:
+        return "SHORT"
+    return "NEUTRAL"
+
+
+def _append_outcome_rows(path: Path, rows: List[Dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size <= 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=OUTCOME_LEDGER_FIELDS, lineterminator="\r\n")
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
 
 
 def _direction_from_candidate(value: Any) -> str:

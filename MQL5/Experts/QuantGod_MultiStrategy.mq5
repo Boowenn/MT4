@@ -2443,6 +2443,67 @@ void AppendShadowCandidateLedgerRow(string symbol, datetime eventBarTime, string
    AppendShadowCandidateLedgerRowForTimeframe(symbol, PilotSignalTimeframe, eventBarTime, route, direction, score, trigger, reason);
 }
 
+bool StrategyJsonShadowCandidateAlreadyEmitted(string route, datetime eventBarTime, int direction)
+{
+   if(eventBarTime <= 0 || direction == 0)
+      return true;
+
+   static datetime lastTokyoLong = 0;
+   static datetime lastTokyoShort = 0;
+   static datetime lastH4Long = 0;
+   static datetime lastH4Short = 0;
+
+   if(route == "USDJPY_TOKYO_RANGE_BREAKOUT")
+   {
+      if(direction > 0)
+      {
+         if(lastTokyoLong == eventBarTime)
+            return true;
+         lastTokyoLong = eventBarTime;
+         return false;
+      }
+      if(lastTokyoShort == eventBarTime)
+         return true;
+      lastTokyoShort = eventBarTime;
+      return false;
+   }
+
+   if(route == "USDJPY_H4_TREND_PULLBACK")
+   {
+      if(direction > 0)
+      {
+         if(lastH4Long == eventBarTime)
+            return true;
+         lastH4Long = eventBarTime;
+         return false;
+      }
+      if(lastH4Short == eventBarTime)
+         return true;
+      lastH4Short = eventBarTime;
+      return false;
+   }
+
+   return false;
+}
+
+void AppendStrategyJsonShadowCandidateIfSignal(string symbol,
+                                               ENUM_TIMEFRAMES routeTimeframe,
+                                               datetime eventBarTime,
+                                               string route,
+                                               int direction,
+                                               double score,
+                                               bool routeEnabled,
+                                               bool guardsPass,
+                                               string trigger,
+                                               string reason)
+{
+   if(!routeEnabled || !guardsPass || direction == 0 || score <= 0.0)
+      return;
+   if(StrategyJsonShadowCandidateAlreadyEmitted(route, eventBarTime, direction))
+      return;
+   AppendShadowCandidateLedgerRowForTimeframe(symbol, routeTimeframe, eventBarTime, route, direction, score, trigger, reason);
+}
+
 void AppendUsdJpyTokyoBreakoutShadowRoute(string symbol, datetime eventBarTime, double close1, double open1, double atr1, double pip, double routeSpreadPips, bool lowSpreadForResearch)
 {
    if(!EnableUsdJpyTokyoBreakoutShadowResearch || !IsUsdJpySymbol(symbol) || !lowSpreadForResearch || atr1 <= 0.0 || pip <= 0.0)
@@ -2890,7 +2951,19 @@ bool CalculateShadowOutcome(string symbol, datetime eventBarTime, int horizonBar
    if(pip <= 0.0)
       return false;
 
+   int periodSeconds = PeriodSeconds(PilotSignalTimeframe);
+   if(periodSeconds <= 0)
+      periodSeconds = 60 * 15;
+
    int eventShift = iBarShift(symbol, PilotSignalTimeframe, eventBarTime, true);
+   if(eventShift < 0)
+   {
+      eventShift = iBarShift(symbol, PilotSignalTimeframe, eventBarTime, false);
+      datetime matchedBarTime = eventShift >= 0 ? iTime(symbol, PilotSignalTimeframe, eventShift) : 0;
+      int toleranceSeconds = MathMax(60, periodSeconds / 2);
+      if(eventShift < 0 || matchedBarTime <= 0 || MathAbs((double)(matchedBarTime - eventBarTime)) > toleranceSeconds)
+         return false;
+   }
    if(eventShift < 0)
       return false;
 
@@ -7085,6 +7158,36 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          reason = "EA 已读取 Strategy JSON contract；当前 RSI LONG 条件未触发，继续 shadow 观察。";
       }
    }
+
+   bool strategyJsonShadowCandidateContractSafe = (loaded &&
+                                                   !(orderSendAllowed || livePresetMutationAllowed || gaDirectLiveAllowed || wouldAffectLive) &&
+                                                   focusSymbol == "USDJPYc" &&
+                                                   StrategyJsonContractModeAllowed(contractMode));
+   bool strategyJsonShadowCandidateGuardsPass = (strategyJsonShadowCandidateContractSafe &&
+                                                 tickOk &&
+                                                 shadowResearchSpreadAllowed &&
+                                                 sessionOpen &&
+                                                 !newsBlocked);
+   AppendStrategyJsonShadowCandidateIfSignal(symbol,
+                                             tokyoTimeframe,
+                                             tokyoEventBarTime,
+                                             "USDJPY_TOKYO_RANGE_BREAKOUT",
+                                             tokyoSignalDirection,
+                                             tokyoScore,
+                                             EnableUsdJpyTokyoBreakoutShadowResearch,
+                                             strategyJsonShadowCandidateGuardsPass,
+                                             "STRATEGY_JSON_TOKYO_RANGE_SIGNAL",
+                                             "Strategy JSON Tokyo Range shadow candidate; outcome-only and never sends live orders");
+   AppendStrategyJsonShadowCandidateIfSignal(symbol,
+                                             h4SignalTimeframe,
+                                             h4EventBarTime,
+                                             "USDJPY_H4_TREND_PULLBACK",
+                                             h4SignalDirection,
+                                             h4Score,
+                                             EnableUsdJpyH4PullbackShadowResearch,
+                                             strategyJsonShadowCandidateGuardsPass,
+                                             "STRATEGY_JSON_H4_PULLBACK_SIGNAL",
+                                             "Strategy JSON H4 Pullback shadow candidate; outcome-only and never sends live orders");
 
    string evaluationId = selectedSeedId + "-" + fingerprint + "-" + IntegerToString((int)TimeLocal());
    string json = "{";
