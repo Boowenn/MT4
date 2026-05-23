@@ -63,6 +63,9 @@ const JSON_ENDPOINTS = Object.freeze({
   '/api/polymarket/research': 'QuantGod_PolymarketResearch.json',
   '/api/polymarket/retune-planner': 'QuantGod_PolymarketRetunePlanner.json',
   '/api/polymarket/copy-trader-discovery': 'QuantGod_PolymarketCopyTraderDiscovery.json',
+  '/api/polymarket/copy-trader-shadow-replay': 'QuantGod_PolymarketCopyTraderShadowReplay.json',
+  '/api/polymarket/copy-trader-walk-forward': 'QuantGod_PolymarketCopyTraderWalkForward.json',
+  '/api/polymarket/copy-trader-source-buckets': 'QuantGod_PolymarketCopyTraderSourceBuckets.json',
   '/api/polymarket/single-market-analysis': 'QuantGod_PolymarketSingleMarketAnalysis.json',
 });
 
@@ -97,6 +100,10 @@ const CSV_ENDPOINTS = Object.freeze({
   '/api/polymarket/execution-gate-ledger': 'QuantGod_PolymarketExecutionGateLedger.csv',
   '/api/polymarket/research-ledger': 'QuantGod_PolymarketResearchLedger.csv',
   '/api/polymarket/copy-trader-discovery-ledger': 'QuantGod_PolymarketCopyTraderDiscovery.csv',
+  '/api/polymarket/copy-trader-shadow-replay-ledger': 'QuantGod_PolymarketCopyTraderShadowReplay.csv',
+  '/api/polymarket/copy-trader-outcome-ledger': 'QuantGod_PolymarketCopyTraderOutcomeLedger.csv',
+  '/api/polymarket/copy-trader-walk-forward-ledger': 'QuantGod_PolymarketCopyTraderWalkForward.csv',
+  '/api/polymarket/copy-trader-source-buckets-ledger': 'QuantGod_PolymarketCopyTraderSourceBuckets.csv',
   '/api/polymarket/single-market-analysis-ledger': 'QuantGod_PolymarketSingleMarketAnalysisLedger.csv',
   '/api/polymarket/radar-worker-ledger': 'QuantGod_PolymarketRadarWorkerV2.csv',
 });
