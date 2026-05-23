@@ -7,19 +7,49 @@ cd "$REPO_ROOT"
 
 load_env_file() {
   local env_file="$1"
-  local line
+  local line key value
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line#$'\xef\xbb\xbf'}"
     line="${line#export }"
     [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
-    local key="${line%%=*}"
+    key="${line%%=*}"
     [[ -n "${!key+x}" ]] && continue
-    export "$line"
+    value="${line#*=}"
+    value="${value%$'\r'}"
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "$key=$value"
+  done < "$env_file"
+}
+
+force_load_env_file() {
+  local env_file="$1"
+  local line key value
+  [[ -f "$env_file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#$'\xef\xbb\xbf'}"
+    line="${line#export }"
+    [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    value="${value%$'\r'}"
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "$key=$value"
   done < "$env_file"
 }
 
 if [[ -f .env.local ]]; then
   load_env_file .env.local
+fi
+if [[ -f "${QG_LAUNCHD_ENV_FILE:-$HOME/.quantgod/launchd.env}" ]]; then
+  load_env_file "${QG_LAUNCHD_ENV_FILE:-$HOME/.quantgod/launchd.env}"
 fi
 
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
@@ -76,16 +106,20 @@ echo "Dashboard: $DASHBOARD_DIR"
 echo "History DB: $HISTORY_DB"
 echo "Copy-only mode: $COPY_ONLY"
 
-"$PYTHON_BIN" tools/setup_polymarket_isolated_clob_runtime.py \
-  --runtime-dir "$RUNTIME_DIR" \
-  --dashboard-dir "$DASHBOARD_DIR" \
-  --isolated-root "${QG_POLYMARKET_ISOLATED_CLOB_ROOT:-$REPO_ROOT/runtime/Polymarket_Canary_Isolated}" \
-  --adapter "${QG_POLYMARKET_WALLET_ADAPTER:-isolated_clob}" \
-  --clob-host "$QG_POLYMARKET_CLOB_HOST" \
-  --chain-id "${QG_POLYMARKET_CHAIN_ID:-137}" \
-  --max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-1}" \
-  --max-daily-loss-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC:-2}" \
-  --max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}"
+prepare_isolated_clob_runtime() {
+  "$PYTHON_BIN" tools/setup_polymarket_isolated_clob_runtime.py \
+    --runtime-dir "$RUNTIME_DIR" \
+    --dashboard-dir "$DASHBOARD_DIR" \
+    --isolated-root "${QG_POLYMARKET_ISOLATED_CLOB_ROOT:-$REPO_ROOT/runtime/Polymarket_Canary_Isolated}" \
+    --adapter "${QG_POLYMARKET_WALLET_ADAPTER:-isolated_clob}" \
+    --clob-host "$QG_POLYMARKET_CLOB_HOST" \
+    --chain-id "${QG_POLYMARKET_CHAIN_ID:-137}" \
+    --max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-1}" \
+    --max-daily-loss-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC:-2}" \
+    --max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}"
+}
+
+prepare_isolated_clob_runtime
 
 run_copy_discovery() {
   "$PYTHON_BIN" tools/build_polymarket_copy_trader_discovery.py \
@@ -156,6 +190,20 @@ run_copy_discovery
   --min-source-trader-bucket-samples "${QG_POLYMARKET_COPY_MIN_SOURCE_TRADER_BUCKET_SAMPLES:-8}"
 
 # Rebuild discovery so the wallet policy ingests the newly generated validation ledgers.
+run_copy_discovery
+
+"$PYTHON_BIN" tools/sync_polymarket_micro_live_unlock.py \
+  --runtime-dir "$RUNTIME_DIR" \
+  --dashboard-dir "$DASHBOARD_DIR" \
+  --repo-env "$REPO_ROOT/.env.local" \
+  --launchd-env "${QG_LAUNCHD_ENV_FILE:-$HOME/.quantgod/launchd.env}" \
+  --lock-file "${QG_POLYMARKET_REAL_MONEY_LOCK_FILE:-$REPO_ROOT/runtime/Polymarket_Canary_Isolated/REAL_MONEY_CANARY.lock}" \
+  --min-shadow-samples "${QG_POLYMARKET_COPY_MIN_SHADOW_REPLAY_TRADES:-30}" \
+  --min-walk-batches "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_BATCHES:-3}"
+
+force_load_env_file "$REPO_ROOT/.env.local"
+force_load_env_file "${QG_LAUNCHD_ENV_FILE:-$HOME/.quantgod/launchd.env}"
+prepare_isolated_clob_runtime
 run_copy_discovery
 
 if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]]; then

@@ -7,7 +7,7 @@ cd "$REPO_ROOT"
 
 load_env_file() {
   local env_file="$1"
-  local line key
+  local line key value
   [[ -f "$env_file" ]] || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line#$'\xef\xbb\xbf'}"
@@ -15,7 +15,14 @@ load_env_file() {
     [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
     key="${line%%=*}"
     [[ -n "${!key+x}" ]] && continue
-    export "$line"
+    value="${line#*=}"
+    value="${value%$'\r'}"
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "$key=$value"
   done < "$env_file"
 }
 

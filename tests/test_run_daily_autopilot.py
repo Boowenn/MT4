@@ -315,6 +315,7 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("QG_LAUNCHD_LOG_ROOT", launcher)
         polymarket_cycle = (repo_root / "tools" / "run_mac_polymarket_readonly_cycle.sh").read_text(encoding="utf-8")
         self.assertIn("setup_polymarket_isolated_clob_runtime.py", polymarket_cycle)
+        self.assertIn("sync_polymarket_micro_live_unlock.py", polymarket_cycle)
         self.assertIn("QG_POLYMARKET_REAL_EXECUTION", polymarket_cycle)
         self.assertIn("QG_POLYMARKET_CANARY_KILL_SWITCH", polymarket_cycle)
 
