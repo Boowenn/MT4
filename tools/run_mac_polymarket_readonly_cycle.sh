@@ -249,6 +249,14 @@ if [[ "${QG_POLYMARKET_RUN_CANARY_EXECUTOR:-true}" == "true" || "${QG_POLYMARKET
     executor_args+=(--plan-only)
   fi
   "$PYTHON_BIN" tools/run_polymarket_canary_executor_v1.py "${executor_args[@]}"
+  exit_monitor_args=(
+    --runtime-dir "$RUNTIME_DIR"
+    --dashboard-dir "$DASHBOARD_DIR"
+  )
+  if [[ "${QG_POLYMARKET_CANARY_EXIT_MONITOR_PLAN_ONLY:-false}" == "true" || "${QG_POLYMARKET_CANARY_EXIT_MONITOR_PLAN_ONLY:-false}" == "1" || "${QG_POLYMARKET_CANARY_EXIT_MONITOR_PLAN_ONLY:-false}" == "yes" ]]; then
+    exit_monitor_args+=(--plan-only)
+  fi
+  "$PYTHON_BIN" tools/run_polymarket_canary_exit_monitor_v1.py "${exit_monitor_args[@]}"
 fi
 
 if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]]; then
