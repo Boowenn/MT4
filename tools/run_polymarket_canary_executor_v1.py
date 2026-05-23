@@ -80,7 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lock-file", default=str(DEFAULT_LOCK_FILE))
     parser.add_argument("--max-orders", type=int, default=1)
     parser.add_argument("--default-limit-price", type=float, default=0.50)
-    parser.add_argument("--min-order-size", type=float, default=1.0)
+    parser.add_argument("--min-order-size", type=float, default=safe_number(os.environ.get("QG_POLYMARKET_MIN_ORDER_SIZE"), 5.0) or 5.0)
     parser.add_argument("--plan-only", action="store_true", help="Force no-order audit mode even if env switches are on.")
     return parser.parse_args()
 
@@ -360,20 +360,49 @@ def build_copy_candidate_plan(
 
 def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     """Attempt a real CLOB order only after all outer guardrails passed."""
+    token_id = str(plan.get("_tokenId") or os.environ.get("QG_POLYMARKET_CANARY_TOKEN_ID") or "")
+    private_key = os.environ.get("QG_POLYMARKET_PRIVATE_KEY") or ""
+    host = os.environ.get("QG_POLYMARKET_CLOB_HOST") or "https://clob.polymarket.com"
+    chain_id = safe_int(os.environ.get("QG_POLYMARKET_CHAIN_ID"), 137)
+    signature_type = safe_int(os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE"), 0)
+    funder = os.environ.get("QG_POLYMARKET_FUNDER") or None
+    if not token_id or not private_key:
+        return False, "CLOB_TOKEN_OR_PRIVATE_KEY_MISSING", {}
+    try:  # pragma: no cover - intentionally guarded and not exercised by tests
+        from py_clob_client_v2 import ClobClient, OrderArgs, OrderType  # type: ignore
+
+        client = ClobClient(
+            host=host,
+            chain_id=chain_id,
+            key=private_key,
+            signature_type=signature_type,
+            funder=funder,
+            retry_on_error=True,
+        )
+        client.set_api_creds(client.create_or_derive_api_key())
+        side = "BUY" if str(plan.get("side") or "BUY").upper() in {"YES", "BUY"} else "SELL"
+        order_args = OrderArgs(
+            price=float(plan["limitPrice"]),
+            size=float(plan["size"]),
+            side=side,
+            token_id=token_id,
+        )
+        response = client.create_and_post_order(order_args, order_type=OrderType.GTC)
+        status_text = "ORDER_SENT_V2"
+        if isinstance(response, dict) and response.get("success") is False:
+            return False, "CLOB_ORDER_FAILED_V2:REJECTED", {"sdk": "py-clob-client-v2", **response}
+        return True, status_text, response if isinstance(response, dict) else {"sdk": "py-clob-client-v2", "response": str(response)[:500]}
+    except Exception as exc:
+        v2_error = f"{type(exc).__name__}:{str(exc)[:180]}"
+        if os.environ.get("QG_POLYMARKET_CLOB_DISABLE_V1_FALLBACK", "").strip().lower() in {"1", "true", "yes"}:
+            return False, f"CLOB_ORDER_FAILED_V2:{type(exc).__name__}", {"sdk": "py-clob-client-v2", "error": str(exc)[:240]}
+
     try:
         from py_clob_client.client import ClobClient  # type: ignore
         from py_clob_client.clob_types import OrderArgs, OrderType  # type: ignore
         from py_clob_client.order_builder.constants import BUY, SELL  # type: ignore
     except Exception as exc:  # pragma: no cover - environment dependent
-        return False, f"CLOB_ADAPTER_IMPORT_FAILED:{type(exc).__name__}", {}
-
-    token_id = str(plan.get("_tokenId") or os.environ.get("QG_POLYMARKET_CANARY_TOKEN_ID") or "")
-    private_key = os.environ.get("QG_POLYMARKET_PRIVATE_KEY") or ""
-    host = os.environ.get("QG_POLYMARKET_CLOB_HOST") or "https://clob.polymarket.com"
-    chain_id = safe_int(os.environ.get("QG_POLYMARKET_CHAIN_ID"), 137)
-    funder = os.environ.get("QG_POLYMARKET_FUNDER") or None
-    if not token_id or not private_key:
-        return False, "CLOB_TOKEN_OR_PRIVATE_KEY_MISSING", {}
+        return False, f"CLOB_ADAPTER_IMPORT_FAILED:{type(exc).__name__}", {"v2Error": v2_error}
     try:  # pragma: no cover - intentionally guarded and not exercised by tests
         client = ClobClient(host, key=private_key, chain_id=chain_id, funder=funder)
         client.set_api_creds(client.create_or_derive_api_creds())
@@ -387,8 +416,8 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
         signed_order = client.create_order(order_args)
         response = client.post_order(signed_order, OrderType.GTC)
     except Exception as exc:
-        return False, f"CLOB_ORDER_FAILED:{type(exc).__name__}", {"error": str(exc)[:240]}
-    return True, "ORDER_SENT", response if isinstance(response, dict) else {"response": str(response)[:500]}
+        return False, f"CLOB_ORDER_FAILED:{type(exc).__name__}", {"sdk": "py-clob-client", "v2Error": v2_error, "error": str(exc)[:240]}
+    return True, "ORDER_SENT", response if isinstance(response, dict) else {"sdk": "py-clob-client", "response": str(response)[:500]}
 
 
 def to_csv(snapshot: dict[str, Any]) -> str:
