@@ -35,6 +35,7 @@ DEFAULT_RUNTIME_DIR = Path(r"C:\Program Files\HFM Metatrader 5\MQL5\Files")
 DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
 OUTPUT_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
 LEDGER_NAME = "QuantGod_PolymarketCopyTraderDiscovery.csv"
+ISOLATED_CLOB_RUNTIME_NAME = "QuantGod_PolymarketIsolatedClobRuntime.json"
 DATA_API_BASE = "https://data-api.polymarket.com"
 WALLET_RE = re.compile(r"0x[a-fA-F0-9]{40}")
 TELEGRAM_TRADER_RE = re.compile(
@@ -1029,16 +1030,45 @@ def validation_signal(
     }
 
 
-def wallet_runtime_preflight() -> dict[str, Any]:
+def resolve_isolated_clob_runtime(runtime_dir: Path, dashboard_dir: Path) -> tuple[dict[str, Any], str]:
+    explicit = os.environ.get("QG_POLYMARKET_ISOLATED_CLOB_STATUS_PATH", "")
+    candidates: list[Path] = []
+    if explicit.strip():
+        candidates.append(Path(explicit).expanduser())
+    isolated_root = os.environ.get("QG_POLYMARKET_ISOLATED_CLOB_ROOT", "")
+    if isolated_root.strip():
+        candidates.append(Path(isolated_root).expanduser() / ISOLATED_CLOB_RUNTIME_NAME)
+    candidates.extend([
+        runtime_dir / ISOLATED_CLOB_RUNTIME_NAME,
+        dashboard_dir / ISOLATED_CLOB_RUNTIME_NAME,
+    ])
+    for path in candidates:
+        payload = read_optional_json(path)
+        if payload:
+            return payload, str(path)
+    return {}, str(candidates[0]) if candidates else ""
+
+
+def wallet_runtime_preflight(runtime_dir: Path, dashboard_dir: Path) -> dict[str, Any]:
     real_switch = env_bool("QG_POLYMARKET_REAL_EXECUTION")
     kill_switch_off = str(os.environ.get("QG_POLYMARKET_CANARY_KILL_SWITCH", "true")).strip().lower() == "false"
     adapter = os.environ.get("QG_POLYMARKET_WALLET_ADAPTER", "")
+    isolated_runtime, isolated_runtime_path = resolve_isolated_clob_runtime(runtime_dir, dashboard_dir)
+    isolated_adapter = isolated_runtime.get("adapter") if isinstance(isolated_runtime.get("adapter"), dict) else {}
+    isolated_clob = isolated_runtime.get("clob") if isinstance(isolated_runtime.get("clob"), dict) else {}
+    isolated_prepared = bool(isolated_runtime.get("runtimePrepared"))
+    isolated_adapter_ok = isolated_adapter.get("name") == "isolated_clob" and bool(isolated_adapter.get("configured"))
+    isolated_host_ok = bool(isolated_clob.get("hostConfigured"))
     checks = {
         "realExecutionSwitch": real_switch,
         "killSwitchOff": kill_switch_off,
-        "walletAdapterIsolatedClob": adapter == "isolated_clob",
+        "walletAdapterIsolatedClob": adapter == "isolated_clob" or (isolated_prepared and isolated_adapter_ok),
         "privateKeyConfigured": bool(os.environ.get("QG_POLYMARKET_PRIVATE_KEY")),
-        "clobHostConfigured": bool(os.environ.get("QG_POLYMARKET_CLOB_HOST")),
+        "clobHostConfigured": bool(os.environ.get("QG_POLYMARKET_CLOB_HOST")) or (isolated_prepared and isolated_host_ok),
+        "isolatedRuntimePrepared": isolated_prepared,
+        "isolatedRuntimeStatus": isolated_runtime.get("status", "") if isolated_runtime else "",
+        "isolatedRuntimePath": isolated_runtime_path,
+        "isolatedRuntimeRoot": isolated_runtime.get("isolatedRoot", "") if isolated_runtime else "",
         "neverEchoesSecretValues": True,
     }
     blockers = []
@@ -1067,7 +1097,7 @@ def wallet_risk_policy(
     requested = str_to_bool(args.real_wallet_enabled)
     auto_unlock = str_to_bool(args.real_wallet_auto_unlock)
     require_telegram = str_to_bool(args.real_wallet_require_telegram)
-    runtime = wallet_runtime_preflight()
+    runtime = wallet_runtime_preflight(Path(args.runtime_dir), Path(args.dashboard_dir) if args.dashboard_dir else Path(args.runtime_dir))
     shadow = validation.get("shadowReplay") if isinstance(validation.get("shadowReplay"), dict) else {}
     walk_forward = validation.get("walkForward") if isinstance(validation.get("walkForward"), dict) else {}
     blockers: list[str] = []

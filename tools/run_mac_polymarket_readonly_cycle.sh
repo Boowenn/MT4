@@ -68,12 +68,24 @@ mkdir -p "$RUNTIME_DIR" "$DASHBOARD_DIR" "$HISTORY_DIR"
 
 export QG_POLYMARKET_REAL_EXECUTION="${QG_POLYMARKET_REAL_EXECUTION:-false}"
 export QG_POLYMARKET_CANARY_KILL_SWITCH="${QG_POLYMARKET_CANARY_KILL_SWITCH:-true}"
+export QG_POLYMARKET_CLOB_HOST="${QG_POLYMARKET_CLOB_HOST:-https://clob.polymarket.com}"
 
 echo "QuantGod Polymarket Mac read-only cycle"
 echo "Runtime: $RUNTIME_DIR"
 echo "Dashboard: $DASHBOARD_DIR"
 echo "History DB: $HISTORY_DB"
 echo "Copy-only mode: $COPY_ONLY"
+
+"$PYTHON_BIN" tools/setup_polymarket_isolated_clob_runtime.py \
+  --runtime-dir "$RUNTIME_DIR" \
+  --dashboard-dir "$DASHBOARD_DIR" \
+  --isolated-root "${QG_POLYMARKET_ISOLATED_CLOB_ROOT:-$REPO_ROOT/runtime/Polymarket_Canary_Isolated}" \
+  --adapter "${QG_POLYMARKET_WALLET_ADAPTER:-isolated_clob}" \
+  --clob-host "$QG_POLYMARKET_CLOB_HOST" \
+  --chain-id "${QG_POLYMARKET_CHAIN_ID:-137}" \
+  --max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-1}" \
+  --max-daily-loss-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC:-2}" \
+  --max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}"
 
 run_copy_discovery() {
   "$PYTHON_BIN" tools/build_polymarket_copy_trader_discovery.py \

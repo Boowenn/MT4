@@ -66,6 +66,7 @@ const JSON_ENDPOINTS = Object.freeze({
   '/api/polymarket/copy-trader-shadow-replay': 'QuantGod_PolymarketCopyTraderShadowReplay.json',
   '/api/polymarket/copy-trader-walk-forward': 'QuantGod_PolymarketCopyTraderWalkForward.json',
   '/api/polymarket/copy-trader-source-buckets': 'QuantGod_PolymarketCopyTraderSourceBuckets.json',
+  '/api/polymarket/isolated-clob-runtime': 'QuantGod_PolymarketIsolatedClobRuntime.json',
   '/api/polymarket/single-market-analysis': 'QuantGod_PolymarketSingleMarketAnalysis.json',
 });
 
@@ -104,6 +105,7 @@ const CSV_ENDPOINTS = Object.freeze({
   '/api/polymarket/copy-trader-outcome-ledger': 'QuantGod_PolymarketCopyTraderOutcomeLedger.csv',
   '/api/polymarket/copy-trader-walk-forward-ledger': 'QuantGod_PolymarketCopyTraderWalkForward.csv',
   '/api/polymarket/copy-trader-source-buckets-ledger': 'QuantGod_PolymarketCopyTraderSourceBuckets.csv',
+  '/api/polymarket/isolated-clob-runtime-ledger': 'QuantGod_PolymarketIsolatedClobPreflightLedger.csv',
   '/api/polymarket/single-market-analysis-ledger': 'QuantGod_PolymarketSingleMarketAnalysisLedger.csv',
   '/api/polymarket/radar-worker-ledger': 'QuantGod_PolymarketRadarWorkerV2.csv',
 });

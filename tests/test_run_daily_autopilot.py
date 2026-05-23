@@ -313,6 +313,10 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("quantgod-agent-v25-supervisor", launcher)
         self.assertIn("tools/ensure_mac_agent_v25_loop.sh --loop", launcher)
         self.assertIn("QG_LAUNCHD_LOG_ROOT", launcher)
+        polymarket_cycle = (repo_root / "tools" / "run_mac_polymarket_readonly_cycle.sh").read_text(encoding="utf-8")
+        self.assertIn("setup_polymarket_isolated_clob_runtime.py", polymarket_cycle)
+        self.assertIn("QG_POLYMARKET_REAL_EXECUTION", polymarket_cycle)
+        self.assertIn("QG_POLYMARKET_CANARY_KILL_SWITCH", polymarket_cycle)
 
     def test_mac_history_sync_wrapper_uses_mt5_python_and_terminal_path(self):
         repo_root = MODULE_PATH.parents[1]
