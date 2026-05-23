@@ -106,6 +106,7 @@ const polymarketCrossMarketLinkageName = 'QuantGod_PolymarketCrossMarketLinkage.
 const polymarketCanaryExecutorContractName = 'QuantGod_PolymarketCanaryExecutorContract.json';
 const polymarketAutoGovernanceName = 'QuantGod_PolymarketAutoGovernance.json';
 const polymarketCanaryExecutorRunName = 'QuantGod_PolymarketCanaryExecutorRun.json';
+const polymarketCanaryExitMonitorRunName = 'QuantGod_PolymarketCanaryExitMonitorRun.json';
 const polymarketRealTradeLedgerName = 'QuantGod_PolymarketRealTradeLedger.json';
 const polymarketMarketCatalogName = 'QuantGod_PolymarketMarketCatalog.json';
 const polymarketAssetOpportunitiesName = 'QuantGod_PolymarketAssetOpportunities.json';
@@ -194,6 +195,7 @@ const polymarketReadOnlyJsonFiles = new Set([
   polymarketCanaryExecutorContractName,
   polymarketAutoGovernanceName,
   polymarketCanaryExecutorRunName,
+  polymarketCanaryExitMonitorRunName,
   polymarketRealTradeLedgerName,
   polymarketMarketCatalogName,
   polymarketAssetOpportunitiesName
@@ -3674,6 +3676,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/canary-executor-run') {
     handlePolymarketReadOnlyJson(req, res, polymarketCanaryExecutorRunName, '/api/polymarket/canary-executor-run');
+    return;
+  }
+  if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/canary-exit-monitor-run') {
+    handlePolymarketReadOnlyJson(req, res, polymarketCanaryExitMonitorRunName, '/api/polymarket/canary-exit-monitor-run');
     return;
   }
   if (req.method === 'GET' && requestUrl.split('?')[0] === '/api/polymarket/ai-score') {

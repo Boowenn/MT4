@@ -68,6 +68,7 @@ const JSON_ENDPOINTS = Object.freeze({
   '/api/polymarket/copy-trader-source-buckets': 'QuantGod_PolymarketCopyTraderSourceBuckets.json',
   '/api/polymarket/isolated-clob-runtime': 'QuantGod_PolymarketIsolatedClobRuntime.json',
   '/api/polymarket/single-market-analysis': 'QuantGod_PolymarketSingleMarketAnalysis.json',
+  '/api/polymarket/canary-exit-monitor-run': 'QuantGod_PolymarketCanaryExitMonitorRun.json',
 });
 
 const CSV_ENDPOINTS = Object.freeze({
