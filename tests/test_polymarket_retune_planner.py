@@ -116,6 +116,30 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
         self.assertEqual(review["primaryAction"], "KEEP_COPY_TRADER_SHADOW_REPLAY")
         self.assertIn("Telegram 跟单信号已写入", review["iterationPlan"]["nextAction"])
 
+    def test_active_copy_discovery_reports_runtime_blockers_after_validation_passes(self):
+        review = planner.copy_discovery_active_review(
+            {
+                "summary": {"rankedTraders": 30, "eligibleTraders": 28},
+                "traders": [{"userName": "leader", "copyScore": 100, "closedStats": {"closed": 50}}],
+                "shadowCandidates": [{"slug": "market"}],
+                "walletRiskPolicy": {
+                    "realWalletExecutionAllowed": False,
+                    "walletWriteAllowed": False,
+                    "orderSendAllowed": False,
+                    "runtimePreflight": {"blockers": ["private_key_env_missing"]},
+                    "validation": {
+                        "shadowReplay": {"present": True, "passed": True, "samples": 39, "profitFactor": 1.3},
+                        "walkForward": {"present": True, "passed": True, "batches": 3, "passRatePct": 67},
+                    },
+                },
+            },
+            {},
+        )
+
+        self.assertEqual(review["status"], "COPY_TRADER_VALIDATED_RUNTIME_BLOCKED")
+        self.assertEqual(review["primaryAction"], "CONFIGURE_ISOLATED_CLOB_RUNTIME")
+        self.assertIn("private_key_env_missing", review["iterationPlan"]["nextAction"])
+
 
 if __name__ == "__main__":
     unittest.main()

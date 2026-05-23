@@ -457,11 +457,23 @@ def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, A
         "验证门全部通过后由系统自动放开 micro-live，不需要人工批准。"
     )
     if shadow_validation.get("present") or walk_validation.get("present"):
+        validation_passed = bool(shadow_validation.get("passed") and walk_validation.get("passed"))
+        runtime_preflight = policy.get("runtimePreflight") if isinstance(policy.get("runtimePreflight"), dict) else {}
+        runtime_blockers = runtime_preflight.get("blockers") if isinstance(runtime_preflight.get("blockers"), list) else []
         if policy.get("realWalletExecutionAllowed"):
             status = "COPY_TRADER_VALIDATED_REAL_WALLET_READY"
             primary_action = "START_ISOLATED_CLOB_MICRO_LIVE"
             operator_label = "跟单验证已通过，真钱 runtime 可启动"
             next_action = "shadow replay 与 walk-forward 已通过；由 isolated CLOB runtime 按 TP/SL、追踪止损、单笔和日亏损上限自动执行。"
+        elif validation_passed:
+            status = "COPY_TRADER_VALIDATED_RUNTIME_BLOCKED"
+            primary_action = "CONFIGURE_ISOLATED_CLOB_RUNTIME"
+            operator_label = "跟单验证已通过，等待 runtime preflight"
+            next_action = (
+                "shadow replay 与 walk-forward 已通过，但真钱 runtime preflight 仍阻塞："
+                f"{', '.join(str(item) for item in runtime_blockers) or 'runtime_preflight_not_passed'}。"
+                "配置 isolated CLOB adapter、CLOB host、钱包密钥和 kill switch 后，系统会自动重新判断。"
+            )
         else:
             status = "COPY_TRADER_REPLAY_BLOCKED_SHADOW_ONLY"
             primary_action = "KEEP_COPY_TRADER_SHADOW_REPLAY"
