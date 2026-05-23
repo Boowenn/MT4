@@ -83,12 +83,47 @@ STATUS_FILE="$RUNTIME_DIR/agent/QuantGod_AgentV25LoopStatus.json"
 SUPERVISOR_FILE="$RUNTIME_DIR/agent/QuantGod_AgentV25SupervisorStatus.json"
 LOCK_DIR="${QG_AGENT_V25_LOCK_DIR:-$RUNTIME_DIR/agent/QuantGod_AgentV25Loop.lock}"
 MAINTENANCE_LOCK_DIR="${QG_AGENT_V25_MAINTENANCE_LOCK_DIR:-$RUNTIME_DIR/agent/QuantGod_AgentV25Maintenance.lock}"
+LOG_MAINTENANCE_LOCK_DIR="${QG_RUNTIME_LOG_MAINTENANCE_LOCK_DIR:-$RUNTIME_DIR/agent/QuantGod_RuntimeLogMaintenance.lock}"
 LOG_FILE="$REPO_ROOT/runtime/agent_v25_screen.log"
-RUNTIME_LOG_ROOT="${QG_RUNTIME_LOG_ROOT:-$REPO_ROOT/runtime}"
+
+maintain_runtime_log_root() {
+  local root="$1"
+  [[ -n "$root" && -d "$root" ]] || return 0
+  "$PYTHON_BIN" "$REPO_ROOT/tools/maintain_runtime_logs.py" \
+    --runtime-root "$root" >/dev/null 2>&1 || true
+}
 
 maintain_runtime_logs() {
-  "$PYTHON_BIN" "$REPO_ROOT/tools/maintain_runtime_logs.py" \
-    --runtime-root "$RUNTIME_LOG_ROOT" >/dev/null 2>&1 || true
+  local root resolved
+  local seen="|"
+  local -a roots
+  local -a extra_roots
+  roots=(
+    "${QG_RUNTIME_LOG_ROOT:-$REPO_ROOT/runtime}"
+    "$REPO_ROOT/runtime"
+    "$RUNTIME_DIR"
+    "${QG_MT5_FILES_DIR:-}"
+    "${QG_LAUNCHD_LOG_ROOT:-$HOME/.quantgod/logs}"
+  )
+  if [[ -n "${QG_RUNTIME_LOG_EXTRA_ROOTS:-}" ]]; then
+    IFS=':' read -r -a extra_roots <<< "$QG_RUNTIME_LOG_EXTRA_ROOTS"
+    roots+=("${extra_roots[@]}")
+  fi
+  mkdir -p "$(dirname "$LOG_MAINTENANCE_LOCK_DIR")"
+  if ! mkdir "$LOG_MAINTENANCE_LOCK_DIR" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s\n' "${BASHPID:-$$}" > "$LOG_MAINTENANCE_LOCK_DIR/pid"
+  for root in "${roots[@]}"; do
+    [[ -n "$root" && -d "$root" ]] || continue
+    resolved="$(cd "$root" && pwd -P 2>/dev/null || printf '%s' "$root")"
+    case "$seen" in
+      *"|$resolved|"*) continue ;;
+    esac
+    seen="${seen}${resolved}|"
+    maintain_runtime_log_root "$resolved"
+  done
+  rm -rf "$LOG_MAINTENANCE_LOCK_DIR"
 }
 
 refresh_agent_health_and_burn_in() {

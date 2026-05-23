@@ -112,6 +112,32 @@ class RuntimeLogMaintenanceTests(unittest.TestCase):
             with gzip.open(archive_path, "rt", encoding="utf-8") as handle:
                 self.assertIn('"i":0', handle.read())
 
+    def test_jsonl_tail_respects_byte_cap_when_keep_lines_are_large(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_root = Path(tmp) / "runtime"
+            ledger = runtime_root / "notifications" / "QuantGod_TelegramGatewayLedger.jsonl"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(
+                "".join(f'{{"i":{i},"text":"{"x" * 20}"}}\n' for i in range(20)),
+                encoding="utf-8",
+            )
+
+            status = runtime_logs.maintain_logs(
+                runtime_root,
+                max_active_bytes=1024 * 1024,
+                jsonl_max_active_bytes=160,
+                jsonl_keep_lines=20,
+                jsonl_min_age_seconds=0,
+                maintain_jsonl=True,
+            )
+
+            self.assertEqual(len(status["jsonl"]["compacted"]), 1)
+            retained = ledger.read_bytes()
+            self.assertLessEqual(len(retained), 160)
+            retained_text = retained.decode("utf-8")
+            self.assertIn('"i":19', retained_text)
+            self.assertNotIn('"i":0', retained_text)
+
 
 if __name__ == "__main__":
     unittest.main()

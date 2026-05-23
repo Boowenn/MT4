@@ -291,6 +291,9 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("run_with_timeout", agent_loop)
         self.assertIn("telegramTimeoutSeconds", agent_loop)
         self.assertIn("run_mac_agent_v25_maintenance.py", agent_loop)
+        self.assertIn("maintain_runtime_logs.py", agent_loop)
+        self.assertIn("QG_LAUNCHD_LOG_ROOT", agent_loop)
+        self.assertIn("QG_RUNTIME_LOG_EXTRA_ROOTS", agent_loop)
         self.assertIn("QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS", agent_loop)
         self.assertIn("--force-burn-in", agent_loop)
         self.assertIn("QG_AGENT_V25_LOCK_DIR", agent_loop)
@@ -303,11 +306,13 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertIn("QG_AGENT_V25_STALE_SECONDS", supervisor)
         self.assertIn("run_mac_agent_v25_loop.sh --loop", supervisor)
         self.assertIn("run_mac_agent_v25_maintenance.py", supervisor)
+        self.assertIn("maintain_runtime_logs.py", supervisor)
         self.assertIn("QG_AGENT_OPS_HEALTH_ENABLED", supervisor)
 
         launcher = (repo_root / "Start_QuantGod_mac.sh").read_text(encoding="utf-8")
         self.assertIn("quantgod-agent-v25-supervisor", launcher)
         self.assertIn("tools/ensure_mac_agent_v25_loop.sh --loop", launcher)
+        self.assertIn("QG_LAUNCHD_LOG_ROOT", launcher)
 
     def test_mac_history_sync_wrapper_uses_mt5_python_and_terminal_path(self):
         repo_root = MODULE_PATH.parents[1]

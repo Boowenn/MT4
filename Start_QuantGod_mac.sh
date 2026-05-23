@@ -284,8 +284,41 @@ echo "Frontend: http://$QG_FRONTEND_HOST:$QG_FRONTEND_PORT/vue/?workspace=mt5"
 echo "Backend API: http://$QG_DASHBOARD_HOST:$QG_DASHBOARD_PORT/vue/"
 
 echo "Maintaining runtime logs..."
-"$QG_PYTHON_BIN" "$SCRIPT_DIR/tools/maintain_runtime_logs.py" \
-  --runtime-root "$SCRIPT_DIR/runtime" || echo "Runtime log maintenance failed"
+maintain_runtime_log_root() {
+  local root="$1"
+  [[ -n "$root" && -d "$root" ]] || return 0
+  "$QG_PYTHON_BIN" "$SCRIPT_DIR/tools/maintain_runtime_logs.py" \
+    --runtime-root "$root" || echo "Runtime log maintenance failed for $root"
+}
+
+maintain_runtime_logs() {
+  local root resolved
+  local seen="|"
+  local -a roots
+  local -a extra_roots
+  roots=(
+    "${QG_RUNTIME_LOG_ROOT:-$SCRIPT_DIR/runtime}"
+    "$SCRIPT_DIR/runtime"
+    "${QG_RUNTIME_DIR:-}"
+    "${QG_MT5_FILES_DIR:-}"
+    "${QG_LAUNCHD_LOG_ROOT:-$HOME/.quantgod/logs}"
+  )
+  if [[ -n "${QG_RUNTIME_LOG_EXTRA_ROOTS:-}" ]]; then
+    IFS=':' read -r -a extra_roots <<< "$QG_RUNTIME_LOG_EXTRA_ROOTS"
+    roots+=("${extra_roots[@]}")
+  fi
+  for root in "${roots[@]}"; do
+    [[ -n "$root" && -d "$root" ]] || continue
+    resolved="$(cd "$root" && pwd -P 2>/dev/null || printf '%s' "$root")"
+    case "$seen" in
+      *"|$resolved|"*) continue ;;
+    esac
+    seen="${seen}${resolved}|"
+    maintain_runtime_log_root "$resolved"
+  done
+}
+
+maintain_runtime_logs
 
 if [[ -d "$MT5_ROOT" ]]; then
   echo "Syncing QuantGod files into MT5..."
