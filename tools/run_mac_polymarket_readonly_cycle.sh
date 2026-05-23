@@ -75,7 +75,8 @@ echo "Dashboard: $DASHBOARD_DIR"
 echo "History DB: $HISTORY_DB"
 echo "Copy-only mode: $COPY_ONLY"
 
-"$PYTHON_BIN" tools/build_polymarket_copy_trader_discovery.py \
+run_copy_discovery() {
+  "$PYTHON_BIN" tools/build_polymarket_copy_trader_discovery.py \
   --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \
   --leaderboard-categories "${QG_POLYMARKET_COPY_CATEGORIES:-OVERALL,POLITICS,SPORTS,CRYPTO,ECONOMICS,TECH,FINANCE}" \
@@ -114,6 +115,31 @@ echo "Copy-only mode: $COPY_ONLY"
   --real-wallet-max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}" \
   --real-wallet-min-entry-price "${QG_POLYMARKET_REAL_WALLET_MIN_ENTRY_PRICE:-0.04}" \
   --real-wallet-max-entry-price "${QG_POLYMARKET_REAL_WALLET_MAX_ENTRY_PRICE:-0.90}"
+}
+
+run_copy_discovery
+
+"$PYTHON_BIN" tools/build_polymarket_copy_trader_shadow_replay.py \
+  --runtime-dir "$RUNTIME_DIR" \
+  --dashboard-dir "$DASHBOARD_DIR" \
+  --discovery-path "$DASHBOARD_DIR/QuantGod_PolymarketCopyTraderDiscovery.json" \
+  --gamma-limit "${QG_POLYMARKET_COPY_REPLAY_GAMMA_LIMIT:-500}" \
+  --timeout "${QG_POLYMARKET_COPY_REPLAY_TIMEOUT:-15}" \
+  --max-signals "${QG_POLYMARKET_COPY_REPLAY_MAX_SIGNALS:-100}" \
+  --stake-usdc "${QG_POLYMARKET_COPY_REPLAY_STAKE_USDC:-1}" \
+  --follow-slippage-cents "${QG_POLYMARKET_COPY_REPLAY_FOLLOW_SLIPPAGE_CENTS:-1}" \
+  --take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-35}" \
+  --stop-loss-pct "${QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT:-18}" \
+  --min-entry-price "${QG_POLYMARKET_REAL_WALLET_MIN_ENTRY_PRICE:-0.04}" \
+  --max-entry-price "${QG_POLYMARKET_REAL_WALLET_MAX_ENTRY_PRICE:-0.90}" \
+  --min-shadow-replay-trades "${QG_POLYMARKET_COPY_MIN_SHADOW_REPLAY_TRADES:-30}" \
+  --min-shadow-profit-factor "${QG_POLYMARKET_COPY_MIN_SHADOW_PROFIT_FACTOR:-1.10}" \
+  --min-shadow-net-pnl-usdc "${QG_POLYMARKET_COPY_MIN_SHADOW_NET_PNL_USDC:-0.01}" \
+  --walk-forward-batches "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_BATCHES:-3}" \
+  --min-walk-forward-pass-rate-pct "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_PASS_RATE_PCT:-60}"
+
+# Rebuild discovery so the wallet policy ingests the newly generated validation ledgers.
+run_copy_discovery
 
 if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]]; then
   "$PYTHON_BIN" tools/run_polymarket_radar_worker_v2.py \

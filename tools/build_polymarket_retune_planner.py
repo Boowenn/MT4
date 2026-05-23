@@ -425,6 +425,9 @@ def copy_discovery_missing_review(
 def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     summary = discovery.get("summary") if isinstance(discovery.get("summary"), dict) else {}
     policy = discovery.get("walletRiskPolicy") if isinstance(discovery.get("walletRiskPolicy"), dict) else {}
+    validation = policy.get("validation") if isinstance(policy.get("validation"), dict) else {}
+    shadow_validation = validation.get("shadowReplay") if isinstance(validation.get("shadowReplay"), dict) else {}
+    walk_validation = validation.get("walkForward") if isinstance(validation.get("walkForward"), dict) else {}
     traders = [row for row in discovery.get("traders") or [] if isinstance(row, dict)]
     candidates = [row for row in discovery.get("shadowCandidates") or [] if isinstance(row, dict)]
     top = traders[0] if traders else {}
@@ -447,10 +450,35 @@ def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, A
     }
     capital_simulation = copy_capital_simulation(best_metrics, account) if top else {}
     status = "COPY_TRADER_SHADOW_CANDIDATES_READY" if candidates else "COPY_TRADER_DISCOVERY_RUNNING_NO_CANDIDATES"
+    primary_action = "WRITE_COPY_TRADER_SHADOW_REPLAY_LEDGER"
+    operator_label = "强交易员跟单候选已生成" if candidates else "强交易员发现运行中"
+    next_action = (
+        "把当前 shadowCandidates 写入跟单 replay/outcome ledger，先验证跟随延迟和退出结果；"
+        "验证门全部通过后由系统自动放开 micro-live，不需要人工批准。"
+    )
+    if shadow_validation.get("present") or walk_validation.get("present"):
+        if policy.get("realWalletExecutionAllowed"):
+            status = "COPY_TRADER_VALIDATED_REAL_WALLET_READY"
+            primary_action = "START_ISOLATED_CLOB_MICRO_LIVE"
+            operator_label = "跟单验证已通过，真钱 runtime 可启动"
+            next_action = "shadow replay 与 walk-forward 已通过；由 isolated CLOB runtime 按 TP/SL、追踪止损、单笔和日亏损上限自动执行。"
+        else:
+            status = "COPY_TRADER_REPLAY_BLOCKED_SHADOW_ONLY"
+            primary_action = "KEEP_COPY_TRADER_SHADOW_REPLAY"
+            operator_label = "跟单复盘未通过，保持 shadow"
+            next_action = (
+                "Telegram 跟单信号已写入 replay/outcome ledger，但验证未达标："
+                f"shadow samples={safe_int(shadow_validation.get('samples'))}, "
+                f"PF={safe_number(shadow_validation.get('profitFactor')):.4f}, "
+                f"net={safe_number(shadow_validation.get('netPnlUSDC')):.4f}；"
+                f"walk-forward batches={safe_int(walk_validation.get('batches'))}, "
+                f"passRate={safe_number(walk_validation.get('passRatePct')):.2f}%。"
+                "继续只读收集/复盘，真钱钱包保持隔离。"
+            )
     top_name = top.get("userName") or top.get("proxyWallet") or "unknown"
     iteration_plan = {
         "status": status,
-        "statusZh": "强交易员跟单候选已生成" if candidates else "强交易员发现已运行，等待可跟持仓",
+        "statusZh": operator_label,
         "completedByAgent": True,
         "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
@@ -501,15 +529,13 @@ def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, A
             "计入跟随延迟和滑点后的 shadow replay 净值必须为正",
         ],
         "capitalResult": capital_simulation,
-        "nextAction": (
-            "把当前 shadowCandidates 写入跟单 replay/outcome ledger，先验证跟随延迟和退出结果；"
-            "验证门全部通过后由系统自动放开 micro-live，不需要人工批准。"
-        ),
+        "validation": validation,
+        "nextAction": next_action,
     }
     return {
         "status": status,
         "agentRetuneStatus": status,
-        "operatorStatusLabel": "强交易员跟单候选已生成" if candidates else "强交易员发现运行中",
+        "operatorStatusLabel": operator_label,
         "completedByAgent": True,
         "autoAppliedByAgent": True,
         "requiresAutonomousGovernance": True,
@@ -525,7 +551,7 @@ def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, A
         "walletRiskPolicy": policy,
         "iterationPlan": iteration_plan,
         "sourceToolkit": copy_source_toolkit(),
-        "primaryAction": "WRITE_COPY_TRADER_SHADOW_REPLAY_LEDGER",
+        "primaryAction": primary_action,
         "shadowOnly": not bool(policy.get("realWalletExecutionAllowed")),
         "walletWriteAllowed": bool(policy.get("walletWriteAllowed")),
         "orderSendAllowed": bool(policy.get("orderSendAllowed")),

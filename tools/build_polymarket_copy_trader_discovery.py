@@ -42,6 +42,8 @@ TELEGRAM_TRADER_RE = re.compile(
     re.IGNORECASE,
 )
 SIGNAL_SIDE_RE = re.compile(r"\b(?P<side>BUY|SELL)\s+(?P<outcome>[A-Za-z][A-Za-z0-9_ ./'-]{0,60})", re.IGNORECASE)
+KREO_MARKET_SLUG_RE = re.compile(r"\bhttps?://t\.me/KreoPolyBot\?start=slug_([A-Za-z0-9_.~%/-]+)", re.IGNORECASE)
+KREO_COPYTRADE_RE = re.compile(r"\bhttps?://t\.me/KreoPolyBot\?start=ct_([A-Za-z0-9_.~%/-]+)", re.IGNORECASE)
 DOCS = {
     "leaderboard": "https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings",
     "positions": "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
@@ -385,9 +387,49 @@ def first_regex_number(pattern: str, text: str) -> float | None:
         return None
 
 
-def extract_telegram_signals(fragments: list[str], source: str, channel_name: str) -> list[dict[str, Any]]:
+def normalize_kreo_market_slug(value: str) -> str:
+    raw = urllib.parse.unquote(str(value or "").strip())
+    if raw.startswith("predictmon--"):
+        raw = raw[len("predictmon--") :]
+    return raw.strip().strip("/")
+
+
+def extract_kreo_context(text: str) -> dict[str, Any]:
+    market_slugs: list[str] = []
+    market_urls: list[str] = []
+    for match in KREO_MARKET_SLUG_RE.finditer(text):
+        raw_slug = urllib.parse.unquote(match.group(1))
+        market_slug = normalize_kreo_market_slug(raw_slug)
+        if market_slug and market_slug not in market_slugs:
+            market_slugs.append(market_slug)
+        url = match.group(0)
+        if url not in market_urls:
+            market_urls.append(url)
+    copy_urls = []
+    for match in KREO_COPYTRADE_RE.finditer(text):
+        url = match.group(0)
+        if url not in copy_urls:
+            copy_urls.append(url)
+    context: dict[str, Any] = {}
+    if market_slugs:
+        context["marketSlug"] = market_slugs[0]
+        context["marketSlugs"] = market_slugs[:5]
+    if market_urls:
+        context["kreoTradeUrl"] = market_urls[0]
+    if copy_urls:
+        context["kreoCopytradeUrl"] = copy_urls[0]
+    return context
+
+
+def extract_telegram_signals(
+    fragments: list[str],
+    source: str,
+    channel_name: str,
+    extra: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     signals: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
+    base_extra = dict(extra or {})
     for raw in fragments:
         text = " ".join(str(raw or "").split())
         if not text:
@@ -402,21 +444,22 @@ def extract_telegram_signals(fragments: list[str], source: str, channel_name: st
             if key in seen:
                 continue
             seen.add(key)
-            signals.append(
-                {
-                    "source": source,
-                    "channelName": channel_name,
-                    "userName": match.group("user"),
-                    "rank": safe_int(match.group("rank")),
-                    "wallet": wallet_full,
-                    "walletPreview": wallet_text if not wallet_full else "",
-                    "side": side_match.group("side").upper() if side_match else "",
-                    "outcome": (side_match.group("outcome").strip() if side_match else "")[:80],
-                    "amountUSDC": round4(amount) if amount is not None else None,
-                    "priceCents": round4(price) if price is not None else None,
-                    "textPreview": text[:260],
-                }
-            )
+            signal = {
+                "source": source,
+                "channelName": channel_name,
+                "userName": match.group("user"),
+                "rank": safe_int(match.group("rank")),
+                "wallet": wallet_full,
+                "walletPreview": wallet_text if not wallet_full else "",
+                "side": side_match.group("side").upper() if side_match else "",
+                "outcome": (side_match.group("outcome").strip() if side_match else "")[:80],
+                "amountUSDC": round4(amount) if amount is not None else None,
+                "priceCents": round4(price) if price is not None else None,
+                "textPreview": text[:260],
+            }
+            if base_extra:
+                signal.update(base_extra)
+            signals.append(signal)
     return signals[:100]
 
 
@@ -600,6 +643,19 @@ def read_telegram_telethon_history(
                 messages_read += 1
                 text = str(getattr(message, "raw_text", "") or "")
                 fragments = [text]
+                button_fragments: list[str] = []
+                try:
+                    for row in getattr(message, "buttons", None) or []:
+                        for button in row or []:
+                            label = str(getattr(button, "text", "") or "")
+                            url = str(getattr(button, "url", "") or "")
+                            if label:
+                                button_fragments.append(label)
+                            if url:
+                                button_fragments.append(url)
+                except Exception:
+                    button_fragments = []
+                fragments.extend(button_fragments)
                 for attr in ("reply_markup", "entities"):
                     value = getattr(message, attr, None)
                     if not value:
@@ -614,13 +670,21 @@ def read_telegram_telethon_history(
                 joined = "\n".join(fragments)
                 found = [item.lower() for item in WALLET_RE.findall(joined)]
                 wallets.update(found)
-                signals.extend(extract_telegram_signals(fragments, "telegram_telethon", channel_name))
+                signal_context = extract_kreo_context(joined)
+                signal_context.update(
+                    {
+                        "messageId": getattr(message, "id", None),
+                        "messageDate": str(getattr(message, "date", "") or ""),
+                    }
+                )
+                signals.extend(extract_telegram_signals(fragments, "telegram_telethon", channel_name, signal_context))
                 if found or "polymarket" in joined.lower() or "wallet" in joined.lower() or "钱包" in joined:
                     previews.append(
                         {
                             "messageId": getattr(message, "id", None),
                             "date": str(getattr(message, "date", "") or ""),
                             "wallets": sorted(set(found))[:10],
+                            "marketSlug": signal_context.get("marketSlug") or "",
                             "textPreview": " ".join(joined.split())[:260],
                         }
                     )

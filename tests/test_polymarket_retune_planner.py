@@ -26,10 +26,15 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
             "winRatePct": 54.55,
         })
 
-        review = planner.copy_trading_review([recommendation], {
-            "accountCash": 7.1,
-            "bankroll": 15.0,
-        })
+        review = planner.copy_trading_review(
+            [recommendation],
+            {
+                "accountCash": 7.1,
+                "bankroll": 15.0,
+            },
+            {},
+            {},
+        )
 
         simulation = review["capitalSimulation"]
         self.assertTrue(review["active"])
@@ -54,10 +59,15 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
             "winRatePct": 49.72,
         })
 
-        review = planner.copy_trading_review([recommendation], {
-            "accountCash": 7.1,
-            "bankroll": 15.0,
-        })
+        review = planner.copy_trading_review(
+            [recommendation],
+            {
+                "accountCash": 7.1,
+                "bankroll": 15.0,
+            },
+            {},
+            {},
+        )
 
         plan = review["iterationPlan"]
         self.assertEqual(review["status"], "COPY_TRADING_RETUNE_REQUIRED")
@@ -71,6 +81,40 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
         self.assertTrue(any(item["key"] == "copy_archive_all_market_whitelist_v2" for item in plan["candidateVariants"]))
         self.assertIn("结算样本不少于 200 笔", plan["acceptanceCriteriaZh"])
         self.assertIn("cash_scaled_pnl_not_positive", plan["capitalResult"]["blockers"])
+
+    def test_active_copy_discovery_reports_failed_replay_instead_of_write_next(self):
+        review = planner.copy_discovery_active_review(
+            {
+                "summary": {"rankedTraders": 30, "eligibleTraders": 28},
+                "traders": [{"userName": "leader", "copyScore": 100, "closedStats": {"closed": 50}}],
+                "shadowCandidates": [{"slug": "market"}],
+                "walletRiskPolicy": {
+                    "realWalletExecutionAllowed": False,
+                    "walletWriteAllowed": False,
+                    "orderSendAllowed": False,
+                    "validation": {
+                        "shadowReplay": {
+                            "present": True,
+                            "passed": False,
+                            "samples": 39,
+                            "profitFactor": 0.5486,
+                            "netPnlUSDC": -2.3562,
+                        },
+                        "walkForward": {
+                            "present": True,
+                            "passed": False,
+                            "batches": 3,
+                            "passRatePct": 0,
+                        },
+                    },
+                },
+            },
+            {},
+        )
+
+        self.assertEqual(review["status"], "COPY_TRADER_REPLAY_BLOCKED_SHADOW_ONLY")
+        self.assertEqual(review["primaryAction"], "KEEP_COPY_TRADER_SHADOW_REPLAY")
+        self.assertIn("Telegram 跟单信号已写入", review["iterationPlan"]["nextAction"])
 
 
 if __name__ == "__main__":
