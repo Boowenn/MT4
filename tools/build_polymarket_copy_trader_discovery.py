@@ -86,6 +86,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--telegram-telethon-env", default="")
     parser.add_argument("--telegram-telethon-session", default="")
     parser.add_argument("--telegram-telethon-limit", type=int, default=300)
+    parser.add_argument("--telegram-signal-limit", type=int, default=300)
     parser.add_argument("--telegram-channel-name", default="预测市场内幕钱包监控")
     parser.add_argument("--real-wallet-enabled", default="false")
     parser.add_argument("--real-wallet-auto-unlock", default="true")
@@ -551,6 +552,7 @@ def read_telegram_telethon_history(
     session_path: str,
     channel_name: str,
     limit: int,
+    signal_limit: int,
     timeout: float,
 ) -> dict[str, Any]:
     env = read_env_values(env_path)
@@ -692,7 +694,7 @@ def read_telegram_telethon_history(
                 "ok": True,
                 "error": "",
                 "wallets": sorted(wallets),
-                "signals": signals[:100],
+                "signals": signals[: max(1, min(1000, int(signal_limit)))],
                 "messagesRead": messages_read,
                 "matchedDialogs": sorted(set(matched_dialogs)),
                 "signalPreviews": previews[:20],
@@ -735,10 +737,12 @@ def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
         args.telegram_telethon_session,
         args.telegram_channel_name,
         args.telegram_telethon_limit,
+        args.telegram_signal_limit,
         args.request_timeout,
     )
     sources = (export, bot, telethon)
     wallets = sorted(set(str(item).lower() for source in sources for item in (source.get("wallets") or [])))
+    signal_limit = max(1, min(1000, int(args.telegram_signal_limit)))
     signals = [signal for source in sources for signal in (source.get("signals") or []) if isinstance(signal, dict)]
     configured = bool(export.get("configured") or bot.get("configured") or telethon.get("configured"))
     errors = [str(item.get("error")) for item in sources if item.get("error")]
@@ -749,8 +753,8 @@ def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
         "active": bool(wallets or signals),
         "wallets": wallets,
         "walletCount": len(wallets),
-        "signals": signals[:150],
-        "signalCount": len(signals[:150]),
+        "signals": signals[:signal_limit],
+        "signalCount": len(signals[:signal_limit]),
         "sources": {
             "export": export,
             "botApi": bot,
@@ -1122,6 +1126,61 @@ def wallet_risk_policy(
     }
 
 
+def replay_quality_gate(shadow_replay: dict[str, Any]) -> dict[str, Any]:
+    buckets = shadow_replay.get("qualityBuckets") if isinstance(shadow_replay.get("qualityBuckets"), dict) else {}
+    quarantine = buckets.get("quarantine") if isinstance(buckets.get("quarantine"), dict) else {}
+    traders = {str(item).strip().lower() for item in quarantine.get("traders") or [] if str(item).strip()}
+    sources = {str(item).strip().lower() for item in quarantine.get("sources") or [] if str(item).strip()}
+    source_traders = {str(item).strip().lower() for item in quarantine.get("sourceTraders") or [] if str(item).strip()}
+    by_trader = {
+        str(row.get("bucketKey") or "").strip().lower(): row
+        for row in buckets.get("byTrader") or []
+        if isinstance(row, dict)
+    }
+    return {
+        "active": bool(buckets),
+        "quarantinedTraders": sorted(traders),
+        "weakSources": sorted(sources),
+        "quarantinedSourceTraders": sorted(source_traders),
+        "weakBucketCount": safe_int(quarantine.get("weakBucketCount")),
+        "byTrader": by_trader,
+    }
+
+
+def apply_replay_quality_gate(traders: list[dict[str, Any]], gate: dict[str, Any]) -> list[dict[str, Any]]:
+    if not gate.get("active"):
+        return traders
+    quarantined_traders = set(gate.get("quarantinedTraders") or [])
+    weak_sources = set(gate.get("weakSources") or [])
+    source_traders = set(gate.get("quarantinedSourceTraders") or [])
+    by_trader = gate.get("byTrader") if isinstance(gate.get("byTrader"), dict) else {}
+    for trader in traders:
+        name = str(trader.get("userName") or "").strip().lower()
+        sources = [str(item).strip().lower() for item in trader.get("sourceKinds") or []]
+        bucket = by_trader.get(name) if name else None
+        if bucket:
+            trader["copyReplayQuality"] = {
+                key: bucket.get(key)
+                for key in (
+                    "status",
+                    "samples",
+                    "wins",
+                    "losses",
+                    "netPnlUSDC",
+                    "profitFactor",
+                    "winRatePct",
+                    "action",
+                )
+            }
+        source_trader_quarantined = any(f"{source}:{name}" in source_traders for source in sources if name)
+        if name in quarantined_traders or source_trader_quarantined:
+            trader["eligibleForShadowCopy"] = False
+            trader.setdefault("blockers", []).append("copy_replay_trader_bucket_quarantined")
+        if weak_sources and any(source in weak_sources for source in sources):
+            trader.setdefault("warnings", []).append("copy_replay_source_bucket_weak")
+    return traders
+
+
 def candidate_risk_plan(position: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     entry = safe_number(position.get("curPrice"))
     tp_pct = safe_number(policy.get("takeProfitPct"), 35.0)
@@ -1410,6 +1469,8 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         "walkForward": validation_signal("walk_forward", walk_forward, walk_forward_path, args),
     }
     policy = wallet_risk_policy(args, bool(telegram.get("active")), validation)
+    quality_gate = replay_quality_gate(shadow_replay)
+    traders = apply_replay_quality_gate(traders, quality_gate)
     shadow_candidates = build_shadow_candidates(traders, args.min_current_value, policy)
     eligible_count = sum(1 for row in traders if row.get("eligibleForShadowCopy"))
     real_wallet_candidate_count = sum(1 for row in shadow_candidates if row.get("orderSendAllowed"))
@@ -1461,8 +1522,14 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             "minShadowScore": args.min_shadow_score,
             "realWalletAutoUnlock": args.real_wallet_auto_unlock,
             "realWalletRequireTelegram": args.real_wallet_require_telegram,
+            "telegramSignalLimit": args.telegram_signal_limit,
         },
         "walletRiskPolicy": policy,
+        "copyReplayQualityGate": {
+            key: value
+            for key, value in quality_gate.items()
+            if key != "byTrader"
+        },
         "summary": {
             "leaderboardRows": leaderboard_rows,
             "candidateWallets": len(wallet_map),
@@ -1472,6 +1539,8 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             "telegramSignals": safe_int(telegram.get("signalCount")),
             "currentPositions": sum(safe_int(row.get("currentPositionCount")) for row in traders),
             "shadowCandidates": len(shadow_candidates),
+            "replayQuarantinedTraders": len(quality_gate.get("quarantinedTraders") or []),
+            "replayWeakSources": len(quality_gate.get("weakSources") or []),
             "topTrader": (traders[0].get("userName") or traders[0].get("proxyWallet")) if traders else "",
             "topScore": traders[0].get("copyScore") if traders else 0,
             "walletRiskPolicyStatus": policy.get("status"),

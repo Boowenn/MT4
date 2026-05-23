@@ -95,6 +95,7 @@ run_copy_discovery() {
   --telegram-telethon-env "${QG_POLYMARKET_TELETHON_ENV:-$REPO_ROOT/.env.telegram.local}" \
   --telegram-telethon-session "${QG_POLYMARKET_TELETHON_SESSION:-}" \
   --telegram-telethon-limit "${QG_POLYMARKET_TELETHON_LIMIT:-300}" \
+  --telegram-signal-limit "${QG_POLYMARKET_TELEGRAM_SIGNAL_LIMIT:-300}" \
   --telegram-channel-name "${QG_POLYMARKET_TELEGRAM_CHANNEL_NAME:-预测市场内幕钱包监控}" \
   --real-wallet-enabled "${QG_POLYMARKET_REAL_WALLET_ENABLED:-true}" \
   --real-wallet-auto-unlock "${QG_POLYMARKET_REAL_WALLET_AUTO_UNLOCK:-true}" \
@@ -125,7 +126,8 @@ run_copy_discovery
   --discovery-path "$DASHBOARD_DIR/QuantGod_PolymarketCopyTraderDiscovery.json" \
   --gamma-limit "${QG_POLYMARKET_COPY_REPLAY_GAMMA_LIMIT:-500}" \
   --timeout "${QG_POLYMARKET_COPY_REPLAY_TIMEOUT:-15}" \
-  --max-signals "${QG_POLYMARKET_COPY_REPLAY_MAX_SIGNALS:-100}" \
+  --max-signals "${QG_POLYMARKET_COPY_REPLAY_MAX_SIGNALS:-300}" \
+  --max-ledger-signals "${QG_POLYMARKET_COPY_REPLAY_MAX_LEDGER_SIGNALS:-600}" \
   --stake-usdc "${QG_POLYMARKET_COPY_REPLAY_STAKE_USDC:-1}" \
   --follow-slippage-cents "${QG_POLYMARKET_COPY_REPLAY_FOLLOW_SLIPPAGE_CENTS:-1}" \
   --take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-35}" \
@@ -136,7 +138,10 @@ run_copy_discovery
   --min-shadow-profit-factor "${QG_POLYMARKET_COPY_MIN_SHADOW_PROFIT_FACTOR:-1.10}" \
   --min-shadow-net-pnl-usdc "${QG_POLYMARKET_COPY_MIN_SHADOW_NET_PNL_USDC:-0.01}" \
   --walk-forward-batches "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_BATCHES:-3}" \
-  --min-walk-forward-pass-rate-pct "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_PASS_RATE_PCT:-60}"
+  --min-walk-forward-pass-rate-pct "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_PASS_RATE_PCT:-60}" \
+  --min-trader-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_BUCKET_SAMPLES:-8}" \
+  --min-source-bucket-samples "${QG_POLYMARKET_COPY_MIN_SOURCE_BUCKET_SAMPLES:-30}" \
+  --min-source-trader-bucket-samples "${QG_POLYMARKET_COPY_MIN_SOURCE_TRADER_BUCKET_SAMPLES:-8}"
 
 # Rebuild discovery so the wallet policy ingests the newly generated validation ledgers.
 run_copy_discovery

@@ -116,7 +116,7 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
         self.assertEqual(review["primaryAction"], "KEEP_COPY_TRADER_SHADOW_REPLAY")
         self.assertIn("Telegram 跟单信号已写入", review["iterationPlan"]["nextAction"])
 
-    def test_active_copy_discovery_reports_runtime_blockers_after_validation_passes(self):
+    def test_active_copy_discovery_collects_more_when_walk_forward_not_full_pass(self):
         review = planner.copy_discovery_active_review(
             {
                 "summary": {"rankedTraders": 30, "eligibleTraders": 28},
@@ -130,6 +130,30 @@ class PolymarketRetunePlannerTests(unittest.TestCase):
                     "validation": {
                         "shadowReplay": {"present": True, "passed": True, "samples": 39, "profitFactor": 1.3},
                         "walkForward": {"present": True, "passed": True, "batches": 3, "passRatePct": 67},
+                    },
+                },
+            },
+            {},
+        )
+
+        self.assertEqual(review["status"], "COPY_TRADER_VALIDATED_COLLECT_MORE_BEFORE_RUNTIME")
+        self.assertEqual(review["primaryAction"], "KEEP_BUCKETED_REPLAY_COLLECTING")
+        self.assertIn("暂不配置真钱 runtime", review["iterationPlan"]["nextAction"])
+
+    def test_active_copy_discovery_reports_runtime_blockers_after_full_walk_forward_passes(self):
+        review = planner.copy_discovery_active_review(
+            {
+                "summary": {"rankedTraders": 30, "eligibleTraders": 28},
+                "traders": [{"userName": "leader", "copyScore": 100, "closedStats": {"closed": 50}}],
+                "shadowCandidates": [{"slug": "market"}],
+                "walletRiskPolicy": {
+                    "realWalletExecutionAllowed": False,
+                    "walletWriteAllowed": False,
+                    "orderSendAllowed": False,
+                    "runtimePreflight": {"blockers": ["private_key_env_missing"]},
+                    "validation": {
+                        "shadowReplay": {"present": True, "passed": True, "samples": 39, "profitFactor": 1.3},
+                        "walkForward": {"present": True, "passed": True, "batches": 3, "passRatePct": 100},
                     },
                 },
             },

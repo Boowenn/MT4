@@ -34,6 +34,8 @@ SHADOW_REPLAY_LEDGER_NAME = "QuantGod_PolymarketCopyTraderShadowReplay.csv"
 OUTCOME_LEDGER_NAME = "QuantGod_PolymarketCopyTraderOutcomeLedger.csv"
 WALK_FORWARD_NAME = "QuantGod_PolymarketCopyTraderWalkForward.json"
 WALK_FORWARD_LEDGER_NAME = "QuantGod_PolymarketCopyTraderWalkForward.csv"
+SOURCE_BUCKETS_NAME = "QuantGod_PolymarketCopyTraderSourceBuckets.json"
+SOURCE_BUCKETS_LEDGER_NAME = "QuantGod_PolymarketCopyTraderSourceBuckets.csv"
 
 WORD_RE = re.compile(r"[a-z0-9]+")
 RESOLVES_RE = re.compile(r"Resolves:\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})", re.IGNORECASE)
@@ -73,6 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gamma-limit", type=int, default=500)
     parser.add_argument("--timeout", type=float, default=15.0)
     parser.add_argument("--max-signals", type=int, default=100)
+    parser.add_argument("--max-ledger-signals", type=int, default=600)
     parser.add_argument("--max-market-slug-lookups", type=int, default=120)
     parser.add_argument("--stake-usdc", type=float, default=1.0)
     parser.add_argument("--follow-slippage-cents", type=float, default=1.0)
@@ -86,6 +89,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-shadow-net-pnl-usdc", type=float, default=0.01)
     parser.add_argument("--walk-forward-batches", type=int, default=3)
     parser.add_argument("--min-walk-forward-pass-rate-pct", type=float, default=60.0)
+    parser.add_argument("--min-trader-bucket-samples", type=int, default=8)
+    parser.add_argument("--min-source-bucket-samples", type=int, default=30)
+    parser.add_argument("--min-source-trader-bucket-samples", type=int, default=8)
     return parser.parse_args()
 
 
@@ -140,6 +146,26 @@ def safe_int(value: Any, default: int = 0) -> int:
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def signal_identity_parts(signal: dict[str, Any]) -> list[str]:
+    message_id = str(signal.get("messageId") or "").strip()
+    source = str(signal.get("source") or "telegram").strip().lower()
+    trader = str(signal.get("userName") or signal.get("trader") or "").strip().lower()
+    market_slug = normalize_market_slug(signal.get("marketSlug") or "")
+    side = str(signal.get("side") or "").strip().upper()
+    outcome = normalize_key(signal.get("outcome") or "")
+    price = safe_number(signal.get("priceCents"), -1.0)
+    if price < 0:
+        price = safe_number(signal.get("signalPrice"), -1.0) * 100.0
+    if message_id:
+        return ["message", message_id, source, trader, market_slug, side, outcome]
+    preview = normalize_key(str(signal.get("textPreview") or "")[:180])
+    return ["signal", source, trader, market_slug, side, outcome, f"{price:.4f}", preview]
+
+
+def signal_identity(signal: dict[str, Any]) -> str:
+    return hashlib.sha1("|".join(signal_identity_parts(signal)).encode("utf-8")).hexdigest()[:20]
 
 
 def certifi_ssl_context() -> ssl.SSLContext | None:
@@ -434,17 +460,8 @@ def match_market(
 
 
 def signal_key(index: int, signal: dict[str, Any]) -> str:
-    seed = "|".join(
-        [
-            str(index),
-            str(signal.get("userName") or ""),
-            str(signal.get("side") or ""),
-            str(signal.get("outcome") or ""),
-            str(signal.get("priceCents") or ""),
-            str(signal.get("textPreview") or "")[:220],
-        ]
-    )
-    return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
+    del index
+    return signal_identity(signal)[:16]
 
 
 def profit_factor(rows: list[dict[str, Any]]) -> float:
@@ -562,6 +579,7 @@ def build_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[
     validated_net = sum(safe_number(row.get("netPnlUSDC")) for row in validated)
     pf = profit_factor(validated)
     blockers: list[str] = []
+    warnings: list[str] = []
     if len(validated) < int(args.min_shadow_replay_trades):
         blockers.append("shadow_replay_samples_lt_min")
     if validated_net < safe_number(args.min_shadow_net_pnl_usdc):
@@ -570,7 +588,7 @@ def build_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[
         blockers.append("shadow_replay_pf_lt_min")
     unresolved = len(matched) - len(validated)
     if unresolved > 0:
-        blockers.append("open_or_unresolved_signals_present")
+        warnings.append("open_or_unresolved_signals_present")
     passed = not blockers
     return {
         "signals": len(rows),
@@ -590,6 +608,108 @@ def build_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[
         "passed": passed,
         "status": "PASSED" if passed else "BLOCKED_PENDING_MORE_OUTCOMES",
         "blockers": blockers,
+        "warnings": warnings,
+    }
+
+
+def bucket_status(validated: list[dict[str, Any]], args: argparse.Namespace, min_samples: int) -> tuple[str, str]:
+    if len(validated) < min_samples:
+        return "COLLECTING", "collect_more_settled_samples"
+    net = sum(safe_number(row.get("netPnlUSDC")) for row in validated)
+    pf = profit_factor(validated)
+    if net >= safe_number(args.min_shadow_net_pnl_usdc) and pf >= safe_number(args.min_shadow_profit_factor):
+        return "PROMOTABLE", "allow_shadow_candidates"
+    return "QUARANTINE", "exclude_from_shadow_candidates"
+
+
+def summarize_bucket(bucket_type: str, bucket_key: str, rows: list[dict[str, Any]], args: argparse.Namespace, min_samples: int) -> dict[str, Any]:
+    matched = [row for row in rows if row.get("currentPrice") is not None and "market_match_missing" not in row.get("blockers", [])]
+    validated = [row for row in rows if row.get("validatedExit")]
+    wins = [row for row in validated if safe_number(row.get("netPnlUSDC")) > 0]
+    losses = [row for row in validated if safe_number(row.get("netPnlUSDC")) < 0]
+    net = sum(safe_number(row.get("netPnlUSDC")) for row in validated)
+    mtm_net = sum(safe_number(row.get("netPnlUSDC")) for row in matched)
+    pf = profit_factor(validated)
+    status, action = bucket_status(validated, args, min_samples)
+    return {
+        "bucketType": bucket_type,
+        "bucketKey": bucket_key or "unknown",
+        "status": status,
+        "action": action,
+        "rows": len(rows),
+        "matched": len(matched),
+        "samples": len(validated),
+        "outcomeSamples": len(validated),
+        "wins": len(wins),
+        "losses": len(losses),
+        "openOrUnresolved": len(matched) - len(validated),
+        "netPnlUSDC": round(net, 6),
+        "markToMarketNetPnlUSDC": round(mtm_net, 6),
+        "profitFactor": round(pf, 6),
+        "winRatePct": round(len(wins) / len(validated) * 100.0, 4) if validated else 0.0,
+        "minSamples": min_samples,
+    }
+
+
+def build_bucket_group(
+    rows: list[dict[str, Any]],
+    bucket_type: str,
+    min_samples: int,
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if bucket_type == "source":
+            key = str(row.get("source") or "unknown").strip().lower()
+        elif bucket_type == "trader":
+            key = str(row.get("trader") or "unknown").strip()
+        else:
+            source = str(row.get("source") or "unknown").strip().lower()
+            trader = str(row.get("trader") or "unknown").strip()
+            key = f"{source}:{trader}"
+        buckets.setdefault(key or "unknown", []).append(row)
+    summaries = [summarize_bucket(bucket_type, key, bucket_rows, args, min_samples) for key, bucket_rows in buckets.items()]
+    summaries.sort(
+        key=lambda row: (
+            0 if row.get("status") == "QUARANTINE" else 1 if row.get("status") == "COLLECTING" else 2,
+            -safe_int(row.get("samples")),
+            safe_number(row.get("netPnlUSDC")),
+        )
+    )
+    return summaries
+
+
+def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    by_source = build_bucket_group(rows, "source", max(1, int(args.min_source_bucket_samples)), args)
+    by_trader = build_bucket_group(rows, "trader", max(1, int(args.min_trader_bucket_samples)), args)
+    by_source_trader = build_bucket_group(
+        rows,
+        "sourceTrader",
+        max(1, int(args.min_source_trader_bucket_samples)),
+        args,
+    )
+    quarantined_sources = [row["bucketKey"] for row in by_source if row.get("status") == "QUARANTINE"]
+    quarantined_traders = [row["bucketKey"] for row in by_trader if row.get("status") == "QUARANTINE"]
+    quarantined_source_traders = [row["bucketKey"] for row in by_source_trader if row.get("status") == "QUARANTINE"]
+    return {
+        "schema": "quantgod.polymarket_copy_trader_source_buckets.v1",
+        "generatedAtIso": utc_now_iso(),
+        "thresholds": {
+            "minTraderBucketSamples": max(1, int(args.min_trader_bucket_samples)),
+            "minSourceBucketSamples": max(1, int(args.min_source_bucket_samples)),
+            "minSourceTraderBucketSamples": max(1, int(args.min_source_trader_bucket_samples)),
+            "minProfitFactor": safe_number(args.min_shadow_profit_factor),
+            "minNetPnlUSDC": safe_number(args.min_shadow_net_pnl_usdc),
+        },
+        "quarantine": {
+            "sources": quarantined_sources,
+            "traders": quarantined_traders,
+            "sourceTraders": quarantined_source_traders,
+            "weakBucketCount": len(quarantined_sources) + len(quarantined_traders) + len(quarantined_source_traders),
+        },
+        "bySource": by_source,
+        "byTrader": by_trader,
+        "bySourceTrader": by_source_trader,
     }
 
 
@@ -649,12 +769,27 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> 
         writer.writerows(rows)
 
 
-def write_outputs(payload: dict[str, Any], walk_forward: dict[str, Any], rows: list[dict[str, Any]], runtime_dir: Path, dashboard_dir: Path | None) -> None:
+def flatten_bucket_rows(quality_buckets: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("bySource", "byTrader", "bySourceTrader"):
+        rows.extend(row for row in quality_buckets.get(key) or [] if isinstance(row, dict))
+    return rows
+
+
+def write_outputs(
+    payload: dict[str, Any],
+    walk_forward: dict[str, Any],
+    quality_buckets: dict[str, Any],
+    rows: list[dict[str, Any]],
+    runtime_dir: Path,
+    dashboard_dir: Path | None,
+) -> None:
     targets = [runtime_dir]
     if dashboard_dir:
         targets.append(dashboard_dir)
     replay_text = json.dumps(payload, ensure_ascii=False, indent=2)
     walk_text = json.dumps(walk_forward, ensure_ascii=False, indent=2)
+    buckets_text = json.dumps(quality_buckets, ensure_ascii=False, indent=2)
     replay_fields = [
         "signalId",
         "sequence",
@@ -681,11 +816,30 @@ def write_outputs(payload: dict[str, Any], walk_forward: dict[str, Any], rows: l
         "blockers",
     ]
     csv_rows = [{**row, "blockers": "|".join(row.get("blockers") or [])} for row in rows]
+    bucket_fields = [
+        "bucketType",
+        "bucketKey",
+        "status",
+        "action",
+        "rows",
+        "matched",
+        "samples",
+        "wins",
+        "losses",
+        "openOrUnresolved",
+        "netPnlUSDC",
+        "markToMarketNetPnlUSDC",
+        "profitFactor",
+        "winRatePct",
+        "minSamples",
+    ]
     for target in targets:
         atomic_write_text(target / SHADOW_REPLAY_NAME, replay_text)
         atomic_write_text(target / WALK_FORWARD_NAME, walk_text)
+        atomic_write_text(target / SOURCE_BUCKETS_NAME, buckets_text)
         write_csv(target / SHADOW_REPLAY_LEDGER_NAME, csv_rows, replay_fields)
         write_csv(target / OUTCOME_LEDGER_NAME, csv_rows, replay_fields)
+        write_csv(target / SOURCE_BUCKETS_LEDGER_NAME, flatten_bucket_rows(quality_buckets), bucket_fields)
         write_csv(
             target / WALK_FORWARD_LEDGER_NAME,
             walk_forward.get("rows") if isinstance(walk_forward.get("rows"), list) else [],
@@ -701,6 +855,58 @@ def default_discovery_path(runtime_dir: Path, dashboard_dir: Path | None, explic
     return runtime_dir / DEFAULT_DISCOVERY_NAME
 
 
+def prior_replay_rows(runtime_dir: Path, dashboard_dir: Path | None) -> list[dict[str, Any]]:
+    paths = []
+    if dashboard_dir:
+        paths.append(dashboard_dir / SHADOW_REPLAY_NAME)
+    paths.append(runtime_dir / SHADOW_REPLAY_NAME)
+    for path in paths:
+        payload = read_json(path)
+        rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+        if rows:
+            return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def signal_from_replay_row(row: dict[str, Any]) -> dict[str, Any]:
+    signal_price = safe_number(row.get("signalPrice"), -1.0)
+    return {
+        "source": row.get("source") or "telegram_replay_history",
+        "channelName": row.get("channelName") or "",
+        "userName": row.get("trader") or "",
+        "rank": row.get("rank"),
+        "walletPreview": row.get("walletPreview") or "",
+        "side": row.get("side") or "",
+        "outcome": row.get("outcome") or "",
+        "amountUSDC": row.get("telegramAmountUSDC"),
+        "priceCents": signal_price * 100.0 if signal_price >= 0 else None,
+        "messageId": row.get("messageId"),
+        "messageDate": row.get("messageDate") or "",
+        "marketSlug": row.get("marketSlug") or row.get("matchedSlug") or "",
+        "kreoTradeUrl": row.get("kreoTradeUrl") or "",
+        "textPreview": row.get("textPreview") or row.get("marketTitle") or row.get("matchedQuestion") or "",
+    }
+
+
+def merge_signals(current: list[dict[str, Any]], previous_rows: list[dict[str, Any]], max_rows: int) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for row in previous_rows:
+        signal = signal_from_replay_row(row)
+        merged[signal_identity(signal)] = signal
+    for signal in current:
+        merged[signal_identity(signal)] = signal
+    rows = list(merged.values())
+    rows.sort(
+        key=lambda signal: (
+            safe_number(signal.get("messageId"), 0.0),
+            str(signal.get("messageDate") or ""),
+            str(signal.get("marketSlug") or ""),
+        ),
+        reverse=True,
+    )
+    return rows[: max(1, int(max_rows))]
+
+
 def main() -> int:
     args = parse_args()
     runtime_dir = Path(args.runtime_dir).expanduser()
@@ -711,7 +917,9 @@ def main() -> int:
     telegram_sources = telegram_channel.get("sources") if isinstance(telegram_channel, dict) else {}
     telegram = telegram_sources.get("telethon") if isinstance(telegram_sources, dict) else {}
     signals = telegram.get("signals") if isinstance(telegram, dict) and isinstance(telegram.get("signals"), list) else []
-    signals = [row for row in signals if isinstance(row, dict)][: max(1, int(args.max_signals))]
+    current_signals = [row for row in signals if isinstance(row, dict)][: max(1, int(args.max_signals))]
+    previous_rows = prior_replay_rows(runtime_dir, dashboard_dir)
+    signals = merge_signals(current_signals, previous_rows, max(1, int(args.max_ledger_signals)))
     signal_slugs: list[str] = []
     for signal in signals:
         signal_slugs.append(normalize_market_slug(signal.get("marketSlug") or ""))
@@ -737,6 +945,7 @@ def main() -> int:
     quotes = dedupe_quotes(build_market_quotes(events) + build_market_quotes(slug_markets))
     rows = [replay_signal(index, signal, quotes, args) for index, signal in enumerate(signals)]
     summary = build_summary(rows, args)
+    quality_buckets = build_quality_buckets(rows, args)
     payload = {
         "generatedAtIso": utc_now_iso(),
         "schema": "quantgod.polymarket_copy_trader_shadow_replay.v1",
@@ -749,6 +958,7 @@ def main() -> int:
         "loadsWallet": False,
         "config": {
             "maxSignals": args.max_signals,
+            "maxLedgerSignals": args.max_ledger_signals,
             "stakeUSDC": args.stake_usdc,
             "followSlippageCents": args.follow_slippage_cents,
             "takeProfitPct": args.take_profit_pct,
@@ -759,6 +969,12 @@ def main() -> int:
         },
         "summary": summary,
         "metrics": summary,
+        "collection": {
+            "currentSignals": len(current_signals),
+            "priorReplayRows": len(previous_rows),
+            "mergedSignals": len(signals),
+        },
+        "qualityBuckets": quality_buckets,
         "gamma": {
             "endpoint": args.gamma_endpoint,
             "marketsEndpoint": args.gamma_markets_endpoint,
@@ -775,7 +991,7 @@ def main() -> int:
         ),
     }
     walk_forward = build_walk_forward(rows, args)
-    write_outputs(payload, walk_forward, rows, runtime_dir, dashboard_dir)
+    write_outputs(payload, walk_forward, quality_buckets, rows, runtime_dir, dashboard_dir)
     print(
         f"{SHADOW_REPLAY_NAME}: {summary['status']} | "
         f"signals={summary['signals']} | matched={summary['matchedSignals']} | "
@@ -786,6 +1002,10 @@ def main() -> int:
         f"{WALK_FORWARD_NAME}: {walk_forward['status']} | "
         f"batches={walk_forward['batches']} | passRate={walk_forward['passRatePct']} | "
         f"net={walk_forward['netPnlUSDC']}"
+    )
+    print(
+        f"{SOURCE_BUCKETS_NAME}: weakBuckets={quality_buckets['quarantine']['weakBucketCount']} | "
+        f"quarantinedTraders={len(quality_buckets['quarantine']['traders'])}"
     )
     return 0
 

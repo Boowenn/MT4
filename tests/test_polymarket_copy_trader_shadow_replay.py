@@ -36,6 +36,9 @@ def args(**overrides):
         "min_shadow_net_pnl_usdc": 0.01,
         "walk_forward_batches": 3,
         "min_walk_forward_pass_rate_pct": 60.0,
+        "min_trader_bucket_samples": 8,
+        "min_source_bucket_samples": 30,
+        "min_source_trader_bucket_samples": 8,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -114,6 +117,82 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertTrue(walk_forward["passed"])
         self.assertEqual(walk_forward["batches"], 3)
         self.assertEqual(walk_forward["passRatePct"], 100.0)
+
+    def test_summary_keeps_open_samples_as_warning_after_thresholds_pass(self):
+        rows = [{"validatedExit": True, "netPnlUSDC": 0.05, "currentPrice": 0.7, "blockers": []} for _ in range(30)]
+        rows.append({"validatedExit": False, "netPnlUSDC": 0.01, "currentPrice": 0.7, "blockers": []})
+
+        summary = replay.build_summary(rows, args())
+
+        self.assertTrue(summary["passed"])
+        self.assertEqual(summary["blockers"], [])
+        self.assertIn("open_or_unresolved_signals_present", summary["warnings"])
+
+    def test_quality_buckets_quarantine_weak_trader_after_min_samples(self):
+        rows = [
+            {"source": "telegram_telethon", "trader": "weak", "validatedExit": True, "netPnlUSDC": -0.18}
+            for _ in range(8)
+        ]
+
+        buckets = replay.build_quality_buckets(rows, args())
+
+        self.assertIn("weak", buckets["quarantine"]["traders"])
+        self.assertEqual(buckets["byTrader"][0]["status"], "QUARANTINE")
+
+    def test_merge_signals_keeps_prior_rows_and_overwrites_current_duplicate(self):
+        previous_rows = [{
+            "source": "telegram_telethon",
+            "trader": "leader",
+            "messageId": 7,
+            "marketSlug": "old-market",
+            "side": "BUY",
+            "outcome": "Yes",
+            "signalPrice": 0.4,
+            "textPreview": "old",
+        }]
+        current = [{
+            "source": "telegram_telethon",
+            "userName": "leader",
+            "messageId": 7,
+            "marketSlug": "old-market",
+            "side": "BUY",
+            "outcome": "Yes",
+            "priceCents": 45,
+            "textPreview": "new",
+        }]
+
+        merged = replay.merge_signals(current, previous_rows, 20)
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["priceCents"], 45)
+
+    def test_discovery_quality_gate_blocks_quarantined_trader(self):
+        traders = [{
+            "userName": "weak",
+            "sourceKinds": ["telegram_channel"],
+            "eligibleForShadowCopy": True,
+            "blockers": [],
+            "warnings": [],
+        }]
+        gate = discovery.replay_quality_gate({
+            "qualityBuckets": {
+                "quarantine": {"traders": ["weak"], "sources": [], "sourceTraders": [], "weakBucketCount": 1},
+                "byTrader": [{
+                    "bucketKey": "weak",
+                    "status": "QUARANTINE",
+                    "samples": 8,
+                    "netPnlUSDC": -1.44,
+                    "profitFactor": 0.0,
+                    "action": "exclude_from_shadow_candidates",
+                }],
+            }
+        })
+
+        discovery.apply_replay_quality_gate(traders, gate)
+
+        self.assertFalse(traders[0]["eligibleForShadowCopy"])
+        self.assertIn("copy_replay_trader_bucket_quarantined", traders[0]["blockers"])
+        self.assertEqual(traders[0]["copyReplayQuality"]["status"], "QUARANTINE")
 
 
 if __name__ == "__main__":

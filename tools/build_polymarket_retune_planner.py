@@ -466,14 +466,25 @@ def copy_discovery_active_review(discovery: dict[str, Any], account: dict[str, A
             operator_label = "跟单验证已通过，真钱 runtime 可启动"
             next_action = "shadow replay 与 walk-forward 已通过；由 isolated CLOB runtime 按 TP/SL、追踪止损、单笔和日亏损上限自动执行。"
         elif validation_passed:
-            status = "COPY_TRADER_VALIDATED_RUNTIME_BLOCKED"
-            primary_action = "CONFIGURE_ISOLATED_CLOB_RUNTIME"
-            operator_label = "跟单验证已通过，等待 runtime preflight"
-            next_action = (
-                "shadow replay 与 walk-forward 已通过，但真钱 runtime preflight 仍阻塞："
-                f"{', '.join(str(item) for item in runtime_blockers) or 'runtime_preflight_not_passed'}。"
-                "配置 isolated CLOB adapter、CLOB host、钱包密钥和 kill switch 后，系统会自动重新判断。"
-            )
+            pass_rate = safe_number(walk_validation.get("passRatePct"))
+            if pass_rate < 100.0:
+                status = "COPY_TRADER_VALIDATED_COLLECT_MORE_BEFORE_RUNTIME"
+                primary_action = "KEEP_BUCKETED_REPLAY_COLLECTING"
+                operator_label = "跟单初步通过，继续分桶收样本"
+                next_action = (
+                    "shadow replay 与 walk-forward 已过最低门槛，但 walk-forward 尚未 3/3 全批通过；"
+                    f"当前 passRate={pass_rate:.2f}%。继续自动收集已结算样本，并按 trader/source bucket 淘汰弱源；"
+                    "暂不配置真钱 runtime。"
+                )
+            else:
+                status = "COPY_TRADER_VALIDATED_RUNTIME_BLOCKED"
+                primary_action = "CONFIGURE_ISOLATED_CLOB_RUNTIME"
+                operator_label = "跟单验证已通过，等待 runtime preflight"
+                next_action = (
+                    "shadow replay 与 walk-forward 已通过，但真钱 runtime preflight 仍阻塞："
+                    f"{', '.join(str(item) for item in runtime_blockers) or 'runtime_preflight_not_passed'}。"
+                    "配置 isolated CLOB adapter、CLOB host、钱包密钥和 kill switch 后，系统会自动重新判断。"
+                )
         else:
             status = "COPY_TRADER_REPLAY_BLOCKED_SHADOW_ONLY"
             primary_action = "KEEP_COPY_TRADER_SHADOW_REPLAY"
