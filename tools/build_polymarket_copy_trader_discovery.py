@@ -197,7 +197,7 @@ def as_rows(payload: Any) -> list[dict[str, Any]]:
 
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text, encoding="utf-8", newline="")
     tmp.replace(path)
 

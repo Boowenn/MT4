@@ -239,6 +239,18 @@ fi
   --dashboard-dir "$DASHBOARD_DIR" \
   --copy-discovery-path "$DASHBOARD_DIR/QuantGod_PolymarketCopyTraderDiscovery.json"
 
+if [[ "${QG_POLYMARKET_RUN_CANARY_EXECUTOR:-true}" == "true" || "${QG_POLYMARKET_RUN_CANARY_EXECUTOR:-true}" == "1" || "${QG_POLYMARKET_RUN_CANARY_EXECUTOR:-true}" == "yes" ]]; then
+  executor_args=(
+    --runtime-dir "$RUNTIME_DIR"
+    --dashboard-dir "$DASHBOARD_DIR"
+    --max-orders "${QG_POLYMARKET_CANARY_EXECUTOR_MAX_ORDERS:-1}"
+  )
+  if [[ "${QG_POLYMARKET_CANARY_EXECUTOR_PLAN_ONLY:-true}" != "false" && "${QG_POLYMARKET_CANARY_EXECUTOR_PLAN_ONLY:-true}" != "0" && "${QG_POLYMARKET_CANARY_EXECUTOR_PLAN_ONLY:-true}" != "no" ]]; then
+    executor_args+=(--plan-only)
+  fi
+  "$PYTHON_BIN" tools/run_polymarket_canary_executor_v1.py "${executor_args[@]}"
+fi
+
 if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]]; then
   "$PYTHON_BIN" tools/score_polymarket_ai_v1.py \
     --runtime-dir "$RUNTIME_DIR" \
@@ -272,4 +284,4 @@ if [[ "$COPY_ONLY" != "true" && "$COPY_ONLY" != "1" && "$COPY_ONLY" != "yes" ]];
     --dashboard-dir "$DASHBOARD_DIR"
 fi
 
-echo "Completed read-only Polymarket copy-trader cycle. No real executor was started."
+echo "Completed Polymarket copy-trader cycle. Real order sending follows QG_POLYMARKET_CANARY_EXECUTOR_PLAN_ONLY."

@@ -615,6 +615,7 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     auto_gov = read_json(runtime_dir / "QuantGod_PolymarketAutoGovernance.json")
     outcome = read_json(runtime_dir / "QuantGod_PolymarketDryRunOutcomeWatcher.json")
     gate = read_json(runtime_dir / "QuantGod_PolymarketExecutionGate.json")
+    micro_live = read_json(runtime_dir / "QuantGod_PolymarketMicroLiveUnlock.json")
     summary = research.get("summary") if isinstance(research.get("summary"), dict) else {}
     executed = summary.get("executed") if isinstance(summary.get("executed"), dict) else {}
     shadow = summary.get("shadow") if isinstance(summary.get("shadow"), dict) else {}
@@ -624,7 +625,7 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
     retune_counts = retune.get("recommendationCounts") if isinstance(retune.get("recommendationCounts"), dict) else {}
     retune_recommendations = as_list(retune.get("recommendations"))
     copy_review = retune.get("copyTradingReview") if isinstance(retune.get("copyTradingReview"), dict) else {}
-    evidence_times = [generated_at(item) for item in (research, retune, auto_gov, outcome, gate)]
+    evidence_times = [generated_at(item) for item in (research, retune, auto_gov, outcome, gate, micro_live)]
     evidence_times = [item for item in evidence_times if item]
     latest_evidence_at = max(evidence_times) if evidence_times else None
     review_fresh_for_day = bool(latest_evidence_at and latest_evidence_at.astimezone(JST).date() >= utc_now().astimezone(JST).date())
@@ -669,7 +670,36 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
         row for row in retune_recommendations
         if isinstance(row, dict) and clean(row.get("routeFamily")) == "copy_archive"
     ]
+    micro_live_gate = micro_live.get("gate") if isinstance(micro_live.get("gate"), dict) else {}
+    micro_live_gate_blockers = [clean(item) for item in as_list(micro_live_gate.get("blockers")) if clean(item)]
+    micro_live_strategy_gate_passed = micro_live.get("strategyGatePassed") if micro_live else None
+    if micro_live and micro_live_strategy_gate_passed is None:
+        micro_live_strategy_gate_passed = not bool(micro_live_gate_blockers)
+    micro_live_failed = bool(micro_live and micro_live_strategy_gate_passed is False)
     action_queue: list[dict[str, Any]] = []
+    if micro_live_failed:
+        action_queue.append({
+            "type": "POLY_MICRO_LIVE_STRATEGY_GATE_REVIEW",
+            "state": "DONE" if retune_plan_ready else "DUE_TODAY",
+            "title": "Polymarket micro-live 未通过复盘",
+            "market": "COPY_TRADER_MICRO_LIVE",
+            "detail": (
+                f"micro-live 软件闸已自动关闭；blockers={', '.join(micro_live_gate_blockers) or 'strategy_gate_failed'}"
+            ),
+            "nextStep": (
+                "Agent 已生成 shadow-only retune；下一轮自动刷新跟单样本，达标后自动重新打开软件闸。"
+                if retune_plan_ready else
+                "把未通过的 replay/walk-forward/source bucket 原因进入每日复盘；继续 shadow-only 收样本并淘汰弱 trader/source。"
+            ),
+            "blockers": micro_live_gate_blockers or ["MICRO_LIVE_STRATEGY_GATE_FAILED"],
+            "completionEvidence": (
+                "agent_retune_plan_ready_waiting_next_refresh"
+                if retune_plan_ready else
+                "micro_live_unlock_strategy_gate_failed"
+            ),
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
     if loss_quarantine:
         action_queue.append({
             "type": "POLY_LOSS_SOURCE_REVIEW",
@@ -820,6 +850,15 @@ def polymarket_daily_review(runtime_dir: Path) -> dict[str, Any]:
             "autoCanaryEligible": first(auto_summary.get("autoCanaryEligible"), 0),
             "gateCanBet": first(gate_summary.get("canBet"), 0),
             "gateBlocked": first(gate_summary.get("blocked"), 0),
+            "microLiveStatus": micro_live.get("status", ""),
+            "microLiveStrategyGatePassed": (
+                bool(micro_live_strategy_gate_passed)
+                if micro_live_strategy_gate_passed is not None else
+                None
+            ),
+            "microLiveSoftwareSwitchesUnlocked": bool(micro_live.get("softwareSwitchesUnlocked")),
+            "microLivePrivateKeyConfigured": bool(micro_live.get("privateKeyConfigured")),
+            "microLiveBlockers": micro_live_gate_blockers,
             "retuneTotal": retune_total_count,
             "retuneRed": first(retune_counts.get("red"), 0),
             "retuneYellow": first(retune_counts.get("yellow"), 0),
@@ -1269,6 +1308,56 @@ def daily_iteration_review(
     retunes = as_list(poly_daily.get("retuneSources"))
     copy_review = poly_daily.get("copyTradingReview") if isinstance(poly_daily.get("copyTradingReview"), dict) else {}
     copy_sources = as_list(poly_daily.get("copyRetuneSources"))
+    micro_live_blockers = [clean(item) for item in as_list(poly_summary.get("microLiveBlockers")) if clean(item)]
+    micro_live_gate_failed = bool(
+        poly_summary.get("microLiveStatus")
+        and poly_summary.get("microLiveStrategyGatePassed") is False
+    )
+    if micro_live_gate_failed:
+        retune_total = as_int(poly_summary.get("retuneTotal"), 0)
+        retune_plan_ready = bool(poly_summary.get("retunePlanReady") or retune_total > 0)
+        findings.append({
+            "code": "POLYMARKET_MICRO_LIVE_STRATEGY_GATE_FAILED",
+            "severity": "watch" if retune_plan_ready else "high",
+            "target": "strategy",
+            "title": "Polymarket micro-live 自动关闭",
+            "detail": (
+                f"status={poly_summary.get('microLiveStatus')} "
+                f"softwareUnlocked={poly_summary.get('microLiveSoftwareSwitchesUnlocked')} "
+                f"blockers={','.join(micro_live_blockers) or 'strategy_gate_failed'}"
+            ),
+            "rootCause": "跟单策略未通过 replay/walk-forward/source/runtime 任一硬门槛，软件开关已自动回到隔离状态。",
+            "nextStep": (
+                "Agent 已生成 shadow-only retune；下一轮自动刷新样本，达标后自动重新打开 micro-live 软件闸。"
+                if retune_plan_ready else
+                "进入每日复盘，按 trader/source bucket、shadow replay、walk-forward blockers 淘汰弱来源。"
+            ),
+            "requiresCodeChange": False,
+            "requiresStrategyIteration": not retune_plan_ready,
+            "iterationApplied": retune_plan_ready,
+            "completedByAgent": retune_plan_ready,
+            "autoAppliedByAgent": retune_plan_ready,
+            "requiresAutonomousGovernance": True,
+        })
+        strategy_queue.append({
+            "type": "POLYMARKET_MICRO_LIVE_GATE_REVIEW",
+            "status": (
+                "RETUNE_PLAN_READY_STALE_REFRESH_QUEUED"
+                if retune_plan_ready else
+                "LOCKED_AND_REVIEW_QUEUED"
+            ),
+            "safeMode": "shadow-only",
+            "recommendation": (
+                "micro-live 未通过时自动关闭真钱软件闸；复盘弱 trader/source 后继续 shadow-only，达标后自动恢复。"
+            ),
+            "blockers": micro_live_blockers or ["MICRO_LIVE_STRATEGY_GATE_FAILED"],
+            "iterationApplied": retune_plan_ready,
+            "completedByAgent": retune_plan_ready,
+            "autoAppliedByAgent": retune_plan_ready,
+            "requiresAutonomousGovernance": True,
+            "walletWriteAllowed": False,
+            "orderSendAllowed": False,
+        })
     if poly_summary.get("lossQuarantine"):
         worst = top_losses[0] if top_losses and isinstance(top_losses[0], dict) else {}
         retune_total = as_int(poly_summary.get("retuneTotal"), 0)

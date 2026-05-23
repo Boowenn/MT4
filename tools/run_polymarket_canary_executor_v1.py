@@ -253,6 +253,111 @@ def build_plan(args: argparse.Namespace, governance: dict[str, Any], contract: d
     return plans[: max(0, args.max_orders)]
 
 
+def copy_candidate_token_id(row: dict[str, Any]) -> str:
+    return first_text(
+        row.get("tokenId"),
+        row.get("asset"),
+        row.get("clobTokenId"),
+        row.get("outcomeTokenId"),
+    )
+
+
+def copy_candidate_price(row: dict[str, Any], default: float) -> float:
+    risk = row.get("riskPlan") if isinstance(row.get("riskPlan"), dict) else {}
+    for value in (
+        row.get("limitPrice"),
+        row.get("curPrice"),
+        row.get("avgPrice"),
+        risk.get("entryReferencePrice"),
+        default,
+    ):
+        price = safe_number(value, None)
+        if price is not None and price > 0:
+            price = price / 100.0 if price > 1 else price
+            return max(0.01, min(0.99, round(float(price), 4)))
+    return max(0.01, min(0.99, round(float(default), 4)))
+
+
+def copy_candidate_blockers(row: dict[str, Any], token_id: str, stake: float, size: float, args: argparse.Namespace) -> list[str]:
+    risk = row.get("riskPlan") if isinstance(row.get("riskPlan"), dict) else {}
+    blockers = [str(item) for item in (risk.get("blockers") or row.get("blockers") or []) if str(item)]
+    if risk.get("realWalletEligibleNow") is not True:
+        blockers.append("COPY_CANDIDATE_NOT_REAL_WALLET_ELIGIBLE")
+    if risk.get("orderSendAllowed") is not True or risk.get("walletWriteAllowed") is not True:
+        blockers.append("COPY_CANDIDATE_WALLET_WRITE_BLOCKED")
+    if not token_id:
+        blockers.append("CLOB_TOKEN_ID_MISSING")
+    if stake <= 0:
+        blockers.append("STAKE_NOT_POSITIVE")
+    if size < args.min_order_size:
+        blockers.append("ORDER_SIZE_LT_MIN")
+    return unique(blockers)
+
+
+def build_copy_candidate_plan(
+    args: argparse.Namespace,
+    copy_discovery: dict[str, Any],
+    env_state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    candidates = [
+        row for row in get_rows(copy_discovery, "shadowCandidates")
+        if isinstance(row.get("riskPlan"), dict)
+        and (row.get("riskPlan") or {}).get("realWalletEligibleNow") is True
+    ]
+    candidates.sort(
+        key=lambda row: (
+            safe_number(row.get("copyScore"), 0.0) or 0.0,
+            safe_number(row.get("candidateScore"), 0.0) or 0.0,
+            safe_number(row.get("currentValue"), 0.0) or 0.0,
+        ),
+        reverse=True,
+    )
+    plans: list[dict[str, Any]] = []
+    seen_tokens: set[str] = set()
+    for row in candidates:
+        risk = row.get("riskPlan") if isinstance(row.get("riskPlan"), dict) else {}
+        token_id = copy_candidate_token_id(row)
+        if token_id and token_id in seen_tokens:
+            continue
+        if token_id:
+            seen_tokens.add(token_id)
+        price = copy_candidate_price(row, args.default_limit_price)
+        stake = safe_number(risk.get("maxStakeUSDC"), 0.0) or 0.0
+        size = round(stake / price, 6) if price > 0 else 0.0
+        blockers = unique([*runtime_blockers(env_state), *copy_candidate_blockers(row, token_id, stake, size, args)])
+        market_id = first_text(row.get("conditionId"), row.get("marketSlug"), row.get("eventSlug"))
+        trader = first_text(row.get("trader"), row.get("proxyWallet"))
+        plans.append({
+            "candidateId": "COPY-" + stable_id(token_id, market_id, trader, row.get("outcome")),
+            "governanceId": "",
+            "marketId": market_id,
+            "question": first_text(row.get("marketTitle"), row.get("question"), row.get("marketSlug")),
+            "polymarketUrl": row.get("url", ""),
+            "track": "copy_trader",
+            "side": "BUY",
+            "_tokenId": token_id,
+            "tokenIdPresent": bool(token_id),
+            "tokenIdMasked": token_id[:6] + "..." + token_id[-4:] if len(token_id) > 10 else ("present" if token_id else ""),
+            "limitPrice": price,
+            "stakeUSDC": round(stake, 2),
+            "size": size,
+            "takeProfitPct": risk.get("takeProfitPct"),
+            "stopLossPct": risk.get("stopLossPct"),
+            "trailingProfitPct": first_text(risk.get("trailingStopPct"), risk.get("trailingProfitPct")),
+            "copiedTrader": trader,
+            "copyScore": row.get("copyScore"),
+            "outcome": row.get("outcome", ""),
+            "decision": "READY_TO_SEND_IF_ADAPTER_OK" if not blockers else "BLOCKED_PRE_ORDER",
+            "blockers": blockers,
+            "orderSent": False,
+            "adapterStatus": "NOT_ATTEMPTED",
+            "response": {},
+        })
+        if len(plans) >= max(0, args.max_orders):
+            break
+    return plans
+
+
 def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     """Attempt a real CLOB order only after all outer guardrails passed."""
     try:
@@ -330,6 +435,10 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     lock_file = Path(args.lock_file)
     env_state = compact_env_state(lock_file, args.plan_only, wallet_policy, copy_discovery_path)
     plans = build_plan(args, governance, contract, env_state)
+    plan_source = "legacy_governance"
+    if not plans and wallet_policy.get("realWalletExecutionAllowed") is True:
+        plans = build_copy_candidate_plan(args, copy_discovery, env_state)
+        plan_source = "copy_trader_shadow_candidates" if plans else "none"
     preflight_blockers = runtime_blockers(env_state)
     wallet_write_allowed = bool(plans) and not preflight_blockers and all(not plan.get("blockers") for plan in plans)
     order_send_allowed = wallet_write_allowed
@@ -371,6 +480,13 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "governanceRows": len(get_rows(governance, "governanceDecisions")),
             "contractRows": len(get_rows(contract, "candidateContracts")),
             "eligibleGovernanceRows": sum(1 for row in get_rows(governance, "governanceDecisions") if row.get("canPromoteToLiveExecution") is True),
+            "copyCandidateRows": len(get_rows(copy_discovery, "shadowCandidates")),
+            "eligibleCopyCandidateRows": sum(
+                1 for row in get_rows(copy_discovery, "shadowCandidates")
+                if isinstance(row.get("riskPlan"), dict)
+                and (row.get("riskPlan") or {}).get("realWalletEligibleNow") is True
+            ),
+            "planSource": plan_source,
             "plannedOrders": len(plans),
             "ordersSent": orders_sent,
             "walletWriteAllowed": wallet_write_allowed,

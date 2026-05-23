@@ -639,6 +639,34 @@ class DailyAutopilotTests(unittest.TestCase):
         self.assertTrue(iteration["findings"][0]["iterationApplied"])
         self.assertFalse(iteration["findings"][0]["requiresStrategyIteration"])
 
+    def test_daily_iteration_queues_micro_live_gate_failure_for_shadow_review(self):
+        iteration = daily_review.daily_iteration_review(
+            {"date": "2026-05-01", "closedTrades": 0, "netUSC": 0.0},
+            [],
+            {
+                "dailyReview": {
+                    "summary": {
+                        "microLiveStatus": "MICRO_LIVE_LOCKED_BY_STRATEGY_GATE",
+                        "microLiveStrategyGatePassed": False,
+                        "microLiveSoftwareSwitchesUnlocked": False,
+                        "microLivePrivateKeyConfigured": True,
+                        "microLiveBlockers": ["shadowReplayPassed"],
+                        "retuneTotal": 0,
+                    }
+                }
+            },
+            {"requiresCodexReview": False},
+            5,
+        )
+
+        self.assertEqual(iteration["status"], "ITERATION_REQUIRED")
+        self.assertTrue(iteration["codexFollowupRequired"])
+        self.assertEqual(iteration["findings"][0]["code"], "POLYMARKET_MICRO_LIVE_STRATEGY_GATE_FAILED")
+        self.assertTrue(iteration["findings"][0]["requiresStrategyIteration"])
+        self.assertEqual(iteration["strategyIterationQueue"][0]["type"], "POLYMARKET_MICRO_LIVE_GATE_REVIEW")
+        self.assertEqual(iteration["strategyIterationQueue"][0]["status"], "LOCKED_AND_REVIEW_QUEUED")
+        self.assertFalse(iteration["strategyIterationQueue"][0]["orderSendAllowed"])
+
     def test_daily_iteration_flags_polymarket_loss_quarantine_for_codex(self):
         poly = {
             "dailyReview": {
@@ -1033,6 +1061,41 @@ class DailyAutopilotTests(unittest.TestCase):
             self.assertEqual(review["actionQueue"][0]["type"], "POLY_LOSS_SOURCE_REVIEW")
             self.assertFalse(review["safety"]["walletWriteAllowed"])
             self.assertEqual(review["topLossSources"][0]["experimentKey"], "sports_edge_filter_shadow_v1")
+
+    def test_polymarket_daily_review_queues_micro_live_strategy_gate_failure(self):
+        now = daily_review.utc_now().isoformat()
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            (runtime / "QuantGod_PolymarketResearch.json").write_text(json.dumps({
+                "generatedAtIso": now,
+                "summary": {
+                    "executed": {"closed": 12, "winRatePct": 66.67, "profitFactor": 1.8, "realizedPnl": 4.2},
+                    "shadow": {"closed": 40, "winRatePct": 62.5, "profitFactor": 1.6, "realizedPnl": 11.4},
+                },
+            }), encoding="utf-8")
+            (runtime / "QuantGod_PolymarketMicroLiveUnlock.json").write_text(json.dumps({
+                "generatedAtIso": now,
+                "status": "MICRO_LIVE_LOCKED_BY_STRATEGY_GATE",
+                "strategyGatePassed": False,
+                "softwareSwitchesUnlocked": False,
+                "privateKeyConfigured": True,
+                "gate": {
+                    "passed": False,
+                    "blockers": ["walkForwardPassed", "telegramSourceActive"],
+                },
+            }), encoding="utf-8")
+
+            review = daily_review.polymarket_daily_review(runtime)
+
+            self.assertEqual(review["status"], "REVIEW_REQUIRED")
+            self.assertFalse(review["summary"]["lossQuarantine"])
+            self.assertFalse(review["summary"]["microLiveStrategyGatePassed"])
+            self.assertFalse(review["summary"]["microLiveSoftwareSwitchesUnlocked"])
+            self.assertTrue(review["summary"]["microLivePrivateKeyConfigured"])
+            self.assertEqual(review["summary"]["microLiveBlockers"], ["walkForwardPassed", "telegramSourceActive"])
+            self.assertEqual(review["summary"]["todoCount"], 1)
+            self.assertEqual(review["actionQueue"][0]["type"], "POLY_MICRO_LIVE_STRATEGY_GATE_REVIEW")
+            self.assertFalse(review["actionQueue"][0]["orderSendAllowed"])
 
     def test_polymarket_daily_review_hides_completed_fresh_retune_cycle(self):
         now = daily_review.utc_now().isoformat()
