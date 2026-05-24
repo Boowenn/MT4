@@ -365,6 +365,52 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["userName"], "newer")
 
+    def test_merge_signals_keeps_current_telegram_when_prior_backlog_is_full(self):
+        previous_rows = [
+            {
+                "source": "copy_trader_discovery",
+                "channelName": "self_explore",
+                "trader": f"prior_{index}",
+                "messageId": f"self-{index}",
+                "messageDate": "2026-05-24T14:59:00+00:00",
+                "marketSlug": f"prior-market-{index}",
+                "side": "BUY",
+                "outcome": "Yes",
+                "signalPrice": 0.5,
+                "textPreview": "prior",
+            }
+            for index in range(10)
+        ]
+        current = [
+            {
+                "source": "telegram_telethon",
+                "channelName": "AI 1000x Polymarket",
+                "userName": "ai_source",
+                "messageId": 1,
+                "messageDate": "2026-05-24 14:50:00+00:00",
+                "marketSlug": "ai-market",
+                "side": "BUY",
+                "outcome": "YES",
+                "priceCents": 50,
+            },
+            {
+                "source": "telegram_telethon",
+                "channelName": "预测市场内幕钱包监控",
+                "userName": "insider_source",
+                "messageId": 2,
+                "messageDate": "2026-05-24 14:49:00+00:00",
+                "marketSlug": "insider-market",
+                "side": "BUY",
+                "outcome": "YES",
+                "priceCents": 50,
+            },
+        ]
+
+        rows = replay.merge_signals(current, previous_rows, 5)
+
+        self.assertIn("ai_source", [row["userName"] for row in rows])
+        self.assertIn("insider_source", [row["userName"] for row in rows])
+
     def test_replay_inferrs_channel_for_legacy_rows(self):
         ai_row = {"textPreview": "⚡ 聪明钱包实时异动 📍 Market 🎯 动作：买入 YES"}
         old_row = {"textPreview": "🧠 Smart Money 📌 Market 🟢 BUY Yes"}

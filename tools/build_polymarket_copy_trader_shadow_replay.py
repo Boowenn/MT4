@@ -1238,23 +1238,43 @@ def current_discovery_candidate_signals(discovery: dict[str, Any], limit: int) -
     return signals
 
 
+def signal_sort_timestamp(signal: dict[str, Any]) -> float:
+    for field in ("messageDate", "generatedAtIso", "createdAt", "timestamp"):
+        parsed = parse_iso_datetime(signal.get(field))
+        if parsed is not None:
+            return parsed.timestamp()
+    return 0.0
+
+
+def signal_sort_key(signal: dict[str, Any]) -> tuple[float, float, str]:
+    return (
+        signal_sort_timestamp(signal),
+        safe_number(signal.get("messageId"), 0.0),
+        str(signal.get("marketSlug") or ""),
+    )
+
+
 def merge_signals(current: list[dict[str, Any]], previous_rows: list[dict[str, Any]], max_rows: int) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
+    current_keys: set[str] = set()
     for row in previous_rows:
         signal = signal_from_replay_row(row)
         merged[signal_identity(signal)] = signal
     for signal in current:
-        merged[signal_identity(signal)] = signal
-    rows = list(merged.values())
-    rows.sort(
-        key=lambda signal: (
-            str(signal.get("messageDate") or ""),
-            safe_number(signal.get("messageId"), 0.0),
-            str(signal.get("marketSlug") or ""),
-        ),
-        reverse=True,
-    )
-    return rows[: max(1, int(max_rows))]
+        identity = signal_identity(signal)
+        merged[identity] = signal
+        current_keys.add(identity)
+    current_rows = [signal for identity, signal in merged.items() if identity in current_keys]
+    prior_rows = [signal for identity, signal in merged.items() if identity not in current_keys]
+    current_rows.sort(key=signal_sort_key, reverse=True)
+    prior_rows.sort(key=signal_sort_key, reverse=True)
+    limit = max(1, int(max_rows))
+    if len(current_rows) >= limit:
+        rows = current_rows[:limit]
+    else:
+        rows = [*current_rows, *prior_rows[: limit - len(current_rows)]]
+    rows.sort(key=signal_sort_key, reverse=True)
+    return rows
 
 
 def main() -> int:
