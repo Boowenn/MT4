@@ -2,9 +2,10 @@
 """Build shadow replay and walk-forward evidence for Polymarket copy signals.
 
 This worker is read-only. It consumes the copy-trader discovery snapshot,
-matches Telegram smart-money signals to public Gamma market snapshots when
-possible, writes shadow/outcome ledgers, and produces the validation files used
-by the autonomous wallet gate. It never loads wallet secrets or places orders.
+matches Telegram smart-money signals and self-discovered copy candidates to
+public Gamma market snapshots when possible, writes shadow/outcome ledgers, and
+produces the validation files used by the autonomous wallet gate. It never
+loads wallet secrets or places orders.
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ WALK_FORWARD_NAME = "QuantGod_PolymarketCopyTraderWalkForward.json"
 WALK_FORWARD_LEDGER_NAME = "QuantGod_PolymarketCopyTraderWalkForward.csv"
 SOURCE_BUCKETS_NAME = "QuantGod_PolymarketCopyTraderSourceBuckets.json"
 SOURCE_BUCKETS_LEDGER_NAME = "QuantGod_PolymarketCopyTraderSourceBuckets.csv"
+SELF_DISCOVERY_SOURCE = "copy_trader_discovery"
+SELF_DISCOVERY_CHANNEL = "self_explore"
 
 WORD_RE = re.compile(r"[a-z0-9]+")
 RESOLVES_RE = re.compile(r"Resolves:\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})", re.IGNORECASE)
@@ -110,6 +113,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gamma-limit", type=int, default=500)
     parser.add_argument("--timeout", type=float, default=15.0)
     parser.add_argument("--max-signals", type=int, default=100)
+    parser.add_argument("--max-discovery-candidates", type=int, default=150)
     parser.add_argument("--max-ledger-signals", type=int, default=600)
     parser.add_argument("--max-market-slug-lookups", type=int, default=120)
     parser.add_argument("--stake-usdc", type=float, default=1.0)
@@ -1087,6 +1091,45 @@ def signal_from_replay_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def signal_from_shadow_candidate(index: int, row: dict[str, Any]) -> dict[str, Any]:
+    price = safe_number(row.get("curPrice"), -1.0)
+    generated = str(row.get("generatedAtIso") or "").strip()
+    title = str(row.get("marketTitle") or "").strip()
+    slug = str(row.get("marketSlug") or row.get("matchedSlug") or "").strip()
+    outcome = str(row.get("outcome") or "").strip()
+    trader = str(row.get("trader") or row.get("proxyWallet") or "").strip()
+    return {
+        "source": SELF_DISCOVERY_SOURCE,
+        "channelName": SELF_DISCOVERY_CHANNEL,
+        "sourceBucket": f"{SELF_DISCOVERY_SOURCE}:{SELF_DISCOVERY_CHANNEL}",
+        "userName": trader,
+        "wallet": row.get("proxyWallet") or "",
+        "side": "BUY",
+        "outcome": outcome,
+        "priceCents": price * 100.0 if price > 0 else None,
+        "messageId": f"self-{index}-{signal_identity(row)}",
+        "messageDate": generated,
+        "marketSlug": slug,
+        "polymarketMarketUrl": row.get("url") or "",
+        "textPreview": f"Self-discovered copy candidate: {title} | {outcome} | {trader}",
+        "marketTitle": title,
+    }
+
+
+def current_discovery_candidate_signals(discovery: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    candidates = discovery.get("shadowCandidates") if isinstance(discovery.get("shadowCandidates"), list) else []
+    signals: list[dict[str, Any]] = []
+    for index, row in enumerate(candidates[: max(1, int(limit))]):
+        if not isinstance(row, dict):
+            continue
+        if safe_number(row.get("curPrice"), -1.0) <= 0:
+            continue
+        if not (row.get("marketSlug") or row.get("marketTitle")):
+            continue
+        signals.append(signal_from_shadow_candidate(index, row))
+    return signals
+
+
 def merge_signals(current: list[dict[str, Any]], previous_rows: list[dict[str, Any]], max_rows: int) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     for row in previous_rows:
@@ -1117,8 +1160,13 @@ def main() -> int:
     telegram = telegram_sources.get("telethon") if isinstance(telegram_sources, dict) else {}
     signals = telegram.get("signals") if isinstance(telegram, dict) and isinstance(telegram.get("signals"), list) else []
     current_signals = [row for row in signals if isinstance(row, dict)][: max(1, int(args.max_signals))]
+    current_discovery_signals = current_discovery_candidate_signals(discovery, args.max_discovery_candidates)
     previous_rows = prior_replay_rows(runtime_dir, dashboard_dir)
-    signals = merge_signals(current_signals, previous_rows, max(1, int(args.max_ledger_signals)))
+    signals = merge_signals(
+        [*current_signals, *current_discovery_signals],
+        previous_rows,
+        max(1, int(args.max_ledger_signals)),
+    )
     signal_slugs: list[str] = []
     for signal in signals:
         signal_slugs.append(normalize_market_slug(signal.get("marketSlug") or ""))
@@ -1157,6 +1205,7 @@ def main() -> int:
         "loadsWallet": False,
         "config": {
             "maxSignals": args.max_signals,
+            "maxDiscoveryCandidates": args.max_discovery_candidates,
             "maxLedgerSignals": args.max_ledger_signals,
             "stakeUSDC": args.stake_usdc,
             "followSlippageCents": args.follow_slippage_cents,
@@ -1170,6 +1219,7 @@ def main() -> int:
         "metrics": summary,
         "collection": {
             "currentSignals": len(current_signals),
+            "currentDiscoveryCandidates": len(current_discovery_signals),
             "priorReplayRows": len(previous_rows),
             "mergedSignals": len(signals),
         },
@@ -1186,7 +1236,7 @@ def main() -> int:
         "rows": rows,
         "nextAction": (
             "Replay produced validation files. If samples/pass-rate are still blocked, keep collecting "
-            "Telegram outcomes until closed or bracket-exit evidence reaches the auto-unlock gate."
+            "Telegram and self-discovered copy outcomes until closed or bracket-exit evidence reaches the auto-unlock gate."
         ),
     }
     walk_forward = build_walk_forward(rows, args)

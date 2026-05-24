@@ -36,6 +36,7 @@ DEFAULT_DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "Dashboard"
 OUTPUT_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
 LEDGER_NAME = "QuantGod_PolymarketCopyTraderDiscovery.csv"
 ISOLATED_CLOB_RUNTIME_NAME = "QuantGod_PolymarketIsolatedClobRuntime.json"
+SELF_DISCOVERY_SOURCE_BUCKET = "copy_trader_discovery:self_explore"
 DATA_API_BASE = "https://data-api.polymarket.com"
 DEFAULT_TELEGRAM_CHANNELS = ["预测市场内幕钱包监控", "AI 1000x Polymarket"]
 WALLET_RE = re.compile(r"0x[a-fA-F0-9]{40}")
@@ -1362,15 +1363,9 @@ def wallet_risk_policy(
     promoted_source_traders = [str(item) for item in gate.get("promotedSourceTraders") or [] if str(item)]
     promoted_micro_buckets = safe_int(gate.get("promotedCompositeBucketCount"))
     weak_sources = [str(item) for item in gate.get("weakSources") or [] if str(item)]
-    source_scoped_source_traders = [
-        key
-        for key in promoted_source_traders
-        if any(key.startswith(f"{source}:") for source in promoted_sources)
-        and not any(key.startswith(f"{source}:") for source in weak_sources)
-    ]
     source_scoped_gate_passed = bool(
         gate.get("active")
-        and promoted_sources
+        and (promoted_sources or promoted_source_traders)
         and promoted_micro_buckets > 0
     )
     global_gate_passed = not global_evidence_blockers
@@ -1415,12 +1410,12 @@ def wallet_risk_policy(
         "sourceScopedMicroLiveGatePassed": source_scoped_gate_passed,
         "sourceScopedMicroLiveGate": {
             "active": source_scoped_gate_passed,
-            "mode": "PROMOTED_SOURCE_AND_PROMOTED_TRADER_MICRO_BUCKET",
+            "mode": "PROMOTED_SOURCE_OR_SOURCE_TRADER_AND_PROMOTED_MICRO_BUCKET",
             "promotedSources": promoted_sources,
-            "promotedSourceTraders": source_scoped_source_traders,
+            "promotedSourceTraders": promoted_source_traders,
             "weakSources": weak_sources,
             "promotedCompositeBucketCount": promoted_micro_buckets,
-            "requiresSignalPositionMatch": True,
+            "requiresSourceEvidencePositionMatch": True,
             "ignoresQuarantinedSources": True,
         },
         "takeProfitPct": round(args.real_wallet_take_profit_pct, 4),
@@ -1440,14 +1435,14 @@ def wallet_risk_policy(
         "runtimePreflight": runtime,
         "autoUnlockCriteria": [
             "Telegram 来源可读并能提取钱包/信号",
-            f"全局 shadow replay >= {int(args.min_shadow_replay_trades)} 笔且 PF >= {float(args.min_shadow_profit_factor):.2f} 且净 PnL > 0，或单一来源桶已晋级且有晋级交易员/盘口微桶",
-            f"全局 walk-forward >= {int(args.min_walk_forward_batches)} 批且 pass rate >= {float(args.min_walk_forward_pass_rate_pct):.0f}%，或启用来源/交易员桶独立 micro-live",
+            f"全局 shadow replay >= {int(args.min_shadow_replay_trades)} 笔且 PF >= {float(args.min_shadow_profit_factor):.2f} 且净 PnL > 0，或单一来源/来源交易员桶已晋级且有晋级交易员/盘口微桶",
+            f"全局 walk-forward >= {int(args.min_walk_forward_batches)} 批且 pass rate >= {float(args.min_walk_forward_pass_rate_pct):.0f}%，或启用来源/来源交易员桶独立 micro-live",
             "真实钱包 runtime 配置齐全、kill switch 关闭、isolated_clob adapter 可用",
             "每笔订单必须带 TP/SL、追踪止损、单笔上限、日亏损上限和最大持仓数",
         ],
         "nextAction": (
             "系统会自动判断是否放开真实钱包；全局通过时可整体 micro-live，"
-            "来源桶通过时只允许该来源且匹配晋级交易员/盘口桶的逐笔候选。"
+            "来源或来源交易员桶通过时，只允许对应证据且匹配晋级交易员/盘口桶的逐笔候选。"
         ),
     }
 
@@ -1507,8 +1502,8 @@ def signal_matches_position(signal: dict[str, Any], position: dict[str, Any]) ->
 
 def candidate_source_attribution(trader: dict[str, Any], position: dict[str, Any]) -> dict[str, Any]:
     trader_name = str(trader.get("userName") or trader.get("proxyWallet") or "").strip().lower()
+    self_discovery_matched = bool(position.get("slug") or position.get("title"))
     matched_signals: list[dict[str, Any]] = []
-    fallback_signals: list[dict[str, Any]] = []
     for signal in trader.get("telegramSignals") or []:
         if not isinstance(signal, dict):
             continue
@@ -1517,9 +1512,8 @@ def candidate_source_attribution(trader: dict[str, Any], position: dict[str, Any
             continue
         if signal_matches_position(signal, position):
             matched_signals.append(signal)
-        fallback_signals.append(signal)
-    source_signals = matched_signals or fallback_signals
-    source_keys = sorted({source_key_from_signal(signal) for signal in source_signals if source_key_from_signal(signal)})
+    source_keys = {SELF_DISCOVERY_SOURCE_BUCKET} if self_discovery_matched else set()
+    source_keys.update(source_key_from_signal(signal) for signal in matched_signals if source_key_from_signal(signal))
     source_trader_keys = sorted({f"{source}:{trader_name}" for source in source_keys if trader_name})
     compact_matches = []
     for signal in matched_signals[:3]:
@@ -1534,7 +1528,9 @@ def candidate_source_attribution(trader: dict[str, Any], position: dict[str, Any
         )
     return {
         "signalPositionMatched": bool(matched_signals),
-        "sourceKeys": source_keys,
+        "selfDiscoveryPositionMatched": self_discovery_matched,
+        "sourceEvidenceMatched": bool(matched_signals) or self_discovery_matched,
+        "sourceKeys": sorted(source_keys),
         "sourceTraderKeys": source_trader_keys,
         "matchedSignals": compact_matches,
     }
@@ -1622,6 +1618,8 @@ def apply_replay_quality_gate(traders: list[dict[str, Any]], gate: dict[str, Any
     for trader in traders:
         name = str(trader.get("userName") or "").strip().lower()
         sources = [str(item).strip().lower() for item in trader.get("sourceKinds") or []]
+        if SELF_DISCOVERY_SOURCE_BUCKET not in sources:
+            sources.append(SELF_DISCOVERY_SOURCE_BUCKET)
         for signal in trader.get("telegramSignals") or []:
             if not isinstance(signal, dict):
                 continue
@@ -1729,7 +1727,7 @@ def candidate_micro_scalp_suitability(
     candidate_source_traders = set(source_attribution.get("sourceTraderKeys") or [])
     promoted_source = bool(candidate_sources.intersection(promoted_sources))
     source_quarantined = bool(candidate_sources.intersection(weak_sources) or candidate_source_traders.intersection(quarantined_source_traders))
-    promoted_source_trader = bool(candidate_source_traders.intersection(promoted_source_traders)) and promoted_source and not source_quarantined
+    promoted_source_trader = bool(candidate_source_traders.intersection(promoted_source_traders))
     source_promoted = promoted_source or promoted_source_trader
     price_path_promoted = promoted_trader_band and not quarantined_family
     composite_promoted = promoted_trader_family or price_path_promoted
@@ -1737,8 +1735,8 @@ def candidate_micro_scalp_suitability(
     blockers: list[str] = []
     warnings: list[str] = []
     requires_promoted_source = bool(promoted_sources or promoted_source_traders or weak_sources or quarantined_source_traders)
-    if requires_promoted_source and not source_attribution.get("signalPositionMatched"):
-        blockers.append("copy_replay_signal_position_not_matched")
+    if requires_promoted_source and not source_attribution.get("sourceEvidenceMatched"):
+        blockers.append("copy_replay_source_evidence_not_matched")
     if source_quarantined and not source_promoted:
         blockers.append("copy_replay_source_bucket_quarantined")
     elif source_quarantined:

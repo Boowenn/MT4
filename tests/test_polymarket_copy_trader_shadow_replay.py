@@ -270,6 +270,28 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["priceCents"], 45)
 
+    def test_replay_adds_self_discovered_candidates_as_source(self):
+        discovery_payload = {
+            "shadowCandidates": [{
+                "generatedAtIso": "2026-05-24T11:00:00+00:00",
+                "trader": "explorer",
+                "proxyWallet": "0x0000000000000000000000000000000000000001",
+                "marketTitle": "Will SS Lazio win on 2026-05-24?",
+                "marketSlug": "sea-laz-pis-2026-05-24-laz",
+                "outcome": "Yes",
+                "curPrice": 0.60,
+            }]
+        }
+
+        signals = replay.current_discovery_candidate_signals(discovery_payload, 10)
+        row = replay.replay_signal(0, signals[0], [quote()], args())
+        buckets = replay.build_quality_buckets([row for _ in range(30)], args(min_source_bucket_samples=30))
+
+        self.assertEqual(signals[0]["source"], "copy_trader_discovery")
+        self.assertEqual(signals[0]["channelName"], "self_explore")
+        self.assertEqual(row["sourceBucket"], "copy_trader_discovery:self_explore")
+        self.assertIn("copy_trader_discovery:self_explore", [item["bucketKey"] for item in buckets["bySource"]])
+
     def test_merge_signals_sorts_cross_channel_rows_by_date_before_message_id(self):
         rows = replay.merge_signals(
             [
@@ -490,7 +512,7 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
             "hasMicroBuckets": True,
             "realWalletRequiresPromotedCompositeBucket": True,
             "promotedSources": ["telegram_telethon:ai 1000x polymarket"],
-            "promotedSourceTraders": ["telegram_telethon:预测市场内幕钱包监控:weak"],
+            "promotedSourceTraders": [],
             "weakSources": ["telegram_telethon:预测市场内幕钱包监控"],
             "quarantinedSourceTraders": [],
             "promotedTraderMarketFamilies": ["edge:other", "weak:other"],
@@ -517,6 +539,129 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertFalse(by_trader["weak"]["orderSendAllowed"])
         self.assertIn("copy_replay_source_bucket_quarantined", by_trader["weak"]["riskPlan"]["blockers"])
         self.assertIn("copy_replay_source_bucket_not_promoted", by_trader["weak"]["riskPlan"]["blockers"])
+
+    def test_discovery_promoted_source_trader_can_override_weak_source(self):
+        policy = {
+            "realWalletExecutionAllowed": True,
+            "hardBlockers": [],
+            "takeProfitPct": 2,
+            "takeProfitUSDC": 0.05,
+            "stopLossPct": 4,
+            "trailingStopPct": 2,
+            "maxPositionUSDC": 5,
+            "maxDailyLossUSDC": 2,
+            "minEntryPrice": 0.04,
+            "maxEntryPrice": 0.90,
+        }
+        traders = [{
+            "userName": "edge",
+            "proxyWallet": "0x0000000000000000000000000000000000000001",
+            "copyScore": 90,
+            "eligibleForShadowCopy": True,
+            "telegramSignals": [{
+                "source": "telegram_telethon",
+                "channelName": "weak channel",
+                "marketSlug": "lol-nip-edg-2026-05-24",
+                "outcome": "EDward Gaming",
+            }],
+            "currentPositions": [{
+                "title": "LoL: Ninjas in Pyjamas vs EDward Gaming (BO5) - LPL Play-In",
+                "slug": "lol-nip-edg-2026-05-24",
+                "eventSlug": "lol-nip-edg-2026-05-24",
+                "outcome": "EDward Gaming",
+                "curPrice": 0.655,
+                "currentValue": 250,
+                "percentPnl": 1.0,
+            }],
+        }]
+        gate = {
+            "active": True,
+            "hasMicroBuckets": True,
+            "realWalletRequiresPromotedCompositeBucket": True,
+            "promotedSources": [],
+            "promotedSourceTraders": ["telegram_telethon:weak channel:edge"],
+            "weakSources": ["telegram_telethon:weak channel"],
+            "quarantinedSourceTraders": [],
+            "promotedTraderMarketFamilies": ["edge:other"],
+            "promotedTraderEntryPriceBands": [],
+            "promotedMarketFamilies": [],
+            "promotedEntryPriceBands": [],
+            "quarantinedMarketFamilies": [],
+            "quarantinedEntryPriceBands": [],
+            "quarantinedTraderMarketFamilies": [],
+            "quarantinedTraderEntryPriceBands": [],
+            "bySource": {},
+            "bySourceTrader": {},
+            "byMarketFamily": {},
+            "byEntryPriceBand": {},
+            "byTraderMarketFamily": {},
+            "byTraderEntryPriceBand": {},
+        }
+
+        candidates = discovery.build_shadow_candidates(traders, 50, policy, gate)
+
+        self.assertTrue(candidates[0]["orderSendAllowed"])
+        self.assertTrue(candidates[0]["microScalpSuitability"]["promotedSourceTrader"])
+        self.assertIn("copy_replay_source_bucket_weak_but_source_trader_promoted", candidates[0]["riskPlan"]["microScalpWarnings"])
+
+    def test_discovery_self_explore_source_can_promote_without_telegram_match(self):
+        traders = [{
+            "userName": "explorer",
+            "proxyWallet": "0x0000000000000000000000000000000000000001",
+            "copyScore": 90,
+            "eligibleForShadowCopy": True,
+            "telegramSignals": [],
+            "currentPositions": [{
+                "title": "Will SS Lazio win on 2026-05-24?",
+                "slug": "sea-laz-pis-2026-05-24-laz",
+                "eventSlug": "sea-laz-pis-2026-05-24",
+                "outcome": "Yes",
+                "curPrice": 0.60,
+                "currentValue": 250,
+                "percentPnl": 1.0,
+            }],
+        }]
+        policy = {
+            "realWalletExecutionAllowed": True,
+            "hardBlockers": [],
+            "takeProfitPct": 2,
+            "takeProfitUSDC": 0.05,
+            "stopLossPct": 4,
+            "trailingStopPct": 2,
+            "maxPositionUSDC": 5,
+            "maxDailyLossUSDC": 2,
+            "minEntryPrice": 0.04,
+            "maxEntryPrice": 0.90,
+        }
+        gate = {
+            "active": True,
+            "hasMicroBuckets": True,
+            "realWalletRequiresPromotedCompositeBucket": True,
+            "promotedSources": ["copy_trader_discovery:self_explore"],
+            "promotedSourceTraders": ["copy_trader_discovery:self_explore:explorer"],
+            "weakSources": [],
+            "quarantinedSourceTraders": [],
+            "promotedTraderMarketFamilies": ["explorer:sports"],
+            "promotedTraderEntryPriceBands": [],
+            "promotedMarketFamilies": [],
+            "promotedEntryPriceBands": [],
+            "quarantinedMarketFamilies": [],
+            "quarantinedEntryPriceBands": [],
+            "quarantinedTraderMarketFamilies": [],
+            "quarantinedTraderEntryPriceBands": [],
+            "bySource": {},
+            "bySourceTrader": {},
+            "byMarketFamily": {},
+            "byEntryPriceBand": {},
+            "byTraderMarketFamily": {},
+            "byTraderEntryPriceBand": {},
+        }
+
+        candidates = discovery.build_shadow_candidates(traders, 50, policy, gate)
+
+        self.assertTrue(candidates[0]["orderSendAllowed"])
+        self.assertTrue(candidates[0]["microScalpSuitability"]["sourceAttribution"]["selfDiscoveryPositionMatched"])
+        self.assertIn("copy_trader_discovery:self_explore", candidates[0]["microScalpSuitability"]["sourceAttribution"]["sourceKeys"])
 
     def test_discovery_wallet_policy_allows_source_scoped_gate_without_global_replay(self):
         wallet_args = argparse.Namespace(
@@ -567,6 +712,53 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertNotIn("shadow_replay_not_validated", policy["hardBlockers"])
         self.assertNotIn("walk_forward_not_validated", policy["hardBlockers"])
         self.assertIn("global_shadow_replay_not_validated_but_source_scope_promoted", policy["warnings"])
+
+    def test_discovery_wallet_policy_allows_source_trader_gate_without_promoted_source(self):
+        wallet_args = argparse.Namespace(
+            runtime_dir="/tmp/quantgod-test-runtime",
+            dashboard_dir="/tmp/quantgod-test-dashboard",
+            real_wallet_enabled="true",
+            real_wallet_auto_unlock="true",
+            real_wallet_require_telegram="true",
+            min_shadow_replay_trades=30,
+            min_shadow_profit_factor=1.10,
+            min_shadow_net_pnl_usdc=0.01,
+            min_walk_forward_batches=3,
+            min_walk_forward_pass_rate_pct=60.0,
+            real_wallet_take_profit_pct=2.0,
+            real_wallet_take_profit_usdc=0.05,
+            real_wallet_stop_loss_pct=4.0,
+            real_wallet_trailing_stop_pct=2.0,
+            real_wallet_max_position_usdc=5.0,
+            real_wallet_max_daily_loss_usdc=2.0,
+            real_wallet_max_open_positions=3,
+            real_wallet_min_entry_price=0.04,
+            real_wallet_max_entry_price=0.90,
+        )
+        validation = {
+            "shadowReplay": {"passed": False},
+            "walkForward": {"passed": False},
+        }
+        gate = {
+            "active": True,
+            "promotedSources": [],
+            "promotedSourceTraders": ["copy_trader_discovery:self_explore:explorer"],
+            "promotedCompositeBucketCount": 2,
+            "weakSources": [],
+        }
+        env = {
+            "QG_POLYMARKET_REAL_EXECUTION": "true",
+            "QG_POLYMARKET_CANARY_KILL_SWITCH": "false",
+            "QG_POLYMARKET_WALLET_ADAPTER": "isolated_clob",
+            "QG_POLYMARKET_PRIVATE_KEY": "unit-test-secret",
+            "QG_POLYMARKET_CLOB_HOST": "https://clob.polymarket.com",
+        }
+
+        with mock.patch.dict(os.environ, env, clear=False):
+            policy = discovery.wallet_risk_policy(wallet_args, True, validation, gate)
+
+        self.assertTrue(policy["sourceScopedMicroLiveGatePassed"])
+        self.assertTrue(policy["realWalletExecutionAllowed"])
 
 
 if __name__ == "__main__":
