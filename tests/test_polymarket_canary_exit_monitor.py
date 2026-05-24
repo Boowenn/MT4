@@ -178,6 +178,48 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
             self.assertEqual(position["sourcePositionStatus"], "SOURCE_POSITION_STILL_HELD")
             self.assertEqual(position["sourcePositionSize"], 42)
 
+    def test_absolute_micro_profit_triggers_exit_before_large_percent_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_executor(root)
+            data = json.loads((root / "dashboard" / module.EXECUTOR_RUN_NAME).read_text(encoding="utf-8"))
+            data["plannedOrders"][0]["takeProfitPct"] = 35
+            data["plannedOrders"][0]["takeProfitUSDC"] = 0.05
+            write_json(root / "dashboard" / module.EXECUTOR_RUN_NAME, data)
+            write_json(
+                root / "dashboard" / module.COPY_DISCOVERY_NAME,
+                {
+                    "traders": [
+                        {
+                            "userName": "Source Alpha",
+                            "proxyWallet": "0xabc",
+                            "currentPositions": [
+                                {
+                                    "conditionId": "condition-1",
+                                    "asset": "token-1",
+                                    "outcome": "Yes",
+                                    "size": 42,
+                                    "currentValue": 21,
+                                    "curPrice": 0.5,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            )
+            module.current_exit_price = lambda client, token_id: 0.51
+            module.current_position_size = lambda client, token_id: 6.0
+
+            snapshot = module.build_snapshot(self.args(root))
+
+            position = snapshot["positions"][0]
+            self.assertEqual(position["decision"], "EXIT_TAKE_PROFIT_USDC")
+            self.assertEqual(position["reason"], "take_profit_usdc_reached")
+            self.assertEqual(position["takeProfitUSDC"], 0.05)
+            self.assertEqual(position["takeProfitUSDCPrice"], 0.5083)
+            self.assertEqual(position["unrealizedPnlUSDC"], 0.06)
+            self.assertTrue(position["exitSent"])
+
 
 if __name__ == "__main__":
     unittest.main()

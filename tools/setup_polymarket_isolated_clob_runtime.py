@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--adapter", default=os.environ.get("QG_POLYMARKET_WALLET_ADAPTER", "isolated_clob"))
     parser.add_argument("--clob-host", default=os.environ.get("QG_POLYMARKET_CLOB_HOST", "https://clob.polymarket.com"))
     parser.add_argument("--chain-id", type=int, default=int(os.environ.get("QG_POLYMARKET_CHAIN_ID", "137") or 137))
-    parser.add_argument("--max-position-usdc", type=float, default=float(os.environ.get("QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC", "1") or 1))
+    parser.add_argument("--max-position-usdc", type=float, default=float(os.environ.get("QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC", "5") or 5))
     parser.add_argument("--max-daily-loss-usdc", type=float, default=float(os.environ.get("QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC", "2") or 2))
     parser.add_argument("--max-open-positions", type=int, default=int(os.environ.get("QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS", "3") or 3))
     return parser.parse_args()

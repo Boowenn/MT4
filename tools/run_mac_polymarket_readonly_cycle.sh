@@ -114,7 +114,7 @@ prepare_isolated_clob_runtime() {
     --adapter "${QG_POLYMARKET_WALLET_ADAPTER:-isolated_clob}" \
     --clob-host "$QG_POLYMARKET_CLOB_HOST" \
     --chain-id "${QG_POLYMARKET_CHAIN_ID:-137}" \
-    --max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-1}" \
+    --max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-5}" \
     --max-daily-loss-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC:-2}" \
     --max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}"
 }
@@ -154,10 +154,11 @@ run_copy_discovery() {
   --min-walk-forward-batches "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_BATCHES:-3}" \
   --min-walk-forward-pass-rate-pct "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_PASS_RATE_PCT:-60}" \
   --max-validation-age-hours "${QG_POLYMARKET_COPY_MAX_VALIDATION_AGE_HOURS:-168}" \
-  --real-wallet-take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-35}" \
-  --real-wallet-stop-loss-pct "${QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT:-18}" \
-  --real-wallet-trailing-stop-pct "${QG_POLYMARKET_REAL_WALLET_TRAILING_STOP_PCT:-12}" \
-  --real-wallet-max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-1}" \
+  --real-wallet-take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-2}" \
+  --real-wallet-take-profit-usdc "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_USDC:-0.05}" \
+  --real-wallet-stop-loss-pct "${QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT:-4}" \
+  --real-wallet-trailing-stop-pct "${QG_POLYMARKET_REAL_WALLET_TRAILING_STOP_PCT:-2}" \
+  --real-wallet-max-position-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_POSITION_USDC:-5}" \
   --real-wallet-max-daily-loss-usdc "${QG_POLYMARKET_REAL_WALLET_MAX_DAILY_LOSS_USDC:-2}" \
   --real-wallet-max-open-positions "${QG_POLYMARKET_REAL_WALLET_MAX_OPEN_POSITIONS:-3}" \
   --real-wallet-min-entry-price "${QG_POLYMARKET_REAL_WALLET_MIN_ENTRY_PRICE:-0.04}" \
@@ -176,8 +177,8 @@ run_copy_discovery
   --max-ledger-signals "${QG_POLYMARKET_COPY_REPLAY_MAX_LEDGER_SIGNALS:-600}" \
   --stake-usdc "${QG_POLYMARKET_COPY_REPLAY_STAKE_USDC:-1}" \
   --follow-slippage-cents "${QG_POLYMARKET_COPY_REPLAY_FOLLOW_SLIPPAGE_CENTS:-1}" \
-  --take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-35}" \
-  --stop-loss-pct "${QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT:-18}" \
+  --take-profit-pct "${QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT:-2}" \
+  --stop-loss-pct "${QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT:-4}" \
   --min-entry-price "${QG_POLYMARKET_REAL_WALLET_MIN_ENTRY_PRICE:-0.04}" \
   --max-entry-price "${QG_POLYMARKET_REAL_WALLET_MAX_ENTRY_PRICE:-0.90}" \
   --min-shadow-replay-trades "${QG_POLYMARKET_COPY_MIN_SHADOW_REPLAY_TRADES:-30}" \

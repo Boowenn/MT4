@@ -167,15 +167,31 @@ def previous_highs(runtime_dir: Path, dashboard_dir: Path) -> dict[str, float]:
     return highs
 
 
-def exit_decision(entry: float, current: float, high: float, tp_pct: float, sl_pct: float, trailing_pct: float) -> tuple[str, str, dict[str, float]]:
+def exit_decision(
+    entry: float,
+    current: float,
+    high: float,
+    size: float,
+    tp_pct: float,
+    tp_usdc: float,
+    sl_pct: float,
+    trailing_pct: float,
+) -> tuple[str, str, dict[str, float]]:
     take_profit = min(0.99, entry * (1.0 + tp_pct / 100.0)) if entry > 0 else 0.0
     stop_loss = max(0.01, entry * (1.0 - sl_pct / 100.0)) if entry > 0 else 0.0
     trailing_stop = max(0.01, high * (1.0 - trailing_pct / 100.0)) if high > entry and trailing_pct > 0 else 0.0
+    unrealized_pnl = (current - entry) * size if current > 0 and entry > 0 and size > 0 else 0.0
+    take_profit_usdc_price = entry + (tp_usdc / size) if entry > 0 and size > 0 and tp_usdc > 0 else 0.0
     levels = {
         "takeProfitPrice": round(take_profit, 4),
+        "takeProfitUSDC": round(tp_usdc, 4),
+        "takeProfitUSDCPrice": round(take_profit_usdc_price, 4),
         "stopLossPrice": round(stop_loss, 4),
         "trailingStopPrice": round(trailing_stop, 4),
+        "unrealizedPnlUSDC": round(unrealized_pnl, 4),
     }
+    if current > 0 and tp_usdc > 0 and unrealized_pnl >= tp_usdc:
+        return "EXIT_TAKE_PROFIT_USDC", "take_profit_usdc_reached", levels
     if current > 0 and take_profit > 0 and current >= take_profit:
         return "EXIT_TAKE_PROFIT", "take_profit_reached", levels
     if current > 0 and stop_loss > 0 and current <= stop_loss:
@@ -399,9 +415,13 @@ def fallback_plans_from_order_audit(rows: list[dict[str, str]]) -> list[dict[str
             "limitPrice": safe_number(row.get("limit_price"), 0.0),
             "stakeUSDC": safe_number(row.get("stake_usdc"), 0.0),
             "size": safe_number(row.get("size"), 0.0),
-            "takeProfitPct": safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT"), 35.0),
-            "stopLossPct": safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT"), 18.0),
-            "trailingProfitPct": safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_TRAILING_STOP_PCT"), 12.0),
+            "takeProfitPct": safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_PCT"), 2.0),
+            "takeProfitUSDC": safe_number(
+                row.get("take_profit_usdc"),
+                safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_TAKE_PROFIT_USDC"), 0.05),
+            ),
+            "stopLossPct": safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_STOP_LOSS_PCT"), 4.0),
+            "trailingProfitPct": safe_number(os.environ.get("QG_POLYMARKET_REAL_WALLET_TRAILING_STOP_PCT"), 2.0),
             "decision": row.get("decision", ""),
             "orderSent": True,
             "adapterStatus": row.get("adapter_status", ""),
@@ -456,9 +476,11 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             entry=entry,
             current=current,
             high=high,
-            tp_pct=safe_number(plan.get("takeProfitPct"), 35.0),
-            sl_pct=safe_number(plan.get("stopLossPct"), 18.0),
-            trailing_pct=safe_number(plan.get("trailingProfitPct"), 12.0),
+            size=size,
+            tp_pct=safe_number(plan.get("takeProfitPct"), 2.0),
+            tp_usdc=safe_number(plan.get("takeProfitUSDC"), 0.05),
+            sl_pct=safe_number(plan.get("stopLossPct"), 4.0),
+            trailing_pct=safe_number(plan.get("trailingProfitPct"), 2.0),
         )
         source_state = source_trader_position_state(plan, token_id, copy_discovery)
         if source_state.get("sourcePositionPresent") is False:
@@ -543,8 +565,11 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
         "highWatermarkPrice",
         "positionSize",
         "takeProfitPrice",
+        "takeProfitUSDC",
+        "takeProfitUSDCPrice",
         "stopLossPrice",
         "trailingStopPrice",
+        "unrealizedPnlUSDC",
         "sourcePositionStatus",
         "sourcePositionPresent",
         "sourcePositionSize",

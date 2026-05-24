@@ -100,10 +100,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-walk-forward-batches", type=int, default=3)
     parser.add_argument("--min-walk-forward-pass-rate-pct", type=float, default=60.0)
     parser.add_argument("--max-validation-age-hours", type=float, default=168.0)
-    parser.add_argument("--real-wallet-take-profit-pct", type=float, default=35.0)
-    parser.add_argument("--real-wallet-stop-loss-pct", type=float, default=18.0)
-    parser.add_argument("--real-wallet-trailing-stop-pct", type=float, default=12.0)
-    parser.add_argument("--real-wallet-max-position-usdc", type=float, default=1.0)
+    parser.add_argument("--real-wallet-take-profit-pct", type=float, default=2.0)
+    parser.add_argument("--real-wallet-take-profit-usdc", type=float, default=0.05)
+    parser.add_argument("--real-wallet-stop-loss-pct", type=float, default=4.0)
+    parser.add_argument("--real-wallet-trailing-stop-pct", type=float, default=2.0)
+    parser.add_argument("--real-wallet-max-position-usdc", type=float, default=5.0)
     parser.add_argument("--real-wallet-max-daily-loss-usdc", type=float, default=2.0)
     parser.add_argument("--real-wallet-max-open-positions", type=int, default=3)
     parser.add_argument("--real-wallet-min-entry-price", type=float, default=0.04)
@@ -1132,6 +1133,7 @@ def wallet_risk_policy(
         "walletWriteAllowed": execution_allowed,
         "orderSendAllowed": execution_allowed,
         "takeProfitPct": round(args.real_wallet_take_profit_pct, 4),
+        "takeProfitUSDC": round(args.real_wallet_take_profit_usdc, 4),
         "stopLossPct": round(args.real_wallet_stop_loss_pct, 4),
         "trailingStopPct": round(args.real_wallet_trailing_stop_pct, 4),
         "maxPositionUSDC": round(args.real_wallet_max_position_usdc, 4),
@@ -1213,8 +1215,9 @@ def apply_replay_quality_gate(traders: list[dict[str, Any]], gate: dict[str, Any
 
 def candidate_risk_plan(position: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     entry = safe_number(position.get("curPrice"))
-    tp_pct = safe_number(policy.get("takeProfitPct"), 35.0)
-    sl_pct = safe_number(policy.get("stopLossPct"), 18.0)
+    tp_pct = safe_number(policy.get("takeProfitPct"), 2.0)
+    tp_usdc = safe_number(policy.get("takeProfitUSDC"), 0.0)
+    sl_pct = safe_number(policy.get("stopLossPct"), 4.0)
     take_profit = min(0.99, entry * (1.0 + tp_pct / 100.0)) if entry > 0 else 0.0
     stop_loss = max(0.01, entry * (1.0 - sl_pct / 100.0)) if entry > 0 else 0.0
     entry_ok = (
@@ -1227,6 +1230,7 @@ def candidate_risk_plan(position: dict[str, Any], policy: dict[str, Any]) -> dic
         "mode": "AUTONOMOUS_BRACKET_EXIT_GATE",
         "entryReferencePrice": round(entry, 4),
         "takeProfitPct": policy.get("takeProfitPct"),
+        "takeProfitUSDC": round(tp_usdc, 4),
         "takeProfitPrice": round(take_profit, 4),
         "stopLossPct": policy.get("stopLossPct"),
         "stopLossPrice": round(stop_loss, 4),
