@@ -142,7 +142,7 @@ run_copy_discovery() {
   --telegram-telethon-session "${QG_POLYMARKET_TELETHON_SESSION:-}" \
   --telegram-telethon-limit "${QG_POLYMARKET_TELETHON_LIMIT:-300}" \
   --telegram-signal-limit "${QG_POLYMARKET_TELEGRAM_SIGNAL_LIMIT:-300}" \
-  --telegram-channel-name "${QG_POLYMARKET_TELEGRAM_CHANNEL_NAME:-预测市场内幕钱包监控}" \
+  --telegram-channel-name "${QG_POLYMARKET_TELEGRAM_CHANNEL_NAME:-预测市场内幕钱包监控,AI 1000x Polymarket}" \
   --real-wallet-enabled "${QG_POLYMARKET_REAL_WALLET_ENABLED:-true}" \
   --real-wallet-auto-unlock "${QG_POLYMARKET_REAL_WALLET_AUTO_UNLOCK:-true}" \
   --real-wallet-require-telegram "${QG_POLYMARKET_REAL_WALLET_REQUIRE_TELEGRAM:-true}" \

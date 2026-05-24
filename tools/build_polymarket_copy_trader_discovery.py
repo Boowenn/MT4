@@ -37,6 +37,7 @@ OUTPUT_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
 LEDGER_NAME = "QuantGod_PolymarketCopyTraderDiscovery.csv"
 ISOLATED_CLOB_RUNTIME_NAME = "QuantGod_PolymarketIsolatedClobRuntime.json"
 DATA_API_BASE = "https://data-api.polymarket.com"
+DEFAULT_TELEGRAM_CHANNELS = ["预测市场内幕钱包监控", "AI 1000x Polymarket"]
 WALLET_RE = re.compile(r"0x[a-fA-F0-9]{40}")
 TELEGRAM_TRADER_RE = re.compile(
     r"(?P<user>[A-Za-z0-9_.-]{2,80})\s*\|\s*Rank\s*#(?P<rank>\d+)\s*\|\s*(?P<wallet>0x[a-fA-F0-9]{4,}(?:\.\.\.)?[a-fA-F0-9]{4,})",
@@ -80,6 +81,13 @@ ENTRY_PRICE_BANDS = (
 )
 KREO_MARKET_SLUG_RE = re.compile(r"\bhttps?://t\.me/KreoPolyBot\?start=slug_([A-Za-z0-9_.~%/-]+)", re.IGNORECASE)
 KREO_COPYTRADE_RE = re.compile(r"\bhttps?://t\.me/KreoPolyBot\?start=ct_([A-Za-z0-9_.~%/-]+)", re.IGNORECASE)
+POLYMARKET_EVENT_URL_RE = re.compile(r"\bhttps?://(?:www\.)?polymarket\.com/event/([^\s]+)", re.IGNORECASE)
+AI1000X_MARKET_RE = re.compile(r"📍\s*(?P<title>.+?)\s*(?:🎯\s*)?动作[:：]", re.IGNORECASE)
+AI1000X_ACTION_RE = re.compile(
+    r"(?:🎯\s*)?动作[:：]\s*(?P<verb>买入|卖出|BUY|SELL)\s+(?P<outcome>[^├└\n]+)",
+    re.IGNORECASE,
+)
+AI1000X_NAME_RE = re.compile(r"名称[:：]\s*(?P<name>.+?)\s*(?:├|└|Smart Score|回测|胜率|📋|⚠️|$)")
 DOCS = {
     "leaderboard": "https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings",
     "positions": "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
@@ -123,7 +131,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--telegram-telethon-session", default="")
     parser.add_argument("--telegram-telethon-limit", type=int, default=300)
     parser.add_argument("--telegram-signal-limit", type=int, default=300)
-    parser.add_argument("--telegram-channel-name", default="预测市场内幕钱包监控")
+    parser.add_argument("--telegram-channel-name", default=",".join(DEFAULT_TELEGRAM_CHANNELS))
     parser.add_argument("--real-wallet-enabled", default="false")
     parser.add_argument("--real-wallet-auto-unlock", default="true")
     parser.add_argument("--real-wallet-require-telegram", default="true")
@@ -346,10 +354,50 @@ def env_bool(name: str, default: bool = False) -> bool:
     return str_to_bool(value)
 
 
-def read_telegram_wallets(path_text: str, channel_name: str) -> dict[str, Any]:
+def parse_telegram_channels(value: Any, fallback: list[str] | None = None) -> list[str]:
+    fallback_channels = list(fallback or DEFAULT_TELEGRAM_CHANNELS)
+    raw_parts: list[str] = []
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            raw_parts.extend(re.split(r"[,;|\n，、]+", str(item or "")))
+    else:
+        raw_parts = re.split(r"[,;|\n，、]+", str(value or ""))
+    channels: list[str] = []
+    for part in raw_parts:
+        cleaned = " ".join(str(part or "").strip().split())
+        if cleaned and cleaned not in channels:
+            channels.append(cleaned)
+    return channels or fallback_channels
+
+
+def normalize_channel_title(value: Any) -> str:
+    return " ".join(str(value or "").strip().split()).lower()
+
+
+def channel_title_matches(title: Any, channel_names: list[str]) -> bool:
+    title_norm = normalize_channel_title(title)
+    if not title_norm:
+        return False
+    for channel_name in channel_names:
+        channel_norm = normalize_channel_title(channel_name)
+        if channel_norm and (channel_norm in title_norm or title_norm in channel_norm):
+            return True
+    return False
+
+
+def matching_channel_label(title: Any, channel_names: list[str]) -> str:
+    title_text = " ".join(str(title or "").strip().split())
+    if title_text and channel_title_matches(title_text, channel_names):
+        return title_text
+    return title_text or (channel_names[0] if channel_names else "")
+
+
+def read_telegram_wallets(path_text: str, channel_names: list[str]) -> dict[str, Any]:
     path_text = path_text.strip()
+    primary_channel = channel_names[0] if channel_names else ""
     result = {
-        "channelName": channel_name,
+        "channelName": primary_channel,
+        "channelNames": channel_names,
         "configured": bool(path_text),
         "mode": "telegram_export_readonly",
         "active": False,
@@ -382,7 +430,7 @@ def read_telegram_wallets(path_text: str, channel_name: str) -> dict[str, Any]:
         except OSError:
             continue
         wallets.update(item.lower() for item in WALLET_RE.findall(text))
-        signals.extend(extract_telegram_signals([text], "telegram_export", channel_name))
+        signals.extend(extract_telegram_signals([text], "telegram_export", primary_channel))
         result["filesRead"] += 1
     result["wallets"] = sorted(wallets)
     result["walletCount"] = len(wallets)
@@ -438,7 +486,7 @@ def first_regex_number(pattern: str, text: str) -> float | None:
     if not match:
         return None
     try:
-        return float(match.group(1).replace(",", ""))
+        return float(match.group(1).replace(",", "").replace("$", ""))
     except (TypeError, ValueError):
         return None
 
@@ -466,6 +514,17 @@ def extract_kreo_context(text: str) -> dict[str, Any]:
         url = match.group(0)
         if url not in copy_urls:
             copy_urls.append(url)
+    polymarket_urls: list[str] = []
+    for match in POLYMARKET_EVENT_URL_RE.finditer(text):
+        raw_path = match.group(1).split("?", 1)[0].strip("/")
+        segments = [urllib.parse.unquote(segment) for segment in raw_path.split("/") if segment]
+        if segments:
+            market_slug = normalize_kreo_market_slug(segments[-1])
+            if market_slug and market_slug not in market_slugs:
+                market_slugs.append(market_slug)
+        url = match.group(0)
+        if url not in polymarket_urls:
+            polymarket_urls.append(url)
     context: dict[str, Any] = {}
     if market_slugs:
         context["marketSlug"] = market_slugs[0]
@@ -474,7 +533,56 @@ def extract_kreo_context(text: str) -> dict[str, Any]:
         context["kreoTradeUrl"] = market_urls[0]
     if copy_urls:
         context["kreoCopytradeUrl"] = copy_urls[0]
+    if polymarket_urls:
+        context["polymarketMarketUrl"] = polymarket_urls[0]
     return context
+
+
+def extract_ai1000x_signal(text: str, source: str, channel_name: str, extra: dict[str, Any]) -> dict[str, Any] | None:
+    action = AI1000X_ACTION_RE.search(text)
+    wallet = re.search(r"钱包[:：]\s*(0x[a-fA-F0-9]{40})", text, re.IGNORECASE)
+    if not action or not wallet:
+        return None
+    verb = action.group("verb").strip().upper()
+    side = "BUY" if verb in {"买入", "BUY"} else "SELL" if verb in {"卖出", "SELL"} else ""
+    market_match = AI1000X_MARKET_RE.search(text)
+    market_title = " ".join((market_match.group("title") if market_match else "").split())
+    name_match = AI1000X_NAME_RE.search(text)
+    user_name = " ".join((name_match.group("name") if name_match else "").split())
+    wallet_value = wallet.group(1).lower()
+    if not user_name:
+        user_name = wallet_value[:10]
+    price = first_regex_number(r"信号价[:：]\s*([+$0-9,.]+)", text)
+    price_cents = None
+    if price is not None:
+        price_cents = round4(price * 100.0 if price <= 1.0 else price)
+    amount = first_regex_number(r"金额[:：]\s*([+$0-9,.]+)", text)
+    smart_score = first_regex_number(r"Smart Score[:：]\s*([0-9.]+)", text)
+    backtest_pnl = first_regex_number(r"回测\s*PnL[:：]\s*([+\-$0-9,.]+)", text)
+    win_rate = first_regex_number(r"胜率[:：]\s*([0-9.]+)%", text)
+    signal = {
+        "source": source,
+        "channelName": channel_name,
+        "userName": user_name[:100],
+        "rank": 0,
+        "wallet": wallet_value,
+        "walletPreview": "",
+        "side": side,
+        "outcome": " ".join(action.group("outcome").split())[:80],
+        "amountUSDC": round4(amount) if amount is not None else None,
+        "priceCents": price_cents,
+        "textPreview": text[:360],
+        "marketTitle": market_title[:180],
+        "smartScore": round4(smart_score) if smart_score is not None else None,
+        "backtestPnlUSDC": round4(backtest_pnl) if backtest_pnl is not None else None,
+        "winRatePct": round4(win_rate) if win_rate is not None else None,
+    }
+    signal.update(extract_kreo_context(text))
+    if market_title and "marketSlug" not in signal:
+        signal["marketTitle"] = market_title[:180]
+    if extra:
+        signal.update(extra)
+    return signal
 
 
 def extract_telegram_signals(
@@ -484,7 +592,7 @@ def extract_telegram_signals(
     extra: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     signals: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     base_extra = dict(extra or {})
     for raw in fragments:
         text = " ".join(str(raw or "").split())
@@ -516,6 +624,19 @@ def extract_telegram_signals(
             if base_extra:
                 signal.update(base_extra)
             signals.append(signal)
+        ai_signal = extract_ai1000x_signal(text, source, channel_name, base_extra)
+        if ai_signal:
+            key = (
+                "ai1000x",
+                str(ai_signal.get("messageId") or ""),
+                str(ai_signal.get("wallet") or ""),
+                str(ai_signal.get("marketSlug") or ai_signal.get("marketTitle") or ""),
+                str(ai_signal.get("side") or ""),
+                str(ai_signal.get("outcome") or ""),
+            )
+            if key not in seen:
+                seen.add(key)
+                signals.append(ai_signal)
     return signals[:100]
 
 
@@ -541,7 +662,7 @@ def resolve_signal_wallet_previews(signals: list[dict[str, Any]], wallets: list[
     return resolved
 
 
-def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, timeout: float) -> dict[str, Any]:
+def read_telegram_bot_updates(env_path: str, channel_names: list[str], limit: int, timeout: float) -> dict[str, Any]:
     values = read_env_values(env_path)
     token = values.get("QG_TELEGRAM_BOT_TOKEN") or values.get("TELEGRAM_BOT_TOKEN") or ""
     result = {
@@ -549,6 +670,8 @@ def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, time
         "mode": "telegram_bot_api_readonly",
         "active": False,
         "envPath": env_path,
+        "channelName": channel_names[0] if channel_names else "",
+        "channelNames": channel_names,
         "updates": 0,
         "matchedUpdates": 0,
         "wallets": [],
@@ -603,11 +726,12 @@ def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, time
             titles.add(title)
         fragments = text_fragments(message)
         text = "\n".join(fragments)
-        if channel_name and title and channel_name not in title:
+        if channel_names and title and not channel_title_matches(title, channel_names):
             continue
+        channel_label = matching_channel_label(title, channel_names)
         matched += 1
         wallets.update(item.lower() for item in WALLET_RE.findall(text))
-        signals.extend(extract_telegram_signals(fragments, "telegram_bot_api", channel_name))
+        signals.extend(extract_telegram_signals(fragments, "telegram_bot_api", channel_label))
     result["matchedUpdates"] = matched
     result["channelTitles"] = sorted(titles)
     result["wallets"] = sorted(wallets)
@@ -627,7 +751,7 @@ def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, time
 def read_telegram_telethon_history(
     env_path: str,
     session_path: str,
-    channel_name: str,
+    channel_names: list[str],
     limit: int,
     signal_limit: int,
     timeout: float,
@@ -645,8 +769,10 @@ def read_telegram_telethon_history(
         env.get("QG_POLYMARKET_TELEGRAM_ENTITY")
         or env.get("QG_POLYMARKET_TELEGRAM_CHANNEL")
         or env.get("QG_POLYMARKET_TELEGRAM_CHANNEL_NAME")
-        or channel_name
+        or ",".join(channel_names)
     )
+    entity_hints = parse_telegram_channels(entity_hint, channel_names)
+    channel_names = parse_telegram_channels([*channel_names, *entity_hints], channel_names)
     result = {
         "configured": bool(api_id and api_hash),
         "mode": "telegram_telethon_user_session_readonly",
@@ -654,7 +780,9 @@ def read_telegram_telethon_history(
         "envPath": env_path,
         "sessionPath": session,
         "entityHint": entity_hint,
-        "channelName": channel_name,
+        "entityHints": entity_hints,
+        "channelName": channel_names[0] if channel_names else "",
+        "channelNames": channel_names,
         "messagesRead": 0,
         "wallets": [],
         "walletCount": 0,
@@ -680,6 +808,8 @@ def read_telegram_telethon_history(
         wallets: set[str] = set()
         previews: list[dict[str, Any]] = []
         matched_dialogs: list[str] = []
+        matched_entities: list[tuple[Any, str]] = []
+        seen_entities: set[str] = set()
         client = TelegramClient(str(Path(session).expanduser()), int(api_id), api_hash)
         await client.connect()
         try:
@@ -693,17 +823,34 @@ def read_telegram_telethon_history(
                     "matchedDialogs": [],
                     "signalPreviews": [],
                 }
-            entity = None
-            try:
-                entity = await client.get_entity(entity_hint)
-            except Exception:
-                async for dialog in client.iter_dialogs(limit=300):
-                    title = str(getattr(dialog, "name", "") or "")
-                    if channel_name and channel_name in title:
-                        entity = dialog.entity
-                        matched_dialogs.append(title)
-                        break
-            if entity is None:
+
+            def entity_key(entity: Any) -> str:
+                for attr in ("id", "channel_id", "user_id"):
+                    value = getattr(entity, attr, None)
+                    if value is not None:
+                        return f"{attr}:{value}"
+                return repr(entity)
+
+            def add_entity(entity: Any, title_hint: str) -> None:
+                key = entity_key(entity)
+                if key in seen_entities:
+                    return
+                seen_entities.add(key)
+                title = str(getattr(entity, "title", "") or getattr(entity, "username", "") or title_hint)
+                matched_entities.append((entity, title))
+                if title:
+                    matched_dialogs.append(title)
+
+            for hint in entity_hints:
+                try:
+                    add_entity(await client.get_entity(hint), hint)
+                except Exception:
+                    continue
+            async for dialog in client.iter_dialogs(limit=500):
+                title = str(getattr(dialog, "name", "") or "")
+                if channel_title_matches(title, entity_hints) or channel_title_matches(title, channel_names):
+                    add_entity(dialog.entity, title)
+            if not matched_entities:
                 return {
                     "ok": False,
                     "error": "telethon_channel_not_found",
@@ -713,60 +860,62 @@ def read_telegram_telethon_history(
                     "matchedDialogs": matched_dialogs,
                     "signalPreviews": [],
                 }
-            title = str(getattr(entity, "title", "") or getattr(entity, "username", "") or entity_hint)
-            if title:
-                matched_dialogs.append(title)
             messages_read = 0
             signals: list[dict[str, Any]] = []
-            async for message in client.iter_messages(entity, limit=max(1, min(2000, int(limit)))):
-                messages_read += 1
-                text = str(getattr(message, "raw_text", "") or "")
-                fragments = [text]
-                button_fragments: list[str] = []
-                try:
-                    for row in getattr(message, "buttons", None) or []:
-                        for button in row or []:
-                            label = str(getattr(button, "text", "") or "")
-                            url = str(getattr(button, "url", "") or "")
-                            if label:
-                                button_fragments.append(label)
-                            if url:
-                                button_fragments.append(url)
-                except Exception:
-                    button_fragments = []
-                fragments.extend(button_fragments)
-                for attr in ("reply_markup", "entities"):
-                    value = getattr(message, attr, None)
-                    if not value:
-                        continue
+            per_entity_limit = max(1, min(2000, int(limit)))
+            for entity, title in matched_entities:
+                channel_label = matching_channel_label(title, channel_names)
+                async for message in client.iter_messages(entity, limit=per_entity_limit):
+                    messages_read += 1
+                    text = str(getattr(message, "raw_text", "") or "")
+                    fragments = [text]
+                    button_fragments: list[str] = []
                     try:
-                        if hasattr(value, "to_dict"):
-                            fragments.extend(text_fragments(value.to_dict()))
-                        else:
-                            fragments.extend(text_fragments(value))
+                        for row in getattr(message, "buttons", None) or []:
+                            for button in row or []:
+                                label = str(getattr(button, "text", "") or "")
+                                url = str(getattr(button, "url", "") or "")
+                                if label:
+                                    button_fragments.append(label)
+                                if url:
+                                    button_fragments.append(url)
                     except Exception:
-                        continue
-                joined = "\n".join(fragments)
-                found = [item.lower() for item in WALLET_RE.findall(joined)]
-                wallets.update(found)
-                signal_context = extract_kreo_context(joined)
-                signal_context.update(
-                    {
-                        "messageId": getattr(message, "id", None),
-                        "messageDate": str(getattr(message, "date", "") or ""),
-                    }
-                )
-                signals.extend(extract_telegram_signals(fragments, "telegram_telethon", channel_name, signal_context))
-                if found or "polymarket" in joined.lower() or "wallet" in joined.lower() or "钱包" in joined:
-                    previews.append(
+                        button_fragments = []
+                    fragments.extend(button_fragments)
+                    for attr in ("reply_markup", "entities"):
+                        value = getattr(message, attr, None)
+                        if not value:
+                            continue
+                        try:
+                            if hasattr(value, "to_dict"):
+                                fragments.extend(text_fragments(value.to_dict()))
+                            else:
+                                fragments.extend(text_fragments(value))
+                        except Exception:
+                            continue
+                    joined = "\n".join(fragments)
+                    found = [item.lower() for item in WALLET_RE.findall(joined)]
+                    wallets.update(found)
+                    signal_context = extract_kreo_context(joined)
+                    signal_context.update(
                         {
+                            "channelName": channel_label,
                             "messageId": getattr(message, "id", None),
-                            "date": str(getattr(message, "date", "") or ""),
-                            "wallets": sorted(set(found))[:10],
-                            "marketSlug": signal_context.get("marketSlug") or "",
-                            "textPreview": " ".join(joined.split())[:260],
+                            "messageDate": str(getattr(message, "date", "") or ""),
                         }
                     )
+                    signals.extend(extract_telegram_signals(fragments, "telegram_telethon", channel_label, signal_context))
+                    if found or "polymarket" in joined.lower() or "wallet" in joined.lower() or "钱包" in joined:
+                        previews.append(
+                            {
+                                "channelName": channel_label,
+                                "messageId": getattr(message, "id", None),
+                                "date": str(getattr(message, "date", "") or ""),
+                                "wallets": sorted(set(found))[:10],
+                                "marketSlug": signal_context.get("marketSlug") or "",
+                                "textPreview": " ".join(joined.split())[:260],
+                            }
+                        )
             return {
                 "ok": True,
                 "error": "",
@@ -780,7 +929,9 @@ def read_telegram_telethon_history(
             await client.disconnect()
 
     try:
-        collected = asyncio.run(asyncio.wait_for(collect(), timeout=max(5.0, float(timeout) * 2.0)))
+        collected = asyncio.run(
+            asyncio.wait_for(collect(), timeout=max(5.0, float(timeout) * max(2.0, len(channel_names) * 2.0)))
+        )
     except Exception as exc:  # pragma: no cover - network/session dependent
         result["error"] = f"{type(exc).__name__}:{str(exc)[:180]}"
         return result
@@ -801,10 +952,11 @@ def read_telegram_telethon_history(
 
 
 def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
-    export = read_telegram_wallets(args.telegram_export, args.telegram_channel_name)
+    channel_names = parse_telegram_channels(args.telegram_channel_name)
+    export = read_telegram_wallets(args.telegram_export, channel_names)
     bot = read_telegram_bot_updates(
         args.telegram_bot_env,
-        args.telegram_channel_name,
+        channel_names,
         args.telegram_bot_updates_limit,
         args.request_timeout,
     )
@@ -812,7 +964,7 @@ def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
     telethon = read_telegram_telethon_history(
         telethon_env,
         args.telegram_telethon_session,
-        args.telegram_channel_name,
+        channel_names,
         args.telegram_telethon_limit,
         args.telegram_signal_limit,
         args.request_timeout,
@@ -823,10 +975,19 @@ def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
     signals = [signal for source in sources for signal in (source.get("signals") or []) if isinstance(signal, dict)]
     signals = resolve_signal_wallet_previews(signals, wallets)
     wallets = sorted(set(wallets) | {str(signal.get("wallet") or "").lower() for signal in signals if signal.get("wallet")})
+    all_channel_names = parse_telegram_channels(
+        [
+            *channel_names,
+            *(telethon.get("channelNames") or []),
+            *(telethon.get("matchedDialogs") or []),
+        ],
+        channel_names,
+    )
     configured = bool(export.get("configured") or bot.get("configured") or telethon.get("configured"))
     errors = [str(item.get("error")) for item in sources if item.get("error")]
     return {
-        "channelName": args.telegram_channel_name,
+        "channelName": all_channel_names[0] if all_channel_names else "",
+        "channelNames": all_channel_names,
         "configured": configured,
         "mode": "telegram_export_bot_or_telethon_readonly",
         "active": bool(wallets or signals),
@@ -1327,6 +1488,14 @@ def apply_replay_quality_gate(traders: list[dict[str, Any]], gate: dict[str, Any
     for trader in traders:
         name = str(trader.get("userName") or "").strip().lower()
         sources = [str(item).strip().lower() for item in trader.get("sourceKinds") or []]
+        for signal in trader.get("telegramSignals") or []:
+            if not isinstance(signal, dict):
+                continue
+            signal_source = str(signal.get("source") or "telegram_channel").strip().lower()
+            signal_channel = str(signal.get("channelName") or "").strip().lower()
+            source_key = f"{signal_source}:{signal_channel}" if signal_channel else signal_source
+            if source_key and source_key not in sources:
+                sources.append(source_key)
         bucket = by_trader.get(name) if name else None
         if bucket:
             trader["copyReplayQuality"] = {

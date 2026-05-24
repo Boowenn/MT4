@@ -75,6 +75,48 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertEqual(context["marketSlug"], "sea-laz-pis-2026-05-24-laz")
         self.assertEqual(context["marketSlugs"], ["sea-laz-pis-2026-05-24-laz"])
 
+    def test_discovery_extracts_slug_from_polymarket_event_button_url(self):
+        context = discovery.extract_kreo_context(
+            "查看预测市场 https://polymarket.com/event/2026-mens-french-open-winner/"
+            "will-alexander-zverev-win-the-2026-mens-french-open?r=min234"
+        )
+
+        self.assertEqual(context["marketSlug"], "will-alexander-zverev-win-the-2026-mens-french-open")
+
+    def test_discovery_extracts_ai1000x_chinese_smart_wallet_signal(self):
+        text = (
+            "⚡ 聪明钱包实时异动 📍 Will Alexander Zverev win the 2026 Men's French Open? "
+            "🎯 动作：买入 YES ├ 信号价：$0.08 └ 金额：$741 👛 钱包表现 "
+            "├ 钱包：0xe52cd0a2aaace3f759780230409e4bf3a6c901f4 "
+            "├ 名称：sharpname ├ Smart Score：90 ├ 回测 PnL：+$34196.45 └ 胜率：52% "
+            "查看预测市场 https://polymarket.com/event/2026-mens-french-open-winner/"
+            "will-alexander-zverev-win-the-2026-mens-french-open?r=min234"
+        )
+
+        signals = discovery.extract_telegram_signals([text], "telegram_telethon", "AI 1000x Polymarket")
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0]["channelName"], "AI 1000x Polymarket")
+        self.assertEqual(signals[0]["side"], "BUY")
+        self.assertEqual(signals[0]["outcome"], "YES")
+        self.assertEqual(signals[0]["priceCents"], 8.0)
+        self.assertEqual(signals[0]["amountUSDC"], 741.0)
+        self.assertEqual(signals[0]["smartScore"], 90.0)
+        self.assertEqual(signals[0]["marketSlug"], "will-alexander-zverev-win-the-2026-mens-french-open")
+
+    def test_discovery_parses_multiple_telegram_channels(self):
+        channels = discovery.parse_telegram_channels(["预测市场内幕钱包监控, AI 1000x Polymarket"])
+
+        self.assertEqual(channels, ["预测市场内幕钱包监控", "AI 1000x Polymarket"])
+
+    def test_discovery_matches_channel_title_with_suffix_icon(self):
+        self.assertTrue(
+            discovery.channel_title_matches(
+                "AI 1000x Polymarket 📢",
+                ["预测市场内幕钱包监控", "AI 1000x Polymarket"],
+            )
+        )
+
     def test_discovery_resolves_truncated_telegram_wallet_preview(self):
         signals = [{"userName": "edge", "wallet": "", "walletPreview": "0xC8ab...6418"}]
         wallets = ["0xc8ab97a9089a9ff7e6ef0688e6e591a066946418"]
@@ -151,6 +193,33 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertIn("weak", buckets["quarantine"]["traders"])
         self.assertEqual(buckets["byTrader"][0]["status"], "QUARANTINE")
 
+    def test_quality_buckets_split_telegram_channels_as_sources(self):
+        rows = [
+            {
+                "source": "telegram_telethon",
+                "channelName": "AI 1000x Polymarket",
+                "trader": "source_a",
+                "validatedExit": True,
+                "netPnlUSDC": -0.05,
+            }
+            for _ in range(2)
+        ] + [
+            {
+                "source": "telegram_telethon",
+                "channelName": "预测市场内幕钱包监控",
+                "trader": "source_b",
+                "validatedExit": True,
+                "netPnlUSDC": 0.05,
+            }
+            for _ in range(2)
+        ]
+
+        buckets = replay.build_quality_buckets(rows, args(min_source_bucket_samples=2))
+        source_keys = {row["bucketKey"] for row in buckets["bySource"]}
+
+        self.assertIn("telegram_telethon:ai 1000x polymarket", source_keys)
+        self.assertIn("telegram_telethon:预测市场内幕钱包监控", source_keys)
+
     def test_quality_buckets_promote_micro_scalp_composite_buckets(self):
         rows = [
             {
@@ -198,6 +267,45 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
 
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["priceCents"], 45)
+
+    def test_merge_signals_sorts_cross_channel_rows_by_date_before_message_id(self):
+        rows = replay.merge_signals(
+            [
+                {
+                    "source": "telegram_telethon",
+                    "channelName": "AI 1000x Polymarket",
+                    "userName": "newer",
+                    "messageId": 10,
+                    "messageDate": "2026-05-24 06:30:00+00:00",
+                    "marketSlug": "newer",
+                    "side": "BUY",
+                    "outcome": "YES",
+                    "priceCents": 50,
+                },
+                {
+                    "source": "telegram_telethon",
+                    "channelName": "预测市场内幕钱包监控",
+                    "userName": "older",
+                    "messageId": 99999,
+                    "messageDate": "2026-05-24 06:00:00+00:00",
+                    "marketSlug": "older",
+                    "side": "BUY",
+                    "outcome": "YES",
+                    "priceCents": 50,
+                },
+            ],
+            [],
+            2,
+        )
+
+        self.assertEqual(rows[0]["userName"], "newer")
+
+    def test_replay_inferrs_channel_for_legacy_rows(self):
+        ai_row = {"textPreview": "⚡ 聪明钱包实时异动 📍 Market 🎯 动作：买入 YES"}
+        old_row = {"textPreview": "🧠 Smart Money 📌 Market 🟢 BUY Yes"}
+
+        self.assertEqual(replay.infer_channel_name(ai_row), "AI 1000x Polymarket")
+        self.assertEqual(replay.infer_channel_name(old_row), "预测市场内幕钱包监控")
 
     def test_discovery_quality_gate_blocks_quarantined_trader(self):
         traders = [{

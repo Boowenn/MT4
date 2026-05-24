@@ -39,8 +39,8 @@ SOURCE_BUCKETS_LEDGER_NAME = "QuantGod_PolymarketCopyTraderSourceBuckets.csv"
 
 WORD_RE = re.compile(r"[a-z0-9]+")
 RESOLVES_RE = re.compile(r"Resolves:\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})", re.IGNORECASE)
-SIGNAL_TITLE_RE = re.compile(r"📌\s*(.*?)\s*(?:📅|🟢|🔴|├|$)")
-TEXT_MARKERS_RE = re.compile(r"[📌📅🟢🔴👤├└]")
+SIGNAL_TITLE_RE = re.compile(r"(?:📌|📍)\s*(.*?)\s*(?:📅|🎯|🟢|🔴|├|$)")
+TEXT_MARKERS_RE = re.compile(r"[📌📍📅🎯🟢🔴👤├└]")
 MARKET_FAMILY_RULES = (
     ("crypto", re.compile(r"\b(bitcoin|btc|ethereum|eth|solana|sol\b|xrp|doge|crypto|token)\b", re.IGNORECASE)),
     (
@@ -531,9 +531,12 @@ def profit_factor(rows: list[dict[str, Any]]) -> float:
 
 def replay_signal(index: int, signal: dict[str, Any], quotes: list[MarketQuote], args: argparse.Namespace) -> dict[str, Any]:
     text = str(signal.get("textPreview") or "")
-    title = parse_signal_title(text)
+    title = str(signal.get("marketTitle") or "").strip() or parse_signal_title(text)
     resolve_date = parse_resolves_date(text)
     market_slug = normalize_market_slug(signal.get("marketSlug") or "")
+    source = signal.get("source") or "telegram"
+    channel_name = str(signal.get("channelName") or "").strip()
+    source_bucket = f"{source}:{channel_name}" if channel_name else str(source)
     side = str(signal.get("side") or "").upper()
     outcome = str(signal.get("outcome") or "").strip()
     signal_price = safe_number(signal.get("priceCents")) / 100.0
@@ -598,14 +601,18 @@ def replay_signal(index: int, signal: dict[str, Any], quotes: list[MarketQuote],
     return {
         "signalId": signal_key(index, signal),
         "sequence": index + 1,
-        "source": signal.get("source") or "telegram",
+        "source": source,
+        "channelName": channel_name,
+        "sourceBucket": source_bucket,
         "trader": signal.get("userName") or "",
         "rank": safe_int(signal.get("rank")),
+        "wallet": signal.get("wallet") or "",
         "walletPreview": signal.get("walletPreview") or "",
         "messageId": signal.get("messageId"),
         "messageDate": signal.get("messageDate") or "",
         "marketSlug": market_slug,
         "kreoTradeUrl": signal.get("kreoTradeUrl") or "",
+        "polymarketMarketUrl": signal.get("polymarketMarketUrl") or "",
         "side": side,
         "outcome": outcome,
         "marketTitle": title,
@@ -613,6 +620,9 @@ def replay_signal(index: int, signal: dict[str, Any], quotes: list[MarketQuote],
         "entryPriceBand": price_band,
         "resolveDate": resolve_date,
         "telegramAmountUSDC": safe_number(signal.get("amountUSDC")),
+        "smartScore": signal.get("smartScore"),
+        "backtestPnlUSDC": signal.get("backtestPnlUSDC"),
+        "winRatePct": signal.get("winRatePct"),
         "signalPrice": round(signal_price, 6),
         "entryPrice": entry_price,
         "currentPrice": current_price if current_price is not None else None,
@@ -727,11 +737,13 @@ def build_bucket_group(
     buckets: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         source = str(row.get("source") or "unknown").strip().lower()
+        channel = str(row.get("channelName") or "").strip().lower()
+        source_bucket = str(row.get("sourceBucket") or (f"{source}:{channel}" if channel else source)).strip().lower()
         trader = str(row.get("trader") or "unknown").strip()
         family = str(row.get("marketFamily") or market_family(row.get("marketTitle"), row.get("marketSlug"))).strip().lower()
         band = str(row.get("entryPriceBand") or entry_price_band(row.get("entryPrice"))).strip()
         if bucket_type == "source":
-            key = source
+            key = source_bucket
         elif bucket_type == "trader":
             key = trader
         elif bucket_type == "marketFamily":
@@ -743,7 +755,7 @@ def build_bucket_group(
         elif bucket_type == "traderEntryPriceBand":
             key = f"{trader}:{band}"
         else:
-            key = f"{source}:{trader}"
+            key = f"{source_bucket}:{trader}"
         buckets.setdefault(key or "unknown", []).append(row)
     summaries = [summarize_bucket(bucket_type, key, bucket_rows, args, min_samples) for key, bucket_rows in buckets.items()]
     summaries.sort(
@@ -946,17 +958,28 @@ def write_outputs(
     replay_fields = [
         "signalId",
         "sequence",
+        "source",
+        "channelName",
+        "sourceBucket",
         "trader",
         "rank",
+        "wallet",
+        "walletPreview",
         "messageId",
         "messageDate",
         "marketSlug",
+        "kreoTradeUrl",
+        "polymarketMarketUrl",
         "side",
         "outcome",
         "marketTitle",
         "marketFamily",
         "entryPriceBand",
         "resolveDate",
+        "telegramAmountUSDC",
+        "smartScore",
+        "backtestPnlUSDC",
+        "winRatePct",
         "signalPrice",
         "entryPrice",
         "currentPrice",
@@ -1023,13 +1046,30 @@ def prior_replay_rows(runtime_dir: Path, dashboard_dir: Path | None) -> list[dic
     return []
 
 
+def infer_channel_name(row: dict[str, Any]) -> str:
+    channel = str(row.get("channelName") or "").strip()
+    if channel:
+        return channel
+    text = str(row.get("textPreview") or row.get("marketTitle") or row.get("matchedQuestion") or "")
+    if "聪明钱包实时异动" in text:
+        return "AI 1000x Polymarket"
+    if "Smart Money" in text:
+        return "预测市场内幕钱包监控"
+    return ""
+
+
 def signal_from_replay_row(row: dict[str, Any]) -> dict[str, Any]:
     signal_price = safe_number(row.get("signalPrice"), -1.0)
+    source = row.get("source") or "telegram_replay_history"
+    channel_name = infer_channel_name(row)
+    source_bucket = row.get("sourceBucket") or (f"{source}:{channel_name}" if channel_name else "")
     return {
-        "source": row.get("source") or "telegram_replay_history",
-        "channelName": row.get("channelName") or "",
+        "source": source,
+        "channelName": channel_name,
+        "sourceBucket": source_bucket,
         "userName": row.get("trader") or "",
         "rank": row.get("rank"),
+        "wallet": row.get("wallet") or "",
         "walletPreview": row.get("walletPreview") or "",
         "side": row.get("side") or "",
         "outcome": row.get("outcome") or "",
@@ -1039,6 +1079,10 @@ def signal_from_replay_row(row: dict[str, Any]) -> dict[str, Any]:
         "messageDate": row.get("messageDate") or "",
         "marketSlug": row.get("marketSlug") or row.get("matchedSlug") or "",
         "kreoTradeUrl": row.get("kreoTradeUrl") or "",
+        "polymarketMarketUrl": row.get("polymarketMarketUrl") or "",
+        "smartScore": row.get("smartScore"),
+        "backtestPnlUSDC": row.get("backtestPnlUSDC"),
+        "winRatePct": row.get("winRatePct"),
         "textPreview": row.get("textPreview") or row.get("marketTitle") or row.get("matchedQuestion") or "",
     }
 
@@ -1053,8 +1097,8 @@ def merge_signals(current: list[dict[str, Any]], previous_rows: list[dict[str, A
     rows = list(merged.values())
     rows.sort(
         key=lambda signal: (
-            safe_number(signal.get("messageId"), 0.0),
             str(signal.get("messageDate") or ""),
+            safe_number(signal.get("messageId"), 0.0),
             str(signal.get("marketSlug") or ""),
         ),
         reverse=True,
