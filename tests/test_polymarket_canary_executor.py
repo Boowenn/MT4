@@ -113,6 +113,15 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             self.assertIn("PLAN_ONLY_FORCED", plan["blockers"])
             self.assertFalse(snapshot["safety"]["orderSendAllowed"])
 
+    def test_detects_v2_api_key_signer_mismatch(self):
+        exc = RuntimeError(
+            "PolyApiException[status_code=400, error_message={'error': "
+            "'the order signer address has to be the address of the API KEY'}]"
+        )
+
+        self.assertTrue(module.is_v2_api_key_signer_mismatch(exc))
+        self.assertFalse(module.is_v2_api_key_signer_mismatch(RuntimeError("insufficient balance")))
+
 
 if __name__ == "__main__":
     unittest.main()

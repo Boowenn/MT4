@@ -177,7 +177,11 @@ def str_to_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def configure_v2_api_creds(client: Any) -> None:
+def configure_v2_api_creds(client: Any, *, force_create: bool = False) -> None:
+    if force_create:
+        with contextlib.redirect_stderr(io.StringIO()):
+            client.set_api_creds(client.create_api_key())
+        return
     try:
         with contextlib.redirect_stderr(io.StringIO()):
             client.set_api_creds(client.derive_api_key())
@@ -186,6 +190,11 @@ def configure_v2_api_creds(client: Any) -> None:
             raise derive_exc
         with contextlib.redirect_stderr(io.StringIO()):
             client.set_api_creds(client.create_api_key())
+
+
+def is_v2_api_key_signer_mismatch(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "order signer address" in text and "api key" in text
 
 
 def by_market(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -413,7 +422,7 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     funder = os.environ.get("QG_POLYMARKET_FUNDER") or None
     if not token_id or not private_key:
         return False, "CLOB_TOKEN_OR_PRIVATE_KEY_MISSING", {}
-    try:  # pragma: no cover - intentionally guarded and not exercised by tests
+    def send_v2_order(*, force_create_api_key: bool = False) -> tuple[bool, str, dict[str, Any]]:
         from py_clob_client_v2 import ClobClient, OrderArgs, OrderType  # type: ignore
 
         client = ClobClient(
@@ -425,7 +434,7 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
             use_server_time=True,
             retry_on_error=True,
         )
-        configure_v2_api_creds(client)
+        configure_v2_api_creds(client, force_create=force_create_api_key)
         side = "BUY" if str(plan.get("side") or "BUY").upper() in {"YES", "BUY"} else "SELL"
         order_args = OrderArgs(
             price=float(plan["limitPrice"]),
@@ -438,7 +447,23 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
         if isinstance(response, dict) and response.get("success") is False:
             return False, "CLOB_ORDER_FAILED_V2:REJECTED", {"sdk": "py-clob-client-v2", **response}
         return True, status_text, response if isinstance(response, dict) else {"sdk": "py-clob-client-v2", "response": str(response)[:500]}
+
+    try:  # pragma: no cover - intentionally guarded and not exercised by tests
+        return send_v2_order()
     except Exception as exc:
+        if is_v2_api_key_signer_mismatch(exc):
+            try:
+                sent, status, response = send_v2_order(force_create_api_key=True)
+                if isinstance(response, dict):
+                    response.setdefault("apiKeyRecovery", "created_new_current_signer_api_key")
+                return sent, status, response
+            except Exception as retry_exc:
+                return False, f"CLOB_API_KEY_SIGNER_MISMATCH:{type(retry_exc).__name__}", {
+                    "sdk": "py-clob-client-v2",
+                    "recovery": "create_api_key_retry_failed",
+                    "originalError": str(exc)[:180],
+                    "retryError": str(retry_exc)[:220],
+                }
         v2_error = f"{type(exc).__name__}:{str(exc)[:180]}"
         if os.environ.get("QG_POLYMARKET_CLOB_DISABLE_V1_FALLBACK", "").strip().lower() in {"1", "true", "yes"}:
             return False, f"CLOB_ORDER_FAILED_V2:{type(exc).__name__}", {"sdk": "py-clob-client-v2", "error": str(exc)[:240]}
