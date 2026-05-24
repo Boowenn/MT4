@@ -109,6 +109,7 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             self.assertEqual(plan["track"], "copy_trader")
             self.assertTrue(plan["tokenIdPresent"])
             self.assertEqual(plan["stakeUSDC"], 1)
+            self.assertEqual(plan["sourceProxyWallet"], "")
             self.assertIn("PLAN_ONLY_FORCED", plan["blockers"])
             self.assertFalse(snapshot["safety"]["orderSendAllowed"])
 

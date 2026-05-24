@@ -67,6 +67,8 @@ ORDER_AUDIT_FIELDS = [
     "blockers",
     "adapter_status",
     "response_id",
+    "response_status",
+    "tx_hash",
 ]
 
 
@@ -336,6 +338,7 @@ def build_copy_candidate_plan(
             "track": "copy_trader",
             "side": "BUY",
             "_tokenId": token_id,
+            "tokenId": token_id,
             "tokenIdPresent": bool(token_id),
             "tokenIdMasked": token_id[:6] + "..." + token_id[-4:] if len(token_id) > 10 else ("present" if token_id else ""),
             "limitPrice": price,
@@ -345,6 +348,7 @@ def build_copy_candidate_plan(
             "stopLossPct": risk.get("stopLossPct"),
             "trailingProfitPct": first_text(risk.get("trailingStopPct"), risk.get("trailingProfitPct")),
             "copiedTrader": trader,
+            "sourceProxyWallet": row.get("proxyWallet", ""),
             "copyScore": row.get("copyScore"),
             "outcome": row.get("outcome", ""),
             "decision": "READY_TO_SEND_IF_ADAPTER_OK" if not blockers else "BLOCKED_PRE_ORDER",
@@ -449,9 +453,54 @@ def to_csv(snapshot: dict[str, Any]) -> str:
                 "blockers": " / ".join(row.get("blockers") or []),
                 "adapter_status": row.get("adapterStatus", ""),
                 "response_id": first_text(row.get("response", {}).get("orderID"), row.get("response", {}).get("id")),
+                "response_status": first_text(row.get("response", {}).get("status")),
+                "tx_hash": first_text(*(row.get("response", {}).get("transactionsHashes") or [])),
             }
         )
     return output.getvalue()
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as fh:
+            return [dict(row) for row in csv.DictReader(fh)]
+    except Exception:
+        return []
+
+
+def rows_to_csv(rows: list[dict[str, Any]], fields: list[str]) -> str:
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({field: row.get(field, "") for field in fields})
+    return output.getvalue()
+
+
+def merged_order_audit_csv(snapshot: dict[str, Any], existing_paths: list[Path]) -> str:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def row_key(row: dict[str, Any]) -> str:
+        return str(row.get("response_id") or row.get("candidate_id") or json.dumps(row, sort_keys=True)).lower()
+
+    for path in existing_paths:
+        for row in read_csv_rows(path):
+            key = row_key(row)
+            if key and key not in seen:
+                merged.append(row)
+                seen.add(key)
+
+    current_rows_text = to_csv(snapshot)
+    current_rows = list(csv.DictReader(io.StringIO(current_rows_text)))
+    for row in current_rows:
+        key = row_key(row)
+        if key and key not in seen:
+            merged.append(row)
+            seen.add(key)
+    return rows_to_csv(merged, ORDER_AUDIT_FIELDS)
 
 
 def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
@@ -551,7 +600,10 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
 
 def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Path | None) -> list[str]:
     json_text = json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True)
-    csv_text = to_csv(snapshot)
+    existing_audit_paths = [runtime_dir / ORDER_AUDIT_LEDGER]
+    if dashboard_dir is not None:
+        existing_audit_paths.append(dashboard_dir / ORDER_AUDIT_LEDGER)
+    csv_text = merged_order_audit_csv(snapshot, existing_audit_paths)
     position_csv = "generated_at,run_id,market_id,position_state,stake_usdc,notes\n"
     exit_csv = "generated_at,run_id,market_id,exit_state,reason,notes\n"
     written: list[str] = []
