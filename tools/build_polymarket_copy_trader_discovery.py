@@ -1729,7 +1729,7 @@ def candidate_micro_scalp_suitability(
     source_quarantined = bool(candidate_sources.intersection(weak_sources) or candidate_source_traders.intersection(quarantined_source_traders))
     promoted_source_trader = bool(candidate_source_traders.intersection(promoted_source_traders))
     source_promoted = promoted_source or promoted_source_trader
-    price_path_promoted = promoted_trader_band and not quarantined_family
+    price_path_promoted = promoted_trader_band
     composite_promoted = promoted_trader_family or price_path_promoted
     composite_quarantined = quarantined_trader_family or quarantined_trader_band
     blockers: list[str] = []
@@ -1747,14 +1747,14 @@ def candidate_micro_scalp_suitability(
         blockers.append("copy_replay_micro_bucket_quarantined")
     if gate.get("realWalletRequiresPromotedCompositeBucket") and not composite_promoted:
         blockers.append("copy_replay_micro_bucket_not_promoted")
-    if quarantined_family and not promoted_trader_family:
+    if quarantined_family and not composite_promoted:
         blockers.append("copy_replay_market_family_bucket_quarantined")
     elif quarantined_family:
-        warnings.append("copy_replay_broad_market_bucket_weak_but_trader_market_promoted")
-    if quarantined_band and not promoted_trader_band:
+        warnings.append("copy_replay_broad_market_bucket_weak_but_specific_micro_bucket_promoted")
+    if quarantined_band and not composite_promoted:
         blockers.append("copy_replay_entry_price_band_bucket_quarantined")
     elif quarantined_band:
-        warnings.append("copy_replay_broad_price_bucket_weak_but_trader_price_promoted")
+        warnings.append("copy_replay_broad_price_bucket_weak_but_specific_micro_bucket_promoted")
 
     bucket_evidence = {
         "source": [

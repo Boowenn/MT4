@@ -45,6 +45,9 @@ def args(**overrides):
         "min_entry_price_band_bucket_samples": 12,
         "min_trader_market_family_bucket_samples": 8,
         "min_trader_entry_price_band_bucket_samples": 8,
+        "promotion_hold_hours": 6.0,
+        "promotion_hard_demote_profit_factor": 0.35,
+        "promotion_hard_demote_net_pnl_usdc": -2.0,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -243,6 +246,44 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertIn("edge:0.20_0.40", buckets["promotions"]["traderEntryPriceBands"])
         self.assertEqual(buckets["microScalpPolicy"]["promotedCompositeBucketCount"], 2)
 
+    def test_quality_buckets_retain_recent_promotions_during_hold_window(self):
+        rows = [
+            {
+                "source": "telegram_telethon",
+                "channelName": "AI 1000x Polymarket",
+                "trader": "edge",
+                "validatedExit": True,
+                "netPnlUSDC": -0.02,
+            }
+            for _ in range(30)
+        ]
+        current = replay.build_quality_buckets(rows, args(min_source_bucket_samples=30))
+        previous = {
+            "bySource": [{
+                "bucketType": "source",
+                "bucketKey": "telegram_telethon:ai 1000x polymarket",
+                "status": "PROMOTABLE",
+                "promotionHoldUntilIso": (replay.utc_now() + replay.timedelta(hours=1)).isoformat(),
+            }]
+        }
+
+        retained = replay.retain_previous_promotions(
+            current,
+            previous,
+            args(
+                min_source_bucket_samples=30,
+                promotion_hold_hours=6,
+                promotion_hard_demote_profit_factor=-1.0,
+                promotion_hard_demote_net_pnl_usdc=-2.0,
+            ),
+        )
+
+        source = retained["bySource"][0]
+        self.assertEqual(source["status"], "PROMOTABLE_PROBATION")
+        self.assertTrue(source["retainedPromotion"])
+        self.assertIn("telegram_telethon:ai 1000x polymarket", retained["promotions"]["sources"])
+        self.assertNotIn("telegram_telethon:ai 1000x polymarket", retained["quarantine"]["sources"])
+
     def test_merge_signals_keeps_prior_rows_and_overwrites_current_duplicate(self):
         previous_rows = [{
             "source": "telegram_telethon",
@@ -435,7 +476,7 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
             policy,
             {**gate, "promotedTraderMarketFamilies": []},
         )
-        broad_market_blocked_candidates = discovery.build_shadow_candidates(
+        broad_market_override_candidates = discovery.build_shadow_candidates(
             traders,
             50,
             policy,
@@ -451,10 +492,10 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["microScalpSuitability"]["status"], "PROMOTABLE")
         self.assertFalse(blocked_candidates[0]["orderSendAllowed"])
         self.assertIn("copy_replay_micro_bucket_not_promoted", blocked_candidates[0]["riskPlan"]["blockers"])
-        self.assertFalse(broad_market_blocked_candidates[0]["orderSendAllowed"])
+        self.assertTrue(broad_market_override_candidates[0]["orderSendAllowed"])
         self.assertIn(
-            "copy_replay_market_family_bucket_quarantined",
-            broad_market_blocked_candidates[0]["riskPlan"]["blockers"],
+            "copy_replay_broad_market_bucket_weak_but_specific_micro_bucket_promoted",
+            broad_market_override_candidates[0]["riskPlan"]["microScalpWarnings"],
         )
 
     def test_discovery_source_scoped_micro_live_requires_promoted_matched_source(self):

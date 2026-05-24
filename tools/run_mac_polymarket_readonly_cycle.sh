@@ -211,7 +211,10 @@ run_copy_discovery
   --min-market-family-bucket-samples "${QG_POLYMARKET_COPY_MIN_MARKET_FAMILY_BUCKET_SAMPLES:-12}" \
   --min-entry-price-band-bucket-samples "${QG_POLYMARKET_COPY_MIN_ENTRY_PRICE_BAND_BUCKET_SAMPLES:-12}" \
   --min-trader-market-family-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_MARKET_FAMILY_BUCKET_SAMPLES:-8}" \
-  --min-trader-entry-price-band-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_ENTRY_PRICE_BAND_BUCKET_SAMPLES:-8}"
+  --min-trader-entry-price-band-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_ENTRY_PRICE_BAND_BUCKET_SAMPLES:-8}" \
+  --promotion-hold-hours "${QG_POLYMARKET_COPY_PROMOTION_HOLD_HOURS:-6}" \
+  --promotion-hard-demote-profit-factor "${QG_POLYMARKET_COPY_PROMOTION_HARD_DEMOTE_PF:-0.35}" \
+  --promotion-hard-demote-net-pnl-usdc "${QG_POLYMARKET_COPY_PROMOTION_HARD_DEMOTE_NET_USDC:--2}"
 
 # Rebuild discovery so the wallet policy ingests the newly generated validation ledgers.
 run_copy_discovery

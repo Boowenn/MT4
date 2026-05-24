@@ -20,7 +20,7 @@ import ssl
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +135,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-entry-price-band-bucket-samples", type=int, default=12)
     parser.add_argument("--min-trader-market-family-bucket-samples", type=int, default=8)
     parser.add_argument("--min-trader-entry-price-band-bucket-samples", type=int, default=8)
+    parser.add_argument("--promotion-hold-hours", type=float, default=6.0)
+    parser.add_argument("--promotion-hard-demote-profit-factor", type=float, default=0.35)
+    parser.add_argument("--promotion-hard-demote-net-pnl-usdc", type=float, default=-2.0)
     return parser.parse_args()
 
 
@@ -144,6 +147,18 @@ def utc_now() -> datetime:
 
 def utc_now_iso() -> str:
     return utc_now().isoformat()
+
+
+def parse_iso_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -732,6 +747,15 @@ def summarize_bucket(bucket_type: str, bucket_key: str, rows: list[dict[str, Any
     }
 
 
+def promoted_status(row: dict[str, Any]) -> bool:
+    return "PROMOTABLE" in str(row.get("status") or "").upper()
+
+
+def quarantine_status(row: dict[str, Any]) -> bool:
+    status = str(row.get("status") or "").upper()
+    return "QUARANTINE" in status and not promoted_status(row)
+
+
 def build_bucket_group(
     rows: list[dict[str, Any]],
     bucket_type: str,
@@ -772,6 +796,67 @@ def build_bucket_group(
     return summaries
 
 
+def refresh_quality_bucket_indexes(quality_buckets: dict[str, Any]) -> dict[str, Any]:
+    by_source = [row for row in quality_buckets.get("bySource") or [] if isinstance(row, dict)]
+    by_trader = [row for row in quality_buckets.get("byTrader") or [] if isinstance(row, dict)]
+    by_source_trader = [row for row in quality_buckets.get("bySourceTrader") or [] if isinstance(row, dict)]
+    by_market_family = [row for row in quality_buckets.get("byMarketFamily") or [] if isinstance(row, dict)]
+    by_entry_price_band = [row for row in quality_buckets.get("byEntryPriceBand") or [] if isinstance(row, dict)]
+    by_trader_market_family = [
+        row for row in quality_buckets.get("byTraderMarketFamily") or [] if isinstance(row, dict)
+    ]
+    by_trader_entry_price_band = [
+        row for row in quality_buckets.get("byTraderEntryPriceBand") or [] if isinstance(row, dict)
+    ]
+    quarantined_sources = [row["bucketKey"] for row in by_source if quarantine_status(row)]
+    quarantined_traders = [row["bucketKey"] for row in by_trader if quarantine_status(row)]
+    quarantined_source_traders = [row["bucketKey"] for row in by_source_trader if quarantine_status(row)]
+    quarantined_market_families = [row["bucketKey"] for row in by_market_family if quarantine_status(row)]
+    quarantined_entry_price_bands = [row["bucketKey"] for row in by_entry_price_band if quarantine_status(row)]
+    quarantined_trader_market_families = [
+        row["bucketKey"] for row in by_trader_market_family if quarantine_status(row)
+    ]
+    quarantined_trader_entry_price_bands = [
+        row["bucketKey"] for row in by_trader_entry_price_band if quarantine_status(row)
+    ]
+    promotable = {
+        "sources": [row["bucketKey"] for row in by_source if promoted_status(row)],
+        "traders": [row["bucketKey"] for row in by_trader if promoted_status(row)],
+        "sourceTraders": [row["bucketKey"] for row in by_source_trader if promoted_status(row)],
+        "marketFamilies": [row["bucketKey"] for row in by_market_family if promoted_status(row)],
+        "entryPriceBands": [row["bucketKey"] for row in by_entry_price_band if promoted_status(row)],
+        "traderMarketFamilies": [row["bucketKey"] for row in by_trader_market_family if promoted_status(row)],
+        "traderEntryPriceBands": [row["bucketKey"] for row in by_trader_entry_price_band if promoted_status(row)],
+    }
+    weak_bucket_count = (
+        len(quarantined_sources)
+        + len(quarantined_traders)
+        + len(quarantined_source_traders)
+        + len(quarantined_market_families)
+        + len(quarantined_entry_price_bands)
+        + len(quarantined_trader_market_families)
+        + len(quarantined_trader_entry_price_bands)
+    )
+    quality_buckets["quarantine"] = {
+        "sources": quarantined_sources,
+        "traders": quarantined_traders,
+        "sourceTraders": quarantined_source_traders,
+        "marketFamilies": quarantined_market_families,
+        "entryPriceBands": quarantined_entry_price_bands,
+        "traderMarketFamilies": quarantined_trader_market_families,
+        "traderEntryPriceBands": quarantined_trader_entry_price_bands,
+        "weakBucketCount": weak_bucket_count,
+    }
+    quality_buckets["promotions"] = promotable
+    quality_buckets["microScalpPolicy"] = {
+        "realWalletRequiresPromotedCompositeBucket": True,
+        "compositeBucketTypes": ["traderMarketFamily", "traderEntryPriceBand"],
+        "promotedCompositeBucketCount": len(promotable["traderMarketFamilies"])
+        + len(promotable["traderEntryPriceBands"]),
+    }
+    return quality_buckets
+
+
 def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
     by_source = build_bucket_group(rows, "source", max(1, int(args.min_source_bucket_samples)), args)
     by_trader = build_bucket_group(rows, "trader", max(1, int(args.min_trader_bucket_samples)), args)
@@ -800,40 +885,7 @@ def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) 
         max(1, int(args.min_trader_entry_price_band_bucket_samples)),
         args,
     )
-    quarantined_sources = [row["bucketKey"] for row in by_source if row.get("status") == "QUARANTINE"]
-    quarantined_traders = [row["bucketKey"] for row in by_trader if row.get("status") == "QUARANTINE"]
-    quarantined_source_traders = [row["bucketKey"] for row in by_source_trader if row.get("status") == "QUARANTINE"]
-    quarantined_market_families = [row["bucketKey"] for row in by_market_family if row.get("status") == "QUARANTINE"]
-    quarantined_entry_price_bands = [row["bucketKey"] for row in by_entry_price_band if row.get("status") == "QUARANTINE"]
-    quarantined_trader_market_families = [
-        row["bucketKey"] for row in by_trader_market_family if row.get("status") == "QUARANTINE"
-    ]
-    quarantined_trader_entry_price_bands = [
-        row["bucketKey"] for row in by_trader_entry_price_band if row.get("status") == "QUARANTINE"
-    ]
-    promotable = {
-        "sources": [row["bucketKey"] for row in by_source if row.get("status") == "PROMOTABLE"],
-        "traders": [row["bucketKey"] for row in by_trader if row.get("status") == "PROMOTABLE"],
-        "sourceTraders": [row["bucketKey"] for row in by_source_trader if row.get("status") == "PROMOTABLE"],
-        "marketFamilies": [row["bucketKey"] for row in by_market_family if row.get("status") == "PROMOTABLE"],
-        "entryPriceBands": [row["bucketKey"] for row in by_entry_price_band if row.get("status") == "PROMOTABLE"],
-        "traderMarketFamilies": [
-            row["bucketKey"] for row in by_trader_market_family if row.get("status") == "PROMOTABLE"
-        ],
-        "traderEntryPriceBands": [
-            row["bucketKey"] for row in by_trader_entry_price_band if row.get("status") == "PROMOTABLE"
-        ],
-    }
-    weak_bucket_count = (
-        len(quarantined_sources)
-        + len(quarantined_traders)
-        + len(quarantined_source_traders)
-        + len(quarantined_market_families)
-        + len(quarantined_entry_price_bands)
-        + len(quarantined_trader_market_families)
-        + len(quarantined_trader_entry_price_bands)
-    )
-    return {
+    return refresh_quality_bucket_indexes({
         "schema": "quantgod.polymarket_copy_trader_source_buckets.v2",
         "generatedAtIso": utc_now_iso(),
         "thresholds": {
@@ -847,23 +899,6 @@ def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) 
             "minProfitFactor": safe_number(args.min_shadow_profit_factor),
             "minNetPnlUSDC": safe_number(args.min_shadow_net_pnl_usdc),
         },
-        "quarantine": {
-            "sources": quarantined_sources,
-            "traders": quarantined_traders,
-            "sourceTraders": quarantined_source_traders,
-            "marketFamilies": quarantined_market_families,
-            "entryPriceBands": quarantined_entry_price_bands,
-            "traderMarketFamilies": quarantined_trader_market_families,
-            "traderEntryPriceBands": quarantined_trader_entry_price_bands,
-            "weakBucketCount": weak_bucket_count,
-        },
-        "promotions": promotable,
-        "microScalpPolicy": {
-            "realWalletRequiresPromotedCompositeBucket": True,
-            "compositeBucketTypes": ["traderMarketFamily", "traderEntryPriceBand"],
-            "promotedCompositeBucketCount": len(promotable["traderMarketFamilies"])
-            + len(promotable["traderEntryPriceBands"]),
-        },
         "bySource": by_source,
         "byTrader": by_trader,
         "bySourceTrader": by_source_trader,
@@ -871,7 +906,7 @@ def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) 
         "byEntryPriceBand": by_entry_price_band,
         "byTraderMarketFamily": by_trader_market_family,
         "byTraderEntryPriceBand": by_trader_entry_price_band,
-    }
+    })
 
 
 def split_batches(rows: list[dict[str, Any]], batches: int) -> list[list[dict[str, Any]]]:
@@ -1014,6 +1049,10 @@ def write_outputs(
         "profitFactor",
         "winRatePct",
         "minSamples",
+        "rawStatus",
+        "retainedPromotion",
+        "promotionHoldUntilIso",
+        "promotionHoldReason",
     ]
     for target in targets:
         atomic_write_text(target / SHADOW_REPLAY_NAME, replay_text)
@@ -1027,6 +1066,18 @@ def write_outputs(
             walk_forward.get("rows") if isinstance(walk_forward.get("rows"), list) else [],
             ["batch", "samples", "netPnlUSDC", "profitFactor", "passed"],
         )
+
+
+def prior_quality_buckets(runtime_dir: Path, dashboard_dir: Path | None) -> dict[str, Any]:
+    paths = []
+    if dashboard_dir:
+        paths.append(dashboard_dir / SOURCE_BUCKETS_NAME)
+    paths.append(runtime_dir / SOURCE_BUCKETS_NAME)
+    for path in paths:
+        payload = read_json(path)
+        if payload:
+            return payload
+    return {}
 
 
 def default_discovery_path(runtime_dir: Path, dashboard_dir: Path | None, explicit: str) -> Path:
@@ -1048,6 +1099,63 @@ def prior_replay_rows(runtime_dir: Path, dashboard_dir: Path | None) -> list[dic
         if rows:
             return [row for row in rows if isinstance(row, dict)]
     return []
+
+
+def bucket_rows_by_group(quality_buckets: dict[str, Any], group: str) -> dict[str, dict[str, Any]]:
+    return {
+        str(row.get("bucketKey") or ""): row
+        for row in quality_buckets.get(group) or []
+        if isinstance(row, dict) and str(row.get("bucketKey") or "")
+    }
+
+
+def hard_demote_bucket(row: dict[str, Any], args: argparse.Namespace) -> bool:
+    samples = safe_int(row.get("samples") or row.get("outcomeSamples"))
+    min_samples = safe_int(row.get("minSamples"))
+    if min_samples and samples < min_samples:
+        return False
+    pf = safe_number(row.get("profitFactor"))
+    net = safe_number(row.get("netPnlUSDC"))
+    return pf <= safe_number(getattr(args, "promotion_hard_demote_profit_factor", 0.35)) or net <= safe_number(
+        getattr(args, "promotion_hard_demote_net_pnl_usdc", -2.0)
+    )
+
+
+def retain_previous_promotions(
+    quality_buckets: dict[str, Any],
+    previous_buckets: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    hold_hours = max(0.0, safe_number(getattr(args, "promotion_hold_hours", 6.0)))
+    if not hold_hours or not previous_buckets:
+        return quality_buckets
+    now = utc_now()
+    default_until = now + timedelta(hours=hold_hours)
+    retained_groups = ("bySource", "bySourceTrader", "byTraderMarketFamily", "byTraderEntryPriceBand")
+    for group in retained_groups:
+        previous = bucket_rows_by_group(previous_buckets, group)
+        for row in quality_buckets.get(group) or []:
+            if not isinstance(row, dict):
+                continue
+            if promoted_status(row):
+                row.setdefault("promotionHoldUntilIso", default_until.isoformat())
+                row.setdefault("retainedPromotion", False)
+                continue
+            key = str(row.get("bucketKey") or "")
+            previous_row = previous.get(key)
+            if not previous_row or not promoted_status(previous_row):
+                continue
+            hold_until = parse_iso_datetime(previous_row.get("promotionHoldUntilIso")) or default_until
+            if hold_until < now or hard_demote_bucket(row, args):
+                continue
+            row["rawStatus"] = row.get("status")
+            row["rawAction"] = row.get("action")
+            row["status"] = "PROMOTABLE_PROBATION"
+            row["action"] = "retain_micro_live_during_promotion_hold"
+            row["retainedPromotion"] = True
+            row["promotionHoldUntilIso"] = hold_until.isoformat()
+            row["promotionHoldReason"] = "prior_promotable_bucket_hold"
+    return refresh_quality_bucket_indexes(quality_buckets)
 
 
 def infer_channel_name(row: dict[str, Any]) -> str:
@@ -1162,6 +1270,7 @@ def main() -> int:
     current_signals = [row for row in signals if isinstance(row, dict)][: max(1, int(args.max_signals))]
     current_discovery_signals = current_discovery_candidate_signals(discovery, args.max_discovery_candidates)
     previous_rows = prior_replay_rows(runtime_dir, dashboard_dir)
+    previous_buckets = prior_quality_buckets(runtime_dir, dashboard_dir)
     signals = merge_signals(
         [*current_signals, *current_discovery_signals],
         previous_rows,
@@ -1192,7 +1301,7 @@ def main() -> int:
     quotes = dedupe_quotes(build_market_quotes(events) + build_market_quotes(slug_markets))
     rows = [replay_signal(index, signal, quotes, args) for index, signal in enumerate(signals)]
     summary = build_summary(rows, args)
-    quality_buckets = build_quality_buckets(rows, args)
+    quality_buckets = retain_previous_promotions(build_quality_buckets(rows, args), previous_buckets, args)
     payload = {
         "generatedAtIso": utc_now_iso(),
         "schema": "quantgod.polymarket_copy_trader_shadow_replay.v1",
