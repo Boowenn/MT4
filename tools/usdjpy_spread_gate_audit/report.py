@@ -101,6 +101,8 @@ def build_spread_gate_impact_audit(
         if include_promotion_review
         else {}
     )
+    current_live_max_spread_pips = _current_live_max_spread_pips(runtime_dir)
+    probe_max_spread_pips = _next_probe_threshold(thresholds, current_live_max_spread_pips)
     threshold_rows = []
     previous: Dict[str, Any] | None = None
     for threshold in thresholds:
@@ -126,7 +128,12 @@ def build_spread_gate_impact_audit(
             }
         threshold_rows.append(item)
         previous = item
-    decision = _micro_live_decision(threshold_rows, promotion)
+    decision = _micro_live_decision(
+        threshold_rows,
+        promotion,
+        current_live_max_spread_pips=current_live_max_spread_pips,
+        probe_max_spread_pips=probe_max_spread_pips,
+    )
     payload = {
         "ok": True,
         "schema": SCHEMA_AUDIT,
@@ -140,8 +147,8 @@ def build_spread_gate_impact_audit(
             "m1SpreadDateSource": "MT5 exported bar timestamp",
         },
         "thresholdsPips": list(thresholds),
-        "currentLiveMaxSpreadPips": 2.0,
-        "probeMaxSpreadPips": 2.2 if 2.2 in thresholds else (thresholds[1] if len(thresholds) > 1 else thresholds[0]),
+        "currentLiveMaxSpreadPips": current_live_max_spread_pips,
+        "probeMaxSpreadPips": probe_max_spread_pips,
         "spreadDistribution": _spread_distribution(m1_rows, thresholds),
         "shadowEvaluationImpact": {
             "sourceFile": "QuantGod_StrategyJsonEAShadowEvaluationLedger.jsonl",
@@ -432,6 +439,48 @@ def _parse_date(value: str) -> datetime.date:
     return datetime.strptime(text, "%Y-%m-%d").date()
 
 
+def _current_live_max_spread_pips(runtime_dir: Path, default: float = 2.0) -> float:
+    for path in (
+        runtime_dir / "QuantGod_USDJPYRsiEntryDiagnostics.json",
+        runtime_dir / "QuantGod_StrategyJsonEAShadowEvaluationStatus.json",
+    ):
+        data = _load_json(path)
+        if not data:
+            continue
+        candidates = []
+        inputs = data.get("inputs") if isinstance(data.get("inputs"), dict) else {}
+        guards = data.get("guards") if isinstance(data.get("guards"), dict) else {}
+        candidates.extend(
+            [
+                inputs.get("PilotMaxSpreadPips"),
+                data.get("liveMaxSpreadPips"),
+                guards.get("maxSpreadPips"),
+                data.get("maxSpreadPips"),
+            ]
+        )
+        for value in candidates:
+            spread = _num(value, default=0.0)
+            if spread > 0:
+                return _round(spread)
+
+    preset = runtime_dir.parent / "Presets" / "QuantGod_MT5_HFM_LivePilot.set"
+    if preset.exists():
+        for raw in preset.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if raw.strip().startswith("PilotMaxSpreadPips="):
+                spread = _num(raw.split("=", 1)[1], default=0.0)
+                if spread > 0:
+                    return _round(spread)
+    return _round(default)
+
+
+def _next_probe_threshold(thresholds: Sequence[float], current: float) -> float:
+    ordered = sorted(round(float(item), 4) for item in thresholds)
+    for threshold in ordered:
+        if threshold > current and not math.isclose(threshold, current):
+            return _round(threshold)
+    return _round(ordered[-1] if ordered else current)
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -658,29 +707,52 @@ def _count_by_route(rows: Iterable[Dict[str, Any]]) -> Dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def _micro_live_decision(threshold_rows: List[Dict[str, Any]], promotion: Dict[str, Any]) -> Dict[str, Any]:
-    probe = next((row for row in threshold_rows if math.isclose(float(row["thresholdPips"]), 2.2)), None)
-    current = next((row for row in threshold_rows if math.isclose(float(row["thresholdPips"]), 2.0)), None)
+def _spread_cap_token(value: float) -> str:
+    text = f"{float(value):.4f}".rstrip("0")
+    if text.endswith("."):
+        text += "0"
+    return text.replace(".", "_")
+
+
+def _micro_live_decision(
+    threshold_rows: List[Dict[str, Any]],
+    promotion: Dict[str, Any],
+    *,
+    current_live_max_spread_pips: float = 2.0,
+    probe_max_spread_pips: float = 2.2,
+) -> Dict[str, Any]:
+    probe = next(
+        (row for row in threshold_rows if math.isclose(float(row["thresholdPips"]), probe_max_spread_pips)),
+        None,
+    )
+    current = next(
+        (row for row in threshold_rows if math.isclose(float(row["thresholdPips"]), current_live_max_spread_pips)),
+        None,
+    )
     promotion_rows = promotion.get("summary") if isinstance(promotion.get("summary"), list) else []
     promoted = [row for row in promotion_rows if row.get("recommendedStage") != "REMAIN_SHADOW"]
     reasons = []
     if not probe:
-        reasons.append("本轮没有 2.2 pips probe 档，不能评估 micro-live 扩门。")
+        reasons.append(f"本轮没有 {probe_max_spread_pips:g} pips probe 档，不能评估 micro-live 扩门。")
     elif current and probe.get("uniqueOpportunityCount", 0) <= current.get("uniqueOpportunityCount", 0):
-        reasons.append("2.2 pips 相比 2.0 pips 没有增加可去重机会。")
+        reasons.append(
+            f"{probe_max_spread_pips:g} pips 相比 {current_live_max_spread_pips:g} pips 没有增加可去重机会。"
+        )
     if not promoted:
         reasons.append("Tokyo/H4 没有路线通过 shadow→replay→walk-forward 晋级审查。")
     if probe and int(probe.get("highScoreOpportunityCount") or 0) <= 0:
-        reasons.append("2.2 pips 档没有新增高分且 session/news 可用的去重机会。")
+        reasons.append(f"{probe_max_spread_pips:g} pips 档没有新增高分且 session/news 可用的去重机会。")
     eligible = bool(probe and promoted and not reasons)
+    current_token = _spread_cap_token(current_live_max_spread_pips)
+    probe_token = _spread_cap_token(probe_max_spread_pips)
     return {
         "eligible": eligible,
-        "recommendation": "STAGE_LIVE_CAP_2_2_MICRO_LIVE" if eligible else "KEEP_LIVE_CAP_2_0",
-        "currentLiveMaxSpreadPips": 2.0,
-        "reviewedProbeMaxSpreadPips": 2.2,
-        "reasonZh": "2.2 pips 档只增加通过完整晋级链的高质量机会，可进入 micro-live patch 审查。"
+        "recommendation": f"STAGE_LIVE_CAP_{probe_token}_MICRO_LIVE" if eligible else f"KEEP_LIVE_CAP_{current_token}",
+        "currentLiveMaxSpreadPips": current_live_max_spread_pips,
+        "reviewedProbeMaxSpreadPips": probe_max_spread_pips,
+        "reasonZh": f"{probe_max_spread_pips:g} pips 档只增加通过完整晋级链的高质量机会，可进入 micro-live patch 审查。"
         if eligible
-        else "暂不把 live cap 升到 2.2 pips；新增机会还没有通过完整质量链。",
+        else f"暂不把 live cap 继续升到 {probe_max_spread_pips:g} pips；新增机会还没有通过完整质量链。",
         "blockersZh": reasons,
         "orderSendAllowed": False,
         "livePresetMutationAllowed": False,
