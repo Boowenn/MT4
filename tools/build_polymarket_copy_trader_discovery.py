@@ -43,6 +43,41 @@ TELEGRAM_TRADER_RE = re.compile(
     re.IGNORECASE,
 )
 SIGNAL_SIDE_RE = re.compile(r"\b(?P<side>BUY|SELL)\s+(?P<outcome>[A-Za-z][A-Za-z0-9_ ./'-]{0,60})", re.IGNORECASE)
+MARKET_FAMILY_RULES = (
+    ("crypto", re.compile(r"\b(bitcoin|btc|ethereum|eth|solana|sol\b|xrp|doge|crypto|token)\b", re.IGNORECASE)),
+    (
+        "sports",
+        re.compile(
+            r"\b(nba|nfl|nhl|mlb|ufc|fifa|soccer|football|tennis|serie|lazio|premier|champions|game|match)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "politics",
+        re.compile(r"\b(trump|biden|election|senate|congress|president|mayor|governor|poll)\b", re.IGNORECASE),
+    ),
+    ("macro", re.compile(r"\b(fed|rate|inflation|cpi|gdp|unemployment|recession|tariff)\b", re.IGNORECASE)),
+    (
+        "geopolitics",
+        re.compile(
+            r"\b(israel|hezbollah|iran|russia|ukraine|china|gaza|war|ceasefire|peace|deal|nuclear)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    ("culture", re.compile(r"\b(oscar|grammy|movie|album|song|tiktok|youtube|streamer)\b", re.IGNORECASE)),
+    (
+        "company",
+        re.compile(r"\b(tesla|apple|nvidia|openai|xai|meta|google|microsoft|spacex|stock)\b", re.IGNORECASE),
+    ),
+)
+ENTRY_PRICE_BANDS = (
+    (0.04, "lt_0.04"),
+    (0.20, "0.04_0.20"),
+    (0.40, "0.20_0.40"),
+    (0.60, "0.40_0.60"),
+    (0.80, "0.60_0.80"),
+    (0.90, "0.80_0.90"),
+)
 KREO_MARKET_SLUG_RE = re.compile(r"\bhttps?://t\.me/KreoPolyBot\?start=slug_([A-Za-z0-9_.~%/-]+)", re.IGNORECASE)
 KREO_COPYTRADE_RE = re.compile(r"\bhttps?://t\.me/KreoPolyBot\?start=ct_([A-Za-z0-9_.~%/-]+)", re.IGNORECASE)
 DOCS = {
@@ -142,6 +177,24 @@ def safe_int(value: Any, default: int = 0) -> int:
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def market_family(*parts: Any) -> str:
+    text = " ".join(str(part or "") for part in parts if part is not None)
+    for family, pattern in MARKET_FAMILY_RULES:
+        if pattern.search(text):
+            return family
+    return "other"
+
+
+def entry_price_band(value: Any) -> str:
+    price = safe_number(value, -1.0)
+    if price < 0:
+        return "unknown"
+    for limit, label in ENTRY_PRICE_BANDS:
+        if price < limit:
+            return label
+    return "gt_0.90"
 
 
 def str_to_bool(value: Any) -> bool:
@@ -466,6 +519,28 @@ def extract_telegram_signals(
     return signals[:100]
 
 
+def resolve_signal_wallet_previews(signals: list[dict[str, Any]], wallets: list[str]) -> list[dict[str, Any]]:
+    full_wallets = [str(wallet or "").strip().lower() for wallet in wallets if WALLET_RE.fullmatch(str(wallet or ""))]
+    resolved: list[dict[str, Any]] = []
+    for signal in signals:
+        row = dict(signal)
+        if row.get("wallet"):
+            resolved.append(row)
+            continue
+        preview = str(row.get("walletPreview") or "").strip()
+        match = re.match(r"^(0x[a-fA-F0-9]{4,})\.\.\.([a-fA-F0-9]{4,})$", preview)
+        if not match:
+            resolved.append(row)
+            continue
+        prefix = match.group(1).lower()
+        suffix = match.group(2).lower()
+        matches = [wallet for wallet in full_wallets if wallet.startswith(prefix) and wallet.endswith(suffix)]
+        if len(matches) == 1:
+            row["wallet"] = matches[0]
+        resolved.append(row)
+    return resolved
+
+
 def read_telegram_bot_updates(env_path: str, channel_name: str, limit: int, timeout: float) -> dict[str, Any]:
     values = read_env_values(env_path)
     token = values.get("QG_TELEGRAM_BOT_TOKEN") or values.get("TELEGRAM_BOT_TOKEN") or ""
@@ -746,6 +821,8 @@ def read_telegram_sources(args: argparse.Namespace) -> dict[str, Any]:
     wallets = sorted(set(str(item).lower() for source in sources for item in (source.get("wallets") or [])))
     signal_limit = max(1, min(1000, int(args.telegram_signal_limit)))
     signals = [signal for source in sources for signal in (source.get("signals") or []) if isinstance(signal, dict)]
+    signals = resolve_signal_wallet_previews(signals, wallets)
+    wallets = sorted(set(wallets) | {str(signal.get("wallet") or "").lower() for signal in signals if signal.get("wallet")})
     configured = bool(export.get("configured") or bot.get("configured") or telethon.get("configured"))
     errors = [str(item.get("error")) for item in sources if item.get("error")]
     return {
@@ -878,6 +955,8 @@ def trader_score(entry: dict[str, Any], stats: dict[str, Any], positions: list[d
     pf = safe_number(stats.get("profitFactor"))
     win_rate = safe_number(stats.get("winRatePct"))
     closed = safe_int(stats.get("closed"))
+    recent_pnl = safe_number(stats.get("realizedPnl"))
+    telegram_sourced = "telegram_channel" in entry.get("sourceKinds", set())
     latest_ts = max(latest_activity_ts(activity), max((safe_number(row.get("timestamp")) for row in positions), default=0.0))
     days = recency_days(latest_ts)
     score = 0.0
@@ -885,6 +964,7 @@ def trader_score(entry: dict[str, Any], stats: dict[str, Any], positions: list[d
     score += min(12.0, math.log1p(max(week_pnl, 0.0)) / math.log1p(250_000.0) * 12.0)
     score += min(12.0, math.log1p(max(all_pnl, 0.0)) / math.log1p(2_500_000.0) * 12.0)
     score += min(8.0, math.log1p(max(month_vol, 0.0)) / math.log1p(10_000_000.0) * 8.0)
+    score += min(12.0, math.log1p(max(recent_pnl, 0.0)) / math.log1p(25_000.0) * 12.0)
     if pf:
         score += min(14.0, max(0.0, (pf - 1.0) * 9.0))
     if win_rate:
@@ -894,14 +974,14 @@ def trader_score(entry: dict[str, Any], stats: dict[str, Any], positions: list[d
         score += 8.0 if days <= 3 else 6.0 if days <= 7 else 3.0 if days <= 21 else 0.0
     if positions:
         score += 5.0
-    if "telegram_channel" in entry.get("sourceKinds", set()):
+    if telegram_sourced:
         score += 4.0
     if entry.get("verifiedBadge"):
         score += 2.0
 
     blockers: list[str] = []
     warnings: list[str] = []
-    if month_pnl <= 0 and week_pnl <= 0 and all_pnl <= 0:
+    if month_pnl <= 0 and week_pnl <= 0 and all_pnl <= 0 and not (telegram_sourced and recent_pnl > 0):
         blockers.append("leaderboard_pnl_not_positive")
     if closed < 8:
         warnings.append("closed_sample_thin")
@@ -911,7 +991,6 @@ def trader_score(entry: dict[str, Any], stats: dict[str, Any], positions: list[d
         blockers.append("trader_activity_stale")
     if not positions:
         warnings.append("no_current_positions_to_shadow")
-    recent_pnl = safe_number(stats.get("realizedPnl"))
     if closed >= 8 and recent_pnl < 0:
         warnings.append("recent_closed_pnl_negative")
         score -= 8.0
@@ -1158,33 +1237,92 @@ def wallet_risk_policy(
     }
 
 
+def bucket_rows_by_key(rows: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(rows, list):
+        return {}
+    return {
+        str(row.get("bucketKey") or "").strip().lower(): row
+        for row in rows
+        if isinstance(row, dict) and str(row.get("bucketKey") or "").strip()
+    }
+
+
+def normalized_bucket_set(payload: dict[str, Any], key: str) -> set[str]:
+    return {str(item).strip().lower() for item in payload.get(key) or [] if str(item).strip()}
+
+
+def composite_traders(keys: set[str]) -> set[str]:
+    traders: set[str] = set()
+    for key in keys:
+        trader, _, _ = key.partition(":")
+        if trader:
+            traders.add(trader)
+    return traders
+
+
 def replay_quality_gate(shadow_replay: dict[str, Any]) -> dict[str, Any]:
     buckets = shadow_replay.get("qualityBuckets") if isinstance(shadow_replay.get("qualityBuckets"), dict) else {}
     quarantine = buckets.get("quarantine") if isinstance(buckets.get("quarantine"), dict) else {}
-    traders = {str(item).strip().lower() for item in quarantine.get("traders") or [] if str(item).strip()}
-    sources = {str(item).strip().lower() for item in quarantine.get("sources") or [] if str(item).strip()}
-    source_traders = {str(item).strip().lower() for item in quarantine.get("sourceTraders") or [] if str(item).strip()}
-    by_trader = {
-        str(row.get("bucketKey") or "").strip().lower(): row
-        for row in buckets.get("byTrader") or []
-        if isinstance(row, dict)
-    }
+    promotions = buckets.get("promotions") if isinstance(buckets.get("promotions"), dict) else {}
+    traders = normalized_bucket_set(quarantine, "traders")
+    sources = normalized_bucket_set(quarantine, "sources")
+    source_traders = normalized_bucket_set(quarantine, "sourceTraders")
+    market_families = normalized_bucket_set(quarantine, "marketFamilies")
+    entry_price_bands = normalized_bucket_set(quarantine, "entryPriceBands")
+    trader_market_families = normalized_bucket_set(quarantine, "traderMarketFamilies")
+    trader_entry_price_bands = normalized_bucket_set(quarantine, "traderEntryPriceBands")
+    promoted_market_families = normalized_bucket_set(promotions, "marketFamilies")
+    promoted_entry_price_bands = normalized_bucket_set(promotions, "entryPriceBands")
+    promoted_trader_market_families = normalized_bucket_set(promotions, "traderMarketFamilies")
+    promoted_trader_entry_price_bands = normalized_bucket_set(promotions, "traderEntryPriceBands")
+    micro_policy = buckets.get("microScalpPolicy") if isinstance(buckets.get("microScalpPolicy"), dict) else {}
+    has_micro_buckets = bool(
+        buckets.get("byMarketFamily")
+        or buckets.get("byEntryPriceBand")
+        or buckets.get("byTraderMarketFamily")
+        or buckets.get("byTraderEntryPriceBand")
+    )
+    promoted_composite_traders = composite_traders(promoted_trader_market_families | promoted_trader_entry_price_bands)
     return {
         "active": bool(buckets),
         "quarantinedTraders": sorted(traders),
         "weakSources": sorted(sources),
         "quarantinedSourceTraders": sorted(source_traders),
+        "quarantinedMarketFamilies": sorted(market_families),
+        "quarantinedEntryPriceBands": sorted(entry_price_bands),
+        "quarantinedTraderMarketFamilies": sorted(trader_market_families),
+        "quarantinedTraderEntryPriceBands": sorted(trader_entry_price_bands),
+        "promotedMarketFamilies": sorted(promoted_market_families),
+        "promotedEntryPriceBands": sorted(promoted_entry_price_bands),
+        "promotedTraderMarketFamilies": sorted(promoted_trader_market_families),
+        "promotedTraderEntryPriceBands": sorted(promoted_trader_entry_price_bands),
+        "promotedCompositeTraders": sorted(promoted_composite_traders),
+        "hasMicroBuckets": has_micro_buckets,
+        "realWalletRequiresPromotedCompositeBucket": bool(
+            micro_policy.get("realWalletRequiresPromotedCompositeBucket", has_micro_buckets)
+        ),
+        "promotedCompositeBucketCount": safe_int(micro_policy.get("promotedCompositeBucketCount")),
         "weakBucketCount": safe_int(quarantine.get("weakBucketCount")),
-        "byTrader": by_trader,
+        "byTrader": bucket_rows_by_key(buckets.get("byTrader")),
+        "byMarketFamily": bucket_rows_by_key(buckets.get("byMarketFamily")),
+        "byEntryPriceBand": bucket_rows_by_key(buckets.get("byEntryPriceBand")),
+        "byTraderMarketFamily": bucket_rows_by_key(buckets.get("byTraderMarketFamily")),
+        "byTraderEntryPriceBand": bucket_rows_by_key(buckets.get("byTraderEntryPriceBand")),
     }
 
 
 def apply_replay_quality_gate(traders: list[dict[str, Any]], gate: dict[str, Any]) -> list[dict[str, Any]]:
     if not gate.get("active"):
         return traders
+    promoted_override_blockers = {
+        "leaderboard_pnl_not_positive",
+        "recent_closed_pf_below_1_05",
+        "recent_closed_pnl_not_positive",
+    }
     quarantined_traders = set(gate.get("quarantinedTraders") or [])
     weak_sources = set(gate.get("weakSources") or [])
     source_traders = set(gate.get("quarantinedSourceTraders") or [])
+    promoted_composite_traders = set(gate.get("promotedCompositeTraders") or [])
     by_trader = gate.get("byTrader") if isinstance(gate.get("byTrader"), dict) else {}
     for trader in traders:
         name = str(trader.get("userName") or "").strip().lower()
@@ -1205,15 +1343,129 @@ def apply_replay_quality_gate(traders: list[dict[str, Any]], gate: dict[str, Any
                 )
             }
         source_trader_quarantined = any(f"{source}:{name}" in source_traders for source in sources if name)
-        if name in quarantined_traders or source_trader_quarantined:
+        has_promoted_micro_bucket = name in promoted_composite_traders
+        blockers = [str(item) for item in trader.get("blockers") or []]
+        remaining_blockers = [item for item in blockers if item not in promoted_override_blockers]
+        if (
+            has_promoted_micro_bucket
+            and not trader.get("eligibleForShadowCopy")
+            and safe_int(trader.get("currentPositionCount")) > 0
+            and not remaining_blockers
+        ):
+            trader["eligibleForShadowCopy"] = True
+            trader.setdefault("warnings", []).append("copy_replay_promoted_micro_bucket_overrides_broad_score")
+        if (name in quarantined_traders or source_trader_quarantined) and not has_promoted_micro_bucket:
             trader["eligibleForShadowCopy"] = False
             trader.setdefault("blockers", []).append("copy_replay_trader_bucket_quarantined")
+        elif name in quarantined_traders or source_trader_quarantined:
+            trader.setdefault("warnings", []).append("copy_replay_broad_bucket_weak_but_micro_bucket_promoted")
         if weak_sources and any(source in weak_sources for source in sources):
             trader.setdefault("warnings", []).append("copy_replay_source_bucket_weak")
     return traders
 
 
-def candidate_risk_plan(position: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+def compact_bucket_evidence(bucket: dict[str, Any] | None) -> dict[str, Any]:
+    if not bucket:
+        return {}
+    return {
+        key: bucket.get(key)
+        for key in (
+            "bucketType",
+            "bucketKey",
+            "status",
+            "samples",
+            "wins",
+            "losses",
+            "netPnlUSDC",
+            "profitFactor",
+            "winRatePct",
+            "action",
+        )
+    }
+
+
+def candidate_micro_scalp_suitability(
+    trader: dict[str, Any],
+    position: dict[str, Any],
+    gate: dict[str, Any],
+) -> dict[str, Any]:
+    family = market_family(position.get("title"), position.get("slug"), position.get("eventSlug"))
+    band = entry_price_band(position.get("curPrice"))
+    trader_name = str(trader.get("userName") or trader.get("proxyWallet") or "").strip().lower()
+    trader_family_key = f"{trader_name}:{family}" if trader_name else f"unknown:{family}"
+    trader_band_key = f"{trader_name}:{band}" if trader_name else f"unknown:{band}"
+    if not gate.get("active") or not gate.get("hasMicroBuckets"):
+        return {
+            "status": "NOT_ACTIVE",
+            "action": "collect_shadow_samples",
+            "marketFamily": family,
+            "entryPriceBand": band,
+            "traderMarketFamilyKey": trader_family_key,
+            "traderEntryPriceBandKey": trader_band_key,
+            "realWalletEligibleByMicroBucket": False,
+            "blockers": [],
+            "warnings": ["copy_replay_micro_buckets_not_ready"],
+            "bucketEvidence": {},
+        }
+
+    promoted_family = family in set(gate.get("promotedMarketFamilies") or [])
+    promoted_band = band in set(gate.get("promotedEntryPriceBands") or [])
+    promoted_trader_family = trader_family_key in set(gate.get("promotedTraderMarketFamilies") or [])
+    promoted_trader_band = trader_band_key in set(gate.get("promotedTraderEntryPriceBands") or [])
+    quarantined_family = family in set(gate.get("quarantinedMarketFamilies") or [])
+    quarantined_band = band in set(gate.get("quarantinedEntryPriceBands") or [])
+    quarantined_trader_family = trader_family_key in set(gate.get("quarantinedTraderMarketFamilies") or [])
+    quarantined_trader_band = trader_band_key in set(gate.get("quarantinedTraderEntryPriceBands") or [])
+    price_path_promoted = promoted_trader_band and not quarantined_family
+    composite_promoted = promoted_trader_family or price_path_promoted
+    composite_quarantined = quarantined_trader_family or quarantined_trader_band
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if composite_quarantined:
+        blockers.append("copy_replay_micro_bucket_quarantined")
+    if gate.get("realWalletRequiresPromotedCompositeBucket") and not composite_promoted:
+        blockers.append("copy_replay_micro_bucket_not_promoted")
+    if quarantined_family and not promoted_trader_family:
+        blockers.append("copy_replay_market_family_bucket_quarantined")
+    elif quarantined_family:
+        warnings.append("copy_replay_broad_market_bucket_weak_but_trader_market_promoted")
+    if quarantined_band and not promoted_trader_band:
+        blockers.append("copy_replay_entry_price_band_bucket_quarantined")
+    elif quarantined_band:
+        warnings.append("copy_replay_broad_price_bucket_weak_but_trader_price_promoted")
+
+    bucket_evidence = {
+        "marketFamily": compact_bucket_evidence((gate.get("byMarketFamily") or {}).get(family)),
+        "entryPriceBand": compact_bucket_evidence((gate.get("byEntryPriceBand") or {}).get(band)),
+        "traderMarketFamily": compact_bucket_evidence((gate.get("byTraderMarketFamily") or {}).get(trader_family_key)),
+        "traderEntryPriceBand": compact_bucket_evidence((gate.get("byTraderEntryPriceBand") or {}).get(trader_band_key)),
+    }
+    status = "PROMOTABLE" if composite_promoted and not composite_quarantined else "QUARANTINE" if blockers else "COLLECTING"
+    action = "allow_micro_live_candidate" if status == "PROMOTABLE" else "shadow_only_collect_more_evidence"
+    return {
+        "status": status,
+        "action": action,
+        "marketFamily": family,
+        "entryPriceBand": band,
+        "traderMarketFamilyKey": trader_family_key,
+        "traderEntryPriceBandKey": trader_band_key,
+        "promotedMarketFamily": promoted_family,
+        "promotedEntryPriceBand": promoted_band,
+        "promotedTraderMarketFamily": promoted_trader_family,
+        "promotedTraderEntryPriceBand": promoted_trader_band,
+        "pricePathPromoted": price_path_promoted,
+        "realWalletEligibleByMicroBucket": status == "PROMOTABLE",
+        "blockers": list(dict.fromkeys(blockers)),
+        "warnings": warnings,
+        "bucketEvidence": bucket_evidence,
+    }
+
+
+def candidate_risk_plan(
+    position: dict[str, Any],
+    policy: dict[str, Any],
+    extra_blockers: list[str] | None = None,
+) -> dict[str, Any]:
     entry = safe_number(position.get("curPrice"))
     tp_pct = safe_number(policy.get("takeProfitPct"), 2.0)
     tp_usdc = safe_number(policy.get("takeProfitUSDC"), 0.0)
@@ -1225,6 +1477,8 @@ def candidate_risk_plan(position: dict[str, Any], policy: dict[str, Any]) -> dic
         and entry <= safe_number(policy.get("maxEntryPrice"), 0.90)
     )
     blockers = list(policy.get("hardBlockers") or []) + ([] if entry_ok else ["entry_price_outside_policy_band"])
+    blockers.extend(extra_blockers or [])
+    blockers = list(dict.fromkeys(blockers))
     real_wallet_eligible = bool(policy.get("realWalletExecutionAllowed")) and not blockers
     return {
         "mode": "AUTONOMOUS_BRACKET_EXIT_GATE",
@@ -1250,8 +1504,10 @@ def build_shadow_candidates(
     traders: list[dict[str, Any]],
     min_current_value: float,
     policy: dict[str, Any],
+    quality_gate: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
+    gate = quality_gate or {}
     for trader in traders:
         if not trader.get("eligibleForShadowCopy"):
             continue
@@ -1263,12 +1519,15 @@ def build_shadow_candidates(
             if price <= 0.02 or price >= 0.98:
                 continue
             candidate_score = round(
-                safe_number(trader.get("copyScore")) * 0.72
-                + min(14.0, math.log1p(current_value) / math.log1p(250_000.0) * 14.0)
-                + min(14.0, max(-8.0, safe_number(position.get("percentPnl")) * 0.18)),
+                    safe_number(trader.get("copyScore")) * 0.72
+                    + min(14.0, math.log1p(current_value) / math.log1p(250_000.0) * 14.0)
+                    + min(14.0, max(-8.0, safe_number(position.get("percentPnl")) * 0.18)),
                 2,
             )
-            risk_plan = candidate_risk_plan(position, policy)
+            micro_suitability = candidate_micro_scalp_suitability(trader, position, gate)
+            risk_plan = candidate_risk_plan(position, policy, micro_suitability.get("blockers") or [])
+            risk_plan["microScalpStatus"] = micro_suitability.get("status")
+            risk_plan["microScalpWarnings"] = micro_suitability.get("warnings") or []
             real_wallet_ready = bool(risk_plan.get("realWalletEligibleNow"))
             candidates.append(
                 {
@@ -1283,6 +1542,8 @@ def build_shadow_candidates(
                     "copyScore": trader.get("copyScore"),
                     "candidateScore": candidate_score,
                     "marketTitle": position.get("title", ""),
+                    "marketFamily": micro_suitability.get("marketFamily"),
+                    "entryPriceBand": micro_suitability.get("entryPriceBand"),
                     "marketSlug": position.get("slug", ""),
                     "eventSlug": position.get("eventSlug", ""),
                     "conditionId": position.get("conditionId", ""),
@@ -1296,6 +1557,7 @@ def build_shadow_candidates(
                     "traderPercentPnl": position.get("percentPnl"),
                     "endDate": position.get("endDate", ""),
                     "url": position.get("url", ""),
+                    "microScalpSuitability": micro_suitability,
                     "riskPlan": risk_plan,
                 }
             )
@@ -1364,7 +1626,13 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         bucket["sourceKinds"].add("telegram_channel")
         bucket.setdefault("leaderboardSources", []).append("TELEGRAM_CHANNEL_WALLET")
         if wallet in signals_by_wallet:
-            bucket.setdefault("telegramSignals", []).extend(signals_by_wallet[wallet][:10])
+            wallet_signals = signals_by_wallet[wallet]
+            bucket.setdefault("telegramSignals", []).extend(wallet_signals[:10])
+            first_signal = wallet_signals[0]
+            if first_signal.get("userName") and not bucket.get("userName"):
+                bucket["userName"] = first_signal.get("userName")
+            if first_signal.get("rank") and not bucket.get("telegramRank"):
+                bucket["telegramRank"] = first_signal.get("rank")
 
     for bucket in wallet_map.values():
         names = [
@@ -1381,6 +1649,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
     preselected = sorted(
         wallet_map.values(),
         key=lambda item: (
+            1 if "telegram_channel" in item.get("sourceKinds", set()) else 0,
             month_metric(item, "pnl"),
             all_metric(item, "pnl"),
             len(item.get("leaderboardSources") or []),
@@ -1505,7 +1774,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
     policy = wallet_risk_policy(args, bool(telegram.get("active")), validation)
     quality_gate = replay_quality_gate(shadow_replay)
     traders = apply_replay_quality_gate(traders, quality_gate)
-    shadow_candidates = build_shadow_candidates(traders, args.min_current_value, policy)
+    shadow_candidates = build_shadow_candidates(traders, args.min_current_value, policy, quality_gate)
     eligible_count = sum(1 for row in traders if row.get("eligibleForShadowCopy"))
     real_wallet_candidate_count = sum(1 for row in shadow_candidates if row.get("orderSendAllowed"))
     status = "OK" if traders else "UNAVAILABLE"
@@ -1562,7 +1831,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         "copyReplayQualityGate": {
             key: value
             for key, value in quality_gate.items()
-            if key != "byTrader"
+            if not key.startswith("by")
         },
         "summary": {
             "leaderboardRows": leaderboard_rows,
@@ -1581,6 +1850,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             "realWalletExecutionAllowed": policy.get("realWalletExecutionAllowed"),
             "humanApprovalRequired": False,
             "realWalletCandidates": real_wallet_candidate_count,
+            "replayPromotedMicroBuckets": quality_gate.get("promotedCompositeBucketCount", 0),
         },
         "traders": traders,
         "shadowCandidates": shadow_candidates[:100],

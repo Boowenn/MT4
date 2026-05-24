@@ -41,6 +41,41 @@ WORD_RE = re.compile(r"[a-z0-9]+")
 RESOLVES_RE = re.compile(r"Resolves:\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})", re.IGNORECASE)
 SIGNAL_TITLE_RE = re.compile(r"📌\s*(.*?)\s*(?:📅|🟢|🔴|├|$)")
 TEXT_MARKERS_RE = re.compile(r"[📌📅🟢🔴👤├└]")
+MARKET_FAMILY_RULES = (
+    ("crypto", re.compile(r"\b(bitcoin|btc|ethereum|eth|solana|sol\b|xrp|doge|crypto|token)\b", re.IGNORECASE)),
+    (
+        "sports",
+        re.compile(
+            r"\b(nba|nfl|nhl|mlb|ufc|fifa|soccer|football|tennis|serie|lazio|premier|champions|game|match)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "politics",
+        re.compile(r"\b(trump|biden|election|senate|congress|president|mayor|governor|poll)\b", re.IGNORECASE),
+    ),
+    ("macro", re.compile(r"\b(fed|rate|inflation|cpi|gdp|unemployment|recession|tariff)\b", re.IGNORECASE)),
+    (
+        "geopolitics",
+        re.compile(
+            r"\b(israel|hezbollah|iran|russia|ukraine|china|gaza|war|ceasefire|peace|deal|nuclear)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    ("culture", re.compile(r"\b(oscar|grammy|movie|album|song|tiktok|youtube|streamer)\b", re.IGNORECASE)),
+    (
+        "company",
+        re.compile(r"\b(tesla|apple|nvidia|openai|xai|meta|google|microsoft|spacex|stock)\b", re.IGNORECASE),
+    ),
+)
+ENTRY_PRICE_BANDS = (
+    (0.04, "lt_0.04"),
+    (0.20, "0.04_0.20"),
+    (0.40, "0.20_0.40"),
+    (0.60, "0.40_0.60"),
+    (0.80, "0.60_0.80"),
+    (0.90, "0.80_0.90"),
+)
 
 try:
     import certifi  # type: ignore
@@ -92,6 +127,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-trader-bucket-samples", type=int, default=8)
     parser.add_argument("--min-source-bucket-samples", type=int, default=30)
     parser.add_argument("--min-source-trader-bucket-samples", type=int, default=8)
+    parser.add_argument("--min-market-family-bucket-samples", type=int, default=12)
+    parser.add_argument("--min-entry-price-band-bucket-samples", type=int, default=12)
+    parser.add_argument("--min-trader-market-family-bucket-samples", type=int, default=8)
+    parser.add_argument("--min-trader-entry-price-band-bucket-samples", type=int, default=8)
     return parser.parse_args()
 
 
@@ -348,6 +387,24 @@ def normalize_market_slug(value: Any) -> str:
     return slug
 
 
+def market_family(*parts: Any) -> str:
+    text = " ".join(str(part or "") for part in parts if part is not None)
+    for family, pattern in MARKET_FAMILY_RULES:
+        if pattern.search(text):
+            return family
+    return "other"
+
+
+def entry_price_band(value: Any) -> str:
+    price = safe_number(value, -1.0)
+    if price < 0:
+        return "unknown"
+    for limit, label in ENTRY_PRICE_BANDS:
+        if price < limit:
+            return label
+    return "gt_0.90"
+
+
 def token_set(value: Any) -> set[str]:
     tokens = set(WORD_RE.findall(str(value or "").lower()))
     return {token for token in tokens if token not in {"the", "will", "vs", "v", "by", "on", "to", "of", "a", "an"}}
@@ -491,6 +548,14 @@ def replay_signal(index: int, signal: dict[str, Any], quotes: list[MarketQuote],
         quotes,
         safe_number(args.min_match_score),
     )
+    family = market_family(
+        title,
+        market_slug,
+        quote.question if quote else "",
+        quote.event_title if quote else "",
+        quote.slug if quote else "",
+    )
+    price_band = entry_price_band(entry_price)
     blockers: list[str] = []
     if side != "BUY":
         blockers.append("non_buy_signal_not_copyable")
@@ -544,6 +609,8 @@ def replay_signal(index: int, signal: dict[str, Any], quotes: list[MarketQuote],
         "side": side,
         "outcome": outcome,
         "marketTitle": title,
+        "marketFamily": family,
+        "entryPriceBand": price_band,
         "resolveDate": resolve_date,
         "telegramAmountUSDC": safe_number(signal.get("amountUSDC")),
         "signalPrice": round(signal_price, 6),
@@ -659,13 +726,23 @@ def build_bucket_group(
 ) -> list[dict[str, Any]]:
     buckets: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
+        source = str(row.get("source") or "unknown").strip().lower()
+        trader = str(row.get("trader") or "unknown").strip()
+        family = str(row.get("marketFamily") or market_family(row.get("marketTitle"), row.get("marketSlug"))).strip().lower()
+        band = str(row.get("entryPriceBand") or entry_price_band(row.get("entryPrice"))).strip()
         if bucket_type == "source":
-            key = str(row.get("source") or "unknown").strip().lower()
+            key = source
         elif bucket_type == "trader":
-            key = str(row.get("trader") or "unknown").strip()
+            key = trader
+        elif bucket_type == "marketFamily":
+            key = family
+        elif bucket_type == "entryPriceBand":
+            key = band
+        elif bucket_type == "traderMarketFamily":
+            key = f"{trader}:{family}"
+        elif bucket_type == "traderEntryPriceBand":
+            key = f"{trader}:{band}"
         else:
-            source = str(row.get("source") or "unknown").strip().lower()
-            trader = str(row.get("trader") or "unknown").strip()
             key = f"{source}:{trader}"
         buckets.setdefault(key or "unknown", []).append(row)
     summaries = [summarize_bucket(bucket_type, key, bucket_rows, args, min_samples) for key, bucket_rows in buckets.items()]
@@ -688,16 +765,69 @@ def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) 
         max(1, int(args.min_source_trader_bucket_samples)),
         args,
     )
+    by_market_family = build_bucket_group(rows, "marketFamily", max(1, int(args.min_market_family_bucket_samples)), args)
+    by_entry_price_band = build_bucket_group(
+        rows,
+        "entryPriceBand",
+        max(1, int(args.min_entry_price_band_bucket_samples)),
+        args,
+    )
+    by_trader_market_family = build_bucket_group(
+        rows,
+        "traderMarketFamily",
+        max(1, int(args.min_trader_market_family_bucket_samples)),
+        args,
+    )
+    by_trader_entry_price_band = build_bucket_group(
+        rows,
+        "traderEntryPriceBand",
+        max(1, int(args.min_trader_entry_price_band_bucket_samples)),
+        args,
+    )
     quarantined_sources = [row["bucketKey"] for row in by_source if row.get("status") == "QUARANTINE"]
     quarantined_traders = [row["bucketKey"] for row in by_trader if row.get("status") == "QUARANTINE"]
     quarantined_source_traders = [row["bucketKey"] for row in by_source_trader if row.get("status") == "QUARANTINE"]
+    quarantined_market_families = [row["bucketKey"] for row in by_market_family if row.get("status") == "QUARANTINE"]
+    quarantined_entry_price_bands = [row["bucketKey"] for row in by_entry_price_band if row.get("status") == "QUARANTINE"]
+    quarantined_trader_market_families = [
+        row["bucketKey"] for row in by_trader_market_family if row.get("status") == "QUARANTINE"
+    ]
+    quarantined_trader_entry_price_bands = [
+        row["bucketKey"] for row in by_trader_entry_price_band if row.get("status") == "QUARANTINE"
+    ]
+    promotable = {
+        "sources": [row["bucketKey"] for row in by_source if row.get("status") == "PROMOTABLE"],
+        "traders": [row["bucketKey"] for row in by_trader if row.get("status") == "PROMOTABLE"],
+        "sourceTraders": [row["bucketKey"] for row in by_source_trader if row.get("status") == "PROMOTABLE"],
+        "marketFamilies": [row["bucketKey"] for row in by_market_family if row.get("status") == "PROMOTABLE"],
+        "entryPriceBands": [row["bucketKey"] for row in by_entry_price_band if row.get("status") == "PROMOTABLE"],
+        "traderMarketFamilies": [
+            row["bucketKey"] for row in by_trader_market_family if row.get("status") == "PROMOTABLE"
+        ],
+        "traderEntryPriceBands": [
+            row["bucketKey"] for row in by_trader_entry_price_band if row.get("status") == "PROMOTABLE"
+        ],
+    }
+    weak_bucket_count = (
+        len(quarantined_sources)
+        + len(quarantined_traders)
+        + len(quarantined_source_traders)
+        + len(quarantined_market_families)
+        + len(quarantined_entry_price_bands)
+        + len(quarantined_trader_market_families)
+        + len(quarantined_trader_entry_price_bands)
+    )
     return {
-        "schema": "quantgod.polymarket_copy_trader_source_buckets.v1",
+        "schema": "quantgod.polymarket_copy_trader_source_buckets.v2",
         "generatedAtIso": utc_now_iso(),
         "thresholds": {
             "minTraderBucketSamples": max(1, int(args.min_trader_bucket_samples)),
             "minSourceBucketSamples": max(1, int(args.min_source_bucket_samples)),
             "minSourceTraderBucketSamples": max(1, int(args.min_source_trader_bucket_samples)),
+            "minMarketFamilyBucketSamples": max(1, int(args.min_market_family_bucket_samples)),
+            "minEntryPriceBandBucketSamples": max(1, int(args.min_entry_price_band_bucket_samples)),
+            "minTraderMarketFamilyBucketSamples": max(1, int(args.min_trader_market_family_bucket_samples)),
+            "minTraderEntryPriceBandBucketSamples": max(1, int(args.min_trader_entry_price_band_bucket_samples)),
             "minProfitFactor": safe_number(args.min_shadow_profit_factor),
             "minNetPnlUSDC": safe_number(args.min_shadow_net_pnl_usdc),
         },
@@ -705,11 +835,26 @@ def build_quality_buckets(rows: list[dict[str, Any]], args: argparse.Namespace) 
             "sources": quarantined_sources,
             "traders": quarantined_traders,
             "sourceTraders": quarantined_source_traders,
-            "weakBucketCount": len(quarantined_sources) + len(quarantined_traders) + len(quarantined_source_traders),
+            "marketFamilies": quarantined_market_families,
+            "entryPriceBands": quarantined_entry_price_bands,
+            "traderMarketFamilies": quarantined_trader_market_families,
+            "traderEntryPriceBands": quarantined_trader_entry_price_bands,
+            "weakBucketCount": weak_bucket_count,
+        },
+        "promotions": promotable,
+        "microScalpPolicy": {
+            "realWalletRequiresPromotedCompositeBucket": True,
+            "compositeBucketTypes": ["traderMarketFamily", "traderEntryPriceBand"],
+            "promotedCompositeBucketCount": len(promotable["traderMarketFamilies"])
+            + len(promotable["traderEntryPriceBands"]),
         },
         "bySource": by_source,
         "byTrader": by_trader,
         "bySourceTrader": by_source_trader,
+        "byMarketFamily": by_market_family,
+        "byEntryPriceBand": by_entry_price_band,
+        "byTraderMarketFamily": by_trader_market_family,
+        "byTraderEntryPriceBand": by_trader_entry_price_band,
     }
 
 
@@ -771,7 +916,15 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> 
 
 def flatten_bucket_rows(quality_buckets: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for key in ("bySource", "byTrader", "bySourceTrader"):
+    for key in (
+        "bySource",
+        "byTrader",
+        "bySourceTrader",
+        "byMarketFamily",
+        "byEntryPriceBand",
+        "byTraderMarketFamily",
+        "byTraderEntryPriceBand",
+    ):
         rows.extend(row for row in quality_buckets.get(key) or [] if isinstance(row, dict))
     return rows
 
@@ -801,6 +954,8 @@ def write_outputs(
         "side",
         "outcome",
         "marketTitle",
+        "marketFamily",
+        "entryPriceBand",
         "resolveDate",
         "signalPrice",
         "entryPrice",
@@ -1005,7 +1160,8 @@ def main() -> int:
     )
     print(
         f"{SOURCE_BUCKETS_NAME}: weakBuckets={quality_buckets['quarantine']['weakBucketCount']} | "
-        f"quarantinedTraders={len(quality_buckets['quarantine']['traders'])}"
+        f"quarantinedTraders={len(quality_buckets['quarantine']['traders'])} | "
+        f"promotedMicroBuckets={quality_buckets['microScalpPolicy']['promotedCompositeBucketCount']}"
     )
     return 0
 

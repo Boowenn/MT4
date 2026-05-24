@@ -188,7 +188,11 @@ run_copy_discovery
   --min-walk-forward-pass-rate-pct "${QG_POLYMARKET_COPY_MIN_WALK_FORWARD_PASS_RATE_PCT:-60}" \
   --min-trader-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_BUCKET_SAMPLES:-8}" \
   --min-source-bucket-samples "${QG_POLYMARKET_COPY_MIN_SOURCE_BUCKET_SAMPLES:-30}" \
-  --min-source-trader-bucket-samples "${QG_POLYMARKET_COPY_MIN_SOURCE_TRADER_BUCKET_SAMPLES:-8}"
+  --min-source-trader-bucket-samples "${QG_POLYMARKET_COPY_MIN_SOURCE_TRADER_BUCKET_SAMPLES:-8}" \
+  --min-market-family-bucket-samples "${QG_POLYMARKET_COPY_MIN_MARKET_FAMILY_BUCKET_SAMPLES:-12}" \
+  --min-entry-price-band-bucket-samples "${QG_POLYMARKET_COPY_MIN_ENTRY_PRICE_BAND_BUCKET_SAMPLES:-12}" \
+  --min-trader-market-family-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_MARKET_FAMILY_BUCKET_SAMPLES:-8}" \
+  --min-trader-entry-price-band-bucket-samples "${QG_POLYMARKET_COPY_MIN_TRADER_ENTRY_PRICE_BAND_BUCKET_SAMPLES:-8}"
 
 # Rebuild discovery so the wallet policy ingests the newly generated validation ledgers.
 run_copy_discovery

@@ -39,6 +39,10 @@ def args(**overrides):
         "min_trader_bucket_samples": 8,
         "min_source_bucket_samples": 30,
         "min_source_trader_bucket_samples": 8,
+        "min_market_family_bucket_samples": 12,
+        "min_entry_price_band_bucket_samples": 12,
+        "min_trader_market_family_bucket_samples": 8,
+        "min_trader_entry_price_band_bucket_samples": 8,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -70,6 +74,14 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
 
         self.assertEqual(context["marketSlug"], "sea-laz-pis-2026-05-24-laz")
         self.assertEqual(context["marketSlugs"], ["sea-laz-pis-2026-05-24-laz"])
+
+    def test_discovery_resolves_truncated_telegram_wallet_preview(self):
+        signals = [{"userName": "edge", "wallet": "", "walletPreview": "0xC8ab...6418"}]
+        wallets = ["0xc8ab97a9089a9ff7e6ef0688e6e591a066946418"]
+
+        resolved = discovery.resolve_signal_wallet_previews(signals, wallets)
+
+        self.assertEqual(resolved[0]["wallet"], wallets[0])
 
     def test_exact_slug_match_can_infer_yes_price_for_team_outcome(self):
         signal = {
@@ -139,6 +151,27 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertIn("weak", buckets["quarantine"]["traders"])
         self.assertEqual(buckets["byTrader"][0]["status"], "QUARANTINE")
 
+    def test_quality_buckets_promote_micro_scalp_composite_buckets(self):
+        rows = [
+            {
+                "source": "telegram_telethon",
+                "trader": "edge",
+                "marketFamily": "geopolitics",
+                "entryPriceBand": "0.20_0.40",
+                "validatedExit": True,
+                "currentPrice": 0.31,
+                "blockers": [],
+                "netPnlUSDC": 0.02,
+            }
+            for _ in range(8)
+        ]
+
+        buckets = replay.build_quality_buckets(rows, args())
+
+        self.assertIn("edge:geopolitics", buckets["promotions"]["traderMarketFamilies"])
+        self.assertIn("edge:0.20_0.40", buckets["promotions"]["traderEntryPriceBands"])
+        self.assertEqual(buckets["microScalpPolicy"]["promotedCompositeBucketCount"], 2)
+
     def test_merge_signals_keeps_prior_rows_and_overwrites_current_duplicate(self):
         previous_rows = [{
             "source": "telegram_telethon",
@@ -193,6 +226,104 @@ class PolymarketCopyTraderShadowReplayTests(unittest.TestCase):
         self.assertFalse(traders[0]["eligibleForShadowCopy"])
         self.assertIn("copy_replay_trader_bucket_quarantined", traders[0]["blockers"])
         self.assertEqual(traders[0]["copyReplayQuality"]["status"], "QUARANTINE")
+
+    def test_discovery_promoted_micro_bucket_can_restore_shadow_eligibility(self):
+        traders = [{
+            "userName": "edge",
+            "sourceKinds": ["telegram_channel"],
+            "eligibleForShadowCopy": False,
+            "currentPositionCount": 2,
+            "blockers": ["leaderboard_pnl_not_positive"],
+            "warnings": [],
+        }]
+        gate = {
+            "active": True,
+            "promotedCompositeTraders": ["edge"],
+            "quarantinedTraders": [],
+            "weakSources": [],
+            "quarantinedSourceTraders": [],
+            "byTrader": {},
+        }
+
+        discovery.apply_replay_quality_gate(traders, gate)
+
+        self.assertTrue(traders[0]["eligibleForShadowCopy"])
+        self.assertIn("copy_replay_promoted_micro_bucket_overrides_broad_score", traders[0]["warnings"])
+
+    def test_discovery_real_wallet_candidate_requires_promoted_micro_bucket(self):
+        traders = [{
+            "userName": "edge",
+            "proxyWallet": "0x0000000000000000000000000000000000000001",
+            "copyScore": 90,
+            "eligibleForShadowCopy": True,
+            "currentPositions": [{
+                "title": "Israel ceasefire by Friday?",
+                "slug": "israel-ceasefire-by-friday",
+                "eventSlug": "israel-ceasefire",
+                "outcome": "Yes",
+                "curPrice": 0.31,
+                "currentValue": 250,
+                "percentPnl": 1.0,
+            }],
+        }]
+        policy = {
+            "realWalletExecutionAllowed": True,
+            "hardBlockers": [],
+            "takeProfitPct": 2,
+            "takeProfitUSDC": 0.05,
+            "stopLossPct": 4,
+            "trailingStopPct": 2,
+            "maxPositionUSDC": 5,
+            "maxDailyLossUSDC": 2,
+            "minEntryPrice": 0.04,
+            "maxEntryPrice": 0.90,
+        }
+        gate = {
+            "active": True,
+            "hasMicroBuckets": True,
+            "realWalletRequiresPromotedCompositeBucket": True,
+            "promotedTraderMarketFamilies": ["edge:geopolitics"],
+            "promotedTraderEntryPriceBands": [],
+            "promotedMarketFamilies": [],
+            "promotedEntryPriceBands": [],
+            "quarantinedMarketFamilies": [],
+            "quarantinedEntryPriceBands": [],
+            "quarantinedTraderMarketFamilies": [],
+            "quarantinedTraderEntryPriceBands": [],
+            "byMarketFamily": {},
+            "byEntryPriceBand": {},
+            "byTraderMarketFamily": {},
+            "byTraderEntryPriceBand": {},
+        }
+
+        candidates = discovery.build_shadow_candidates(traders, 50, policy, gate)
+        blocked_candidates = discovery.build_shadow_candidates(
+            traders,
+            50,
+            policy,
+            {**gate, "promotedTraderMarketFamilies": []},
+        )
+        broad_market_blocked_candidates = discovery.build_shadow_candidates(
+            traders,
+            50,
+            policy,
+            {
+                **gate,
+                "promotedTraderMarketFamilies": [],
+                "promotedTraderEntryPriceBands": ["edge:0.20_0.40"],
+                "quarantinedMarketFamilies": ["geopolitics"],
+            },
+        )
+
+        self.assertTrue(candidates[0]["orderSendAllowed"])
+        self.assertEqual(candidates[0]["microScalpSuitability"]["status"], "PROMOTABLE")
+        self.assertFalse(blocked_candidates[0]["orderSendAllowed"])
+        self.assertIn("copy_replay_micro_bucket_not_promoted", blocked_candidates[0]["riskPlan"]["blockers"])
+        self.assertFalse(broad_market_blocked_candidates[0]["orderSendAllowed"])
+        self.assertIn(
+            "copy_replay_market_family_bucket_quarantined",
+            broad_market_blocked_candidates[0]["riskPlan"]["blockers"],
+        )
 
 
 if __name__ == "__main__":
