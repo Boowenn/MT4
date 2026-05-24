@@ -179,6 +179,7 @@ def strategy_gate(runtime_dir: Path, dashboard_dir: Path, args: argparse.Namespa
     walk_summary = walk.get("summary") if isinstance(walk.get("summary"), dict) else {}
     source = discovery.get("sourceStatus") if isinstance(discovery.get("sourceStatus"), dict) else {}
     telegram = source.get("telegramChannel") if isinstance(source.get("telegramChannel"), dict) else {}
+    wallet_policy = discovery.get("walletRiskPolicy") if isinstance(discovery.get("walletRiskPolicy"), dict) else {}
     shadow_samples = safe_int(
         shadow.get("samples")
         or shadow.get("outcomeSamples")
@@ -189,20 +190,46 @@ def strategy_gate(runtime_dir: Path, dashboard_dir: Path, args: argparse.Namespa
     )
     walk_batches = safe_int(walk.get("batches") or walk.get("windows") or walk_summary.get("batches") or walk_summary.get("windows"))
     telegram_active = safe_int(summary.get("telegramWallets")) > 0 or safe_int(summary.get("telegramSignals")) > 0 or bool(telegram.get("configured"))
+    global_evidence_gate = (
+        passed(shadow)
+        and shadow_samples >= max(1, int(args.min_shadow_samples))
+        and passed(walk)
+        and walk_batches >= max(1, int(args.min_walk_batches))
+    )
+    source_scoped_gate = (
+        bool(wallet_policy.get("sourceScopedMicroLiveGatePassed") or wallet_policy.get("strategyEvidenceGatePassed"))
+        and wallet_policy.get("realWalletRequested") is True
+        and wallet_policy.get("autonomousUnlockAllowed") is True
+    )
     checks = {
         "shadowReplayPassed": passed(shadow),
         "shadowReplaySamplesOk": shadow_samples >= max(1, int(args.min_shadow_samples)),
         "walkForwardPassed": passed(walk),
         "walkForwardBatchesOk": walk_batches >= max(1, int(args.min_walk_batches)),
+        "globalEvidenceGatePassed": global_evidence_gate,
+        "sourceScopedMicroLiveGatePassed": source_scoped_gate,
+        "validatedEvidenceGate": global_evidence_gate or source_scoped_gate,
         "isolatedRuntimePrepared": bool(isolated.get("runtimePrepared")),
         "telegramSourceActive": telegram_active,
         "shadowCandidatesPresent": safe_int(summary.get("shadowCandidates")) > 0,
     }
-    blockers = [key for key, value in checks.items() if not value]
+    blockers: list[str] = []
+    if not checks["validatedEvidenceGate"]:
+        blockers.append("validatedEvidenceGate")
+    for key in ("isolatedRuntimePrepared", "telegramSourceActive", "shadowCandidatesPresent"):
+        if not checks[key]:
+            blockers.append(key)
     return {
         "passed": not blockers,
         "checks": checks,
         "blockers": blockers,
+        "evidenceMode": "SOURCE_SCOPED_MICRO_LIVE" if source_scoped_gate and not global_evidence_gate else "GLOBAL_REPLAY_WALK_FORWARD" if global_evidence_gate else "BLOCKED",
+        "walletRiskPolicy": {
+            "status": wallet_policy.get("status", ""),
+            "strategyEvidenceGatePassed": bool(wallet_policy.get("strategyEvidenceGatePassed")),
+            "sourceScopedMicroLiveGatePassed": bool(wallet_policy.get("sourceScopedMicroLiveGatePassed")),
+            "sourceScopedMicroLiveGate": wallet_policy.get("sourceScopedMicroLiveGate", {}),
+        },
         "shadowReplay": {
             "status": shadow.get("status", "") or shadow_summary.get("status", ""),
             "samples": shadow_samples,

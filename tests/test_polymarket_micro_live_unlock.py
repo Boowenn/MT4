@@ -112,6 +112,46 @@ class PolymarketMicroLiveUnlockTests(unittest.TestCase):
             self.assertIn("QG_POLYMARKET_REAL_EXECUTION=false", env_text)
             self.assertIn("QG_POLYMARKET_CANARY_KILL_SWITCH=true", env_text)
 
+    def test_source_scoped_policy_unlocks_without_global_replay_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            dashboard = root / "dashboard"
+            write_json(
+                dashboard / module.COPY_DISCOVERY_NAME,
+                {
+                    "summary": {
+                        "shadowCandidates": 12,
+                        "telegramWallets": 8,
+                        "telegramSignals": 72,
+                    },
+                    "sourceStatus": {"telegramChannel": {"configured": True}},
+                    "walletRiskPolicy": {
+                        "realWalletRequested": True,
+                        "autonomousUnlockAllowed": True,
+                        "strategyEvidenceGatePassed": True,
+                        "sourceScopedMicroLiveGatePassed": True,
+                        "sourceScopedMicroLiveGate": {
+                            "promotedSources": ["telegram_telethon:ai 1000x polymarket"],
+                            "promotedCompositeBucketCount": 3,
+                        },
+                    },
+                },
+            )
+            write_json(dashboard / module.SHADOW_REPLAY_NAME, {"status": "FAILED", "passed": False, "samples": 211})
+            write_json(dashboard / module.WALK_FORWARD_NAME, {"status": "FAILED", "passed": False, "batches": 3})
+            write_json(dashboard / module.ISOLATED_RUNTIME_NAME, {"runtimePrepared": True})
+
+            payload = module.snapshot(args)
+
+            self.assertTrue(payload["strategyGatePassed"])
+            self.assertTrue(payload["softwareSwitchesUnlocked"])
+            self.assertEqual(payload["gate"]["evidenceMode"], "SOURCE_SCOPED_MICRO_LIVE")
+            self.assertTrue(Path(args.lock_file).exists())
+            env_text = Path(args.repo_env).read_text(encoding="utf-8")
+            self.assertIn("QG_POLYMARKET_REAL_EXECUTION=true", env_text)
+            self.assertIn("QG_POLYMARKET_CANARY_KILL_SWITCH=false", env_text)
+
 
 if __name__ == "__main__":
     unittest.main()

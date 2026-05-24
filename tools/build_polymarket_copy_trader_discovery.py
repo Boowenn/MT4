@@ -1334,6 +1334,7 @@ def wallet_risk_policy(
     args: argparse.Namespace,
     telegram_active: bool,
     validation: dict[str, Any],
+    quality_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     requested = str_to_bool(args.real_wallet_enabled)
     auto_unlock = str_to_bool(args.real_wallet_auto_unlock)
@@ -1341,6 +1342,8 @@ def wallet_risk_policy(
     runtime = wallet_runtime_preflight(Path(args.runtime_dir), Path(args.dashboard_dir) if args.dashboard_dir else Path(args.runtime_dir))
     shadow = validation.get("shadowReplay") if isinstance(validation.get("shadowReplay"), dict) else {}
     walk_forward = validation.get("walkForward") if isinstance(validation.get("walkForward"), dict) else {}
+    gate = quality_gate or {}
+    runtime_blockers = [str(item) for item in runtime.get("blockers") or []]
     blockers: list[str] = []
     if not requested:
         blockers.append("real_wallet_not_requested")
@@ -1348,18 +1351,53 @@ def wallet_risk_policy(
         blockers.append("autonomous_unlock_disabled")
     if require_telegram and not telegram_active:
         blockers.append("telegram_source_not_active")
+
+    global_evidence_blockers: list[str] = []
     if not shadow.get("passed"):
-        blockers.append("shadow_replay_not_validated")
+        global_evidence_blockers.append("shadow_replay_not_validated")
     if not walk_forward.get("passed"):
-        blockers.append("walk_forward_not_validated")
-    blockers.extend(str(item) for item in runtime.get("blockers") or [])
-    execution_allowed = requested and auto_unlock and not blockers
-    if execution_allowed:
+        global_evidence_blockers.append("walk_forward_not_validated")
+
+    promoted_sources = [str(item) for item in gate.get("promotedSources") or [] if str(item)]
+    promoted_source_traders = [str(item) for item in gate.get("promotedSourceTraders") or [] if str(item)]
+    promoted_micro_buckets = safe_int(gate.get("promotedCompositeBucketCount"))
+    weak_sources = [str(item) for item in gate.get("weakSources") or [] if str(item)]
+    source_scoped_source_traders = [
+        key
+        for key in promoted_source_traders
+        if any(key.startswith(f"{source}:") for source in promoted_sources)
+        and not any(key.startswith(f"{source}:") for source in weak_sources)
+    ]
+    source_scoped_gate_passed = bool(
+        gate.get("active")
+        and promoted_sources
+        and promoted_micro_buckets > 0
+    )
+    global_gate_passed = not global_evidence_blockers
+    if not (global_gate_passed or source_scoped_gate_passed):
+        blockers.extend(global_evidence_blockers)
+    blockers.extend(runtime_blockers)
+
+    evidence_gate_passed = requested and auto_unlock and (not require_telegram or telegram_active) and (
+        global_gate_passed or source_scoped_gate_passed
+    )
+    execution_allowed = evidence_gate_passed and not runtime_blockers
+    if execution_allowed and source_scoped_gate_passed and not global_gate_passed:
+        status = "AUTONOMOUS_SOURCE_SCOPED_MICRO_LIVE_ALLOWED"
+    elif execution_allowed:
         status = "AUTONOMOUS_REAL_WALLET_ALLOWED"
+    elif requested and evidence_gate_passed:
+        status = "AUTONOMOUS_SOURCE_SCOPED_MICRO_LIVE_BLOCKED_BY_RUNTIME"
     elif requested:
         status = "AUTONOMOUS_REAL_WALLET_BLOCKED_BY_EVIDENCE_GATE"
     else:
         status = "CONFIGURED_DISABLED"
+    warnings: list[str] = []
+    if source_scoped_gate_passed and not global_gate_passed:
+        if not shadow.get("passed"):
+            warnings.append("global_shadow_replay_not_validated_but_source_scope_promoted")
+        if not walk_forward.get("passed"):
+            warnings.append("global_walk_forward_not_validated_but_source_scope_promoted")
     return {
         "status": status,
         "realWalletRequested": requested,
@@ -1372,6 +1410,19 @@ def wallet_risk_policy(
         "realWalletExecutionAllowed": execution_allowed,
         "walletWriteAllowed": execution_allowed,
         "orderSendAllowed": execution_allowed,
+        "strategyEvidenceGatePassed": evidence_gate_passed,
+        "globalEvidenceGatePassed": global_gate_passed,
+        "sourceScopedMicroLiveGatePassed": source_scoped_gate_passed,
+        "sourceScopedMicroLiveGate": {
+            "active": source_scoped_gate_passed,
+            "mode": "PROMOTED_SOURCE_AND_PROMOTED_TRADER_MICRO_BUCKET",
+            "promotedSources": promoted_sources,
+            "promotedSourceTraders": source_scoped_source_traders,
+            "weakSources": weak_sources,
+            "promotedCompositeBucketCount": promoted_micro_buckets,
+            "requiresSignalPositionMatch": True,
+            "ignoresQuarantinedSources": True,
+        },
         "takeProfitPct": round(args.real_wallet_take_profit_pct, 4),
         "takeProfitUSDC": round(args.real_wallet_take_profit_usdc, 4),
         "stopLossPct": round(args.real_wallet_stop_loss_pct, 4),
@@ -1382,18 +1433,21 @@ def wallet_risk_policy(
         "minEntryPrice": round(args.real_wallet_min_entry_price, 4),
         "maxEntryPrice": round(args.real_wallet_max_entry_price, 4),
         "hardBlockers": blockers,
+        "evidenceBlockers": [] if global_gate_passed or source_scoped_gate_passed else global_evidence_blockers,
+        "runtimeBlockers": runtime_blockers,
+        "warnings": warnings,
         "validation": validation,
         "runtimePreflight": runtime,
         "autoUnlockCriteria": [
             "Telegram 来源可读并能提取钱包/信号",
-            f"shadow replay >= {int(args.min_shadow_replay_trades)} 笔且 PF >= {float(args.min_shadow_profit_factor):.2f} 且净 PnL > 0",
-            f"walk-forward >= {int(args.min_walk_forward_batches)} 批且 pass rate >= {float(args.min_walk_forward_pass_rate_pct):.0f}%",
+            f"全局 shadow replay >= {int(args.min_shadow_replay_trades)} 笔且 PF >= {float(args.min_shadow_profit_factor):.2f} 且净 PnL > 0，或单一来源桶已晋级且有晋级交易员/盘口微桶",
+            f"全局 walk-forward >= {int(args.min_walk_forward_batches)} 批且 pass rate >= {float(args.min_walk_forward_pass_rate_pct):.0f}%，或启用来源/交易员桶独立 micro-live",
             "真实钱包 runtime 配置齐全、kill switch 关闭、isolated_clob adapter 可用",
             "每笔订单必须带 TP/SL、追踪止损、单笔上限、日亏损上限和最大持仓数",
         ],
         "nextAction": (
-            "系统会自动判断是否放开真实钱包；满足全部硬门槛时不需要人工批准。"
-            "当前若仍有 hardBlockers，则自动保持钱包隔离。"
+            "系统会自动判断是否放开真实钱包；全局通过时可整体 micro-live，"
+            "来源桶通过时只允许该来源且匹配晋级交易员/盘口桶的逐笔候选。"
         ),
     }
 
@@ -1410,6 +1464,80 @@ def bucket_rows_by_key(rows: Any) -> dict[str, dict[str, Any]]:
 
 def normalized_bucket_set(payload: dict[str, Any], key: str) -> set[str]:
     return {str(item).strip().lower() for item in payload.get(key) or [] if str(item).strip()}
+
+
+def source_key_from_signal(signal: dict[str, Any]) -> str:
+    signal_source = str(signal.get("source") or "telegram_channel").strip().lower()
+    signal_channel = str(signal.get("channelName") or "").strip().lower()
+    return f"{signal_source}:{signal_channel}" if signal_channel else signal_source
+
+
+def normalize_match_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = urllib.parse.unquote(text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def normalize_slug_text(value: Any) -> str:
+    text = urllib.parse.unquote(str(value or "").strip().strip("/").lower())
+    if text.startswith("predictmon--"):
+        text = text[len("predictmon--") :]
+    return text
+
+
+def signal_matches_position(signal: dict[str, Any], position: dict[str, Any]) -> bool:
+    signal_slugs = [signal.get("marketSlug")]
+    if isinstance(signal.get("marketSlugs"), list):
+        signal_slugs.extend(signal.get("marketSlugs") or [])
+    position_slugs = [position.get("slug"), position.get("eventSlug")]
+    signal_slug_set = {normalize_slug_text(item) for item in signal_slugs if str(item or "").strip()}
+    position_slug_set = {normalize_slug_text(item) for item in position_slugs if str(item or "").strip()}
+    slug_match = bool(signal_slug_set and position_slug_set and signal_slug_set.intersection(position_slug_set))
+    if not slug_match:
+        signal_title = normalize_match_text(signal.get("marketTitle") or signal.get("matchedQuestion"))
+        position_title = normalize_match_text(position.get("title"))
+        slug_match = bool(signal_title and position_title and (signal_title in position_title or position_title in signal_title))
+    if not slug_match:
+        return False
+    signal_outcome = normalize_match_text(signal.get("outcome"))
+    position_outcome = normalize_match_text(position.get("outcome"))
+    return not signal_outcome or not position_outcome or signal_outcome == position_outcome
+
+
+def candidate_source_attribution(trader: dict[str, Any], position: dict[str, Any]) -> dict[str, Any]:
+    trader_name = str(trader.get("userName") or trader.get("proxyWallet") or "").strip().lower()
+    matched_signals: list[dict[str, Any]] = []
+    fallback_signals: list[dict[str, Any]] = []
+    for signal in trader.get("telegramSignals") or []:
+        if not isinstance(signal, dict):
+            continue
+        source_key = source_key_from_signal(signal)
+        if not source_key:
+            continue
+        if signal_matches_position(signal, position):
+            matched_signals.append(signal)
+        fallback_signals.append(signal)
+    source_signals = matched_signals or fallback_signals
+    source_keys = sorted({source_key_from_signal(signal) for signal in source_signals if source_key_from_signal(signal)})
+    source_trader_keys = sorted({f"{source}:{trader_name}" for source in source_keys if trader_name})
+    compact_matches = []
+    for signal in matched_signals[:3]:
+        compact_matches.append(
+            {
+                "source": signal.get("source", ""),
+                "channelName": signal.get("channelName", ""),
+                "messageDate": signal.get("messageDate", ""),
+                "marketSlug": signal.get("marketSlug", ""),
+                "outcome": signal.get("outcome", ""),
+            }
+        )
+    return {
+        "signalPositionMatched": bool(matched_signals),
+        "sourceKeys": source_keys,
+        "sourceTraderKeys": source_trader_keys,
+        "matchedSignals": compact_matches,
+    }
 
 
 def composite_traders(keys: set[str]) -> set[str]:
@@ -1432,6 +1560,8 @@ def replay_quality_gate(shadow_replay: dict[str, Any]) -> dict[str, Any]:
     entry_price_bands = normalized_bucket_set(quarantine, "entryPriceBands")
     trader_market_families = normalized_bucket_set(quarantine, "traderMarketFamilies")
     trader_entry_price_bands = normalized_bucket_set(quarantine, "traderEntryPriceBands")
+    promoted_sources = normalized_bucket_set(promotions, "sources")
+    promoted_source_traders = normalized_bucket_set(promotions, "sourceTraders")
     promoted_market_families = normalized_bucket_set(promotions, "marketFamilies")
     promoted_entry_price_bands = normalized_bucket_set(promotions, "entryPriceBands")
     promoted_trader_market_families = normalized_bucket_set(promotions, "traderMarketFamilies")
@@ -1453,6 +1583,8 @@ def replay_quality_gate(shadow_replay: dict[str, Any]) -> dict[str, Any]:
         "quarantinedEntryPriceBands": sorted(entry_price_bands),
         "quarantinedTraderMarketFamilies": sorted(trader_market_families),
         "quarantinedTraderEntryPriceBands": sorted(trader_entry_price_bands),
+        "promotedSources": sorted(promoted_sources),
+        "promotedSourceTraders": sorted(promoted_source_traders),
         "promotedMarketFamilies": sorted(promoted_market_families),
         "promotedEntryPriceBands": sorted(promoted_entry_price_bands),
         "promotedTraderMarketFamilies": sorted(promoted_trader_market_families),
@@ -1465,6 +1597,8 @@ def replay_quality_gate(shadow_replay: dict[str, Any]) -> dict[str, Any]:
         "promotedCompositeBucketCount": safe_int(micro_policy.get("promotedCompositeBucketCount")),
         "weakBucketCount": safe_int(quarantine.get("weakBucketCount")),
         "byTrader": bucket_rows_by_key(buckets.get("byTrader")),
+        "bySource": bucket_rows_by_key(buckets.get("bySource")),
+        "bySourceTrader": bucket_rows_by_key(buckets.get("bySourceTrader")),
         "byMarketFamily": bucket_rows_by_key(buckets.get("byMarketFamily")),
         "byEntryPriceBand": bucket_rows_by_key(buckets.get("byEntryPriceBand")),
         "byTraderMarketFamily": bucket_rows_by_key(buckets.get("byTraderMarketFamily")),
@@ -1563,6 +1697,7 @@ def candidate_micro_scalp_suitability(
     trader_name = str(trader.get("userName") or trader.get("proxyWallet") or "").strip().lower()
     trader_family_key = f"{trader_name}:{family}" if trader_name else f"unknown:{family}"
     trader_band_key = f"{trader_name}:{band}" if trader_name else f"unknown:{band}"
+    source_attribution = candidate_source_attribution(trader, position)
     if not gate.get("active") or not gate.get("hasMicroBuckets"):
         return {
             "status": "NOT_ACTIVE",
@@ -1571,6 +1706,7 @@ def candidate_micro_scalp_suitability(
             "entryPriceBand": band,
             "traderMarketFamilyKey": trader_family_key,
             "traderEntryPriceBandKey": trader_band_key,
+            "sourceAttribution": source_attribution,
             "realWalletEligibleByMicroBucket": False,
             "blockers": [],
             "warnings": ["copy_replay_micro_buckets_not_ready"],
@@ -1585,11 +1721,30 @@ def candidate_micro_scalp_suitability(
     quarantined_band = band in set(gate.get("quarantinedEntryPriceBands") or [])
     quarantined_trader_family = trader_family_key in set(gate.get("quarantinedTraderMarketFamilies") or [])
     quarantined_trader_band = trader_band_key in set(gate.get("quarantinedTraderEntryPriceBands") or [])
+    promoted_sources = set(gate.get("promotedSources") or [])
+    promoted_source_traders = set(gate.get("promotedSourceTraders") or [])
+    weak_sources = set(gate.get("weakSources") or [])
+    quarantined_source_traders = set(gate.get("quarantinedSourceTraders") or [])
+    candidate_sources = set(source_attribution.get("sourceKeys") or [])
+    candidate_source_traders = set(source_attribution.get("sourceTraderKeys") or [])
+    promoted_source = bool(candidate_sources.intersection(promoted_sources))
+    source_quarantined = bool(candidate_sources.intersection(weak_sources) or candidate_source_traders.intersection(quarantined_source_traders))
+    promoted_source_trader = bool(candidate_source_traders.intersection(promoted_source_traders)) and promoted_source and not source_quarantined
+    source_promoted = promoted_source or promoted_source_trader
     price_path_promoted = promoted_trader_band and not quarantined_family
     composite_promoted = promoted_trader_family or price_path_promoted
     composite_quarantined = quarantined_trader_family or quarantined_trader_band
     blockers: list[str] = []
     warnings: list[str] = []
+    requires_promoted_source = bool(promoted_sources or promoted_source_traders or weak_sources or quarantined_source_traders)
+    if requires_promoted_source and not source_attribution.get("signalPositionMatched"):
+        blockers.append("copy_replay_signal_position_not_matched")
+    if source_quarantined and not source_promoted:
+        blockers.append("copy_replay_source_bucket_quarantined")
+    elif source_quarantined:
+        warnings.append("copy_replay_source_bucket_weak_but_source_trader_promoted")
+    if requires_promoted_source and not source_promoted:
+        blockers.append("copy_replay_source_bucket_not_promoted")
     if composite_quarantined:
         blockers.append("copy_replay_micro_bucket_quarantined")
     if gate.get("realWalletRequiresPromotedCompositeBucket") and not composite_promoted:
@@ -1604,6 +1759,16 @@ def candidate_micro_scalp_suitability(
         warnings.append("copy_replay_broad_price_bucket_weak_but_trader_price_promoted")
 
     bucket_evidence = {
+        "source": [
+            compact_bucket_evidence((gate.get("bySource") or {}).get(key))
+            for key in sorted(candidate_sources)
+            if (gate.get("bySource") or {}).get(key)
+        ],
+        "sourceTrader": [
+            compact_bucket_evidence((gate.get("bySourceTrader") or {}).get(key))
+            for key in sorted(candidate_source_traders)
+            if (gate.get("bySourceTrader") or {}).get(key)
+        ],
         "marketFamily": compact_bucket_evidence((gate.get("byMarketFamily") or {}).get(family)),
         "entryPriceBand": compact_bucket_evidence((gate.get("byEntryPriceBand") or {}).get(band)),
         "traderMarketFamily": compact_bucket_evidence((gate.get("byTraderMarketFamily") or {}).get(trader_family_key)),
@@ -1618,6 +1783,11 @@ def candidate_micro_scalp_suitability(
         "entryPriceBand": band,
         "traderMarketFamilyKey": trader_family_key,
         "traderEntryPriceBandKey": trader_band_key,
+        "sourceAttribution": source_attribution,
+        "sourcePromoted": source_promoted,
+        "promotedSource": promoted_source,
+        "promotedSourceTrader": promoted_source_trader,
+        "sourceQuarantined": source_quarantined,
         "promotedMarketFamily": promoted_family,
         "promotedEntryPriceBand": promoted_band,
         "promotedTraderMarketFamily": promoted_trader_family,
@@ -1940,8 +2110,8 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         "shadowReplay": validation_signal("shadow_replay", shadow_replay, shadow_replay_path, args),
         "walkForward": validation_signal("walk_forward", walk_forward, walk_forward_path, args),
     }
-    policy = wallet_risk_policy(args, bool(telegram.get("active")), validation)
     quality_gate = replay_quality_gate(shadow_replay)
+    policy = wallet_risk_policy(args, bool(telegram.get("active")), validation, quality_gate)
     traders = apply_replay_quality_gate(traders, quality_gate)
     shadow_candidates = build_shadow_candidates(traders, args.min_current_value, policy, quality_gate)
     eligible_count = sum(1 for row in traders if row.get("eligibleForShadowCopy"))
