@@ -41,6 +41,7 @@ PREFLIGHT_FIELDS = [
     "real_execution_switch",
     "kill_switch_off",
     "private_key_configured",
+    "effective_v2_signature_type",
     "wallet_write_allowed",
     "order_send_allowed",
     "blockers",
@@ -66,6 +67,26 @@ def env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def clob_v2_signature_type() -> int:
+    explicit = os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE")
+    if explicit not in (None, ""):
+        return safe_int(explicit, 3)
+    legacy = os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE")
+    funder = os.environ.get("QG_POLYMARKET_FUNDER")
+    if funder and str(legacy or "").strip() in {"", "1", "2", "3"}:
+        return 3
+    return safe_int(legacy, 0)
 
 
 def py_clob_client_available() -> bool:
@@ -151,6 +172,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "realExecutionSwitch": env_bool("QG_POLYMARKET_REAL_EXECUTION"),
         "killSwitchOff": str(os.environ.get("QG_POLYMARKET_CANARY_KILL_SWITCH", "true")).strip().lower() == "false",
         "privateKeyConfigured": bool(os.environ.get("QG_POLYMARKET_PRIVATE_KEY")),
+        "effectiveV2SignatureType": clob_v2_signature_type(),
     }
     runtime_prepared = bool(dirs.get("root")) and checks["adapterIsolatedClob"] and checks["clobHostConfigured"] and checks["pyClobClientAvailable"]
     blockers = preflight_blockers(checks)
@@ -179,6 +201,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "wallet": {
             "privateKeyConfigured": checks["privateKeyConfigured"],
             "funderConfigured": bool(os.environ.get("QG_POLYMARKET_FUNDER")),
+            "effectiveV2SignatureType": checks["effectiveV2SignatureType"],
             "neverEchoesSecretValues": True,
         },
         "runtimeSwitches": {
@@ -232,6 +255,7 @@ def preflight_csv(snapshot: dict[str, Any]) -> str:
             "real_execution_switch": snapshot["runtimeSwitches"]["realExecutionSwitch"],
             "kill_switch_off": snapshot["runtimeSwitches"]["killSwitchOff"],
             "private_key_configured": snapshot["wallet"]["privateKeyConfigured"],
+            "effective_v2_signature_type": snapshot["wallet"]["effectiveV2SignatureType"],
             "wallet_write_allowed": snapshot["safety"]["walletWriteAllowed"],
             "order_send_allowed": snapshot["safety"]["orderSendAllowed"],
             "blockers": " / ".join(preflight["blockers"]),

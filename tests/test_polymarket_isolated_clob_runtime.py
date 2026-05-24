@@ -85,6 +85,7 @@ class PolymarketIsolatedClobRuntimeTests(unittest.TestCase):
             self.assertFalse(snapshot["safety"]["orderSendAllowed"])
             self.assertFalse(snapshot["safety"]["walletWriteAllowed"])
             self.assertTrue(snapshot["wallet"]["privateKeyConfigured"])
+            self.assertEqual(snapshot["wallet"]["effectiveV2SignatureType"], 3)
             self.assertNotIn("super-secret-test-key", text)
             self.assertGreaterEqual(len(written), 4)
             self.assertTrue((Path(args.isolated_root) / "audit" / setup_runtime.ORDER_INTENT_LEDGER).exists())

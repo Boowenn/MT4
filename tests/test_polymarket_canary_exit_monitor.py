@@ -32,15 +32,19 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
         os.environ["QG_POLYMARKET_CANARY_EXIT_MONITOR_PLAN_ONLY"] = "false"
         self._originals = {
             "make_client": module.make_client,
+            "make_readonly_client": module.make_readonly_client,
             "latest_trade_for_order": module.latest_trade_for_order,
             "current_exit_price": module.current_exit_price,
             "current_position_size": module.current_position_size,
+            "public_position_size": module.public_position_size,
             "send_exit_order": module.send_exit_order,
         }
+        module.make_readonly_client = lambda: object()
         module.make_client = lambda: object()
         module.latest_trade_for_order = lambda client, order_id: {"asset_id": "token-1", "price": 0.5}
         module.current_exit_price = lambda client, token_id: 0.48
         module.current_position_size = lambda client, token_id: 6.0
+        module.public_position_size = lambda token_id: 6.0
         module.send_exit_order = lambda client, token_id, size, price: (
             True,
             "EXIT_ORDER_SENT_V2",
@@ -219,6 +223,53 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
             self.assertEqual(position["takeProfitUSDCPrice"], 0.5083)
             self.assertEqual(position["unrealizedPnlUSDC"], 0.06)
             self.assertTrue(position["exitSent"])
+
+    def test_zero_size_exit_signal_does_not_authenticate_clob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_executor(root)
+            module.current_exit_price = lambda client, token_id: 0.36
+            module.public_position_size = lambda token_id: 0.0
+
+            def fail_auth():
+                raise AssertionError("trading client auth should not be attempted for zero-size exits")
+
+            module.make_client = fail_auth
+
+            snapshot = module.build_snapshot(self.args(root))
+
+            position = snapshot["positions"][0]
+            self.assertEqual(position["decision"], "EXIT_STOP_LOSS")
+            self.assertEqual(position["adapterStatus"], "EXIT_SIZE_BELOW_MIN")
+            self.assertFalse(position["exitSent"])
+            self.assertFalse(snapshot["clobAuth"]["attempted"])
+            self.assertEqual(snapshot["summary"]["clobAuthStatus"], "NOT_ATTEMPTED_NO_SELLABLE_POSITION")
+
+    def test_v2_signature_type_infers_poly_1271_for_funder_wallet(self):
+        os.environ["QG_POLYMARKET_SIGNATURE_TYPE"] = "1"
+        os.environ["QG_POLYMARKET_FUNDER"] = "0x" + "a" * 40
+
+        self.assertEqual(module.clob_v2_signature_type(), 3)
+
+    def test_auth_config_prefers_derive_without_create_noise(self):
+        calls = []
+
+        class FakeClient:
+            def derive_api_key(self):
+                calls.append("derive")
+                return {"apiKey": "derived"}
+
+            def create_api_key(self):
+                calls.append("create")
+                return {"apiKey": "created"}
+
+            def set_api_creds(self, creds):
+                calls.append(("set", creds["apiKey"]))
+
+        module.configure_client_api_creds(FakeClient())
+
+        self.assertEqual(calls, ["derive", ("set", "derived")])
+
 
 
 if __name__ == "__main__":

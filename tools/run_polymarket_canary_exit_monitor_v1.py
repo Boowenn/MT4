@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import os
 import tempfile
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +23,7 @@ ORDER_AUDIT_LEDGER = "QuantGod_PolymarketCanaryOrderAuditLedger.csv"
 EXIT_LEDGER = "QuantGod_PolymarketCanaryExitLedger.csv"
 POSITION_LEDGER = "QuantGod_PolymarketCanaryPositionLedger.csv"
 SCHEMA_VERSION = "1.0"
+DATA_API_BASE = "https://data-api.polymarket.com"
 
 
 def utc_now_iso() -> str:
@@ -96,6 +101,38 @@ def read_first_csv(name: str, runtime_dir: Path, dashboard_dir: Path) -> tuple[l
     return [], ""
 
 
+def clob_v2_signature_type() -> int:
+    explicit = os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE")
+    if explicit not in (None, ""):
+        return safe_int(explicit, 3)
+    legacy = os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE")
+    funder = os.environ.get("QG_POLYMARKET_FUNDER")
+    if funder and str(legacy or "").strip() in {"", "1", "2", "3"}:
+        return 3
+    return safe_int(legacy, 0)
+
+
+def make_readonly_client():
+    from py_clob_client_v2 import ClobClient  # type: ignore
+
+    return ClobClient(
+        host=os.environ.get("QG_POLYMARKET_CLOB_HOST") or "https://clob.polymarket.com",
+        chain_id=safe_int(os.environ.get("QG_POLYMARKET_CHAIN_ID"), 137),
+        retry_on_error=True,
+    )
+
+
+def configure_client_api_creds(client: Any) -> None:
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            client.set_api_creds(client.derive_api_key())
+    except Exception as derive_exc:
+        if not str_to_bool(os.environ.get("QG_POLYMARKET_CLOB_ALLOW_CREATE_API_KEY"), False):
+            raise derive_exc
+        with contextlib.redirect_stderr(io.StringIO()):
+            client.set_api_creds(client.create_api_key())
+
+
 def make_client():
     from py_clob_client_v2 import ClobClient  # type: ignore
 
@@ -106,12 +143,13 @@ def make_client():
         host=os.environ.get("QG_POLYMARKET_CLOB_HOST") or "https://clob.polymarket.com",
         chain_id=safe_int(os.environ.get("QG_POLYMARKET_CHAIN_ID"), 137),
         key=private_key,
-        signature_type=safe_int(os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE"), 0),
+        signature_type=clob_v2_signature_type(),
         funder=os.environ.get("QG_POLYMARKET_FUNDER") or None,
+        use_server_time=True,
         retry_on_error=True,
     )
     try:
-        client.set_api_creds(client.create_or_derive_api_key())
+        configure_client_api_creds(client)
     except Exception as exc:
         setattr(client, "_qg_api_creds_error", f"{type(exc).__name__}:{str(exc)[:160]}")
     return client
@@ -140,6 +178,49 @@ def current_position_size(client: Any, token_id: str) -> float:
     except Exception:
         return 0.0
     return safe_number(payload.get("balance"), 0.0) / 1_000_000.0
+
+
+def public_position_size(token_id: str) -> float | None:
+    funder = os.environ.get("QG_POLYMARKET_FUNDER") or ""
+    if not funder or not token_id:
+        return None
+    query = urllib.parse.urlencode(
+        {
+            "user": funder,
+            "limit": 500,
+            "sizeThreshold": 0,
+            "sortBy": "CURRENT",
+            "sortDirection": "DESC",
+        }
+    )
+    request = urllib.request.Request(
+        f"{DATA_API_BASE}/positions?{query}",
+        headers={"Accept": "application/json", "User-Agent": "QuantGodPolymarketExitMonitor/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    rows = payload if isinstance(payload, list) else payload.get("data") if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        return None
+    wanted = str(token_id).strip()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        asset = str(row.get("asset") or row.get("tokenId") or row.get("token_id") or "")
+        if asset != wanted:
+            continue
+        size = safe_number(row.get("size"), -1.0)
+        if size >= 0:
+            return size
+        current_value = safe_number(row.get("currentValue"), 0.0)
+        price = safe_number(row.get("curPrice") or row.get("avgPrice"), 0.0)
+        if current_value > 0 and price > 0:
+            return current_value / price
+        return 0.0
+    return 0.0
 
 
 def current_exit_price(client: Any, token_id: str) -> float:
@@ -454,7 +535,10 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     executor, executor_path = read_first_json(EXECUTOR_RUN_NAME, runtime_dir, dashboard_dir)
     copy_discovery, copy_discovery_path = read_first_json(COPY_DISCOVERY_NAME, runtime_dir, dashboard_dir)
     order_audit_rows, order_audit_path = read_first_csv(ORDER_AUDIT_LEDGER, runtime_dir, dashboard_dir)
-    client = make_client()
+    readonly_client = make_readonly_client()
+    trading_client: Any | None = None
+    auth_attempted = False
+    auth_error = ""
     highs = previous_highs(runtime_dir, dashboard_dir)
     positions: list[dict[str, Any]] = []
     exits_sent = 0
@@ -463,14 +547,21 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     for plan in active_order_plans(executor, order_audit_rows):
         response = plan.get("response") if isinstance(plan.get("response"), dict) else {}
         order_id = str(response.get("orderID") or response.get("id") or "")
-        trade = latest_trade_for_order(client, order_id)
-        token_id = str(trade.get("asset_id") or "") or resolve_plan_token_id(plan, copy_discovery)
+        token_id = resolve_plan_token_id(plan, copy_discovery)
+        trade = latest_trade_for_order(readonly_client, order_id)
+        token_id = token_id or str(trade.get("asset_id") or "")
         if not token_id:
             continue
         plan = enrich_plan_from_discovery(plan, token_id, copy_discovery)
         entry = safe_number(trade.get("price"), safe_number(plan.get("limitPrice"), 0.0))
-        current = current_exit_price(client, token_id)
-        size = current_position_size(client, token_id)
+        current = current_exit_price(readonly_client, token_id)
+        public_size = public_position_size(token_id)
+        size_source = "polymarket_data_api_public"
+        if public_size is None:
+            size = current_position_size(readonly_client, token_id)
+            size_source = "clob_balance_allowance_readonly_fallback"
+        else:
+            size = public_size
         high = max(entry, current, highs.get(token_id, 0.0))
         decision, reason, levels = exit_decision(
             entry=entry,
@@ -497,8 +588,18 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             elif current <= 0:
                 adapter_status = "EXIT_PRICE_UNAVAILABLE"
             else:
-                exit_sent, adapter_status, exit_response = send_exit_order(client, token_id, size, current)
-                exits_sent += int(exit_sent)
+                if trading_client is None and not auth_error:
+                    auth_attempted = True
+                    try:
+                        trading_client = make_client()
+                    except Exception as exc:
+                        auth_error = f"{type(exc).__name__}:{str(exc)[:160]}"
+                if trading_client is None:
+                    adapter_status = "CLOB_AUTH_UNAVAILABLE"
+                    exit_response = {"error": auth_error}
+                else:
+                    exit_sent, adapter_status, exit_response = send_exit_order(trading_client, token_id, size, current)
+                    exits_sent += int(exit_sent)
         positions.append({
             "candidateId": plan.get("candidateId"),
             "orderID": order_id,
@@ -511,6 +612,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "currentExitPrice": round(current, 4),
             "highWatermarkPrice": round(high, 4),
             "positionSize": round(size, 6),
+            "positionSizeSource": size_source,
             **levels,
             **source_state,
             "decision": decision,
@@ -535,6 +637,14 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "exitSignals": sum(1 for row in positions if str(row.get("decision", "")).startswith("EXIT_")),
             "exitsSent": exits_sent,
             "sourceExitSignals": sum(1 for row in positions if row.get("reason") == "copied_trader_no_longer_holds_token"),
+            "clobAuthAttempted": auth_attempted,
+            "clobAuthStatus": "ERROR" if auth_error else "ATTEMPTED_OK" if auth_attempted else "NOT_ATTEMPTED_NO_SELLABLE_POSITION",
+        },
+        "clobAuth": {
+            "attempted": auth_attempted,
+            "status": "ERROR" if auth_error else "ATTEMPTED_OK" if auth_attempted else "NOT_ATTEMPTED_NO_SELLABLE_POSITION",
+            "effectiveV2SignatureType": clob_v2_signature_type(),
+            "error": auth_error,
         },
         "positions": positions,
     }
@@ -564,6 +674,7 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
         "currentExitPrice",
         "highWatermarkPrice",
         "positionSize",
+        "positionSizeSource",
         "takeProfitPrice",
         "takeProfitUSDC",
         "takeProfitUSDCPrice",

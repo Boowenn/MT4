@@ -9,6 +9,7 @@ adapter preflight passes. This script never touches MT5.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import io
 import json
@@ -148,6 +149,43 @@ def runtime_blockers(env_state: dict[str, Any]) -> list[str]:
     if not env_state["clobHostConfigured"]:
         blockers.append("CLOB_HOST_ENV_MISSING")
     return blockers
+
+
+def clob_v2_signature_type() -> int:
+    explicit = os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE")
+    if explicit not in (None, ""):
+        return safe_int(explicit, 3)
+    legacy = os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE")
+    funder = os.environ.get("QG_POLYMARKET_FUNDER")
+    if funder and str(legacy or "").strip() in {"", "1", "2", "3"}:
+        return 3
+    return safe_int(legacy, 0)
+
+
+def clob_legacy_signature_type() -> int:
+    return safe_int(os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE"), 0)
+
+
+def str_to_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def configure_v2_api_creds(client: Any) -> None:
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            client.set_api_creds(client.derive_api_key())
+    except Exception as derive_exc:
+        if not str_to_bool(os.environ.get("QG_POLYMARKET_CLOB_ALLOW_CREATE_API_KEY"), False):
+            raise derive_exc
+        with contextlib.redirect_stderr(io.StringIO()):
+            client.set_api_creds(client.create_api_key())
 
 
 def by_market(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -371,7 +409,7 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     private_key = os.environ.get("QG_POLYMARKET_PRIVATE_KEY") or ""
     host = os.environ.get("QG_POLYMARKET_CLOB_HOST") or "https://clob.polymarket.com"
     chain_id = safe_int(os.environ.get("QG_POLYMARKET_CHAIN_ID"), 137)
-    signature_type = safe_int(os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE"), 0)
+    signature_type = clob_v2_signature_type()
     funder = os.environ.get("QG_POLYMARKET_FUNDER") or None
     if not token_id or not private_key:
         return False, "CLOB_TOKEN_OR_PRIVATE_KEY_MISSING", {}
@@ -384,9 +422,10 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
             key=private_key,
             signature_type=signature_type,
             funder=funder,
+            use_server_time=True,
             retry_on_error=True,
         )
-        client.set_api_creds(client.create_or_derive_api_key())
+        configure_v2_api_creds(client)
         side = "BUY" if str(plan.get("side") or "BUY").upper() in {"YES", "BUY"} else "SELL"
         order_args = OrderArgs(
             price=float(plan["limitPrice"]),
@@ -411,7 +450,7 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     except Exception as exc:  # pragma: no cover - environment dependent
         return False, f"CLOB_ADAPTER_IMPORT_FAILED:{type(exc).__name__}", {"v2Error": v2_error}
     try:  # pragma: no cover - intentionally guarded and not exercised by tests
-        client = ClobClient(host, key=private_key, chain_id=chain_id, funder=funder)
+        client = ClobClient(host, key=private_key, chain_id=chain_id, signature_type=clob_legacy_signature_type(), funder=funder)
         client.set_api_creds(client.create_or_derive_api_creds())
         side = BUY if str(plan.get("side") or "YES").upper() in {"YES", "BUY"} else SELL
         order_args = OrderArgs(
