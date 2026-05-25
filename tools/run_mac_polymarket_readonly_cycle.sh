@@ -259,8 +259,7 @@ fi
   --runtime-dir "$RUNTIME_DIR" \
   --dashboard-dir "$DASHBOARD_DIR" \
   --polymarket-root "$HISTORY_DIR" \
-  --db-path "$HISTORY_DB" \
-  --skip-account-snapshot
+  --db-path "$HISTORY_DB"
 
 "$PYTHON_BIN" tools/build_polymarket_retune_planner.py \
   --runtime-dir "$RUNTIME_DIR" \

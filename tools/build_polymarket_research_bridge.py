@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -118,6 +119,105 @@ def parse_env_file(env_path: Path) -> dict[str, str]:
             value = value[1:-1]
         values[key] = value
     return values
+
+
+def clob_v2_signature_type_from_env(funder: str, legacy: str = "", explicit: str = "") -> int:
+    if explicit not in (None, ""):
+        return safe_int(explicit, 0)
+    if legacy not in (None, ""):
+        return safe_int(legacy, 0)
+    return 1 if funder else 0
+
+
+def account_env_from_sources(env_path: Path) -> dict[str, str]:
+    values = parse_env_file(env_path)
+    qg_private_key = os.environ.get("QG_POLYMARKET_PRIVATE_KEY", "")
+    qg_funder = os.environ.get("QG_POLYMARKET_FUNDER", "")
+    if qg_private_key:
+        values.update(
+            {
+                "PRIVATE_KEY": qg_private_key,
+                "POLY_FUNDER": qg_funder,
+                "POLY_SIGNATURE_TYPE": str(
+                    clob_v2_signature_type_from_env(
+                        qg_funder,
+                        os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE", ""),
+                        os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE", ""),
+                    )
+                ),
+                "BANKROLL": os.environ.get(
+                    "QG_POLYMARKET_BANKROLL",
+                    os.environ.get("QG_POLYMARKET_REAL_WALLET_BANKROLL_USDC", values.get("BANKROLL", "15")),
+                ),
+                "DRY_RUN": "false" if safe_bool_text(os.environ.get("QG_POLYMARKET_REAL_EXECUTION")) else "true",
+                "ENABLE_COPY_ARCHIVE_LIVE_CANARY": os.environ.get("QG_POLYMARKET_RUN_CANARY_EXECUTOR", "false"),
+                "COPY_ARCHIVE_LIVE_CANARY_OPERATOR_APPROVED": "false",
+                "CLOB_HOST": os.environ.get("QG_POLYMARKET_CLOB_HOST", values.get("CLOB_HOST", "https://clob.polymarket.com")),
+                "CHAIN_ID": os.environ.get("QG_POLYMARKET_CHAIN_ID", values.get("CHAIN_ID", "137")),
+                "_envPath": "process.env:QG_POLYMARKET_*",
+            }
+        )
+    elif values:
+        values["_envPath"] = str(env_path)
+    return values
+
+
+def read_clob_account_state(
+    private_key: str,
+    funder: str,
+    signature_type: int,
+    env: dict[str, str],
+) -> tuple[dict[str, Any], int]:
+    host = env.get("CLOB_HOST") or "https://clob.polymarket.com"
+    chain_id = safe_int(env.get("CHAIN_ID"), 137)
+    try:
+        from py_clob_client_v2 import ClobClient  # type: ignore
+        from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams  # type: ignore
+
+        client = ClobClient(
+            host=host,
+            key=private_key,
+            chain_id=chain_id,
+            signature_type=signature_type,
+            funder=funder or None,
+            use_server_time=True,
+            retry_on_error=True,
+        )
+        try:
+            client.set_api_creds(client.derive_api_key())
+        except Exception:
+            if safe_bool_text(os.environ.get("QG_POLYMARKET_CLOB_ALLOW_CREATE_API_KEY")):
+                client.set_api_creds(client.create_api_key())
+            else:
+                raise
+        balance_payload = client.get_balance_allowance(
+            BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=signature_type)
+        ) or {}
+        open_orders = client.get_open_orders()
+        return balance_payload, len(open_orders) if isinstance(open_orders, list) else 0
+    except Exception:
+        from py_clob_client.client import ClobClient  # type: ignore
+        from py_clob_client.clob_types import BalanceAllowanceParams  # type: ignore
+
+        client = ClobClient(
+            host,
+            key=private_key,
+            chain_id=chain_id,
+            signature_type=signature_type,
+            funder=funder or None,
+        )
+        client.set_api_creds(client.create_or_derive_api_creds())
+        balance_payload = client.get_balance_allowance(
+            BalanceAllowanceParams(asset_type="COLLATERAL", signature_type=signature_type)
+        ) or {}
+        orders = client.get_orders()
+        if isinstance(orders, list):
+            open_order_count = len(orders)
+        elif isinstance(orders, dict):
+            open_order_count = safe_int(orders.get("count"), len(orders.get("data") or []))
+        else:
+            open_order_count = 0
+        return balance_payload, open_order_count
 
 
 def pct(numerator: float, denominator: float) -> float | None:
@@ -373,9 +473,9 @@ def read_account_snapshot(polymarket_root: Path, skip: bool = False) -> dict[str
         return snapshot
 
     env_path = polymarket_root / ".env"
-    env = parse_env_file(env_path)
+    env = account_env_from_sources(env_path)
     snapshot["envRead"] = bool(env)
-    snapshot["envPath"] = str(env_path)
+    snapshot["envPath"] = env.get("_envPath", str(env_path))
     if not env:
         snapshot.update({"authState": "env_missing", "error": ".env missing or unreadable"})
         return snapshot
@@ -405,29 +505,9 @@ def read_account_snapshot(polymarket_root: Path, skip: bool = False) -> dict[str
         return snapshot
 
     try:
-        from py_clob_client.client import ClobClient
-        from py_clob_client.clob_types import BalanceAllowanceParams
-
-        client = ClobClient(
-            "https://clob.polymarket.com",
-            key=private_key,
-            chain_id=137,
-            signature_type=signature_type,
-            funder=funder or None,
-        )
-        client.set_api_creds(client.create_or_derive_api_creds())
-        balance_payload = client.get_balance_allowance(
-            BalanceAllowanceParams(asset_type="COLLATERAL", signature_type=signature_type)
-        ) or {}
+        balance_payload, open_order_count = read_clob_account_state(private_key, funder, signature_type, env)
         account_cash = safe_number(balance_payload.get("balance")) / 1_000_000
         allowances = balance_payload.get("allowances") or {}
-        orders = client.get_orders()
-        if isinstance(orders, list):
-            open_order_count = len(orders)
-        elif isinstance(orders, dict):
-            open_order_count = safe_int(orders.get("count"), len(orders.get("data") or []))
-        else:
-            open_order_count = 0
         snapshot.update(
             {
                 "authState": "read_only_ok",
@@ -682,6 +762,11 @@ def build_snapshot(
     try:
         archived_snapshot = None if table_exists(con, "trade_journal") else latest_history_research_snapshot(con, db_path)
         if archived_snapshot:
+            if not skip_account_snapshot:
+                archived_snapshot["accountSnapshot"] = read_account_snapshot(polymarket_root, skip=False)
+                archived_snapshot.setdefault("safety", {})
+                if isinstance(archived_snapshot["safety"], dict):
+                    archived_snapshot["safety"]["readsEnvForAccountSnapshot"] = True
             return archived_snapshot
         cutoff = time.time() - (days * 86400.0)
         rows_all = aggregate_journal(con)
