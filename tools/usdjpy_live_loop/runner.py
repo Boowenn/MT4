@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.usdjpy_strategy_lab.data_loader import focus_runtime_snapshot, runtime_fresh_limit_seconds
+    from tools.usdjpy_strategy_lab.data_loader import focus_runtime_snapshot
     from tools.usdjpy_strategy_lab.dry_run_bridge import build_dry_run_decision
-    from tools.usdjpy_strategy_lab.policy_builder import build_usdjpy_policy
+    from tools.usdjpy_strategy_lab.policy_builder import _runtime_freshness, build_usdjpy_policy
 except ModuleNotFoundError:  # CLI execution from tools/
-    from usdjpy_strategy_lab.data_loader import focus_runtime_snapshot, runtime_fresh_limit_seconds
+    from usdjpy_strategy_lab.data_loader import focus_runtime_snapshot
     from usdjpy_strategy_lab.dry_run_bridge import build_dry_run_decision
-    from usdjpy_strategy_lab.policy_builder import build_usdjpy_policy
+    from usdjpy_strategy_lab.policy_builder import _runtime_freshness, build_usdjpy_policy
 
 from .preset import load_live_preset
 from .schema import (
@@ -71,22 +71,14 @@ def _runtime_status(runtime_dir: Path) -> dict[str, Any]:
         }
     runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
     age = snapshot.get("runtimeAgeSeconds", snapshot.get("_fileAgeSeconds"))
-    ready = bool(snapshot) and not bool(snapshot.get("fallback")) and snapshot.get("runtimeFresh") is not False
-    try:
-        if age is not None and float(age) > runtime_fresh_limit_seconds():
-            ready = False
-    except Exception:
-        pass
-    reasons: list[str] = []
-    if snapshot.get("fallback"):
-        reasons.append("运行快照处于 fallback")
-    if snapshot.get("runtimeFresh") is False:
-        reasons.append("运行快照标记为不新鲜")
+    runtime_tier, ready, tier_reasons = _runtime_freshness(snapshot)
+    reasons: list[str] = [str(item) for item in tier_reasons if item]
     if not reasons:
         reasons.append("USDJPY 运行快照可用")
     return {
         "found": True,
         "ready": ready,
+        "freshnessTier": runtime_tier,
         "ageSeconds": age,
         "tradeStatus": runtime.get("tradeStatus") or snapshot.get("tradeStatus"),
         "executionEnabled": runtime.get("executionEnabled", snapshot.get("executionEnabled")),

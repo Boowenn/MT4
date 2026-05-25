@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, List
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(str(os.environ.get(name, default)).strip())
+    except Exception:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(float(str(os.environ.get(name, default)).strip()))
+    except Exception:
+        return default
+
+
+def _env_text(name: str, default: str) -> str:
+    return str(os.environ.get(name, default)).strip() or default
+
+
+def _cent_lane() -> Dict[str, Any]:
+    max_lot = min(max(_env_float("QG_CENT_MAX_LOT", _env_float("QG_AUTO_MAX_LOT", 2.0)), 0.0), 2.0)
+    return {
+        "accountAlias": _env_text("QG_CENT_ACCOUNT_ALIAS", "hfm_cent"),
+        "accountMode": "cent",
+        "accountCurrency": _env_text("QG_CENT_ACCOUNT_CURRENCY", "USC"),
+        "lane": "CENT_EXPLORATION",
+        "laneZh": "美分账户学习车道",
+        "role": "exploration",
+        "purposeZh": "收集 USDJPY RSI_Reversal LONG 的真实小仓执行样本，允许快升快降级。",
+        "allowedEntryModes": ["OPPORTUNITY_ENTRY", "STANDARD_ENTRY"],
+        "allowedStages": ["CENT_PAPER", "CENT_MICRO_LIVE", "CENT_LIMITED", "ROLLBACK"],
+        "defaultStage": _env_text("QG_CENT_DEFAULT_STAGE", "CENT_MICRO_LIVE"),
+        "maxLot": max_lot,
+        "riskPerTradeR": _env_float("QG_CENT_RISK_PER_TRADE_R", 0.25),
+        "stageLot": {
+            "CENT_MICRO_LIVE": min(_env_float("QG_CENT_MICRO_LIVE_LOT", 0.05), max_lot),
+            "OPPORTUNITY_ENTRY": min(_env_float("QG_CENT_OPPORTUNITY_LOT", 0.10), max_lot),
+            "STANDARD_ENTRY": min(_env_float("QG_CENT_STANDARD_LOT", 0.35), max_lot),
+            "CENT_LIMITED": max_lot,
+        },
+        "sampleGoals": {
+            "minCentLiveTradesForUsdMirror": _env_int("QG_USD_PROMOTION_MIN_CENT_TRADES", 20),
+            "minCentNoHardRollbackDays": _env_int("QG_USD_PROMOTION_MIN_NO_ROLLBACK_DAYS", 3),
+        },
+    }
+
+
+def _usd_lane() -> Dict[str, Any]:
+    max_lot = min(max(_env_float("QG_USD_MAX_LOT", 0.10), 0.0), 1.0)
+    return {
+        "accountAlias": _env_text("QG_USD_ACCOUNT_ALIAS", "hfm_usd"),
+        "accountMode": "standard_usd",
+        "accountCurrency": _env_text("QG_USD_ACCOUNT_CURRENCY", "USD"),
+        "lane": "USD_DEPLOYMENT",
+        "laneZh": "美元账户部署车道",
+        "role": "capital_deployment",
+        "purposeZh": "只部署已被美分账户真实样本验证过的结构；不参与探索。",
+        "allowedEntryModes": ["STANDARD_ENTRY"],
+        "paperMirrorEntryModes": ["OPPORTUNITY_ENTRY", "STANDARD_ENTRY"],
+        "allowedStages": ["USD_PAPER_MIRROR", "USD_MICRO_LIVE", "USD_LIMITED", "PAUSED", "ROLLBACK"],
+        "defaultStage": _env_text("QG_USD_DEFAULT_STAGE", "USD_PAPER_MIRROR"),
+        "maxLot": max_lot,
+        "riskPerTradeR": _env_float("QG_USD_RISK_PER_TRADE_R", 0.10),
+        "stageLot": {
+            "USD_PAPER_MIRROR": 0.0,
+            "USD_MICRO_LIVE": min(_env_float("QG_USD_MICRO_LIVE_LOT", 0.01), max_lot),
+            "USD_LIMITED": min(_env_float("QG_USD_LIMITED_LOT", 0.03), max_lot),
+        },
+        "promotionGate": {
+            "centLiveTradesMin": _env_int("QG_USD_PROMOTION_MIN_CENT_TRADES", 20),
+            "centProfitFactorMin": _env_float("QG_USD_PROMOTION_MIN_CENT_PF", 1.05),
+            "centNetRMin": _env_float("QG_USD_PROMOTION_MIN_CENT_NET_R", 0.0),
+            "centLossStreakMax": _env_int("QG_USD_PROMOTION_MAX_CENT_LOSS_STREAK", 1),
+            "noHardRollbackDaysMin": _env_int("QG_USD_PROMOTION_MIN_NO_ROLLBACK_DAYS", 3),
+        },
+    }
+
+
+def mt5_account_registry() -> Dict[str, Any]:
+    accounts: List[Dict[str, Any]] = [_cent_lane(), _usd_lane()]
+    return {
+        "schema": "quantgod.mt5_multi_account_registry.v1",
+        "mode": "MT5_USDJPY_MULTI_ACCOUNT_LANE_SPLIT",
+        "primaryLearningAccount": accounts[0]["accountAlias"],
+        "capitalDeploymentAccount": accounts[1]["accountAlias"],
+        "accounts": accounts,
+        "globalExposureGuard": {
+            "schema": "quantgod.global_usdjpy_exposure_guard.v1",
+            "symbol": "USDJPYc",
+            "direction": "LONG",
+            "usdAccountPriority": True,
+            "sameDirectionMultiAccountRiskBudget": _env_float("QG_GLOBAL_USDJPY_MAX_DIRECTIONAL_RISK_R", 0.35),
+            "rulesZh": [
+                "美元账户已有 USDJPY LONG 时，美分账户不得追加同向探索仓。",
+                "美分账户已有 USDJPY LONG 时，美元账户只允许 STANDARD_ENTRY 且更小仓。",
+                "两个账户反馈、净 R、连亏和 Case Memory 必须按 accountAlias 分桶。",
+            ],
+        },
+        "safety": {
+            "polymarketLogicUnchanged": True,
+            "mt5Only": True,
+            "orderSendAllowed": False,
+            "livePresetMutationAllowed": False,
+        },
+    }

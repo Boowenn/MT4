@@ -9,6 +9,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     from usdjpy_strategy_lab.schema import FOCUS_SYMBOL, utc_now_iso
 
+from .account_registry import mt5_account_registry
 from .cent_account_rules import cent_account_config
 from .ea_reproducibility import build_ea_reproducibility
 from .mt5_shadow_lane import build_mt5_shadow_lane
@@ -23,6 +24,10 @@ def build_autonomous_lifecycle(
 ) -> Dict[str, Any]:
     runtime_dir = Path(runtime_dir)
     cent = cent_account_config()
+    account_registry = mt5_account_registry()
+    accounts = account_registry.get("accounts") if isinstance(account_registry.get("accounts"), list) else []
+    cent_lane = accounts[0] if len(accounts) > 0 and isinstance(accounts[0], dict) else {}
+    usd_lane = accounts[1] if len(accounts) > 1 and isinstance(accounts[1], dict) else {}
     mt5_shadow = build_mt5_shadow_lane(runtime_dir, write=write)
     polymarket_shadow = build_polymarket_shadow_lane(runtime_dir, write=write)
     ea_repro = build_ea_reproducibility(runtime_dir, repo_root=repo_root, write=write)
@@ -34,20 +39,38 @@ def build_autonomous_lifecycle(
         "sloganZh": "实盘要窄，模拟要宽，升降级要快，回滚要硬。",
         "singleSourceOfTruth": "USDJPY_LIVE_LOOP_WITH_AUTONOMOUS_LIFECYCLE",
         "centAccount": cent,
+        "accountRegistry": account_registry,
         "lanes": {
             "live": {
                 "lane": "LIVE",
                 "laneZh": "实盘车道",
+                "accountAlias": cent_lane.get("accountAlias", "hfm_cent"),
+                "accountMode": cent_lane.get("accountMode", "cent"),
                 "symbol": FOCUS_SYMBOL,
                 "strategy": "RSI_Reversal",
                 "direction": "LONG",
-                "allowedLiveStages": ["MICRO_LIVE", "LIVE_LIMITED"],
+                "allowedLiveStages": ["CENT_MICRO_LIVE", "CENT_LIMITED"],
                 "operatorApprovalRequired": False,
                 "unattendedLiveExpansionAllowed": True,
                 "liveScopeExpansionMode": "autonomous_governance_stage_gated",
                 "forbiddenZh": ["未过 autonomous governance 的实盘扩展", "非 USDJPY 实盘", "Polymarket 真实钱包交易"],
                 "maxLotIsCapNotFixed": True,
             },
+            "centLive": {
+                **cent_lane,
+                "symbol": FOCUS_SYMBOL,
+                "strategy": "RSI_Reversal",
+                "direction": "LONG",
+                "entryPolicyZh": "硬风控通过后，OPPORTUNITY_ENTRY 可在美分账户小仓收集真实执行样本。",
+            },
+            "usdDeployment": {
+                **usd_lane,
+                "symbol": FOCUS_SYMBOL,
+                "strategy": "RSI_Reversal",
+                "direction": "LONG",
+                "entryPolicyZh": "美元账户先 USD_PAPER_MIRROR；只在美分账户真实样本通过后允许 STANDARD_ENTRY 极小仓。",
+            },
+            "globalUsdJpyExposureGuard": account_registry.get("globalExposureGuard", {}),
             "mt5Shadow": mt5_shadow,
             "polymarketShadow": polymarket_shadow,
         },

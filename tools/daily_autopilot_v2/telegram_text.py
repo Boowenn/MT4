@@ -55,11 +55,18 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         "等待 USDJPY SQLite 历史生产状态；未 PASS 时只允许 shadow/tester 观察。",
     )
     consistency = payload.get("executionConsistencyReview") if isinstance(payload.get("executionConsistencyReview"), dict) else {}
+    account_lanes = morning.get("accountLanes") if isinstance(morning.get("accountLanes"), dict) else {}
+    cent_lane = account_lanes.get("centLive") if isinstance(account_lanes.get("centLive"), dict) else {}
+    usd_lane = account_lanes.get("usdDeployment") if isinstance(account_lanes.get("usdDeployment"), dict) else {}
+    exposure_guard = account_lanes.get("globalUsdJpyExposureGuard") if isinstance(account_lanes.get("globalUsdJpyExposureGuard"), dict) else {}
 
     lines = [
         "【QuantGod 今日自动作战计划】",
         "",
         f"账户模式：{_fmt(morning.get('accountMode'), 'cent')} / {_fmt(morning.get('accountCurrencyUnit'), 'USC')}",
+        f"美分账户：{_fmt(cent_lane.get('accountAlias'), 'hfm_cent')} / {_fmt(cent_lane.get('defaultStage'), 'CENT_MICRO_LIVE')}；允许 {_fmt(','.join(cent_lane.get('allowedEntryModes', [])) if isinstance(cent_lane.get('allowedEntryModes'), list) else cent_lane.get('allowedEntryModes'), 'OPPORTUNITY_ENTRY,STANDARD_ENTRY')}",
+        f"美元账户：{_fmt(usd_lane.get('accountAlias'), 'hfm_usd')} / {_fmt(usd_lane.get('defaultStage'), 'USD_PAPER_MIRROR')}；实盘只等 {_fmt(','.join(usd_lane.get('allowedEntryModes', [])) if isinstance(usd_lane.get('allowedEntryModes'), list) else usd_lane.get('allowedEntryModes'), 'STANDARD_ENTRY')}",
+        f"全局 USDJPY 风险：{_fmt(exposure_guard.get('direction'), 'LONG')} 同向预算 {_fmt(exposure_guard.get('sameDirectionMultiAccountRiskBudget'), '0.35')}R，美元账户优先。",
         f"实盘车道：{_fmt(live.get('symbol'), 'USDJPYc')} {_fmt(live.get('strategy'), 'RSI_Reversal')} {_fmt(live.get('direction'), 'LONG')}",
         f"当前阶段：{_fmt(live.get('stageZh') or live.get('stage'))}",
         f"建议阶段仓位：{_num(live.get('stageMaxLot'))} / 最大上限 {_num(live.get('maxLot') or 2.0)}",

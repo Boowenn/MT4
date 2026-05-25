@@ -299,8 +299,12 @@ def _orchestration_summary(runtime_dir: Path) -> Dict[str, Any]:
 
 def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any]) -> Dict[str, Any]:
     cent = _safe_dict(lifecycle.get("centAccount") or agent.get("centAccount"))
+    account_registry = _safe_dict(lifecycle.get("accountRegistry") or agent.get("accountRegistry"))
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
     live = _safe_dict(lanes.get("live"))
+    cent_live = _safe_dict(lanes.get("centLive"))
+    usd_deployment = _safe_dict(lanes.get("usdDeployment"))
+    exposure_guard = _safe_dict(lanes.get("globalUsdJpyExposureGuard") or account_registry.get("globalExposureGuard"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
     patch = _safe_dict(agent.get("currentPatch"))
@@ -310,9 +314,17 @@ def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_g
         "titleZh": "QuantGod 今日自动作战计划",
         "accountMode": cent.get("accountMode", "cent"),
         "accountCurrencyUnit": cent.get("accountCurrencyUnit", "USC"),
+        "accountRegistry": account_registry,
         "centAccountAcceleration": bool(cent.get("centAccountAcceleration", True)),
+        "accountLanes": {
+            "centLive": cent_live,
+            "usdDeployment": usd_deployment,
+            "globalUsdJpyExposureGuard": exposure_guard,
+        },
         "liveLane": {
             "symbol": live.get("symbol", FOCUS_SYMBOL),
+            "accountAlias": live.get("accountAlias") or cent_live.get("accountAlias"),
+            "accountMode": live.get("accountMode") or cent_live.get("accountMode"),
             "strategy": live.get("strategy", "RSI_Reversal"),
             "direction": live.get("direction", "LONG"),
             "stage": stage,
@@ -355,6 +367,9 @@ def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_g
 
 def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any]) -> Dict[str, Any]:
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
+    cent_live = _safe_dict(lanes.get("centLive"))
+    usd_deployment = _safe_dict(lanes.get("usdDeployment"))
+    exposure_guard = _safe_dict(lanes.get("globalUsdJpyExposureGuard"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
     patch = _safe_dict(agent.get("currentPatch"))
@@ -366,6 +381,8 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], news
         "liveLane": {
             "stage": agent.get("executionStage") or agent.get("stage") or "SHADOW",
             "stageZh": agent.get("stageZh") or "模拟观察",
+            "accountAlias": cent_live.get("accountAlias", "hfm_cent"),
+            "accountMode": cent_live.get("accountMode", "cent"),
             "rollbackTriggered": bool(blockers),
             "rollbackReasons": blockers,
             "patchWritable": bool(agent.get("patchWritable")),
@@ -373,6 +390,11 @@ def _build_evening_review(agent: Dict[str, Any], lifecycle: Dict[str, Any], news
             "operatorApprovalRequired": False,
             "unattendedLiveExpansionAllowed": True,
             "liveMutationAllowed": False,
+        },
+        "accountLanes": {
+            "centLive": cent_live,
+            "usdDeployment": usd_deployment,
+            "globalUsdJpyExposureGuard": exposure_guard,
         },
         "mt5ShadowLane": {
             "promotedCount": int(mt5_summary.get("fastShadow", 0) or 0) + int(mt5_summary.get("testerOnly", 0) or 0),
@@ -445,6 +467,8 @@ def _ga_todo_items(ga: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics: Dict[str, Any], ga: Dict[str, Any]) -> List[Dict[str, Any]]:
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
+    cent_live = _safe_dict(lanes.get("centLive"))
+    usd_deployment = _safe_dict(lanes.get("usdDeployment"))
     mt5_shadow = _safe_dict(lanes.get("mt5Shadow"))
     polymarket = _safe_dict(lanes.get("polymarketShadow"))
     patch = _safe_dict(agent.get("currentPatch"))
@@ -455,8 +479,10 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
     return [
         {
             "id": "live_lane_governance",
-            "lane": "LIVE",
-            "laneZh": "实盘车道",
+            "lane": "CENT_EXPLORATION",
+            "laneZh": "美分账户学习车道",
+            "accountAlias": cent_live.get("accountAlias", "hfm_cent"),
+            "accountMode": cent_live.get("accountMode", "cent"),
             "status": "ROLLBACK" if rollback_triggered else ("MICRO_LIVE" if live_stage == "MICRO_LIVE" else "COMPLETED_BY_AGENT"),
             "completedByAgent": True,
             "autoAppliedByAgent": auto_applied,
@@ -464,7 +490,22 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
             "promotionDecision": live_stage,
             "rollbackTriggered": rollback_triggered,
             "metrics": metrics,
-            "summaryZh": "Agent 已检查 USDJPY 实盘车道；硬风控未通过则自动回滚，证据全通过时可无人审批扩大受控 live scope。",
+            "summaryZh": "Agent 已检查 USDJPY 美分账户学习车道；硬风控未通过则自动回滚，证据全通过时可无人审批扩大受控 cent live scope。",
+        },
+        {
+            "id": "usd_deployment_lane_governance",
+            "lane": "USD_DEPLOYMENT",
+            "laneZh": "美元账户部署车道",
+            "accountAlias": usd_deployment.get("accountAlias", "hfm_usd"),
+            "accountMode": usd_deployment.get("accountMode", "standard_usd"),
+            "status": usd_deployment.get("defaultStage", "USD_PAPER_MIRROR"),
+            "completedByAgent": True,
+            "autoAppliedByAgent": False,
+            "requiresAutonomousGovernance": True,
+            "promotionDecision": "WAIT_FOR_CENT_LIVE_EVIDENCE",
+            "rollbackTriggered": False,
+            "metrics": usd_deployment.get("promotionGate", {}),
+            "summaryZh": "美元账户不参与探索；等待美分账户真实样本、执行质量和无硬回滚天数通过后，先进入 USD_PAPER_MIRROR。",
         },
         {
             "id": "mt5_shadow_lane_iteration",
@@ -630,7 +671,7 @@ def build_daily_autopilot_v2(
         "generatedAtIso": generated_at,
         "timestamp": generated_at,
         "symbol": FOCUS_SYMBOL,
-        "titleZh": "USDJPY 美分账户三车道自动日报",
+        "titleZh": "USDJPY 美分/美元双账户自动日报",
         "sloganZh": "实盘要窄，模拟要宽，升降级要快，回滚要硬。",
         "morningPlan": _build_morning_plan(agent, lifecycle, news_gate),
         "eveningReview": _build_evening_review(agent, lifecycle, news_gate),
@@ -659,6 +700,7 @@ def build_daily_autopilot_v2(
         },
         "lanes": lifecycle.get("lanes"),
         "centAccount": lifecycle.get("centAccount"),
+        "accountRegistry": lifecycle.get("accountRegistry"),
         "eaReproducibility": lifecycle.get("eaReproducibility"),
         "safety": {
             "orderSendAllowed": False,

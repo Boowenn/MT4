@@ -83,12 +83,30 @@ class USDJPYLiveLoopTests(unittest.TestCase):
                 }, ensure_ascii=False),
                 encoding="utf-8",
             )
-            old_time = time.time() - 150
+            old_time = time.time() - 60
             os.utime(dashboard, (old_time, old_time))
             payload = build_live_loop(root, runtime, write=True)
             self.assertEqual(payload["state"], STATE_READY)
             self.assertTrue(payload["runtimeReady"])
+            self.assertEqual(payload["runtime"]["freshnessTier"], "SOFT_STALE")
             self.assertNotIn("运行快照过旧", "；".join(payload["whyNoEntry"]))
+
+    def test_hard_stale_dashboard_snapshot_blocks_live_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            runtime = Path(tmp) / "runtime"
+            write_ready_preset(root)
+            sample_runtime(runtime, overwrite=True)
+            snapshot_path = runtime / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json"
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["runtimeAgeSeconds"] = 120
+            snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+
+            payload = build_live_loop(root, runtime, write=True)
+
+            self.assertEqual(payload["state"], STATE_EVIDENCE_MISSING)
+            self.assertFalse(payload["runtimeReady"])
+            self.assertEqual(payload["runtime"]["freshnessTier"], "HARD_STALE")
 
     def test_written_daily_autopilot_is_chinese_operator_summary(self):
         with tempfile.TemporaryDirectory() as tmp:

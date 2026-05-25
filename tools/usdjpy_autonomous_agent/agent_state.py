@@ -47,6 +47,7 @@ def build_agent_state(runtime_dir: Path, *, write: bool = False) -> Dict[str, An
         "promotionDecision": decision,
         "autonomousLifecycle": lifecycle,
         "centAccount": lifecycle.get("centAccount"),
+        "accountRegistry": lifecycle.get("accountRegistry"),
         "lanes": lifecycle.get("lanes"),
         "eaReproducibility": lifecycle.get("eaReproducibility"),
         "requiresAutonomousGovernance": True,

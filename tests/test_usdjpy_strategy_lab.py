@@ -30,6 +30,8 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertTrue(policy["policyConstraints"]["rsiLiveRoutePreserved"])
             self.assertIn("strategyCatalogVersion", policy)
             self.assertTrue(policy["focusOnly"])
+            self.assertEqual(policy["accountLanePolicy"]["usdAccountOpportunityEntryMode"], "PAPER_MIRROR_ONLY")
+            self.assertTrue(policy["accountLanePolicy"]["polymarketLogicUnchanged"])
             self.assertGreaterEqual(policy["standardEntryCount"] + policy["opportunityEntryCount"], 1)
             self.assertGreaterEqual(policy["evidence"]["candidateSignalCount"], 1)
             output = runtime / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json"
@@ -281,6 +283,106 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
             self.assertNotIn("缺少 USDJPY 入场触发计划", "；".join(rsi_long["reasons"]))
             self.assertIn(rsi_long["entryMode"], {ENTRY_STANDARD, ENTRY_OPPORTUNITY})
+            self.assertEqual(rsi_long["hardGateStatus"], "PASS")
+            self.assertGreaterEqual(rsi_long["signalQuorum"], 2)
+
+    def test_soft_stale_runtime_downgrades_instead_of_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            snapshot_path = runtime / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json"
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["runtimeAgeSeconds"] = 60
+            snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+
+            policy = build_usdjpy_policy(runtime)
+            rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+
+            self.assertEqual(policy["evidence"]["runtimeFreshnessTier"], "SOFT_STALE")
+            self.assertEqual(rsi_long["entryMode"], ENTRY_OPPORTUNITY)
+            self.assertTrue(rsi_long["allowed"])
+            self.assertEqual(rsi_long["entryStrictness"], "RUNTIME_SOFT_STALE_STAGE_DOWNGRADED")
+
+    def test_hard_stale_runtime_blocks_even_when_signals_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            snapshot_path = runtime / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json"
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["runtimeAgeSeconds"] = 120
+            snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+
+            policy = build_usdjpy_policy(runtime)
+            rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+
+            self.assertEqual(policy["evidence"]["runtimeFreshnessTier"], "HARD_STALE")
+            self.assertEqual(rsi_long["hardGateStatus"], "BLOCKED")
+            self.assertEqual(rsi_long["entryMode"], ENTRY_BLOCKED)
+            self.assertFalse(rsi_long["allowed"])
+
+    def test_missing_trigger_needs_rsi_diagnostic_before_opportunity_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "adaptive" / "QuantGod_EntryTriggerPlan.json").unlink()
+
+            missing_policy = build_usdjpy_policy(runtime)
+            missing_rsi = next(item for item in missing_policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+            self.assertEqual(missing_rsi["entryMode"], "WATCH_ONLY")
+            self.assertFalse(missing_rsi["allowed"])
+            self.assertEqual(missing_rsi["entryStrictness"], "WATCH_ONLY_TRIGGER_MISSING_NO_RSI_DIAGNOSTIC")
+
+            (runtime / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                        "symbol": "USDJPYc",
+                        "strategy": "RSI_Reversal",
+                        "direction": "LONG",
+                        "state": "READY_BUY_SIGNAL",
+                        "guards": {"spreadAllowed": True, "sessionOpen": True},
+                        "rsi": {"signalReady": True, "signalDirection": "BUY"},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            ready_policy = build_usdjpy_policy(runtime)
+            ready_rsi = next(item for item in ready_policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+            self.assertEqual(ready_rsi["entryMode"], ENTRY_OPPORTUNITY)
+            self.assertTrue(ready_rsi["allowed"])
+            self.assertTrue(ready_rsi["signalComponents"]["triggerSignal"])
+
+    def test_two_of_three_quorum_allows_opportunity_without_extra_indicator_and(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "adaptive" / "QuantGod_EntryTriggerPlan.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.entry_trigger_lab.v1",
+                        "decisions": [
+                            {
+                                "symbol": FOCUS_SYMBOL,
+                                "direction": "LONG",
+                                "state": "BLOCKED",
+                                "score": 0.35,
+                                "reasons": ["战术确认暂缺，但不是硬风控"],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            policy = build_usdjpy_policy(runtime)
+            rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+
+            self.assertEqual(rsi_long["signalQuorum"], 2)
+            self.assertEqual(rsi_long["entryMode"], ENTRY_OPPORTUNITY)
+            self.assertTrue(rsi_long["allowed"])
 
     def test_live_rsi_buy_uses_direction_sltp_when_shadow_pool_blocks_trigger(self):
         with tempfile.TemporaryDirectory() as tmp:

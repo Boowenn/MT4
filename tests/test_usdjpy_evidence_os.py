@@ -193,6 +193,65 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             else:
                 os.environ["QG_MT5_FILES_DIR"] = old_mt5_files_dir
 
+    def test_execution_feedback_keeps_cent_and_usd_accounts_separate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            execution_dir = runtime_dir / "execution"
+            execution_dir.mkdir(parents=True, exist_ok=True)
+            rows = [
+                {
+                    "feedbackId": "cent-fill-1",
+                    "accountAlias": "hfm_cent",
+                    "accountMode": "cent",
+                    "accountCurrency": "USC",
+                    "accountLogin": "123456789",
+                    "eventType": "ORDER_FILL",
+                    "symbol": "USDJPYc",
+                    "side": "BUY",
+                    "policyId": "USDJPY_LIVE_LOOP",
+                    "intentId": "cent-intent",
+                    "strategyId": "RSI_Reversal",
+                    "expectedPrice": 155.20,
+                    "fillPrice": 155.21,
+                    "slippagePips": 0.1,
+                    "latencyMs": 120,
+                },
+                {
+                    "feedbackId": "usd-close-1",
+                    "accountAlias": "hfm_usd",
+                    "accountMode": "standard_usd",
+                    "accountCurrency": "USD",
+                    "accountLogin": "987654321",
+                    "eventType": "ORDER_CLOSE",
+                    "symbol": "USDJPYc",
+                    "side": "SELL",
+                    "policyId": "USDJPY_LIVE_LOOP",
+                    "intentId": "usd-intent",
+                    "strategyId": "RSI_Reversal",
+                    "expectedPrice": 155.30,
+                    "fillPrice": 155.35,
+                    "slippagePips": 0.0,
+                    "latencyMs": 90,
+                    "profitR": 0.25,
+                    "mfeR": 0.4,
+                    "maeR": -0.1,
+                    "exitReason": "TP",
+                },
+            ]
+            with (execution_dir / "QuantGod_LiveExecutionFeedback.jsonl").open("w", encoding="utf-8") as handle:
+                for row in rows:
+                    handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+            report = build_execution_feedback(runtime_dir, write=True)
+
+            by_account = report["metrics"]["byAccount"]
+            self.assertEqual(by_account["hfm_cent"]["accountMode"], "cent")
+            self.assertEqual(by_account["hfm_usd"]["accountMode"], "standard_usd")
+            self.assertEqual(by_account["hfm_cent"]["sourceTierCounts"]["cent_live_real"], 1)
+            self.assertEqual(by_account["hfm_usd"]["sourceTierCounts"]["usd_live_real"], 1)
+            self.assertEqual(report["recentFeedback"][0]["loginRedacted"], "***321")
+            self.assertNotIn("987654321", json.dumps(report, ensure_ascii=False))
+
     def test_execution_feedback_recent_prefers_audited_ea_history_over_close_history_backfill(self):
         old_mt5_files_dir = os.environ.get("QG_MT5_FILES_DIR")
         try:

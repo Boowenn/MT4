@@ -213,6 +213,14 @@ class PolicyItem:
     timeStopBars: int
     reasons: List[str] = field(default_factory=list)
     newsGate: Dict[str, Any] = field(default_factory=dict)
+    hardGateStatus: str = "UNKNOWN"
+    hardGateReasons: List[str] = field(default_factory=list)
+    runtimeFreshnessTier: str = "UNKNOWN"
+    signalQuorum: int = 0
+    signalQuorumRequired: int = 2
+    signalComponents: Dict[str, Any] = field(default_factory=dict)
+    tacticalConfirmations: Dict[str, Any] = field(default_factory=dict)
+    entryDecision: str = ENTRY_BLOCKED
     safety: Dict[str, Any] = field(default_factory=lambda: dict(READ_ONLY_SAFETY))
 
     def to_dict(self) -> Dict[str, Any]:

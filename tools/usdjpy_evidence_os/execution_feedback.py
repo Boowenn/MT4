@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -238,10 +239,15 @@ def _normalize_row(index: int, row: Dict[str, Any], source: str) -> Dict[str, An
     raw_field_presence = _field_presence(row, source, event_type, retcode)
     tier = str(_first(row, "sourceTier", "SourceTier") or _source_tier(kind, event_type, fill_price))
     execution_mode = str(_first(row, "executionMode", "ExecutionMode", "lane", "mode") or _execution_mode(kind, tier))
+    account = _account_identity(row)
     return {
         "schema": "quantgod.live_execution_feedback.v1",
         "feedbackId": feedback_id,
         "createdAt": utc_now_iso(),
+        "accountAlias": account["accountAlias"],
+        "accountMode": account["accountMode"],
+        "accountCurrency": account["accountCurrency"],
+        "loginRedacted": account["loginRedacted"],
         "symbol": symbol,
         "eventType": event_type,
         "executionMode": execution_mode,
@@ -266,6 +272,7 @@ def _normalize_row(index: int, row: Dict[str, Any], source: str) -> Dict[str, An
         "source": source,
         "sourceKind": kind,
         "sourceTier": tier,
+        "accountSourceTier": _account_source_tier(tier, account["accountMode"]),
         "fieldPresence": raw_field_presence,
         "sourceKeys": sorted(row.keys())[:20],
         "safety": dict(SAFETY_BOUNDARY),
@@ -346,8 +353,41 @@ def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "liveLaneStrategyMismatchCount": len(live_lane_strategy_mismatch),
         "liveLaneDirectionMismatchCount": len(live_lane_direction_mismatch),
         "liveLaneSymbolMismatchCount": len(live_lane_symbol_mismatch),
+        "byAccount": _metrics_by_account(rows),
         "feedbackQuality": _feedback_quality(len(rows), len(fills), len(rejects)),
     }
+
+
+def _metrics_by_account(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        alias = str(row.get("accountAlias") or "unknown")
+        bucket = buckets.setdefault(
+            alias,
+            {
+                "accountAlias": alias,
+                "accountMode": row.get("accountMode") or "unknown",
+                "accountCurrency": row.get("accountCurrency") or "",
+                "feedbackRows": 0,
+                "fillCount": 0,
+                "closeCount": 0,
+                "rejectCount": 0,
+                "netR": 0.0,
+                "sourceTierCounts": {},
+            },
+        )
+        event = str(row.get("eventType") or "").upper()
+        bucket["feedbackRows"] += 1
+        if event in FILL_EVENT_TYPES:
+            bucket["fillCount"] += 1
+        if event in CLOSE_EVENT_TYPES:
+            bucket["closeCount"] += 1
+        if row.get("rejectReason"):
+            bucket["rejectCount"] += 1
+        bucket["netR"] = round(float(bucket["netR"]) + float(row.get("profitR") or 0.0), 4)
+        tier = str(row.get("accountSourceTier") or row.get("sourceTier") or "unknown")
+        bucket["sourceTierCounts"][tier] = int(bucket["sourceTierCounts"].get(tier, 0)) + 1
+    return buckets
 
 
 def _quality_gates(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -787,7 +827,12 @@ def _recent_feedback(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             row
             for _, row in sorted(
                 enumerate(candidates),
-                key=lambda item: (_feedback_time_key(item[1]) or "", item[0]),
+                key=lambda item: (
+                    _feedback_time_key(item[1]) or "",
+                    _feedback_source_priority(item[1]),
+                    _feedback_event_priority(item[1]),
+                    item[0],
+                ),
                 reverse=True,
             )[:20]
         ]
@@ -810,6 +855,28 @@ def _feedback_time_key(row: Dict[str, Any]) -> str:
         return ""
     text = str(value).strip()
     return text[:19].replace("T", " ").replace(".", "-").replace("/", "-")
+
+
+def _feedback_source_priority(row: Dict[str, Any]) -> int:
+    source = str(row.get("source") or "")
+    if source == "QuantGod_LiveExecutionFeedback.jsonl":
+        return 3
+    if source == "QuantGod_LiveExecutionFeedbackHistory.jsonl":
+        return 2
+    if "CloseHistory" in source or "TradeJournal" in source:
+        return 1
+    return 0
+
+
+def _feedback_event_priority(row: Dict[str, Any]) -> int:
+    event = str(row.get("eventType") or "").upper()
+    if event in CLOSE_EVENT_TYPES | FILL_EVENT_TYPES:
+        return 4
+    if event in SEND_EVENT_TYPES:
+        return 3
+    if event in REJECT_EVENT_TYPES:
+        return 2
+    return 1
 
 
 def _spread_guard_context(runtime_dir: Path) -> Dict[str, Any]:
@@ -903,6 +970,50 @@ def _live_lane_mismatch_count(metrics: Dict[str, Any]) -> int:
 
 def _normalized_token(value: Any) -> str:
     return str(value or "").strip().upper().replace("-", "_").replace("/", "_").replace(" ", "_")
+
+
+def _account_identity(row: Dict[str, Any]) -> Dict[str, str]:
+    currency = str(
+        _first(row, "accountCurrency", "AccountCurrency", "currency", "Currency")
+        or os.environ.get("QG_ACCOUNT_CURRENCY_UNIT")
+        or "USC"
+    ).strip().upper()
+    explicit_mode = str(_first(row, "accountMode", "AccountMode") or "").strip().lower()
+    if explicit_mode:
+        mode = explicit_mode
+    elif currency == "USD":
+        mode = "standard_usd"
+    elif currency in {"USC", "CENT"}:
+        mode = "cent"
+    else:
+        mode = "unknown"
+    default_alias = "hfm_usd" if mode == "standard_usd" else "hfm_cent" if mode == "cent" else "unknown"
+    alias = str(
+        _first(row, "accountAlias", "AccountAlias")
+        or os.environ.get("QG_MT5_ACCOUNT_ALIAS")
+        or default_alias
+    ).strip() or default_alias
+    login = str(_first(row, "accountLogin", "AccountLogin", "login", "Login") or "").strip()
+    return {
+        "accountAlias": alias,
+        "accountMode": mode,
+        "accountCurrency": currency,
+        "loginRedacted": f"***{login[-3:]}" if login else "***",
+    }
+
+
+def _account_source_tier(source_tier: str, account_mode: str) -> str:
+    tier = str(source_tier or "unknown")
+    mode = str(account_mode or "").lower()
+    if mode == "cent" and tier == "live_real_fill":
+        return "cent_live_real"
+    if mode == "standard_usd" and tier == "live_real_fill":
+        return "usd_live_real"
+    if mode == "cent" and tier == "mt5_close_history":
+        return "cent_close_history"
+    if mode == "standard_usd" and tier == "mt5_close_history":
+        return "usd_close_history"
+    return tier
 
 
 def _first(row: Dict[str, Any], *keys: str) -> Any:
