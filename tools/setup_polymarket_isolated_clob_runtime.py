@@ -81,12 +81,43 @@ def safe_int(value: Any, default: int = 0) -> int:
 def clob_v2_signature_type() -> int:
     explicit = os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE")
     if explicit not in (None, ""):
-        return safe_int(explicit, 3)
+        return safe_int(explicit, 0)
     legacy = os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE")
-    funder = os.environ.get("QG_POLYMARKET_FUNDER")
-    if funder and str(legacy or "").strip() in {"", "1", "2", "3"}:
-        return 3
-    return safe_int(legacy, 0)
+    if legacy not in (None, ""):
+        return safe_int(legacy, 0)
+    return 1 if os.environ.get("QG_POLYMARKET_FUNDER") else 0
+
+
+def mask_address(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) > 12:
+        return text[:6] + "..." + text[-4:]
+    return "configured" if text else ""
+
+
+def private_key_address() -> str:
+    key = os.environ.get("QG_POLYMARKET_PRIVATE_KEY") or ""
+    if not key:
+        return ""
+    try:
+        from eth_account import Account  # type: ignore
+
+        return str(Account.from_key(key).address)
+    except Exception:
+        return ""
+
+
+def signer_preflight(signature_type: int, funder: str) -> dict[str, Any]:
+    signer = private_key_address()
+    order_signer = funder if int(signature_type) == 3 and funder else signer
+    signer_matches = bool(signer) and bool(order_signer) and signer.lower() == order_signer.lower()
+    return {
+        "apiKeySignerMasked": mask_address(signer),
+        "orderSignerMasked": mask_address(order_signer),
+        "funderMasked": mask_address(funder),
+        "apiKeySignerMatchesOrderSigner": signer_matches,
+        "status": "OK" if signer_matches else "SIGNER_MISMATCH" if signer and order_signer else "UNKNOWN",
+    }
 
 
 def py_clob_client_available() -> bool:
@@ -155,6 +186,8 @@ def preflight_blockers(checks: dict[str, Any]) -> list[str]:
         blockers.append("wallet_kill_switch_on_or_unset")
     if not checks["privateKeyConfigured"]:
         blockers.append("private_key_env_missing")
+    if checks.get("signerPreflightStatus") == "SIGNER_MISMATCH":
+        blockers.append("v2_api_key_signer_mismatch_risk")
     return blockers
 
 
@@ -165,6 +198,8 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     ledgers = write_runtime_ledgers(isolated_root)
     adapter = str(args.adapter or "").strip()
     host = str(args.clob_host or "").strip()
+    signature_type = clob_v2_signature_type()
+    signer_check = signer_preflight(signature_type, os.environ.get("QG_POLYMARKET_FUNDER") or "")
     checks = {
         "adapterIsolatedClob": adapter == "isolated_clob",
         "clobHostConfigured": bool(host),
@@ -172,11 +207,12 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "realExecutionSwitch": env_bool("QG_POLYMARKET_REAL_EXECUTION"),
         "killSwitchOff": str(os.environ.get("QG_POLYMARKET_CANARY_KILL_SWITCH", "true")).strip().lower() == "false",
         "privateKeyConfigured": bool(os.environ.get("QG_POLYMARKET_PRIVATE_KEY")),
-        "effectiveV2SignatureType": clob_v2_signature_type(),
+        "effectiveV2SignatureType": signature_type,
+        "signerPreflightStatus": signer_check["status"],
     }
     runtime_prepared = bool(dirs.get("root")) and checks["adapterIsolatedClob"] and checks["clobHostConfigured"] and checks["pyClobClientAvailable"]
     blockers = preflight_blockers(checks)
-    status = "PREPARED_REAL_WALLET_BLOCKED" if runtime_prepared else "CONFIG_REQUIRED"
+    status = "PREPARED_REAL_WALLET_READY" if runtime_prepared and not blockers else "PREPARED_REAL_WALLET_BLOCKED" if runtime_prepared else "CONFIG_REQUIRED"
     snapshot = {
         "schema": SCHEMA_VERSION,
         "generatedAtIso": generated,
@@ -202,6 +238,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "privateKeyConfigured": checks["privateKeyConfigured"],
             "funderConfigured": bool(os.environ.get("QG_POLYMARKET_FUNDER")),
             "effectiveV2SignatureType": checks["effectiveV2SignatureType"],
+            "signerPreflight": signer_check,
             "neverEchoesSecretValues": True,
         },
         "runtimeSwitches": {
@@ -226,7 +263,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         },
         "preflight": {
             **checks,
-            "passedForRealOrders": False,
+            "passedForRealOrders": not blockers,
             "blockers": blockers,
         },
         "runtimeId": "ISO-CLOB-" + stable_id(str(isolated_root), adapter, host, generated),

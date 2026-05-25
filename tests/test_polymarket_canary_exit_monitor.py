@@ -224,29 +224,51 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
             self.assertEqual(position["unrealizedPnlUSDC"], 0.06)
             self.assertTrue(position["exitSent"])
 
-    def test_zero_size_exit_signal_does_not_authenticate_clob(self):
+    def test_zero_size_after_authenticated_fallback_does_not_send_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_executor(root)
             module.current_exit_price = lambda client, token_id: 0.36
             module.public_position_size = lambda token_id: 0.0
-
-            def fail_auth():
-                raise AssertionError("trading client auth should not be attempted for zero-size exits")
-
-            module.make_client = fail_auth
+            module.current_position_size = lambda client, token_id: 0.0
 
             snapshot = module.build_snapshot(self.args(root))
 
             position = snapshot["positions"][0]
-            self.assertEqual(position["decision"], "EXIT_STOP_LOSS")
-            self.assertEqual(position["adapterStatus"], "EXIT_SIZE_BELOW_MIN")
+            self.assertEqual(position["decision"], "NO_SELLABLE_POSITION")
+            self.assertEqual(position["reason"], "zero_sellable_position")
+            self.assertEqual(position["adapterStatus"], "NOT_ATTEMPTED")
             self.assertFalse(position["exitSent"])
-            self.assertFalse(snapshot["clobAuth"]["attempted"])
-            self.assertEqual(snapshot["summary"]["clobAuthStatus"], "NOT_ATTEMPTED_NO_SELLABLE_POSITION")
+            self.assertTrue(snapshot["clobAuth"]["attempted"])
+            self.assertEqual(snapshot["summary"]["clobAuthStatus"], "ATTEMPTED_OK")
+            self.assertEqual(snapshot["summary"]["positionsTracked"], 0)
+            self.assertEqual(snapshot["summary"]["openOrderOnly"], 1)
 
-    def test_v2_signature_type_infers_poly_1271_for_funder_wallet(self):
+    def test_authenticated_balance_fallback_can_trigger_exit_when_public_api_lags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_executor(root)
+            module.public_position_size = lambda token_id: 0.0
+            module.current_position_size = lambda client, token_id: 6.0
+            module.current_exit_price = lambda client, token_id: 0.36
+
+            snapshot = module.build_snapshot(self.args(root))
+
+            position = snapshot["positions"][0]
+            self.assertEqual(position["positionSizeSource"], "clob_balance_allowance_authenticated_fallback")
+            self.assertEqual(position["decision"], "EXIT_STOP_LOSS")
+            self.assertTrue(position["exitSent"])
+            self.assertEqual(snapshot["summary"]["positionsTracked"], 1)
+
+    def test_v2_signature_type_uses_proxy_wallet_type_for_funder_wallet(self):
         os.environ["QG_POLYMARKET_SIGNATURE_TYPE"] = "1"
+        os.environ["QG_POLYMARKET_FUNDER"] = "0x" + "a" * 40
+
+        self.assertEqual(module.clob_v2_signature_type(), 1)
+
+    def test_explicit_v2_signature_type_can_select_1271(self):
+        os.environ["QG_POLYMARKET_SIGNATURE_TYPE"] = "1"
+        os.environ["QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE"] = "3"
         os.environ["QG_POLYMARKET_FUNDER"] = "0x" + "a" * 40
 
         self.assertEqual(module.clob_v2_signature_type(), 3)

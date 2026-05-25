@@ -1298,6 +1298,7 @@ def wallet_runtime_preflight(runtime_dir: Path, dashboard_dir: Path) -> dict[str
     isolated_runtime, isolated_runtime_path = resolve_isolated_clob_runtime(runtime_dir, dashboard_dir)
     isolated_adapter = isolated_runtime.get("adapter") if isinstance(isolated_runtime.get("adapter"), dict) else {}
     isolated_clob = isolated_runtime.get("clob") if isinstance(isolated_runtime.get("clob"), dict) else {}
+    isolated_preflight = isolated_runtime.get("preflight") if isinstance(isolated_runtime.get("preflight"), dict) else {}
     isolated_prepared = bool(isolated_runtime.get("runtimePrepared"))
     isolated_adapter_ok = isolated_adapter.get("name") == "isolated_clob" and bool(isolated_adapter.get("configured"))
     isolated_host_ok = bool(isolated_clob.get("hostConfigured"))
@@ -1311,6 +1312,8 @@ def wallet_runtime_preflight(runtime_dir: Path, dashboard_dir: Path) -> dict[str
         "isolatedRuntimeStatus": isolated_runtime.get("status", "") if isolated_runtime else "",
         "isolatedRuntimePath": isolated_runtime_path,
         "isolatedRuntimeRoot": isolated_runtime.get("isolatedRoot", "") if isolated_runtime else "",
+        "effectiveV2SignatureType": isolated_preflight.get("effectiveV2SignatureType"),
+        "signerPreflightStatus": isolated_preflight.get("signerPreflightStatus"),
         "neverEchoesSecretValues": True,
     }
     blockers = []
@@ -1324,6 +1327,10 @@ def wallet_runtime_preflight(runtime_dir: Path, dashboard_dir: Path) -> dict[str
         blockers.append("private_key_env_missing")
     if not checks["clobHostConfigured"]:
         blockers.append("clob_host_env_missing")
+    for blocker in isolated_preflight.get("blockers") or []:
+        blocker_text = str(blocker)
+        if blocker_text and blocker_text not in blockers:
+            blockers.append(blocker_text)
     return {
         **checks,
         "passed": not blockers,

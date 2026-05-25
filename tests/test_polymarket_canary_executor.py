@@ -122,6 +122,77 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
         self.assertTrue(module.is_v2_api_key_signer_mismatch(exc))
         self.assertFalse(module.is_v2_api_key_signer_mismatch(RuntimeError("insufficient balance")))
 
+    def test_v2_signature_type_keeps_proxy_wallet_legacy_type(self):
+        os.environ["QG_POLYMARKET_SIGNATURE_TYPE"] = "1"
+        os.environ["QG_POLYMARKET_FUNDER"] = "0x" + "a" * 40
+
+        self.assertEqual(module.clob_v2_signature_type(), 1)
+
+    def test_signer_preflight_catches_1271_api_key_mismatch(self):
+        class FakeClient:
+            def get_address(self):
+                return "0x" + "1" * 40
+
+        preflight = module.clob_signer_preflight(
+            FakeClient(),
+            signature_type=3,
+            funder="0x" + "a" * 40,
+        )
+
+        self.assertEqual(preflight["status"], "SIGNER_MISMATCH")
+        self.assertFalse(preflight["apiKeySignerMatchesOrderSigner"])
+
+    def test_existing_live_order_blocks_duplicate_send_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_env(root)
+            args = self.args(root)
+            args.plan_only = False
+            write_json(
+                root / "dashboard" / module.COPY_DISCOVERY_NAME,
+                {
+                    "walletRiskPolicy": {
+                        "status": "AUTONOMOUS_REAL_WALLET_ALLOWED",
+                        "realWalletExecutionAllowed": True,
+                        "autonomousUnlockAllowed": True,
+                        "humanApprovalRequired": False,
+                        "operatorApprovalRequired": False,
+                        "hardBlockers": [],
+                    },
+                    "shadowCandidates": [{
+                        "asset": "token-1",
+                        "conditionId": "condition-1",
+                        "marketTitle": "Example market",
+                        "curPrice": 0.5,
+                        "copyScore": 99,
+                        "trader": "source",
+                        "riskPlan": {
+                            "realWalletEligibleNow": True,
+                            "walletWriteAllowed": True,
+                            "orderSendAllowed": True,
+                            "maxStakeUSDC": 1,
+                            "blockers": [],
+                        },
+                    }],
+                },
+            )
+            audit = root / "dashboard" / module.ORDER_AUDIT_LEDGER
+            audit.parent.mkdir(parents=True, exist_ok=True)
+            candidate_id = "COPY-" + module.stable_id("token-1", "condition-1", "source", "")
+            audit.write_text(
+                "generated_at,run_id,mode,candidate_id,governance_id,market_id,question,track,side,token_id_present,limit_price,stake_usdc,size,take_profit_usdc,decision,order_sent,wallet_write_allowed,order_send_allowed,blockers,adapter_status,response_id,response_status,tx_hash\n"
+                f"2026-05-25T00:00:00Z,run,REAL_ORDER_ATTEMPTED,{candidate_id},,condition-1,Example market,copy_trader,BUY,True,0.5,1,2,0.05,READY_TO_SEND_IF_ADAPTER_OK,True,True,True,,ORDER_SENT_V2,order-1,live,\n",
+                encoding="utf-8",
+            )
+
+            snapshot = module.build_snapshot(args)
+
+            self.assertEqual(snapshot["decision"], "EXISTING_LIVE_ORDER_TRACKED")
+            self.assertEqual(snapshot["summary"]["existingLiveOrders"], 1)
+            self.assertEqual(snapshot["summary"]["sendablePlannedOrders"], 0)
+            self.assertEqual(snapshot["plannedOrders"][0]["adapterStatus"], "EXISTING_LIVE_ORDER")
+            self.assertTrue(snapshot["plannedOrders"][0]["orderSent"])
+
 
 if __name__ == "__main__":
     unittest.main()

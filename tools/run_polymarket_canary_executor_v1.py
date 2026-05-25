@@ -154,16 +154,38 @@ def runtime_blockers(env_state: dict[str, Any]) -> list[str]:
 def clob_v2_signature_type() -> int:
     explicit = os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE")
     if explicit not in (None, ""):
-        return safe_int(explicit, 3)
+        return safe_int(explicit, 0)
     legacy = os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE")
-    funder = os.environ.get("QG_POLYMARKET_FUNDER")
-    if funder and str(legacy or "").strip() in {"", "1", "2", "3"}:
-        return 3
-    return safe_int(legacy, 0)
+    if legacy not in (None, ""):
+        return safe_int(legacy, 0)
+    return 1 if os.environ.get("QG_POLYMARKET_FUNDER") else 0
 
 
 def clob_legacy_signature_type() -> int:
     return safe_int(os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE"), 0)
+
+
+def mask_address(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) > 12:
+        return text[:6] + "..." + text[-4:]
+    return "configured" if text else ""
+
+
+def clob_signer_preflight(client: Any, signature_type: int, funder: str | None) -> dict[str, Any]:
+    signer = ""
+    with contextlib.suppress(Exception):
+        signer = str(client.get_address() or "")
+    order_signer = str(funder or signer) if int(signature_type) == 3 else signer
+    signer_matches = bool(signer) and bool(order_signer) and signer.lower() == order_signer.lower()
+    return {
+        "effectiveV2SignatureType": int(signature_type),
+        "apiKeySignerMasked": mask_address(signer),
+        "orderSignerMasked": mask_address(order_signer),
+        "funderMasked": mask_address(funder),
+        "apiKeySignerMatchesOrderSigner": signer_matches,
+        "status": "OK" if signer_matches else "SIGNER_MISMATCH",
+    }
 
 
 def str_to_bool(value: Any, default: bool = False) -> bool:
@@ -345,6 +367,41 @@ def copy_candidate_blockers(row: dict[str, Any], token_id: str, stake: float, si
     return unique(blockers)
 
 
+def boolish(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def active_existing_order_for_plan(plan: dict[str, Any], existing_rows: list[dict[str, str]]) -> dict[str, str]:
+    candidate_id = str(plan.get("candidateId") or "").strip().lower()
+    market_id = str(plan.get("marketId") or "").strip().lower()
+    live_statuses = {"live", "open", "pending", "unmatched"}
+    for row in reversed(existing_rows):
+        if not boolish(row.get("order_sent") or row.get("orderSent")):
+            continue
+        row_candidate = str(row.get("candidate_id") or row.get("candidateId") or "").strip().lower()
+        row_market = str(row.get("market_id") or row.get("marketId") or "").strip().lower()
+        if candidate_id and row_candidate and candidate_id != row_candidate:
+            continue
+        if not candidate_id and market_id and row_market and market_id != row_market:
+            continue
+        status = str(row.get("response_status") or row.get("status") or row.get("adapter_status") or "").strip().lower()
+        if status in live_statuses or "live" in status or "open" in status:
+            return row
+    return {}
+
+
+def attach_existing_live_order(plan: dict[str, Any], row: dict[str, str]) -> None:
+    response_id = first_text(row.get("response_id"), row.get("orderID"), row.get("orderId"))
+    plan["orderSent"] = True
+    plan["adapterStatus"] = "EXISTING_LIVE_ORDER"
+    plan["response"] = {
+        "orderID": response_id,
+        "status": first_text(row.get("response_status"), row.get("status"), "live"),
+        "source": "order_audit_ledger",
+    }
+    plan["blockers"] = unique([*(plan.get("blockers") or []), "EXISTING_LIVE_ORDER"])
+
+
 def build_copy_candidate_plan(
     args: argparse.Namespace,
     copy_discovery: dict[str, Any],
@@ -434,6 +491,13 @@ def try_send_order(plan: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
             use_server_time=True,
             retry_on_error=True,
         )
+        signer_preflight = clob_signer_preflight(client, signature_type, funder)
+        if signer_preflight["status"] != "OK":
+            return False, "CLOB_SIGNER_PREFLIGHT_MISMATCH", {
+                "sdk": "py-clob-client-v2",
+                "signerPreflight": signer_preflight,
+                "hint": "Use POLY_PROXY signature type 1 for EOA private key + Polymarket proxy/funder wallets, or explicitly configure a matching CLOB v2 signature type.",
+            }
         configure_v2_api_creds(client, force_create=force_create_api_key)
         side = "BUY" if str(plan.get("side") or "BUY").upper() in {"YES", "BUY"} else "SELL"
         order_args = OrderArgs(
@@ -497,6 +561,7 @@ def to_csv(snapshot: dict[str, Any]) -> str:
     writer.writeheader()
     generated = snapshot.get("generatedAt", "")
     run_id = snapshot.get("runId", "")
+    summary = snapshot.get("summary") if isinstance(snapshot.get("summary"), dict) else {}
     for row in snapshot.get("plannedOrders") or []:
         writer.writerow(
             {
@@ -516,8 +581,8 @@ def to_csv(snapshot: dict[str, Any]) -> str:
                 "take_profit_usdc": row.get("takeProfitUSDC", ""),
                 "decision": row.get("decision", ""),
                 "order_sent": row.get("orderSent", False),
-                "wallet_write_allowed": snapshot.get("walletWriteAllowed", False),
-                "order_send_allowed": snapshot.get("orderSendAllowed", False),
+                "wallet_write_allowed": summary.get("walletWriteAllowed", snapshot.get("walletWriteAllowed", False)),
+                "order_send_allowed": summary.get("orderSendAllowed", snapshot.get("orderSendAllowed", False)),
                 "blockers": " / ".join(row.get("blockers") or []),
                 "adapter_status": row.get("adapterStatus", ""),
                 "response_id": first_text(row.get("response", {}).get("orderID"), row.get("response", {}).get("id")),
@@ -554,8 +619,16 @@ def merged_order_audit_csv(snapshot: dict[str, Any], existing_paths: list[Path])
     def row_key(row: dict[str, Any]) -> str:
         return str(row.get("response_id") or row.get("candidate_id") or json.dumps(row, sort_keys=True)).lower()
 
+    def normalized_audit_row(row: dict[str, Any]) -> dict[str, Any]:
+        out = dict(row)
+        if boolish(out.get("order_sent") or out.get("orderSent")):
+            out["wallet_write_allowed"] = "True"
+            out["order_send_allowed"] = "True"
+        return out
+
     for path in existing_paths:
         for row in read_csv_rows(path):
+            row = normalized_audit_row(row)
             key = row_key(row)
             if key and key not in seen:
                 merged.append(row)
@@ -564,6 +637,7 @@ def merged_order_audit_csv(snapshot: dict[str, Any], existing_paths: list[Path])
     current_rows_text = to_csv(snapshot)
     current_rows = list(csv.DictReader(io.StringIO(current_rows_text)))
     for row in current_rows:
+        row = normalized_audit_row(row)
         key = row_key(row)
         if key and key not in seen:
             merged.append(row)
@@ -585,12 +659,20 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     if not plans and wallet_policy.get("realWalletExecutionAllowed") is True:
         plans = build_copy_candidate_plan(args, copy_discovery, env_state)
         plan_source = "copy_trader_shadow_candidates" if plans else "none"
+    existing_audit_rows = read_csv_rows(runtime_dir / ORDER_AUDIT_LEDGER) + read_csv_rows(dashboard_dir / ORDER_AUDIT_LEDGER)
+    existing_live_orders = 0
+    for plan in plans:
+        existing = active_existing_order_for_plan(plan, existing_audit_rows)
+        if existing:
+            attach_existing_live_order(plan, existing)
+            existing_live_orders += 1
     preflight_blockers = runtime_blockers(env_state)
-    wallet_write_allowed = bool(plans) and not preflight_blockers and all(not plan.get("blockers") for plan in plans)
+    sendable_plans = [plan for plan in plans if plan.get("adapterStatus") != "EXISTING_LIVE_ORDER"]
+    wallet_write_allowed = bool(sendable_plans) and not preflight_blockers and all(not plan.get("blockers") for plan in sendable_plans)
     order_send_allowed = wallet_write_allowed
     orders_sent = 0
     if order_send_allowed:
-        for plan in plans:
+        for plan in sendable_plans:
             sent, status, response = try_send_order(plan)
             plan["orderSent"] = sent
             plan["adapterStatus"] = status
@@ -613,8 +695,8 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "generatedAt": generated,
         "runId": run_id,
         "status": "OK",
-        "executionMode": "REAL_ORDER_ATTEMPTED" if orders_sent else "GUARDED_PLAN_ONLY_NO_ORDER",
-        "decision": "ORDERS_SENT" if orders_sent else "NO_REAL_ORDER_SENT",
+        "executionMode": "REAL_ORDER_ATTEMPTED" if orders_sent else "EXISTING_LIVE_ORDER_TRACKED" if existing_live_orders else "GUARDED_PLAN_ONLY_NO_ORDER",
+        "decision": "ORDERS_SENT" if orders_sent else "EXISTING_LIVE_ORDER_TRACKED" if existing_live_orders else "NO_REAL_ORDER_SENT",
         "sourceFiles": {
             GOVERNANCE_NAME: governance_path,
             CANARY_CONTRACT_NAME: contract_path,
@@ -635,6 +717,8 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "planSource": plan_source,
             "plannedOrders": len(plans),
             "ordersSent": orders_sent,
+            "existingLiveOrders": existing_live_orders,
+            "sendablePlannedOrders": len(sendable_plans),
             "walletWriteAllowed": wallet_write_allowed,
             "orderSendAllowed": order_send_allowed,
             "maxOrders": args.max_orders,

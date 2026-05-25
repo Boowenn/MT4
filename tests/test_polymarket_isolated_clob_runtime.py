@@ -85,10 +85,28 @@ class PolymarketIsolatedClobRuntimeTests(unittest.TestCase):
             self.assertFalse(snapshot["safety"]["orderSendAllowed"])
             self.assertFalse(snapshot["safety"]["walletWriteAllowed"])
             self.assertTrue(snapshot["wallet"]["privateKeyConfigured"])
-            self.assertEqual(snapshot["wallet"]["effectiveV2SignatureType"], 3)
+            self.assertEqual(snapshot["wallet"]["effectiveV2SignatureType"], 1)
             self.assertNotIn("super-secret-test-key", text)
             self.assertGreaterEqual(len(written), 4)
             self.assertTrue((Path(args.isolated_root) / "audit" / setup_runtime.ORDER_INTENT_LEDGER).exists())
+
+    def test_setup_flags_v2_1271_signer_mismatch_before_order_post(self):
+        with tempfile.TemporaryDirectory() as tmp, EnvPatch(
+            QG_POLYMARKET_REAL_EXECUTION="true",
+            QG_POLYMARKET_CANARY_KILL_SWITCH="false",
+            QG_POLYMARKET_PRIVATE_KEY="0x" + "1" * 64,
+            QG_POLYMARKET_FUNDER="0x" + "a" * 40,
+            QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE="3",
+        ):
+            root = Path(tmp)
+            args = self.setup_args(root)
+
+            snapshot = setup_runtime.build_snapshot(args)
+
+            self.assertEqual(snapshot["wallet"]["effectiveV2SignatureType"], 3)
+            self.assertEqual(snapshot["wallet"]["signerPreflight"]["status"], "SIGNER_MISMATCH")
+            self.assertIn("v2_api_key_signer_mismatch_risk", snapshot["preflight"]["blockers"])
+            self.assertFalse(snapshot["preflight"]["passedForRealOrders"])
 
     def test_discovery_preflight_accepts_isolated_manifest_but_keeps_real_wallet_blocked(self):
         with tempfile.TemporaryDirectory() as tmp, EnvPatch(

@@ -104,12 +104,11 @@ def read_first_csv(name: str, runtime_dir: Path, dashboard_dir: Path) -> tuple[l
 def clob_v2_signature_type() -> int:
     explicit = os.environ.get("QG_POLYMARKET_CLOB_V2_SIGNATURE_TYPE")
     if explicit not in (None, ""):
-        return safe_int(explicit, 3)
+        return safe_int(explicit, 0)
     legacy = os.environ.get("QG_POLYMARKET_SIGNATURE_TYPE")
-    funder = os.environ.get("QG_POLYMARKET_FUNDER")
-    if funder and str(legacy or "").strip() in {"", "1", "2", "3"}:
-        return 3
-    return safe_int(legacy, 0)
+    if legacy not in (None, ""):
+        return safe_int(legacy, 0)
+    return 1 if os.environ.get("QG_POLYMARKET_FUNDER") else 0
 
 
 def make_readonly_client():
@@ -562,6 +561,23 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             size_source = "clob_balance_allowance_readonly_fallback"
         else:
             size = public_size
+        if size <= 0 and not auth_error:
+            if trading_client is None:
+                auth_attempted = True
+                try:
+                    trading_client = make_client()
+                except Exception as exc:
+                    auth_error = f"{type(exc).__name__}:{str(exc)[:160]}"
+            if trading_client is not None:
+                client_error = str(getattr(trading_client, "_qg_api_creds_error", "") or "")
+                if client_error:
+                    auth_error = client_error
+                    trading_client = None
+                else:
+                    fallback_size = current_position_size(trading_client, token_id)
+                    if fallback_size > 0:
+                        size = fallback_size
+                        size_source = "clob_balance_allowance_authenticated_fallback"
         high = max(entry, current, highs.get(token_id, 0.0))
         decision, reason, levels = exit_decision(
             entry=entry,
@@ -574,7 +590,10 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             trailing_pct=safe_number(plan.get("trailingProfitPct"), 2.0),
         )
         source_state = source_trader_position_state(plan, token_id, copy_discovery)
-        if source_state.get("sourcePositionPresent") is False:
+        if size <= 0:
+            decision = "NO_SELLABLE_POSITION"
+            reason = "zero_sellable_position"
+        if source_state.get("sourcePositionPresent") is False and size > 0:
             decision = "EXIT_SOURCE_TRADER_CLOSED"
             reason = "copied_trader_no_longer_holds_token"
         exit_sent = False
@@ -633,7 +652,14 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         },
         "planOnly": plan_only,
         "summary": {
-            "positionsTracked": len(positions),
+            "positionsTracked": sum(
+                1 for row in positions
+                if (safe_number(row.get("positionSize"), 0.0) or 0.0) >= min_size
+            ),
+            "openOrderOnly": sum(
+                1 for row in positions
+                if (safe_number(row.get("positionSize"), 0.0) or 0.0) <= 0
+            ),
             "exitSignals": sum(1 for row in positions if str(row.get("decision", "")).startswith("EXIT_")),
             "exitsSent": exits_sent,
             "sourceExitSignals": sum(1 for row in positions if row.get("reason") == "copied_trader_no_longer_holds_token"),
