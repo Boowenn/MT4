@@ -215,6 +215,7 @@ MT5_SECONDARY_EXPERTS="${MT5_SECONDARY_MQL5:+$MT5_SECONDARY_MQL5/Experts}"
 MT5_SECONDARY_PRESETS="${MT5_SECONDARY_MQL5:+$MT5_SECONDARY_MQL5/Presets}"
 MT5_SECONDARY_CONFIG_NAME="${QG_MT5_SECONDARY_CONFIG_NAME:-QuantGod_MT5_HFM_LiveSecondary_mac.ini}"
 MT5_SECONDARY_CONFIG="${MT5_SECONDARY_PREFIX:+$MT5_SECONDARY_PREFIX/drive_c/qg/$MT5_SECONDARY_CONFIG_NAME}"
+MT5_SECONDARY_PRESET_NAME="${QG_MT5_SECONDARY_PRESET_NAME:-QuantGod_MT5_HFM_LiveSecondary.set}"
 
 export QG_MT5_TERMINAL_PATH="${QG_MT5_TERMINAL_PATH:-$MT5_ROOT/terminal64.exe}"
 export QG_MT5_PYTHON_BIN="${QG_MT5_PYTHON_BIN:-$QG_PYTHON_BIN}"
@@ -412,10 +413,12 @@ if [[ -d "$MT5_ROOT" ]]; then
             fi
             rsync -a MQL5/Presets/ "$MT5_SECONDARY_PRESETS/"
             prepare_live_config "$MT5_SECONDARY_CONFIG" "$MT5_SECONDARY_SYMBOL" "$QG_MT5_MAX_BARS" "$MT5_SECONDARY_LOGIN" "$MT5_SECONDARY_SERVER"
+            patch_ini_section_key "$MT5_SECONDARY_CONFIG" "Experts" "AllowLiveTrading" "0"
+            patch_ini_section_key "$MT5_SECONDARY_CONFIG" "StartUp" "ExpertParameters" "$MT5_SECONDARY_PRESET_NAME"
             if [[ -f "$MT5_SECONDARY_ROOT/config/terminal.ini" ]]; then
               patch_ini_section_key "$MT5_SECONDARY_ROOT/config/terminal.ini" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"
             fi
-            echo "Secondary live MT5 config prepared at $MT5_SECONDARY_CONFIG."
+            echo "Secondary mirror MT5 config prepared at $MT5_SECONDARY_CONFIG with preset $MT5_SECONDARY_PRESET_NAME."
             start_screen "$MT5_SECONDARY_SCREEN" "$SCRIPT_DIR/runtime/mt5_hfm_secondary_live_screen.log" \
               "cd '$MT5_SECONDARY_ROOT' && exec env WINEPREFIX='$MT5_SECONDARY_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\$MT5_SECONDARY_CONFIG_NAME'"
           fi
