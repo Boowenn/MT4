@@ -212,6 +212,10 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             {},
         )
         self.assertEqual(
+            module.active_existing_order_for_plan(plan, rows, lambda order_id: "NOT_OPEN"),
+            {},
+        )
+        self.assertEqual(
             module.active_existing_order_for_plan(plan, rows, lambda order_id: "OPEN")["response_id"],
             "order-1",
         )

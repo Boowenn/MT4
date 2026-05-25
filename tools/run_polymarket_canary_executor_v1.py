@@ -374,7 +374,7 @@ def boolish(value: Any) -> bool:
 def order_status_is_live(status: Any) -> bool:
     text = str(status or "").strip().lower()
     live_statuses = {"live", "open", "pending", "unmatched"}
-    return text in live_statuses or "live" in text or "open" in text
+    return text in live_statuses or text.startswith("live_") or text.startswith("open_")
 
 
 def make_existing_order_status_lookup():
@@ -404,9 +404,21 @@ def make_existing_order_status_lookup():
                 configure_v2_api_creds(client)
                 client_cache["client"] = client
             payload = client_cache["client"].get_order(order_id)
+            if isinstance(payload, dict) and payload.get("status"):
+                return str(payload.get("status") or "")
+            open_orders = client_cache["client"].get_open_orders() or []
         except Exception:
             return ""
-        return str(payload.get("status") or "") if isinstance(payload, dict) else ""
+        if isinstance(open_orders, list):
+            wanted = str(order_id).strip().lower()
+            for row in open_orders:
+                if not isinstance(row, dict):
+                    continue
+                row_id = str(row.get("id") or row.get("orderID") or row.get("orderId") or "").strip().lower()
+                if row_id == wanted:
+                    return str(row.get("status") or "OPEN")
+            return "NOT_OPEN"
+        return ""
 
     return lookup
 
