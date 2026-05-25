@@ -298,6 +298,8 @@ def find_ea_symbol_row(dashboard: dict[str, Any], symbol: str = "") -> dict[str,
     market = dashboard.get("market") if isinstance(dashboard.get("market"), dict) else {}
     if market and (not symbol or str(market.get("symbol", "")).lower() == symbol.lower()):
         return dict(market)
+    if symbol:
+        return {}
     return rows[0] if rows and isinstance(rows[0], dict) else {}
 
 
@@ -358,6 +360,7 @@ def ea_positions_payload(dashboard: dict[str, Any], symbol: str = "") -> dict[st
         if symbol and row_symbol.lower() != symbol.lower():
             continue
         trade_type = str(row.get("type", "")).lower() or str(row.get("direction", "")).lower()
+        price_current = first_present(row, "priceCurrent", "currentPrice", default=None)
         items.append(
             {
                 "ticket": to_int(first_present(row, "ticket", "order", default=0)),
@@ -366,13 +369,19 @@ def ea_positions_payload(dashboard: dict[str, Any], symbol: str = "") -> dict[st
                 "type": trade_type,
                 "volume": to_float(first_present(row, "actualLots", "lots", "volume", default=0.0)),
                 "priceOpen": to_float(first_present(row, "openPrice", "priceOpen", default=0.0)),
-                "priceCurrent": ea_position_price_current(dashboard, row_symbol, trade_type),
+                "priceCurrent": to_float(price_current)
+                if price_current is not None
+                else ea_position_price_current(dashboard, row_symbol, trade_type),
                 "sl": to_float(first_present(row, "sl", "stopLoss", default=0.0)),
                 "tp": to_float(first_present(row, "tp", "takeProfit", default=0.0)),
                 "profit": to_float(first_present(row, "actualProfit", "profit", default=0.0)),
                 "swap": to_float(first_present(row, "swap", default=0.0)),
                 "magic": to_int(first_present(row, "magic", default=520001)),
                 "comment": first_present(row, "comment", default=""),
+                "strategy": first_present(row, "strategy", default=""),
+                "source": first_present(row, "source", default=""),
+                "entryRegime": first_present(row, "entryRegime", "regime", default=""),
+                "regimeTimeframe": first_present(row, "regimeTimeframe", default=""),
                 "time": 0,
                 "timeIso": "",
             }

@@ -316,6 +316,50 @@ class Mt5ReadOnlyBridgeTests(unittest.TestCase):
         self.assertEqual(payload["symbols"]["items"][0]["tradeMode"], "FULL")
         self.assertFalse(payload["safety"]["orderSendAllowed"])
 
+    def test_ea_snapshot_fallback_keeps_manual_non_focus_positions_without_fake_price(self):
+        dashboard = {
+            "watchlist": "USDJPYc",
+            "account": {"number": 186054398, "server": "HFMarketsGlobal-Live12", "currency": "USC"},
+            "runtime": {"terminalConnected": True},
+            "market": {"symbol": "USDJPYc", "bid": 158.908, "ask": 158.911},
+            "symbols": [{"symbol": "USDJPYc", "bid": 158.908, "ask": 158.911}],
+            "openTrades": [
+                {
+                    "ticket": 637134294,
+                    "positionId": 637134294,
+                    "type": "BUY",
+                    "symbol": "XAUUSDc",
+                    "actualLots": 0.01,
+                    "openPrice": 4650.17,
+                    "actualProfit": -92.13,
+                    "strategy": "Manual/Other",
+                    "source": "MANUAL",
+                }
+            ],
+        }
+
+        old_runtime = os.environ.get("QG_RUNTIME_DIR")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            Path(tmp_dir, "QuantGod_Dashboard.json").write_text(json.dumps(dashboard), encoding="utf-8")
+            os.environ["QG_RUNTIME_DIR"] = tmp_dir
+            try:
+                all_positions = bridge.build_ea_snapshot_fallback(bridge.parse_args(["--endpoint", "positions"]))
+                usdjpy_positions = bridge.build_ea_snapshot_fallback(
+                    bridge.parse_args(["--endpoint", "positions", "--symbol", "USDJPYc"])
+                )
+            finally:
+                if old_runtime is None:
+                    os.environ.pop("QG_RUNTIME_DIR", None)
+                else:
+                    os.environ["QG_RUNTIME_DIR"] = old_runtime
+
+        self.assertEqual(all_positions["positions"]["count"], 1)
+        self.assertEqual(all_positions["positions"]["items"][0]["symbol"], "XAUUSDc")
+        self.assertEqual(all_positions["positions"]["items"][0]["priceCurrent"], 0.0)
+        self.assertEqual(all_positions["positions"]["items"][0]["strategy"], "Manual/Other")
+        self.assertEqual(all_positions["positions"]["items"][0]["source"], "MANUAL")
+        self.assertEqual(usdjpy_positions["positions"]["count"], 0)
+
     def test_ea_snapshot_fallback_merges_standalone_usdjpy_rsi_diagnostics(self):
         dashboard = {
             "watchlist": "USDJPYc",
