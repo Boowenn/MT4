@@ -139,6 +139,11 @@ def _spread_gate_summary(runtime_dir: Path) -> Dict[str, Any]:
     return _safe_dict(top.get("spreadGate"))
 
 
+def _usd_deployment_gate_summary(runtime_dir: Path) -> Dict[str, Any]:
+    policy = _load_json(runtime_dir / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json")
+    return _safe_dict(policy.get("usdDeploymentGate"))
+
+
 def _stage_text(route: Dict[str, Any]) -> str:
     return str(route.get("promotionStageZh") or route.get("promotionStage") or "模拟观察")
 
@@ -306,7 +311,7 @@ def _orchestration_summary(runtime_dir: Path) -> Dict[str, Any]:
     }
 
 
-def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any], spread_gate: Dict[str, Any]) -> Dict[str, Any]:
+def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any], spread_gate: Dict[str, Any], usd_deployment_gate: Dict[str, Any]) -> Dict[str, Any]:
     cent = _safe_dict(lifecycle.get("centAccount") or agent.get("centAccount"))
     account_registry = _safe_dict(lifecycle.get("accountRegistry") or agent.get("accountRegistry"))
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
@@ -361,6 +366,7 @@ def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_g
             "highImpactEvent": news_gate.get("highImpactEvent"),
         },
         "spreadGate": spread_gate,
+        "usdDeploymentGate": usd_deployment_gate,
         "todayForbiddenZh": [
             "未过 autonomous governance 的实盘扩展",
             "非 USDJPY 实盘",
@@ -512,10 +518,10 @@ def _agent_todo_items(agent: Dict[str, Any], lifecycle: Dict[str, Any], metrics:
             "completedByAgent": True,
             "autoAppliedByAgent": False,
             "requiresAutonomousGovernance": True,
-            "promotionDecision": "WAIT_FOR_CENT_LIVE_EVIDENCE",
+            "promotionDecision": "USD_STRICT_STANDARD_ENTRY_DEPLOYMENT_GATE",
             "rollbackTriggered": False,
             "metrics": usd_deployment.get("promotionGate", {}),
-            "summaryZh": "美元账户不参与探索；等待美分账户真实样本、执行质量和无硬回滚天数通过后，先进入 USD_PAPER_MIRROR。",
+            "summaryZh": "美元账户可以实盘，但只做严格部署；OPPORTUNITY_ENTRY/SOFT_WIDE/新闻不确定时只 mirror，STANDARD_ENTRY 且美分验证达标后进入 USD_MICRO_LIVE。",
         },
         {
             "id": "mt5_shadow_lane_iteration",
@@ -670,6 +676,7 @@ def build_daily_autopilot_v2(
     metrics = _runtime_metrics(runtime_dir, agent)
     news_gate = _news_gate_summary(runtime_dir)
     spread_gate = _spread_gate_summary(runtime_dir)
+    usd_deployment_gate = _usd_deployment_gate_summary(runtime_dir)
     ga = _ga_summary(runtime_dir)
     orchestration = _orchestration_summary(runtime_dir)
     consistency = _execution_consistency_review(runtime_dir)
@@ -684,10 +691,11 @@ def build_daily_autopilot_v2(
         "symbol": FOCUS_SYMBOL,
         "titleZh": "USDJPY 美分/美元双账户自动日报",
         "sloganZh": "实盘要窄，模拟要宽，升降级要快，回滚要硬。",
-        "morningPlan": _build_morning_plan(agent, lifecycle, news_gate, spread_gate),
+        "morningPlan": _build_morning_plan(agent, lifecycle, news_gate, spread_gate, usd_deployment_gate),
         "eveningReview": _build_evening_review(agent, lifecycle, news_gate),
         "newsGate": news_gate,
         "spreadGate": spread_gate,
+        "usdDeploymentGate": usd_deployment_gate,
         "dailyTodo": daily_todo,
         "dailyReview": daily_review,
         "executionConsistencyReview": consistency,

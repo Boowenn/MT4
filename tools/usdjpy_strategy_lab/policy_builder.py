@@ -231,6 +231,193 @@ def _build_spread_gate(snapshot: Dict[str, Any], diagnostics: Dict[str, Any] | N
     }
 
 
+def _read_json_file(path: Path) -> Dict[str, Any]:
+    try:
+        if path.exists() and path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _load_execution_quality_report(runtime_dir: Path) -> Dict[str, Any]:
+    for path in (
+        runtime_dir / "execution" / "QuantGod_LiveExecutionQualityReport.json",
+        runtime_dir / "evidence_os" / "QuantGod_LiveExecutionQualityReport.json",
+    ):
+        payload = _read_json_file(path)
+        if payload:
+            payload.setdefault("_filePath", str(path))
+            return payload
+    return {}
+
+
+def _account_lane(account_registry: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    accounts = account_registry.get("accounts") if isinstance(account_registry.get("accounts"), list) else []
+    for account in accounts:
+        if isinstance(account, dict) and str(account.get("accountMode") or "") == mode:
+            return account
+    return {}
+
+
+def _bucket_source_count(bucket: Dict[str, Any], *keys: str) -> int:
+    counts = bucket.get("sourceTierCounts") if isinstance(bucket.get("sourceTierCounts"), dict) else {}
+    return sum(int(_num(counts.get(key), 0.0)) for key in keys)
+
+
+def _last_loss_streak(bucket: Dict[str, Any]) -> int | None:
+    if "lossStreak" in bucket:
+        return int(_num(bucket.get("lossStreak"), 999.0))
+    if "currentLossStreak" in bucket:
+        return int(_num(bucket.get("currentLossStreak"), 999.0))
+    return None
+
+
+def _usd_deployment_gate(
+    *,
+    top_policy: Dict[str, Any],
+    spread_gate: Dict[str, Any],
+    news_gate: Dict[str, Any],
+    runtime_tier: str,
+    fast_ok: bool,
+    account_registry: Dict[str, Any],
+    execution_report: Dict[str, Any],
+) -> Dict[str, Any]:
+    usd_lane = _account_lane(account_registry, "standard_usd")
+    cent_lane = _account_lane(account_registry, "cent")
+    gate_cfg = usd_lane.get("promotionGate") if isinstance(usd_lane.get("promotionGate"), dict) else {}
+    stage_lot = usd_lane.get("stageLot") if isinstance(usd_lane.get("stageLot"), dict) else {}
+    blocked: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+
+    def block(code: str, reason: str, value: Any = None, limit: Any = None) -> None:
+        blocked.append({"code": code, "reasonZh": reason, "value": value, "limit": limit})
+
+    entry_mode = str(top_policy.get("entryMode") or top_policy.get("entryDecision") or "MISSING")
+    if not top_policy:
+        block("NO_TOP_POLICY", "没有可评估的 USDJPY RSI live policy。")
+    if str(top_policy.get("strategy") or "") != LIVE_ELIGIBLE_STRATEGY:
+        block("USD_STRATEGY_LOCK", "美元账户只允许 RSI_Reversal。", top_policy.get("strategy"), LIVE_ELIGIBLE_STRATEGY)
+    if str(top_policy.get("direction") or "").upper() != LIVE_ELIGIBLE_DIRECTION:
+        block("USD_DIRECTION_LOCK", "美元账户只允许 LONG。", top_policy.get("direction"), LIVE_ELIGIBLE_DIRECTION)
+    if entry_mode != ENTRY_STANDARD or not bool(top_policy.get("allowed")):
+        block("USD_STANDARD_ENTRY_REQUIRED", "美元账户不接探索单；只有 STANDARD_ENTRY 才能实盘。", entry_mode, ENTRY_STANDARD)
+    quorum = int(_num(top_policy.get("signalQuorum"), 0.0))
+    if quorum < 3:
+        block("USD_QUORUM_3_REQUIRED", "美元账户需要 3/3 signal quorum。", quorum, 3)
+    if str(spread_gate.get("tier") or "UNKNOWN").upper() != "NORMAL" or spread_gate.get("hardBlock"):
+        block("USD_NORMAL_SPREAD_REQUIRED", "美元账户只在 NORMAL 点差下实盘；SOFT_WIDE 只 mirror。", spread_gate.get("tier"), "NORMAL")
+    news_risk = str(news_gate.get("riskLevel") or "UNKNOWN").upper()
+    if news_risk != "NONE":
+        block("USD_NEWS_NONE_REQUIRED", "美元账户只在无新闻风险时实盘；UNKNOWN/SOFT/HARD 都只 mirror 或阻断。", news_risk, "NONE")
+    if runtime_tier != "FRESH":
+        block("USD_RUNTIME_FRESH_REQUIRED", "美元账户需要 FRESH runtime；SOFT_STALE 只允许美分账户降级小仓。", runtime_tier, "FRESH")
+    if not fast_ok:
+        block("USD_FASTLANE_REQUIRED", "美元账户需要 fastlane 或 EA dashboard 新鲜证据通过。")
+
+    metrics = execution_report.get("metrics") if isinstance(execution_report.get("metrics"), dict) else {}
+    promotion_gate = execution_report.get("promotionGate") if isinstance(execution_report.get("promotionGate"), dict) else {}
+    by_account = metrics.get("byAccount") if isinstance(metrics.get("byAccount"), dict) else {}
+    cent_alias = str(cent_lane.get("accountAlias") or "hfm_cent")
+    cent_bucket = by_account.get(cent_alias) if isinstance(by_account.get(cent_alias), dict) else {}
+    if execution_report and not cent_bucket:
+        block("USD_CENT_BUCKET_MISSING", "执行反馈缺少 hfm_cent 美分账户分桶，美元账户继续 mirror。", cent_alias)
+    cent_live_events = max(
+        int(_num(cent_bucket.get("fillCount"), 0.0)) + int(_num(cent_bucket.get("closeCount"), 0.0)),
+        _bucket_source_count(cent_bucket, "cent_live_real"),
+    )
+    cent_live_trades = int(_num(cent_bucket.get("liveTradeCount") or cent_bucket.get("closedTradeCount"), cent_live_events))
+    cent_net_r_raw = cent_bucket.get("netR")
+    cent_net_r = _num(cent_net_r_raw, -9999.0)
+    cent_pf_raw = cent_bucket.get("profitFactor")
+    cent_pf = _num(cent_pf_raw, -1.0)
+    loss_streak = _last_loss_streak(cent_bucket)
+    no_rollback_days = _num(
+        cent_bucket.get("noHardRollbackDays")
+        or metrics.get("centNoHardRollbackDays")
+        or execution_report.get("noHardRollbackDays"),
+        -1.0,
+    )
+    feedback_coverage = _num(
+        cent_bucket.get("feedbackCoveragePct") or metrics.get("fieldCoveragePct"),
+        0.0,
+    )
+    exec_status = str(promotion_gate.get("status") or "WAITING_FEEDBACK").upper()
+    min_trades = int(_num(gate_cfg.get("centLiveTradesMin"), 20.0))
+    min_pf = _num(gate_cfg.get("centProfitFactorMin"), 1.05)
+    min_net_r = _num(gate_cfg.get("centNetRMin"), 0.0)
+    max_loss_streak = int(_num(gate_cfg.get("centLossStreakMax"), 1.0))
+    min_no_rollback = _num(gate_cfg.get("noHardRollbackDaysMin"), 3.0)
+    min_coverage = _num(gate_cfg.get("executionFeedbackCoverageMinPct"), 90.0)
+
+    if not execution_report:
+        block("USD_EXECUTION_REPORT_MISSING", "缺少执行反馈质量报告，美元账户只能 mirror。")
+    if exec_status != "PASS":
+        block("USD_EXECUTION_QUALITY_PASS_REQUIRED", "美元账户需要执行反馈 promotionGate=PASS。", exec_status, "PASS")
+    if cent_live_trades < min_trades:
+        block("USD_CENT_LIVE_TRADES_LT_MIN", "美分账户真实样本不足，美元账户暂不实盘。", cent_live_trades, min_trades)
+    if cent_pf < min_pf:
+        block("USD_CENT_PF_LT_MIN", "美分账户 profit factor 未达部署门槛。", cent_pf_raw if cent_pf_raw is not None else None, min_pf)
+    if cent_net_r_raw in (None, "") or cent_net_r <= min_net_r:
+        block("USD_CENT_NET_R_NOT_POSITIVE", "美分账户净 R 尚未证明为正。", cent_net_r_raw, f">{min_net_r}")
+    if loss_streak is None:
+        warnings.append({"code": "USD_CENT_LOSS_STREAK_UNKNOWN", "reasonZh": "尚未看到美分账户连亏字段，保持 USD mirror。"})
+        block("USD_CENT_LOSS_STREAK_REQUIRED", "缺少美分账户连亏字段，美元账户暂不实盘。")
+    elif loss_streak > max_loss_streak:
+        block("USD_CENT_LOSS_STREAK_GT_MAX", "美分账户连亏超过美元部署门槛。", loss_streak, max_loss_streak)
+    if no_rollback_days < min_no_rollback:
+        block("USD_NO_HARD_ROLLBACK_DAYS_LT_MIN", "无硬回滚天数不足，美元账户继续 mirror。", no_rollback_days, min_no_rollback)
+    if feedback_coverage < min_coverage:
+        block("USD_FEEDBACK_COVERAGE_LT_MIN", "执行反馈字段覆盖率不足，美元账户继续 mirror。", feedback_coverage, min_coverage)
+
+    live_allowed = not blocked
+    target_stage = "USD_MICRO_LIVE" if live_allowed else "USD_PAPER_MIRROR"
+    recommended_lot = _round_lot(
+        _num(stage_lot.get("USD_MICRO_LIVE") or stage_lot.get("STANDARD_ENTRY"), 0.01),
+        min_lot=0.01,
+        max_lot=_num(usd_lane.get("maxLot"), 0.10),
+    ) if live_allowed else 0.0
+    return {
+        "schema": "quantgod.usdjpy_usd_deployment_gate.v1",
+        "stage": str(usd_lane.get("defaultStage") or "USD_PAPER_MIRROR"),
+        "targetStage": target_stage,
+        "liveAllowed": live_allowed,
+        "action": "USD_MICRO_LIVE" if live_allowed else "PAPER_MIRROR",
+        "allowedLiveEntryModes": ["STANDARD_ENTRY"],
+        "blockedEntryModes": ["OPPORTUNITY_ENTRY"],
+        "recommendedLot": recommended_lot,
+        "maxLot": _num(usd_lane.get("maxLot"), 0.10),
+        "normalSpreadOnly": True,
+        "newsNoneOnly": True,
+        "centValidation": {
+            "accountAlias": cent_alias,
+            "centLiveTrades": cent_live_trades,
+            "centNetR": cent_net_r_raw if cent_net_r_raw not in (None, "") else None,
+            "centProfitFactor": cent_pf_raw,
+            "centLossStreak": loss_streak,
+            "centNoHardRollbackDays": no_rollback_days if no_rollback_days >= 0 else None,
+            "executionFeedbackCoveragePct": feedback_coverage,
+            "executionPromotionGateStatus": exec_status,
+        },
+        "thresholds": {
+            "centLiveTradesMin": min_trades,
+            "centProfitFactorMin": min_pf,
+            "centNetRMin": min_net_r,
+            "centLossStreakMax": max_loss_streak,
+            "noHardRollbackDaysMin": min_no_rollback,
+            "executionFeedbackCoverageMinPct": min_coverage,
+        },
+        "blockers": blocked,
+        "warnings": warnings,
+        "reasonZh": (
+            "美元账户部署门通过：只允许 STANDARD_ENTRY / NORMAL 点差 / 无新闻风险下极小仓实盘。"
+            if live_allowed
+            else "美元账户继续 mirror；只有美分账户验证和严格 STANDARD_ENTRY 条件全部通过后才切 USD_MICRO_LIVE。"
+        ),
+    }
+
+
 def _credible_price(snapshot: Dict[str, Any]) -> bool:
     price = _price_payload(snapshot)
     bid = _num(price.get("bid"), 0.0)
@@ -537,6 +724,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
     adaptive = adaptive_policy(runtime_dir)
     news_gate = classify_news_gate(snapshot or {})
     account_registry = mt5_account_registry()
+    execution_report = _load_execution_quality_report(runtime_dir)
     runtime_tier, runtime_ok, runtime_reasons = _runtime_freshness(snapshot or {})
     fast_ok, fast_reasons = _fastlane_ok(quality)
     diagnostics = _load_rsi_entry_diagnostics(runtime_dir)
@@ -670,6 +858,15 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
     top_live_policy = live_eligible_candidates[0].to_dict() if live_eligible_candidates else None
     live_recovery_candidate = live_route_candidates[0].to_dict() if live_route_candidates else None
     top_policy = top_live_policy or live_recovery_candidate or top_shadow_policy
+    usd_deployment_gate = _usd_deployment_gate(
+        top_policy=top_policy or {},
+        spread_gate=spread_gate,
+        news_gate=news_gate,
+        runtime_tier=runtime_tier,
+        fast_ok=fast_ok,
+        account_registry=account_registry,
+        execution_report=execution_report,
+    )
     payload = {
         "schema": "quantgod.usdjpy_auto_execution_policy.v1",
         "generatedAt": utc_now_iso(),
@@ -699,12 +896,16 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
         "newsGate": news_gate,
         "spreadGate": spread_gate,
         "accountRegistry": account_registry,
+        "usdDeploymentGate": usd_deployment_gate,
         "accountLanePolicy": {
             "centAccountCanUseOpportunityEntry": True,
             "usdAccountOpportunityEntryMode": "PAPER_MIRROR_ONLY",
             "usdAccountLiveEntryModes": ["STANDARD_ENTRY"],
             "softWideSpreadCentMode": "OPPORTUNITY_ENTRY_SMALL_LOT",
             "softWideSpreadUsdMode": "PAPER_MIRROR_ONLY",
+            "usdDeploymentLiveMode": "STANDARD_ENTRY_NORMAL_SPREAD_NEWS_NONE_ONLY",
+            "usdDeploymentTargetStage": usd_deployment_gate.get("targetStage"),
+            "usdDeploymentLiveAllowed": bool(usd_deployment_gate.get("liveAllowed")),
             "polymarketLogicUnchanged": True,
         },
         "maxLot": max_lot,
@@ -733,6 +934,8 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "newsHardBlock": bool(news_gate.get("hardBlock")),
             "spreadGateTier": spread_gate.get("tier"),
             "spreadGateHardBlock": bool(spread_gate.get("hardBlock")),
+            "usdDeploymentLiveAllowed": bool(usd_deployment_gate.get("liveAllowed")),
+            "usdDeploymentTargetStage": usd_deployment_gate.get("targetStage"),
             "decisionModel": "HARD_GATES_PLUS_SIGNAL_QUORUM_V1",
             "hardGatePassCount": sum(1 for item in policies if item.hardGateStatus == "PASS"),
             "quorumEligibleCount": sum(1 for item in policies if int(item.signalQuorum) >= int(item.signalQuorumRequired)),

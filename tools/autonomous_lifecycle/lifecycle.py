@@ -68,7 +68,7 @@ def build_autonomous_lifecycle(
                 "symbol": FOCUS_SYMBOL,
                 "strategy": "RSI_Reversal",
                 "direction": "LONG",
-                "entryPolicyZh": "美元账户先 USD_PAPER_MIRROR；只在美分账户真实样本通过后允许 STANDARD_ENTRY 极小仓。",
+                "entryPolicyZh": "美元账户是严格部署车道：默认 USD_PAPER_MIRROR；美分账户验证达标后，只允许 STANDARD_ENTRY / NORMAL 点差极小仓实盘。",
             },
             "globalUsdJpyExposureGuard": account_registry.get("globalExposureGuard", {}),
             "mt5Shadow": mt5_shadow,

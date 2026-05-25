@@ -52,6 +52,8 @@ def _cent_lane() -> Dict[str, Any]:
 
 def _usd_lane() -> Dict[str, Any]:
     max_lot = min(max(_env_float("QG_USD_MAX_LOT", 0.10), 0.0), 1.0)
+    micro_lot = min(_env_float("QG_USD_MICRO_LIVE_LOT", 0.01), max_lot)
+    limited_lot = min(_env_float("QG_USD_LIMITED_LOT", 0.03), max_lot)
     return {
         "accountAlias": _env_text("QG_USD_ACCOUNT_ALIAS", "hfm_usd"),
         "accountMode": "standard_usd",
@@ -59,17 +61,31 @@ def _usd_lane() -> Dict[str, Any]:
         "lane": "USD_DEPLOYMENT",
         "laneZh": "美元账户部署车道",
         "role": "capital_deployment",
-        "purposeZh": "只部署已被美分账户真实样本验证过的结构；不参与探索。",
+        "purposeZh": "严格部署已被美分账户真实样本验证过的高质量结构；不参与探索。",
         "allowedEntryModes": ["STANDARD_ENTRY"],
         "paperMirrorEntryModes": ["OPPORTUNITY_ENTRY", "STANDARD_ENTRY"],
         "allowedStages": ["USD_PAPER_MIRROR", "USD_MICRO_LIVE", "USD_LIMITED", "PAUSED", "ROLLBACK"],
         "defaultStage": _env_text("QG_USD_DEFAULT_STAGE", "USD_PAPER_MIRROR"),
+        "liveStages": ["USD_MICRO_LIVE", "USD_LIMITED"],
         "maxLot": max_lot,
         "riskPerTradeR": _env_float("QG_USD_RISK_PER_TRADE_R", 0.10),
         "stageLot": {
             "USD_PAPER_MIRROR": 0.0,
-            "USD_MICRO_LIVE": min(_env_float("QG_USD_MICRO_LIVE_LOT", 0.01), max_lot),
-            "USD_LIMITED": min(_env_float("QG_USD_LIMITED_LOT", 0.03), max_lot),
+            "USD_MICRO_LIVE": micro_lot,
+            "STANDARD_ENTRY": min(_env_float("QG_USD_STANDARD_LOT", 0.03), max_lot),
+            "USD_LIMITED": limited_lot,
+        },
+        "deploymentRules": {
+            "standardEntryOnly": True,
+            "normalSpreadOnly": True,
+            "opportunityEntryLiveAllowed": False,
+            "softWideLiveAllowed": False,
+            "unknownNewsLiveAllowed": False,
+            "softNewsLiveAllowed": False,
+            "symbol": "USDJPYc",
+            "strategy": "RSI_Reversal",
+            "direction": "LONG",
+            "reasonZh": "美元账户可以实盘，但只做 STANDARD_ENTRY / NORMAL 点差 / 无新闻风险的小仓部署。",
         },
         "promotionGate": {
             "centLiveTradesMin": _env_int("QG_USD_PROMOTION_MIN_CENT_TRADES", 20),
@@ -77,6 +93,7 @@ def _usd_lane() -> Dict[str, Any]:
             "centNetRMin": _env_float("QG_USD_PROMOTION_MIN_CENT_NET_R", 0.0),
             "centLossStreakMax": _env_int("QG_USD_PROMOTION_MAX_CENT_LOSS_STREAK", 1),
             "noHardRollbackDaysMin": _env_int("QG_USD_PROMOTION_MIN_NO_ROLLBACK_DAYS", 3),
+            "executionFeedbackCoverageMinPct": _env_float("QG_USD_PROMOTION_MIN_FEEDBACK_COVERAGE_PCT", 90.0),
         },
     }
 

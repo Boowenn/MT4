@@ -360,6 +360,7 @@ def _metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _metrics_by_account(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     buckets: Dict[str, Dict[str, Any]] = {}
+    outcome_rows_by_alias: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
         alias = str(row.get("accountAlias") or "unknown")
         bucket = buckets.setdefault(
@@ -373,6 +374,12 @@ def _metrics_by_account(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "closeCount": 0,
                 "rejectCount": 0,
                 "netR": 0.0,
+                "grossWinR": 0.0,
+                "grossLossR": 0.0,
+                "profitFactor": None,
+                "lossStreak": 0,
+                "liveTradeCount": 0,
+                "feedbackCoveragePct": 0.0,
                 "sourceTierCounts": {},
             },
         )
@@ -382,11 +389,39 @@ def _metrics_by_account(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             bucket["fillCount"] += 1
         if event in CLOSE_EVENT_TYPES:
             bucket["closeCount"] += 1
+            outcome_rows_by_alias.setdefault(alias, []).append(row)
         if row.get("rejectReason"):
             bucket["rejectCount"] += 1
-        bucket["netR"] = round(float(bucket["netR"]) + float(row.get("profitR") or 0.0), 4)
+        profit_r = float(row.get("profitR") or 0.0)
+        bucket["netR"] = round(float(bucket["netR"]) + profit_r, 4)
+        if profit_r > 0:
+            bucket["grossWinR"] = round(float(bucket["grossWinR"]) + profit_r, 4)
+        elif profit_r < 0:
+            bucket["grossLossR"] = round(float(bucket["grossLossR"]) + profit_r, 4)
         tier = str(row.get("accountSourceTier") or row.get("sourceTier") or "unknown")
         bucket["sourceTierCounts"][tier] = int(bucket["sourceTierCounts"].get(tier, 0)) + 1
+    for alias, bucket in buckets.items():
+        gross_win = float(bucket.get("grossWinR") or 0.0)
+        gross_loss = abs(float(bucket.get("grossLossR") or 0.0))
+        if gross_loss > 0:
+            bucket["profitFactor"] = round(gross_win / gross_loss, 4)
+        elif gross_win > 0:
+            bucket["profitFactor"] = 999.0
+        outcomes = outcome_rows_by_alias.get(alias, [])
+        streak = 0
+        for row in reversed(outcomes):
+            profit_r = float(row.get("profitR") or 0.0)
+            if profit_r < 0:
+                streak += 1
+            elif profit_r > 0:
+                break
+        bucket["lossStreak"] = streak
+        counts = bucket.get("sourceTierCounts") if isinstance(bucket.get("sourceTierCounts"), dict) else {}
+        bucket["liveTradeCount"] = max(
+            int(bucket.get("closeCount") or 0),
+            int(counts.get("cent_live_real") or 0),
+            int(counts.get("usd_live_real") or 0),
+        )
     return buckets
 
 

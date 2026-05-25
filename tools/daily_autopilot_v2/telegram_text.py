@@ -35,6 +35,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
     poly_summary = polymarket.get("summary") if isinstance(polymarket.get("summary"), dict) else {}
     news_gate = morning.get("newsGate") if isinstance(morning.get("newsGate"), dict) else {}
     spread_gate = morning.get("spreadGate") if isinstance(morning.get("spreadGate"), dict) else {}
+    usd_deployment_gate = morning.get("usdDeploymentGate") if isinstance(morning.get("usdDeploymentGate"), dict) else {}
     news_review = evening.get("newsGateReview") if isinstance(evening.get("newsGateReview"), dict) else {}
     evening_live = evening.get("liveLane") if isinstance(evening.get("liveLane"), dict) else {}
     evening_mt5 = evening.get("mt5ShadowLane") if isinstance(evening.get("mt5ShadowLane"), dict) else {}
@@ -66,7 +67,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         "",
         f"账户模式：{_fmt(morning.get('accountMode'), 'cent')} / {_fmt(morning.get('accountCurrencyUnit'), 'USC')}",
         f"美分账户：{_fmt(cent_lane.get('accountAlias'), 'hfm_cent')} / {_fmt(cent_lane.get('defaultStage'), 'CENT_MICRO_LIVE')}；允许 {_fmt(','.join(cent_lane.get('allowedEntryModes', [])) if isinstance(cent_lane.get('allowedEntryModes'), list) else cent_lane.get('allowedEntryModes'), 'OPPORTUNITY_ENTRY,STANDARD_ENTRY')}",
-        f"美元账户：{_fmt(usd_lane.get('accountAlias'), 'hfm_usd')} / {_fmt(usd_lane.get('defaultStage'), 'USD_PAPER_MIRROR')}；实盘只等 {_fmt(','.join(usd_lane.get('allowedEntryModes', [])) if isinstance(usd_lane.get('allowedEntryModes'), list) else usd_lane.get('allowedEntryModes'), 'STANDARD_ENTRY')}",
+        f"美元账户：{_fmt(usd_lane.get('accountAlias'), 'hfm_usd')} / {_fmt(usd_deployment_gate.get('targetStage') or usd_lane.get('defaultStage'), 'USD_PAPER_MIRROR')}；严格部署 {_fmt(','.join(usd_lane.get('allowedEntryModes', [])) if isinstance(usd_lane.get('allowedEntryModes'), list) else usd_lane.get('allowedEntryModes'), 'STANDARD_ENTRY')}",
         f"全局 USDJPY 风险：{_fmt(exposure_guard.get('direction'), 'LONG')} 同向预算 {_fmt(exposure_guard.get('sameDirectionMultiAccountRiskBudget'), '0.35')}R，美元账户优先。",
         f"实盘车道：{_fmt(live.get('symbol'), 'USDJPYc')} {_fmt(live.get('strategy'), 'RSI_Reversal')} {_fmt(live.get('direction'), 'LONG')}",
         f"当前阶段：{_fmt(live.get('stageZh') or live.get('stage'))}",
@@ -92,6 +93,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         f"- 正常/轻微/硬阻断：{_num(spread_gate.get('normalLimitPips'), 1)} / {_num(spread_gate.get('softLimitPips'), 1)} / {_num(spread_gate.get('hardLimitPips'), 1)} pips",
         f"- 处理：{_fmt(spread_gate.get('reasonZh'), '2.2 pips 是正常上限，不再单独作为硬阻断线。')}",
         f"- 美分账户：{_fmt(spread_gate.get('centActionZh'), '按 quorum 和账户车道处理。')}；美元账户：{_fmt(spread_gate.get('usdActionZh'), '只部署已验证结构。')}",
+        f"- USD 部署门：{_fmt(usd_deployment_gate.get('action'), 'PAPER_MIRROR')}；{_fmt(usd_deployment_gate.get('reasonZh'), 'STANDARD_ENTRY / NORMAL 点差 / 美分验证通过后才小仓实盘。')}",
         "",
         "今日禁止：",
     ]

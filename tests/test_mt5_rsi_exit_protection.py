@@ -13,6 +13,7 @@ START_CONFIG_PATH = ROOT / "MQL5" / "Config" / "QuantGod_MT5_Start.ini"
 BACKTEST_CONFIG_DIR = ROOT / "MQL5" / "Config" / "BacktestLab"
 SHADOW_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_Shadow.set"
 SECONDARY_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_LiveSecondary.set"
+USD_DEPLOY_PRESET_PATH = ROOT / "MQL5" / "Presets" / "QuantGod_MT5_HFM_UsdDeployMicro.set"
 MAC_LAUNCHER_PATH = ROOT / "Start_QuantGod_mac.sh"
 
 USDJPY_SHADOW_ROUTES = (
@@ -324,9 +325,13 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("QG_MT5_SECONDARY_LOGIN", launcher_text)
         self.assertIn("QG_MT5_SECONDARY_SERVER", launcher_text)
         self.assertIn("QuantGod_MT5_HFM_LiveSecondary_mac.ini", launcher_text)
-        self.assertIn('MT5_SECONDARY_PRESET_NAME="${QG_MT5_SECONDARY_PRESET_NAME:-QuantGod_MT5_HFM_LiveSecondary.set}"', launcher_text)
+        self.assertIn('MT5_SECONDARY_STAGE="${QG_MT5_SECONDARY_STAGE:-}"', launcher_text)
+        self.assertIn('resolve_usd_deployment_stage "USD_PAPER_MIRROR"', launcher_text)
+        self.assertIn('MT5_SECONDARY_DEFAULT_PRESET="QuantGod_MT5_HFM_UsdDeployMicro.set"', launcher_text)
+        self.assertIn('MT5_SECONDARY_DEFAULT_PRESET="QuantGod_MT5_HFM_LiveSecondary.set"', launcher_text)
+        self.assertIn('MT5_SECONDARY_ALLOW_LIVE_TRADING="${QG_MT5_SECONDARY_ALLOW_LIVE_TRADING:-$MT5_SECONDARY_DEFAULT_ALLOW_LIVE}"', launcher_text)
         self.assertIn("prepare_live_config", launcher_text)
-        self.assertIn('patch_ini_section_key "$MT5_SECONDARY_CONFIG" "Experts" "AllowLiveTrading" "0"', launcher_text)
+        self.assertIn('patch_ini_section_key "$MT5_SECONDARY_CONFIG" "Experts" "AllowLiveTrading" "$MT5_SECONDARY_ALLOW_LIVE_TRADING"', launcher_text)
         self.assertIn('patch_ini_section_key "$MT5_SECONDARY_CONFIG" "StartUp" "ExpertParameters" "$MT5_SECONDARY_PRESET_NAME"', launcher_text)
         self.assertIn("terminal64.exe /portable", launcher_text)
         self.assertIn("QuantGod_MT5_HFM_Shadow_mac.ini", launcher_text)
@@ -349,6 +354,22 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         self.assertIn("PilotMaxSpreadPips=2.2", text)
         self.assertIn("PilotSoftMaxSpreadPips=2.7", text)
         self.assertIn("PilotHardMaxSpreadPips=3.0", text)
+
+    def test_usd_deploy_micro_preset_is_strict_standard_live(self):
+        text = USD_DEPLOY_PRESET_PATH.read_text(encoding="utf-8")
+        self.assertIn("DashboardBuild=QuantGod-v3.17-mt5-usd-deploy-micro", text)
+        self.assertIn("ReadOnlyMode=false", text)
+        self.assertIn("EnablePilotAutoTrading=true", text)
+        self.assertIn("EnablePilotRsiH1Candidate=true", text)
+        self.assertIn("EnablePilotRsiH1Live=true", text)
+        self.assertIn("PilotLotSize=0.01", text)
+        self.assertIn("PilotMaxSpreadPips=2.2", text)
+        self.assertIn("PilotSoftMaxSpreadPips=2.2", text)
+        self.assertIn("PilotHardMaxSpreadPips=2.2", text)
+        self.assertIn("PilotMaxTotalPositions=1", text)
+        self.assertIn("PilotMaxPositionsPerSymbol=1", text)
+        self.assertIn("PilotMaxConsecutiveLosses=1", text)
+        self.assertIn("PilotMagic=520016", text)
 
     def test_live_and_usdjpy_backtest_presets_include_rsi_fast_exit(self):
         for path in (LIVE_PRESET_PATH, BACKTEST_USDJPY_PATH):

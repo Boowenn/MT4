@@ -31,6 +31,8 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertIn("strategyCatalogVersion", policy)
             self.assertTrue(policy["focusOnly"])
             self.assertEqual(policy["accountLanePolicy"]["usdAccountOpportunityEntryMode"], "PAPER_MIRROR_ONLY")
+            self.assertEqual(policy["accountLanePolicy"]["usdAccountLiveEntryModes"], ["STANDARD_ENTRY"])
+            self.assertIn("usdDeploymentGate", policy)
             self.assertTrue(policy["accountLanePolicy"]["polymarketLogicUnchanged"])
             self.assertGreaterEqual(policy["standardEntryCount"] + policy["opportunityEntryCount"], 1)
             self.assertGreaterEqual(policy["evidence"]["candidateSignalCount"], 1)
@@ -414,11 +416,63 @@ class USDJPYStrategyLabTests(unittest.TestCase):
 
             self.assertEqual(policy["spreadGate"]["tier"], "SOFT_WIDE")
             self.assertEqual(policy["accountLanePolicy"]["softWideSpreadUsdMode"], "PAPER_MIRROR_ONLY")
+            self.assertFalse(policy["usdDeploymentGate"]["liveAllowed"])
+            self.assertIn(
+                "USD_NORMAL_SPREAD_REQUIRED",
+                {row["code"] for row in policy["usdDeploymentGate"]["blockers"]},
+            )
             self.assertEqual(rsi_long["hardGateStatus"], "PASS")
             self.assertEqual(rsi_long["entryMode"], ENTRY_OPPORTUNITY)
             self.assertTrue(rsi_long["allowed"])
             self.assertLessEqual(rsi_long["recommendedLot"], 0.10)
             self.assertIn("点差轻微偏宽", "；".join(rsi_long["reasons"]))
+
+    def test_usd_deployment_gate_allows_only_validated_standard_normal_spread(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            snapshot_path = runtime / "QuantGod_MT5RuntimeSnapshot_USDJPYc.json"
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["newsGate"] = {"event": "quiet market", "impact": "NONE"}
+            snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+            execution_dir = runtime / "execution"
+            execution_dir.mkdir(parents=True, exist_ok=True)
+            (execution_dir / "QuantGod_LiveExecutionQualityReport.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {
+                            "fieldCoveragePct": 100.0,
+                            "byAccount": {
+                                "hfm_cent": {
+                                    "accountAlias": "hfm_cent",
+                                    "accountMode": "cent",
+                                    "fillCount": 20,
+                                    "closeCount": 20,
+                                    "liveTradeCount": 20,
+                                    "netR": 1.4,
+                                    "profitFactor": 1.2,
+                                    "lossStreak": 0,
+                                    "noHardRollbackDays": 3,
+                                    "feedbackCoveragePct": 100.0,
+                                    "sourceTierCounts": {"cent_live_real": 20},
+                                }
+                            },
+                        },
+                        "promotionGate": {"status": "PASS", "promotionAllowed": True},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            policy = build_usdjpy_policy(runtime)
+
+            self.assertEqual(policy["topPolicy"]["entryMode"], ENTRY_STANDARD)
+            self.assertEqual(policy["spreadGate"]["tier"], "NORMAL")
+            self.assertTrue(policy["usdDeploymentGate"]["liveAllowed"])
+            self.assertEqual(policy["usdDeploymentGate"]["targetStage"], "USD_MICRO_LIVE")
+            self.assertEqual(policy["usdDeploymentGate"]["recommendedLot"], 0.01)
+            self.assertEqual(policy["accountLanePolicy"]["usdDeploymentLiveAllowed"], True)
 
     def test_hard_wide_spread_still_blocks_all_live_entry(self):
         with tempfile.TemporaryDirectory() as tmp:

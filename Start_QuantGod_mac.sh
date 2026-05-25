@@ -111,6 +111,29 @@ prepare_live_config() {
   patch_ini_section_key "$target_config" "Charts" "MaxBars" "$max_bars"
 }
 
+resolve_usd_deployment_stage() {
+  local fallback="$1"
+  "$QG_PYTHON_BIN" - "$QG_RUNTIME_DIR" "$fallback" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+runtime = Path(sys.argv[1])
+fallback = sys.argv[2] or "USD_PAPER_MIRROR"
+policy_path = runtime / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json"
+try:
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+except Exception:
+    print(fallback)
+    raise SystemExit(0)
+gate = policy.get("usdDeploymentGate") if isinstance(policy, dict) else {}
+if isinstance(gate, dict) and gate.get("liveAllowed") is True and gate.get("targetStage") in {"USD_MICRO_LIVE", "USD_LIMITED"}:
+    print(gate.get("targetStage"))
+else:
+    print(fallback)
+PY
+}
+
 start_screen() {
   local name="$1"
   local log_file="$2"
@@ -215,7 +238,7 @@ MT5_SECONDARY_EXPERTS="${MT5_SECONDARY_MQL5:+$MT5_SECONDARY_MQL5/Experts}"
 MT5_SECONDARY_PRESETS="${MT5_SECONDARY_MQL5:+$MT5_SECONDARY_MQL5/Presets}"
 MT5_SECONDARY_CONFIG_NAME="${QG_MT5_SECONDARY_CONFIG_NAME:-QuantGod_MT5_HFM_LiveSecondary_mac.ini}"
 MT5_SECONDARY_CONFIG="${MT5_SECONDARY_PREFIX:+$MT5_SECONDARY_PREFIX/drive_c/qg/$MT5_SECONDARY_CONFIG_NAME}"
-MT5_SECONDARY_PRESET_NAME="${QG_MT5_SECONDARY_PRESET_NAME:-QuantGod_MT5_HFM_LiveSecondary.set}"
+MT5_SECONDARY_PRESET_NAME="${QG_MT5_SECONDARY_PRESET_NAME:-}"
 
 export QG_MT5_TERMINAL_PATH="${QG_MT5_TERMINAL_PATH:-$MT5_ROOT/terminal64.exe}"
 export QG_MT5_PYTHON_BIN="${QG_MT5_PYTHON_BIN:-$QG_PYTHON_BIN}"
@@ -249,6 +272,7 @@ MT5_SECONDARY_ENABLED="${QG_MT5_SECONDARY_ENABLED:-0}"
 MT5_SECONDARY_LOGIN="${QG_MT5_SECONDARY_LOGIN:-}"
 MT5_SECONDARY_SERVER="${QG_MT5_SECONDARY_SERVER:-}"
 MT5_SECONDARY_SYMBOL="${QG_MT5_SECONDARY_SYMBOL:-$MT5_START_SYMBOL}"
+MT5_SECONDARY_STAGE="${QG_MT5_SECONDARY_STAGE:-}"
 BACKEND_API_ENABLED="${QG_BACKEND_API_ENABLED:-1}"
 FRONTEND_ENABLED="${QG_FRONTEND_ENABLED:-1}"
 AGENT_V25_ENABLED="${QG_AGENT_V25_ENABLED:-1}"
@@ -264,6 +288,22 @@ if [[ -d "$MT5_ROOT" && ( "$RUNTIME_SOURCE" == "mt5" || ( "$RUNTIME_SOURCE" == "
   export QG_MT5_FILES_DIR="$MT5_FILES"
 fi
 
+if [[ -z "$MT5_SECONDARY_STAGE" ]]; then
+  MT5_SECONDARY_STAGE="$(resolve_usd_deployment_stage "USD_PAPER_MIRROR" 2>/dev/null || printf '%s' "USD_PAPER_MIRROR")"
+fi
+case "$MT5_SECONDARY_STAGE" in
+  USD_MICRO_LIVE|USD_LIMITED)
+    MT5_SECONDARY_DEFAULT_PRESET="QuantGod_MT5_HFM_UsdDeployMicro.set"
+    MT5_SECONDARY_DEFAULT_ALLOW_LIVE="1"
+    ;;
+  *)
+    MT5_SECONDARY_DEFAULT_PRESET="QuantGod_MT5_HFM_LiveSecondary.set"
+    MT5_SECONDARY_DEFAULT_ALLOW_LIVE="0"
+    ;;
+esac
+MT5_SECONDARY_PRESET_NAME="${MT5_SECONDARY_PRESET_NAME:-$MT5_SECONDARY_DEFAULT_PRESET}"
+MT5_SECONDARY_ALLOW_LIVE_TRADING="${QG_MT5_SECONDARY_ALLOW_LIVE_TRADING:-$MT5_SECONDARY_DEFAULT_ALLOW_LIVE}"
+
 echo "QuantGod v2.5 Mac one-click launcher"
 echo "Backend: $SCRIPT_DIR"
 echo "Frontend: $FRONTEND_DIR"
@@ -275,6 +315,8 @@ echo "MT5 live launch allowed: $MT5_LIVE_LAUNCH_ALLOWED"
 echo "MT5 secondary live instance: $MT5_SECONDARY_ENABLED"
 if [[ "$MT5_SECONDARY_ENABLED" == "1" ]]; then
   echo "MT5 secondary root: ${MT5_SECONDARY_ROOT:-not configured}"
+  echo "MT5 secondary USD deployment stage: $MT5_SECONDARY_STAGE"
+  echo "MT5 secondary preset: $MT5_SECONDARY_PRESET_NAME / AllowLiveTrading=$MT5_SECONDARY_ALLOW_LIVE_TRADING"
 fi
 echo "MT5 terminal path: $QG_MT5_TERMINAL_PATH"
 echo "MT5 Python bin: $QG_MT5_PYTHON_BIN"
@@ -413,12 +455,12 @@ if [[ -d "$MT5_ROOT" ]]; then
             fi
             rsync -a MQL5/Presets/ "$MT5_SECONDARY_PRESETS/"
             prepare_live_config "$MT5_SECONDARY_CONFIG" "$MT5_SECONDARY_SYMBOL" "$QG_MT5_MAX_BARS" "$MT5_SECONDARY_LOGIN" "$MT5_SECONDARY_SERVER"
-            patch_ini_section_key "$MT5_SECONDARY_CONFIG" "Experts" "AllowLiveTrading" "0"
+            patch_ini_section_key "$MT5_SECONDARY_CONFIG" "Experts" "AllowLiveTrading" "$MT5_SECONDARY_ALLOW_LIVE_TRADING"
             patch_ini_section_key "$MT5_SECONDARY_CONFIG" "StartUp" "ExpertParameters" "$MT5_SECONDARY_PRESET_NAME"
             if [[ -f "$MT5_SECONDARY_ROOT/config/terminal.ini" ]]; then
               patch_ini_section_key "$MT5_SECONDARY_ROOT/config/terminal.ini" "Charts" "MaxBars" "$QG_MT5_MAX_BARS"
             fi
-            echo "Secondary mirror MT5 config prepared at $MT5_SECONDARY_CONFIG with preset $MT5_SECONDARY_PRESET_NAME."
+            echo "Secondary USD deployment MT5 config prepared at $MT5_SECONDARY_CONFIG with preset $MT5_SECONDARY_PRESET_NAME and AllowLiveTrading=$MT5_SECONDARY_ALLOW_LIVE_TRADING."
             start_screen "$MT5_SECONDARY_SCREEN" "$SCRIPT_DIR/runtime/mt5_hfm_secondary_live_screen.log" \
               "cd '$MT5_SECONDARY_ROOT' && exec env WINEPREFIX='$MT5_SECONDARY_PREFIX' '$WINE64' terminal64.exe /portable '/config:C:\\qg\\$MT5_SECONDARY_CONFIG_NAME'"
           fi
