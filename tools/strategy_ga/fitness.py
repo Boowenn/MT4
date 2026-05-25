@@ -58,6 +58,8 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
     execution_metrics = execution.get("metrics") if isinstance(execution.get("metrics"), dict) else {}
     execution_gate = execution.get("promotionGate") if isinstance(execution.get("promotionGate"), dict) else {}
     execution_blocker_codes = _execution_blocker_codes(execution_gate)
+    account_execution = _account_execution_profile(execution_metrics)
+    account_execution_penalty = _account_execution_penalty(account_execution)
     has_seed_backtest = bool(seed and strategy_backtest)
     backtest_ok = bool(strategy_backtest.get("ok")) if strategy_backtest else False
     backtest_net_r = _num(backtest_metrics.get("netR"), 0)
@@ -145,6 +147,8 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
             "coreMissingFieldCount": int(_num(execution_metrics.get("coreMissingFieldCount"), 0)),
             "conditionalMissingFieldCount": int(_num(execution_metrics.get("conditionalMissingFieldCount"), 0)),
             "penalty": execution_penalty,
+            "accountProfile": account_execution,
+            "accountAwarePenalty": account_execution_penalty,
         },
         "caseMemory": {
             "present": bool(cases),
@@ -157,6 +161,7 @@ def evidence_metrics(runtime_dir: Path, seed: Dict[str, Any] | None = None) -> D
         "strategyContractShadow": strategy_contract_shadow,
         "evidencePenalty": parity_penalty
         + execution_penalty
+        + account_execution_penalty
         + case_penalty
         + backtest_quality_penalty
         + history_production_penalty,
@@ -218,6 +223,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         walk_forward_summary,
     )
     evidence_penalty = float(metrics.get("evidencePenalty", 0.0))
+    execution_feedback = metrics.get("executionFeedback") if isinstance(metrics.get("executionFeedback"), dict) else {}
     strategy_contract_shadow_bonus = _strategy_contract_shadow_bonus(metrics.get("strategyContractShadow", {}))
     profit_factor_bonus = _profit_factor_bonus(_num(backtest.get("profitFactor"), 0))
     win_rate_bonus = _win_rate_bonus(_num(backtest.get("winRate"), 0))
@@ -266,7 +272,7 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         blocker = "OVERFIT_RISK"
     elif metrics.get("parity", {}).get("promotionGateStatus") in {"BLOCKED", "MISSING"}:
         blocker = "PARITY_PROMOTION_GATE_BLOCKED"
-    elif _execution_blocks_strategy_ranking(metrics.get("executionFeedback", {})):
+    elif _execution_blocks_strategy_ranking(execution_feedback):
         blocker = "PARITY_OR_EXECUTION_EVIDENCE_FAILED"
     elif evidence_penalty >= 1.0:
         blocker = "PARITY_OR_EXECUTION_EVIDENCE_FAILED"
@@ -290,6 +296,10 @@ def score_seed(seed: Dict[str, Any], runtime_dir: Path) -> Dict[str, Any]:
         "rsiMinTradeGatePenalty": round(rsi_min_trade_gate_penalty, 4),
         "rsiSegmentOverfitPenalty": round(rsi_segment_overfit_penalty, 4),
         "evidencePenalty": round(evidence_penalty, 4),
+        "accountAwareExecutionPenalty": round(
+            _num(execution_feedback.get("accountAwarePenalty"), 0.0),
+            4,
+        ),
         "profitFactorBonus": round(profit_factor_bonus, 4),
         "winRateBonus": round(win_rate_bonus, 4),
         "sharpeBonus": round(sharpe_bonus, 4),
@@ -451,6 +461,106 @@ def _execution_penalty(metrics: Dict[str, Any]) -> float:
         ),
         4,
     )
+
+
+def _account_execution_profile(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    by_account = metrics.get("byAccount") if isinstance(metrics.get("byAccount"), dict) else {}
+    cent = _select_account_bucket(by_account, "cent", "hfm_cent")
+    usd = _select_account_bucket(by_account, "standard_usd", "hfm_usd")
+    cent_live_rows = _bucket_source_count(cent, "cent_live_real")
+    usd_live_rows = _bucket_source_count(usd, "usd_live_real")
+    usd_live_trades = max(int(_num(usd.get("liveTradeCount"), 0)), usd_live_rows)
+    usd_net_r = _num(usd.get("netR"), 0.0)
+    usd_loss_streak = int(_num(usd.get("lossStreak"), 0))
+    usd_status = "NO_USD_DEPLOYMENT_EVIDENCE"
+    if usd_live_trades > 0 and (usd_net_r < 0 or usd_loss_streak > 0):
+        usd_status = "USD_CAPITAL_PROTECTION_ALERT"
+    elif usd_live_trades > 0:
+        usd_status = "USD_DEPLOYMENT_OBSERVED"
+    return {
+        "schema": "quantgod.ga.account_execution_profile.v1",
+        "accountAware": bool(by_account),
+        "centExploration": _account_bucket_summary(
+            cent,
+            role="CENT_EXPLORATION_LEARNING",
+            live_real_rows=cent_live_rows,
+            reason_zh="美分账户真实样本只用于探索和参数学习，不直接证明美元账户可部署。",
+        ),
+        "usdDeployment": {
+            **_account_bucket_summary(
+                usd,
+                role="USD_STRICT_DEPLOYMENT",
+                live_real_rows=usd_live_rows,
+                reason_zh="美元账户真实样本只作为严格部署和资本保护证据；最终真钱放行仍由 usdDeploymentGate 决定。",
+            ),
+            "status": usd_status,
+            "qualifiedByGa": False,
+            "qualificationSource": "USD_DEPLOYMENT_GATE_ONLY",
+        },
+        "centEvidenceCanQualifyUsd": False,
+        "gaDirectLiveAllowed": False,
+        "reasonZh": (
+            "GA 已按账户分桶解释执行反馈：cent_live_real 可用于学习，usd_live_real 用于部署质量/回滚；"
+            "GA 不会把美分探索收益当成美元账户实盘资格。"
+        ),
+    }
+
+
+def _select_account_bucket(by_account: Dict[str, Any], account_mode: str, preferred_alias: str) -> Dict[str, Any]:
+    preferred = by_account.get(preferred_alias)
+    if isinstance(preferred, dict) and str(preferred.get("accountMode") or "").lower() == account_mode:
+        return preferred
+    for row in by_account.values():
+        if isinstance(row, dict) and str(row.get("accountMode") or "").lower() == account_mode:
+            return row
+    return {
+        "accountAlias": preferred_alias,
+        "accountMode": account_mode,
+        "accountCurrency": "USD" if account_mode == "standard_usd" else "USC",
+        "sourceTierCounts": {},
+    }
+
+
+def _bucket_source_count(bucket: Dict[str, Any], tier: str) -> int:
+    counts = bucket.get("sourceTierCounts") if isinstance(bucket.get("sourceTierCounts"), dict) else {}
+    return int(_num(counts.get(tier), 0))
+
+
+def _account_bucket_summary(
+    bucket: Dict[str, Any],
+    *,
+    role: str,
+    live_real_rows: int,
+    reason_zh: str,
+) -> Dict[str, Any]:
+    return {
+        "accountAlias": bucket.get("accountAlias") or "",
+        "accountMode": bucket.get("accountMode") or "",
+        "accountCurrency": bucket.get("accountCurrency") or "",
+        "role": role,
+        "feedbackRows": int(_num(bucket.get("feedbackRows"), 0)),
+        "fillCount": int(_num(bucket.get("fillCount"), 0)),
+        "closeCount": int(_num(bucket.get("closeCount"), 0)),
+        "liveTradeCount": int(_num(bucket.get("liveTradeCount"), 0)),
+        "liveRealRows": int(live_real_rows),
+        "netR": round(_num(bucket.get("netR"), 0.0), 4),
+        "profitFactor": bucket.get("profitFactor"),
+        "lossStreak": int(_num(bucket.get("lossStreak"), 0)),
+        "sourceTierCounts": bucket.get("sourceTierCounts") if isinstance(bucket.get("sourceTierCounts"), dict) else {},
+        "reasonZh": reason_zh,
+    }
+
+
+def _account_execution_penalty(profile: Dict[str, Any]) -> float:
+    usd = profile.get("usdDeployment") if isinstance(profile.get("usdDeployment"), dict) else {}
+    live_trades = max(int(_num(usd.get("liveTradeCount"), 0)), int(_num(usd.get("liveRealRows"), 0)))
+    if live_trades <= 0:
+        return 0.0
+    net_r = _num(usd.get("netR"), 0.0)
+    loss_streak = int(_num(usd.get("lossStreak"), 0))
+    if net_r >= 0 and loss_streak <= 0:
+        return 0.0
+    return round(min(0.85, abs(min(0.0, net_r)) * 0.45 + loss_streak * 0.18), 4)
 
 
 def _parity_penalty(status: str, promotion_gate: Dict[str, Any]) -> float:

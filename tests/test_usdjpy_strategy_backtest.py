@@ -109,6 +109,146 @@ class USDJPYStrategyBacktestTests(unittest.TestCase):
             self.assertIn("backtestQuality", score)
             self.assertTrue(score["backtestQuality"]["present"])
 
+    def test_p4_9c_ga_fitness_keeps_cent_exploration_out_of_usd_qualification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            evidence_dir = runtime_dir / "evidence_os"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "QuantGod_LiveExecutionQualityReport.json").write_text(
+                json.dumps(
+                    {
+                        "sampleCount": 24,
+                        "promotionGate": {"status": "PASS", "promotionAllowed": True},
+                        "metrics": {
+                            "feedbackRows": 24,
+                            "fillCount": 12,
+                            "rejectCount": 0,
+                            "byAccount": {
+                                "hfm_cent": {
+                                    "accountAlias": "hfm_cent",
+                                    "accountMode": "cent",
+                                    "accountCurrency": "USC",
+                                    "feedbackRows": 24,
+                                    "fillCount": 12,
+                                    "closeCount": 12,
+                                    "liveTradeCount": 12,
+                                    "netR": 1.35,
+                                    "profitFactor": 1.8,
+                                    "lossStreak": 0,
+                                    "sourceTierCounts": {"cent_live_real": 12},
+                                }
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            metrics = evidence_metrics(runtime_dir)
+            profile = metrics["executionFeedback"]["accountProfile"]
+
+            self.assertTrue(profile["accountAware"])
+            self.assertEqual(profile["centExploration"]["role"], "CENT_EXPLORATION_LEARNING")
+            self.assertEqual(profile["centExploration"]["liveRealRows"], 12)
+            self.assertEqual(profile["usdDeployment"]["role"], "USD_STRICT_DEPLOYMENT")
+            self.assertFalse(profile["centEvidenceCanQualifyUsd"])
+            self.assertFalse(profile["usdDeployment"]["qualifiedByGa"])
+            self.assertEqual(profile["usdDeployment"]["qualificationSource"], "USD_DEPLOYMENT_GATE_ONLY")
+            self.assertEqual(metrics["executionFeedback"]["accountAwarePenalty"], 0.0)
+
+    def test_p4_9c_usd_live_losses_add_capital_protection_penalty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            evidence_dir = runtime_dir / "evidence_os"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "QuantGod_LiveExecutionQualityReport.json").write_text(
+                json.dumps(
+                    {
+                        "sampleCount": 8,
+                        "promotionGate": {"status": "PASS", "promotionAllowed": True},
+                        "metrics": {
+                            "feedbackRows": 8,
+                            "fillCount": 4,
+                            "rejectCount": 0,
+                            "byAccount": {
+                                "hfm_usd": {
+                                    "accountAlias": "hfm_usd",
+                                    "accountMode": "standard_usd",
+                                    "accountCurrency": "USD",
+                                    "feedbackRows": 8,
+                                    "fillCount": 4,
+                                    "closeCount": 4,
+                                    "liveTradeCount": 4,
+                                    "netR": -0.8,
+                                    "profitFactor": 0.55,
+                                    "lossStreak": 2,
+                                    "sourceTierCounts": {"usd_live_real": 4},
+                                }
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            metrics = evidence_metrics(runtime_dir)
+            execution = metrics["executionFeedback"]
+
+            self.assertEqual(execution["accountProfile"]["usdDeployment"]["status"], "USD_CAPITAL_PROTECTION_ALERT")
+            self.assertGreater(execution["accountAwarePenalty"], 0.5)
+
+    def test_p4_9c_score_reports_account_aware_execution_penalty(self):
+        seed = base_strategy_seed("P4-9C-ACCOUNT-AWARE", family="RSI_Reversal", direction="LONG")
+        metrics = {
+            "sampleCount": 30,
+            "netR": 2.2,
+            "maxAdverseR": 0.0,
+            "profitCaptureRatio": 0.0,
+            "missedOpportunityReduction": 0.0,
+            "validationNetRDelta": 0.2,
+            "forwardNetRDelta": 0.2,
+            "walkForward": {
+                "summary": {
+                    "promotionGateStatus": "PASS",
+                    "stabilityScore": 0.9,
+                    "validSegmentCount": 3,
+                    "validationNetR": 1.0,
+                    "forwardNetR": 1.0,
+                    "sampleCount": 30,
+                }
+            },
+            "strategyBacktest": {
+                "present": True,
+                "ok": True,
+                "tradeCount": 30,
+                "profitFactor": 1.4,
+                "winRate": 58.0,
+                "maxDrawdownR": 0.1,
+                "sharpe": 0.8,
+                "sortino": 0.9,
+            },
+            "parity": {"promotionGateStatus": "PASS"},
+            "executionFeedback": {
+                "promotionGateStatus": "PASS",
+                "accountAwarePenalty": 0.42,
+                "accountProfile": {
+                    "centEvidenceCanQualifyUsd": False,
+                    "usdDeployment": {"qualifiedByGa": False},
+                },
+            },
+            "strategyContractShadow": {},
+            "evidencePenalty": 0.42,
+            "historyProductionStatus": {"promotionGateStatus": "PASS"},
+        }
+        with patch("tools.strategy_ga.fitness.evidence_metrics", return_value=metrics):
+            score = score_seed(seed, Path("/tmp"))
+
+        self.assertEqual(score["accountAwareExecutionPenalty"], 0.42)
+        self.assertFalse(score["executionFeedback"]["accountProfile"]["centEvidenceCanQualifyUsd"])
+        self.assertFalse(score["executionFeedback"]["accountProfile"]["usdDeployment"]["qualifiedByGa"])
+
     def test_ga_fitness_blocks_promotion_when_history_production_is_not_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime_dir = Path(tmp)

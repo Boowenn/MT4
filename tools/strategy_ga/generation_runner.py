@@ -263,6 +263,28 @@ def _quality_repair_stats(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _account_aware_execution_stats(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    best = candidates[0] if candidates else {}
+    fitness = best.get("fitnessBreakdown") if isinstance(best.get("fitnessBreakdown"), dict) else {}
+    execution = fitness.get("executionFeedback") if isinstance(fitness.get("executionFeedback"), dict) else {}
+    profile = execution.get("accountProfile") if isinstance(execution.get("accountProfile"), dict) else {}
+    cent = profile.get("centExploration") if isinstance(profile.get("centExploration"), dict) else {}
+    usd = profile.get("usdDeployment") if isinstance(profile.get("usdDeployment"), dict) else {}
+    return {
+        "schema": "quantgod.ga.account_aware_execution.v1",
+        "accountAware": bool(profile.get("accountAware")),
+        "centExploration": cent,
+        "usdDeployment": usd,
+        "centEvidenceCanQualifyUsd": False,
+        "gaDirectLiveAllowed": False,
+        "accountAwarePenalty": execution.get("accountAwarePenalty", 0.0),
+        "reasonZh": (
+            "GA 报告已按账户分桶：美分账户收益只作为探索/学习证据；美元账户部署资格由 "
+            "usdDeploymentGate 独立判断，GA 不直接放行真钱。"
+        ),
+    }
+
+
 def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -> Dict[str, Any]:
     limiter = check_run_allowed(runtime_dir, force=force)
     if not limiter.get("allowed"):
@@ -279,6 +301,7 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
     signature = evidence_signature(runtime_dir)
     backtest_stats = _backtest_stats(candidates)
     walk_forward_stats = _walk_forward_stats(candidates)
+    account_aware_execution = _account_aware_execution_stats(candidates)
     elites = [row for row in candidates if row.get("status") == "ELITE_SELECTED"][: elite_count()]
     blocker_counts = Counter(str(row.get("blockerCode") or "PASSED") for row in candidates)
     best = candidates[0] if candidates else {}
@@ -323,6 +346,7 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
         },
         "strategyBacktest": backtest_stats,
         "walkForward": walk_forward_stats,
+        "accountAwareExecution": account_aware_execution,
         "cache": _generation_cache_stats(runtime_dir, candidates, signature),
         "runLimiter": limiter,
         "safety": dict(SAFETY_BOUNDARY),
@@ -368,6 +392,7 @@ def run_generation(runtime_dir: Path, write: bool = True, force: bool = False) -
         ),
         "singleSourceOfTruth": "USDJPY_STRATEGY_JSON_GA_TRACE",
         "strategyBacktestRequired": True,
+        "accountAwareExecution": account_aware_execution,
         "safety": dict(SAFETY_BOUNDARY),
     }
     lineage = build_lineage(candidates)
@@ -1026,7 +1051,7 @@ def _candidate_evidence_chain(row: Dict[str, Any]) -> List[Dict[str, Any]]:
         {
             "step": "执行反馈",
             "status": execution.get("promotionGateStatus") or execution.get("fieldCompletenessStatus") or "WAITING",
-            "reasonZh": execution.get("reasonZh") or "等待 LiveExecutionFeedback 字段契约和执行质量证据。",
+            "reasonZh": _execution_feedback_reason(execution),
         },
         {
             "step": "Fitness / 晋级",
@@ -1048,3 +1073,17 @@ def _candidate_walk_forward_audit(row: Dict[str, Any]) -> Dict[str, Any]:
         "segments": segments,
         "reasonZh": summary.get("reasonZh") or "每个 GA seed 会独立切 train / validation / forward，稳定性进入 fitness。",
     }
+
+
+def _execution_feedback_reason(execution: Dict[str, Any]) -> str:
+    profile = execution.get("accountProfile") if isinstance(execution.get("accountProfile"), dict) else {}
+    if profile:
+        usd = profile.get("usdDeployment") if isinstance(profile.get("usdDeployment"), dict) else {}
+        cent = profile.get("centExploration") if isinstance(profile.get("centExploration"), dict) else {}
+        return (
+            "执行反馈已按账户分桶；"
+            f"美分 live_real {cent.get('liveRealRows', 0)} 条只用于探索学习，"
+            f"美元 live_real {usd.get('liveRealRows', 0)} 条用于部署/回滚，"
+            "美元真钱资格由 usdDeploymentGate 判断。"
+        )
+    return execution.get("reasonZh") or "等待 LiveExecutionFeedback 字段契约和执行质量证据。"
