@@ -56,6 +56,7 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             "QG_POLYMARKET_REAL_EXECUTION": "true",
             "QG_POLYMARKET_CANARY_ACK": "REAL_MONEY_CANARY_OK",
             "QG_POLYMARKET_CANARY_KILL_SWITCH": "false",
+            "QG_POLYMARKET_VALIDATE_EXISTING_LIVE_ORDERS": "false",
             "QG_POLYMARKET_WALLET_ADAPTER": "isolated_clob",
             "QG_POLYMARKET_PRIVATE_KEY": "0x" + "1" * 64,
             "QG_POLYMARKET_CLOB_HOST": "https://clob.polymarket.com",
@@ -192,6 +193,28 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             self.assertEqual(snapshot["summary"]["sendablePlannedOrders"], 0)
             self.assertEqual(snapshot["plannedOrders"][0]["adapterStatus"], "EXISTING_LIVE_ORDER")
             self.assertTrue(snapshot["plannedOrders"][0]["orderSent"])
+
+    def test_existing_live_order_is_ignored_after_clob_terminal_status(self):
+        candidate_id = "COPY-" + module.stable_id("token-1", "condition-1", "source", "")
+        plan = {"candidateId": candidate_id, "marketId": "condition-1"}
+        rows = [
+            {
+                "candidate_id": candidate_id,
+                "market_id": "condition-1",
+                "order_sent": "true",
+                "response_id": "order-1",
+                "response_status": "live",
+            }
+        ]
+
+        self.assertEqual(
+            module.active_existing_order_for_plan(plan, rows, lambda order_id: "MATCHED"),
+            {},
+        )
+        self.assertEqual(
+            module.active_existing_order_for_plan(plan, rows, lambda order_id: "OPEN")["response_id"],
+            "order-1",
+        )
 
 
 if __name__ == "__main__":

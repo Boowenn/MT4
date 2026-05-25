@@ -167,6 +167,54 @@ def latest_trade_for_order(client: Any, order_id: str) -> dict[str, Any]:
     return {}
 
 
+def order_status_for_order(client: Any, order_id: str) -> dict[str, Any]:
+    if not order_id:
+        return {}
+    try:
+        payload = client.get_order(order_id)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def latest_wallet_sell_for_token(
+    client: Any,
+    token_id: str,
+    owner_id: str = "",
+    after_ts: int = 0,
+    size_hint: float = 0.0,
+) -> dict[str, Any]:
+    if not token_id:
+        return {}
+    try:
+        from py_clob_client_v2.clob_types import TradeParams  # type: ignore
+
+        trades = client.get_trades(params=TradeParams(asset_id=token_id), only_first_page=True)
+    except Exception:
+        return {}
+    candidates: list[dict[str, Any]] = []
+    for trade in trades or []:
+        if not isinstance(trade, dict):
+            continue
+        if normalized(trade.get("side")) != "sell":
+            continue
+        if normalized(trade.get("status")) not in {"confirmed", "matched", "filled", "success"}:
+            continue
+        if owner_id and str(trade.get("owner") or "") != owner_id:
+            continue
+        match_ts = safe_int(trade.get("match_time") or trade.get("last_update"), 0)
+        if after_ts and match_ts and match_ts < after_ts:
+            continue
+        trade_size = safe_number(trade.get("size"), 0.0)
+        if size_hint > 0 and trade_size > 0:
+            tolerance = max(0.01, size_hint * 0.03)
+            if abs(trade_size - size_hint) > tolerance:
+                continue
+        candidates.append(trade)
+    candidates.sort(key=lambda row: safe_int(row.get("match_time") or row.get("last_update"), 0), reverse=True)
+    return candidates[0] if candidates else {}
+
+
 def current_position_size(client: Any, token_id: str) -> float:
     from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams  # type: ignore
 
@@ -515,7 +563,13 @@ def fallback_plans_from_order_audit(rows: list[dict[str, str]]) -> list[dict[str
 
 
 def active_order_plans(executor: dict[str, Any], order_audit_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
-    plans = [plan for plan in executor.get("plannedOrders") or [] if isinstance(plan, dict) and plan.get("orderSent")]
+    plans = [
+        plan
+        for plan in executor.get("plannedOrders") or []
+        if isinstance(plan, dict)
+        and plan.get("orderSent")
+        and str(plan.get("adapterStatus") or "").upper() != "EXISTING_LIVE_ORDER"
+    ]
     seen_order_ids = {
         str((plan.get("response") if isinstance(plan.get("response"), dict) else {}).get("orderID") or "").lower()
         for plan in plans
@@ -548,6 +602,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         order_id = str(response.get("orderID") or response.get("id") or "")
         token_id = resolve_plan_token_id(plan, copy_discovery)
         trade = latest_trade_for_order(readonly_client, order_id)
+        order_state = order_status_for_order(readonly_client, order_id)
         token_id = token_id or str(trade.get("asset_id") or "")
         if not token_id:
             continue
@@ -574,10 +629,24 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
                     auth_error = client_error
                     trading_client = None
                 else:
+                    authenticated_order_state = order_status_for_order(trading_client, order_id)
+                    if authenticated_order_state:
+                        order_state = authenticated_order_state
                     fallback_size = current_position_size(trading_client, token_id)
                     if fallback_size > 0:
                         size = fallback_size
                         size_source = "clob_balance_allowance_authenticated_fallback"
+        wallet_sell: dict[str, Any] = {}
+        if size <= 0 and trading_client is not None and not auth_error:
+            wallet_sell = latest_wallet_sell_for_token(
+                trading_client,
+                token_id,
+                owner_id=str(order_state.get("owner") or ""),
+                after_ts=safe_int(order_state.get("created_at"), 0),
+                size_hint=safe_number(order_state.get("size_matched"), safe_number(plan.get("size"), 0.0)),
+            )
+            if wallet_sell:
+                current = safe_number(wallet_sell.get("price"), current)
         high = max(entry, current, highs.get(token_id, 0.0))
         decision, reason, levels = exit_decision(
             entry=entry,
@@ -591,8 +660,16 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         )
         source_state = source_trader_position_state(plan, token_id, copy_discovery)
         if size <= 0:
-            decision = "NO_SELLABLE_POSITION"
-            reason = "zero_sellable_position"
+            if wallet_sell:
+                decision = "EXIT_WALLET_SELL_CONFIRMED"
+                reason = "clob_sell_trade_detected_after_entry"
+                levels["realizedPnlUSDC"] = round(
+                    (safe_number(wallet_sell.get("price"), 0.0) - entry) * safe_number(wallet_sell.get("size"), 0.0),
+                    4,
+                )
+            else:
+                decision = "NO_SELLABLE_POSITION"
+                reason = "zero_sellable_position"
         if source_state.get("sourcePositionPresent") is False and size > 0:
             decision = "EXIT_SOURCE_TRADER_CLOSED"
             reason = "copied_trader_no_longer_holds_token"
@@ -634,10 +711,17 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "positionSizeSource": size_source,
             **levels,
             **source_state,
+            "orderStatus": str(order_state.get("status") or response.get("status") or ""),
+            "orderMatchedSize": safe_number(order_state.get("size_matched"), 0.0),
+            "exitOrderID": str(wallet_sell.get("taker_order_id") or wallet_sell.get("maker_order_id") or ""),
+            "exitTradeID": str(wallet_sell.get("id") or ""),
+            "exitPrice": safe_number(wallet_sell.get("price"), 0.0),
+            "exitSize": safe_number(wallet_sell.get("size"), 0.0),
+            "exitTxHash": str(wallet_sell.get("transaction_hash") or ""),
             "decision": decision,
             "reason": reason,
             "exitSent": exit_sent,
-            "adapterStatus": adapter_status,
+            "adapterStatus": "CLOB_SELL_CONFIRMED_READONLY" if wallet_sell else adapter_status,
             "response": exit_response,
         })
     return {
@@ -712,6 +796,13 @@ def write_outputs(snapshot: dict[str, Any], runtime_dir: Path, dashboard_dir: Pa
         "sourcePositionSize",
         "sourcePositionValue",
         "sourcePositionPrice",
+        "orderStatus",
+        "orderMatchedSize",
+        "exitOrderID",
+        "exitTradeID",
+        "exitPrice",
+        "exitSize",
+        "exitTxHash",
         "decision",
         "reason",
         "exitSent",

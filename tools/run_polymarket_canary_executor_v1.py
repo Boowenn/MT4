@@ -371,10 +371,53 @@ def boolish(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def active_existing_order_for_plan(plan: dict[str, Any], existing_rows: list[dict[str, str]]) -> dict[str, str]:
+def order_status_is_live(status: Any) -> bool:
+    text = str(status or "").strip().lower()
+    live_statuses = {"live", "open", "pending", "unmatched"}
+    return text in live_statuses or "live" in text or "open" in text
+
+
+def make_existing_order_status_lookup():
+    if not env_bool("QG_POLYMARKET_VALIDATE_EXISTING_LIVE_ORDERS", True):
+        return None
+    private_key = os.environ.get("QG_POLYMARKET_PRIVATE_KEY") or ""
+    if not private_key:
+        return None
+    client_cache: dict[str, Any] = {}
+
+    def lookup(order_id: str) -> str:
+        if not order_id:
+            return ""
+        try:
+            if "client" not in client_cache:
+                from py_clob_client_v2 import ClobClient  # type: ignore
+
+                client = ClobClient(
+                    host=os.environ.get("QG_POLYMARKET_CLOB_HOST") or "https://clob.polymarket.com",
+                    chain_id=safe_int(os.environ.get("QG_POLYMARKET_CHAIN_ID"), 137),
+                    key=private_key,
+                    signature_type=clob_v2_signature_type(),
+                    funder=os.environ.get("QG_POLYMARKET_FUNDER") or None,
+                    use_server_time=True,
+                    retry_on_error=True,
+                )
+                configure_v2_api_creds(client)
+                client_cache["client"] = client
+            payload = client_cache["client"].get_order(order_id)
+        except Exception:
+            return ""
+        return str(payload.get("status") or "") if isinstance(payload, dict) else ""
+
+    return lookup
+
+
+def active_existing_order_for_plan(
+    plan: dict[str, Any],
+    existing_rows: list[dict[str, str]],
+    order_status_lookup: Any | None = None,
+) -> dict[str, str]:
     candidate_id = str(plan.get("candidateId") or "").strip().lower()
     market_id = str(plan.get("marketId") or "").strip().lower()
-    live_statuses = {"live", "open", "pending", "unmatched"}
     for row in reversed(existing_rows):
         if not boolish(row.get("order_sent") or row.get("orderSent")):
             continue
@@ -385,8 +428,15 @@ def active_existing_order_for_plan(plan: dict[str, Any], existing_rows: list[dic
         if not candidate_id and market_id and row_market and market_id != row_market:
             continue
         status = str(row.get("response_status") or row.get("status") or row.get("adapter_status") or "").strip().lower()
-        if status in live_statuses or "live" in status or "open" in status:
-            return row
+        if not order_status_is_live(status):
+            continue
+        response_id = first_text(row.get("response_id"), row.get("orderID"), row.get("orderId"))
+        remote_status = str(order_status_lookup(response_id) if order_status_lookup else "").strip()
+        if remote_status and not order_status_is_live(remote_status):
+            continue
+        if remote_status:
+            return {**row, "response_status": remote_status, "response_status_source": "clob_authenticated"}
+        return row
     return {}
 
 
@@ -661,8 +711,9 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         plan_source = "copy_trader_shadow_candidates" if plans else "none"
     existing_audit_rows = read_csv_rows(runtime_dir / ORDER_AUDIT_LEDGER) + read_csv_rows(dashboard_dir / ORDER_AUDIT_LEDGER)
     existing_live_orders = 0
+    order_status_lookup = make_existing_order_status_lookup()
     for plan in plans:
-        existing = active_existing_order_for_plan(plan, existing_audit_rows)
+        existing = active_existing_order_for_plan(plan, existing_audit_rows, order_status_lookup)
         if existing:
             attach_existing_live_order(plan, existing)
             existing_live_orders += 1

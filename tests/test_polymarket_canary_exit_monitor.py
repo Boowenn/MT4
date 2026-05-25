@@ -34,6 +34,8 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
             "make_client": module.make_client,
             "make_readonly_client": module.make_readonly_client,
             "latest_trade_for_order": module.latest_trade_for_order,
+            "order_status_for_order": module.order_status_for_order,
+            "latest_wallet_sell_for_token": module.latest_wallet_sell_for_token,
             "current_exit_price": module.current_exit_price,
             "current_position_size": module.current_position_size,
             "public_position_size": module.public_position_size,
@@ -42,6 +44,8 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
         module.make_readonly_client = lambda: object()
         module.make_client = lambda: object()
         module.latest_trade_for_order = lambda client, order_id: {"asset_id": "token-1", "price": 0.5}
+        module.order_status_for_order = lambda client, order_id: {}
+        module.latest_wallet_sell_for_token = lambda client, token_id, owner_id="", after_ts=0, size_hint=0.0: {}
         module.current_exit_price = lambda client, token_id: 0.48
         module.current_position_size = lambda client, token_id: 6.0
         module.public_position_size = lambda token_id: 6.0
@@ -259,6 +263,43 @@ class PolymarketCanaryExitMonitorTests(unittest.TestCase):
             self.assertEqual(position["decision"], "EXIT_STOP_LOSS")
             self.assertTrue(position["exitSent"])
             self.assertEqual(snapshot["summary"]["positionsTracked"], 1)
+
+    def test_authenticated_clob_sell_trade_is_reflected_after_position_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_executor(root)
+            module.public_position_size = lambda token_id: 0.0
+            module.current_position_size = lambda client, token_id: 0.0
+            module.current_exit_price = lambda client, token_id: 0.48
+            module.order_status_for_order = lambda client, order_id: {
+                "status": "MATCHED",
+                "owner": "owner-1",
+                "created_at": 123,
+                "size_matched": "6",
+            }
+            module.latest_wallet_sell_for_token = (
+                lambda client, token_id, owner_id="", after_ts=0, size_hint=0.0: {
+                    "id": "trade-1",
+                    "taker_order_id": "sell-1",
+                    "side": "SELL",
+                    "status": "CONFIRMED",
+                    "price": "0.55",
+                    "size": "6",
+                    "transaction_hash": "0xabc",
+                }
+            )
+
+            snapshot = module.build_snapshot(self.args(root))
+
+            position = snapshot["positions"][0]
+            self.assertEqual(position["decision"], "EXIT_WALLET_SELL_CONFIRMED")
+            self.assertEqual(position["reason"], "clob_sell_trade_detected_after_entry")
+            self.assertEqual(position["adapterStatus"], "CLOB_SELL_CONFIRMED_READONLY")
+            self.assertEqual(position["exitOrderID"], "sell-1")
+            self.assertEqual(position["exitPrice"], 0.55)
+            self.assertEqual(position["realizedPnlUSDC"], 0.3)
+            self.assertFalse(position["exitSent"])
+            self.assertEqual(snapshot["summary"]["exitSignals"], 1)
 
     def test_v2_signature_type_uses_proxy_wallet_type_for_funder_wallet(self):
         os.environ["QG_POLYMARKET_SIGNATURE_TYPE"] = "1"
