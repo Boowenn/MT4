@@ -94,8 +94,16 @@ def _policy_ready(policy: dict[str, Any]) -> tuple[bool, list[str]]:
     top = policy.get("topLiveEligiblePolicy") or {}
     if not top:
         fallback = policy.get("liveRecoveryCandidate") or {}
-        fallback_reasons = list(fallback.get("reasons") or [])
-        return False, ["没有可进入实盘复核的 RSI_Reversal 买入政策", *fallback_reasons[:3]]
+        spread_gate = fallback.get("spreadGate") if isinstance(fallback.get("spreadGate"), dict) else policy.get("spreadGate") or {}
+        priority_reasons: list[str] = []
+        priority_reasons.extend(str(item) for item in (fallback.get("hardGateReasons") or []) if item)
+        if isinstance(spread_gate, dict) and spread_gate.get("hardBlock") and spread_gate.get("reasonZh"):
+            priority_reasons.append(str(spread_gate.get("reasonZh")))
+        priority_reasons.extend(str(item) for item in (fallback.get("reasons") or []) if item)
+        return False, [
+            "没有可进入实盘复核的 RSI_Reversal 买入政策",
+            *list(dict.fromkeys(priority_reasons))[:6],
+        ]
     reasons = list(top.get("reasons") or [])
     strategy = str(top.get("strategy") or "")
     direction = str(top.get("direction") or "").upper()
@@ -162,6 +170,7 @@ def build_live_loop(repo_root: Path, runtime_dir: Path, *, write: bool = False, 
         "entryMode": top.get("entryMode", "BLOCKED"),
         "strategy": top.get("strategy", "UNKNOWN"),
         "direction": top.get("direction", "UNKNOWN"),
+        "spreadGate": policy.get("spreadGate") or top.get("spreadGate") or {},
         "whyNoEntry": list(dict.fromkeys(str(item) for item in why_no_entry if item)),
         "nextActions": _build_next_actions(state, policy, preset, runtime),
         "safety": dict(SAFE_EVIDENCE_BOUNDARY),
@@ -182,6 +191,7 @@ def build_live_loop(repo_root: Path, runtime_dir: Path, *, write: bool = False, 
         "topLiveEligiblePolicy": policy.get("topLiveEligiblePolicy"),
         "topShadowPolicy": policy.get("topShadowPolicy"),
         "policy": policy,
+        "spreadGate": policy.get("spreadGate") or top.get("spreadGate") or {},
         "dryRun": dry_run,
         "preset": preset,
         "runtime": runtime,

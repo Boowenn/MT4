@@ -175,11 +175,17 @@ class Mt5EntryBlockerTests(unittest.TestCase):
                 json.dumps(
                     {
                         "state": "SPREAD_BLOCK",
-                        "stateZh": "点差超过 EA 入场限制",
-                        "summary": "点差超过 EA 入场限制，等待点差回落。",
-                        "guards": {"spreadPips": 3.3, "maxSpreadPips": 2.2},
+                        "stateZh": "点差严重超过 EA 硬限制",
+                        "summary": "点差严重超过 EA 硬限制，等待点差回落。",
+                        "guards": {
+                            "spreadPips": 3.3,
+                            "maxSpreadPips": 2.2,
+                            "softMaxSpreadPips": 2.7,
+                            "hardMaxSpreadPips": 3.0,
+                            "spreadTier": "HARD_WIDE",
+                        },
                         "whyNoEntry": [
-                            {"code": "SPREAD_BLOCK", "label": "点差过高", "detail": "3.3 / 2.2 pips"}
+                            {"code": "SPREAD_BLOCK", "label": "点差严重偏宽", "detail": "3.3 / 3.0 pips"}
                         ],
                     }
                 ),
@@ -194,7 +200,11 @@ class Mt5EntryBlockerTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["diagnosticRows"], 2)
             self.assertEqual(payload["summary"]["rsiDiagnosticTopBlocker"], "SPREAD_BLOCK")
             self.assertEqual(payload["summary"]["rsiDiagnosticSpreadPips"], 3.3)
-            self.assertEqual(payload["summary"]["rsiDiagnosticMaxSpreadPips"], 2.2)
+            self.assertEqual(payload["summary"]["rsiDiagnosticMaxSpreadPips"], 3.0)
+            self.assertEqual(payload["summary"]["rsiDiagnosticSpreadTier"], "HARD_WIDE")
+            self.assertEqual(payload["summary"]["rsiDiagnosticNormalMaxSpreadPips"], 2.2)
+            self.assertEqual(payload["summary"]["rsiDiagnosticSoftMaxSpreadPips"], 2.7)
+            self.assertEqual(payload["summary"]["rsiDiagnosticHardMaxSpreadPips"], 3.0)
             self.assertEqual(payload["summary"]["recommendation"], "CHECK_BROKER_SPREAD_WINDOW_BEFORE_TUNING")
 
 

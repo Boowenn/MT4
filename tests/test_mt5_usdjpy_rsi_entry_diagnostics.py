@@ -81,9 +81,25 @@ class Mt5UsdJpyRsiEntryDiagnosticsTest(unittest.TestCase):
             "交易权限未通过",
             "当前不在 EA 入场时段",
             "新闻过滤阻断中",
-            "点差超过 EA 入场限制",
+            "点差严重超过 EA 硬限制",
         ]:
             self.assertIn(phrase, text)
+
+    def test_diagnostics_export_spread_tiers_instead_of_normal_cap_hard_block(self) -> None:
+        body = _diagnostic_function_body()
+        for token in [
+            "EffectivePilotNormalMaxSpreadPips",
+            "EffectivePilotSoftMaxSpreadPips",
+            "EffectivePilotHardMaxSpreadPips",
+            "spreadNormalAllowed",
+            "spreadSoftAllowed",
+            "spreadTier",
+            "hardMaxSpreadPips",
+            "点差严重超过 EA 硬限制",
+        ]:
+            self.assertIn(token, body)
+        self.assertIn("spreadPips <= hardMaxSpreadPips", body)
+        self.assertNotIn('FormatNumber(spreadPips, 1) + " / " + FormatNumber(normalMaxSpreadPips', body)
 
     def test_diagnostics_export_parity_contract_optional_fields(self) -> None:
         body = _diagnostic_function_body()

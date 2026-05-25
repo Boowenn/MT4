@@ -28,6 +28,7 @@ class AutonomousLifecycleTests(unittest.TestCase):
             self.assertEqual(payload["lanes"]["live"]["strategy"], "RSI_Reversal")
             self.assertEqual(payload["lanes"]["live"]["direction"], "LONG")
             self.assertIn("accountRegistry", payload)
+            self.assertEqual(payload["accountRegistry"]["spreadPolicy"]["normalLimitPips"], 2.2)
             self.assertEqual(payload["lanes"]["centLive"]["accountMode"], "cent")
             self.assertEqual(payload["lanes"]["usdDeployment"]["accountMode"], "standard_usd")
             self.assertEqual(payload["lanes"]["usdDeployment"]["defaultStage"], "USD_PAPER_MIRROR")
@@ -123,6 +124,27 @@ class AutonomousLifecycleTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            adaptive_dir = runtime / "adaptive"
+            adaptive_dir.mkdir(parents=True, exist_ok=True)
+            (adaptive_dir / "QuantGod_USDJPYAutoExecutionPolicy.json").write_text(
+                json.dumps(
+                    {
+                        "spreadGate": {
+                            "spreadPips": 2.3,
+                            "tier": "SOFT_WIDE",
+                            "tierZh": "轻微偏宽",
+                            "normalLimitPips": 2.2,
+                            "softLimitPips": 2.7,
+                            "hardLimitPips": 3.0,
+                            "reasonZh": "点差轻微偏宽，美分账户降仓机会入场，美元账户仅镜像观察。",
+                            "centActionZh": "美分账户允许小仓机会入场。",
+                            "usdActionZh": "美元账户仅 paper mirror，不实盘。",
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             payload = build_daily_autopilot_v2(runtime, write=True)
 
@@ -148,6 +170,8 @@ class AutonomousLifecycleTests(unittest.TestCase):
             self.assertIn("美分账户", text)
             self.assertIn("美元账户", text)
             self.assertIn("USD_PAPER_MIRROR", text)
+            self.assertIn("USDJPY 点差门禁", text)
+            self.assertIn("轻微偏宽", text)
             self.assertIn("GA 历史样本", text)
             self.assertIn("生产级 PASS", text)
             self.assertIn("执行一致性复盘", text)

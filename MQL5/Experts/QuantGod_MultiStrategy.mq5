@@ -109,6 +109,12 @@ input double PilotATRMulitplierSL     = 2.0;
 input double PilotRewardRatio         = 1.5;
 input double PilotLotSize             = 0.01;
 input double PilotMaxSpreadPips       = 2.0;
+input double PilotSoftMaxSpreadPips   = 2.7;
+input double PilotHardMaxSpreadPips   = 3.0;
+input double PilotSoftSpreadLotMultiplier = 0.35;
+input double PilotSoftHighSpreadLotMultiplier = 0.20;
+input double PilotSoftWideMaxLot      = 0.10;
+input double PilotSoftWideHighMaxLot  = 0.05;
 input double ShadowResearchMaxSpreadPips = 3.0;
 input int    PilotMaxTotalPositions   = 2;
 input int    PilotMaxPositionsPerSymbol = 2;
@@ -1587,6 +1593,66 @@ double EffectiveShadowResearchMaxSpreadPips()
    return MathMax(PilotMaxSpreadPips, ShadowResearchMaxSpreadPips);
 }
 
+double EffectivePilotNormalMaxSpreadPips()
+{
+   return MathMax(0.1, PilotMaxSpreadPips);
+}
+
+double EffectivePilotSoftMaxSpreadPips()
+{
+   return MathMax(EffectivePilotNormalMaxSpreadPips(), PilotSoftMaxSpreadPips);
+}
+
+double EffectivePilotHardMaxSpreadPips()
+{
+   return MathMax(EffectivePilotSoftMaxSpreadPips(), PilotHardMaxSpreadPips);
+}
+
+string PilotSpreadTierLabel(double spreadPips)
+{
+   if(spreadPips <= EffectivePilotNormalMaxSpreadPips())
+      return "NORMAL";
+   if(spreadPips <= EffectivePilotSoftMaxSpreadPips())
+      return "SOFT_WIDE";
+   if(spreadPips <= EffectivePilotHardMaxSpreadPips())
+      return "SOFT_WIDE_HIGH";
+   return "HARD_WIDE";
+}
+
+bool PilotSpreadHardBlocked(double spreadPips)
+{
+   return (spreadPips > EffectivePilotHardMaxSpreadPips());
+}
+
+double PilotSpreadAdjustedVolume(string symbol, double requestedVolume)
+{
+   MqlTick tick;
+   ZeroMemory(tick);
+   if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return requestedVolume;
+   double spreadPips = CalcSpreadPips(symbol, tick.bid, tick.ask);
+   if(PilotSpreadHardBlocked(spreadPips))
+      return 0.0;
+
+   double multiplier = 1.0;
+   double cap = requestedVolume;
+   if(spreadPips > EffectivePilotSoftMaxSpreadPips())
+   {
+      multiplier = MathMax(0.01, MathMin(1.0, PilotSoftHighSpreadLotMultiplier));
+      cap = MathMax(0.0, PilotSoftWideHighMaxLot);
+   }
+   else if(spreadPips > EffectivePilotNormalMaxSpreadPips())
+   {
+      multiplier = MathMax(0.01, MathMin(1.0, PilotSoftSpreadLotMultiplier));
+      cap = MathMax(0.0, PilotSoftWideMaxLot);
+   }
+
+   double adjusted = requestedVolume * multiplier;
+   if(cap > 0.0)
+      adjusted = MathMin(adjusted, cap);
+   return adjusted;
+}
+
 bool IsUsdJpyShadowResearchRouteEnabled(string strategyKey)
 {
    if(strategyKey == "USDJPY_TOKYO_RANGE_BREAKOUT")
@@ -1977,7 +2043,7 @@ string EntryDiagnosticStateZh(string state)
    if(state == "SESSION_CLOSED")
       return "当前不在 EA 入场时段";
    if(state == "SPREAD_BLOCK")
-      return "点差超过 EA 入场限制";
+      return "点差严重超过 EA 硬限制";
    if(state == "SYMBOL_MISSING")
       return "USDJPY 品种未登记";
    if(state == "BUY_SIGNAL_READY")
@@ -3372,9 +3438,9 @@ bool EvaluatePilotMASignal(string symbol, int symbolIndex, int &direction, doubl
       return false;
    }
    double spread = CalcSpreadPips(symbol, tick.bid, tick.ask);
-   if(spread > PilotMaxSpreadPips)
+   if(PilotSpreadHardBlocked(spread))
    {
-      reason = "Spread above pilot limit";
+      reason = "Spread above hard pilot limit";
       evalCode = PILOT_EVAL_SPREAD_BLOCK;
       return false;
    }
@@ -3590,9 +3656,9 @@ bool CommonLegacyPilotPrecheck(string symbol, ENUM_TIMEFRAMES timeframe, int min
       return false;
    }
    double spread = CalcSpreadPips(symbol, tick.bid, tick.ask);
-   if(spread > PilotMaxSpreadPips)
+   if(PilotSpreadHardBlocked(spread))
    {
-      reason = "Spread above pilot limit";
+      reason = "Spread above hard pilot limit";
       evalCode = PILOT_EVAL_SPREAD_BLOCK;
       return false;
    }
@@ -4264,6 +4330,13 @@ bool SendPilotMarketOrder(string symbol, int direction, double slPrice, double t
    double requestedVolume = PilotLotSize;
    if(strategyKey == "RSI_Reversal" && direction > 0)
       requestedVolume = AutonomousPatchEffectiveStageLotCap(requestedVolume);
+   requestedVolume = PilotSpreadAdjustedVolume(symbol, requestedVolume);
+   if(requestedVolume <= 0.0)
+   {
+      Print("QuantGod MT5 pilot order blocked: spread hard tier blocks volume strategy=", strategyKey,
+            " symbol=", symbol);
+      return false;
+   }
    double volume = NormalizeVolumeForSymbol(symbol, requestedVolume);
    g_trade.SetExpertMagicNumber(PilotMagic);
    g_trade.SetDeviationInPoints(PilotDeviationPoints);
@@ -6334,10 +6407,14 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    double ask = tickOk ? tick.ask : 0.0;
    double spreadPips = tickOk ? CalcSpreadPips(symbol, bid, ask) : 0.0;
    bool strategyJsonShadowResearch = IsUsdJpyShadowResearchRoute(strategyFamily);
-   double liveMaxSpreadPips = PilotMaxSpreadPips;
+   double liveMaxSpreadPips = EffectivePilotNormalMaxSpreadPips();
+   double liveSoftMaxSpreadPips = EffectivePilotSoftMaxSpreadPips();
+   double liveHardMaxSpreadPips = EffectivePilotHardMaxSpreadPips();
    double shadowResearchMaxSpreadPips = EffectiveShadowResearchMaxSpreadPips();
    double evaluationMaxSpreadPips = strategyJsonShadowResearch ? shadowResearchMaxSpreadPips : liveMaxSpreadPips;
    bool liveSpreadAllowed = (tickOk && spreadPips <= liveMaxSpreadPips);
+   bool liveSpreadSoftAllowed = (tickOk && spreadPips <= liveSoftMaxSpreadPips);
+   bool liveSpreadHardAllowed = (tickOk && spreadPips <= liveHardMaxSpreadPips);
    bool shadowResearchSpreadAllowed = (tickOk && spreadPips <= shadowResearchMaxSpreadPips);
    bool spreadAllowed = (tickOk && spreadPips <= evaluationMaxSpreadPips);
    bool sessionOpen = IsPilotSessionOpen();
@@ -6451,7 +6528,7 @@ string BuildStrategyJsonEAShadowEvaluationJson()
          rsiAdverseGuardRangePass = (rsiAdverseGuardEntryRangePips <= rsiAdverseGuardMaxEntryRangePips);
       }
    }
-   bool hardGuardsPass = (tickOk && spreadAllowed && sessionOpen && !newsBlocked);
+   bool hardGuardsPass = (tickOk && (strategyJsonShadowResearch ? spreadAllowed : liveSpreadHardAllowed) && sessionOpen && !newsBlocked);
    bool wouldEnter = false;
    ENUM_TIMEFRAMES maTimeframe = StrategyJsonContractTimeframe(maTimeframeLabel, PilotSignalTimeframe);
    int effectiveMaFastPeriod = MathMax(2, maFastPeriod);
@@ -7260,10 +7337,15 @@ string BuildStrategyJsonEAShadowEvaluationJson()
    json += "\"sessionOpen\":" + JsonBool(sessionOpen) + ",";
    json += "\"spreadAllowed\":" + JsonBool(spreadAllowed) + ",";
    json += "\"liveSpreadAllowed\":" + JsonBool(liveSpreadAllowed) + ",";
+   json += "\"liveSpreadSoftAllowed\":" + JsonBool(liveSpreadSoftAllowed) + ",";
+   json += "\"liveSpreadHardAllowed\":" + JsonBool(liveSpreadHardAllowed) + ",";
    json += "\"shadowResearchSpreadAllowed\":" + JsonBool(shadowResearchSpreadAllowed) + ",";
    json += "\"spreadPips\":" + FormatNumber(spreadPips, 2) + ",";
    json += "\"maxSpreadPips\":" + FormatNumber(evaluationMaxSpreadPips, 2) + ",";
    json += "\"liveMaxSpreadPips\":" + FormatNumber(liveMaxSpreadPips, 2) + ",";
+   json += "\"liveSoftMaxSpreadPips\":" + FormatNumber(liveSoftMaxSpreadPips, 2) + ",";
+   json += "\"liveHardMaxSpreadPips\":" + FormatNumber(liveHardMaxSpreadPips, 2) + ",";
+   json += "\"liveSpreadTier\":\"" + JsonEscape(PilotSpreadTierLabel(spreadPips)) + "\",";
    json += "\"shadowResearchMaxSpreadPips\":" + FormatNumber(shadowResearchMaxSpreadPips, 2) + ",";
    json += "\"spreadGateMode\":\"" + (strategyJsonShadowResearch ? "SHADOW_RESEARCH" : "LIVE_PILOT") + "\",";
    json += "\"newsBlocked\":" + JsonBool(newsBlocked) + ",";
@@ -8910,7 +8992,13 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    double bid = tickOk ? tick.bid : 0.0;
    double ask = tickOk ? tick.ask : 0.0;
    double spreadPips = tickOk ? CalcSpreadPips(symbol, bid, ask) : 0.0;
-   bool spreadAllowed = (tickOk && spreadPips <= PilotMaxSpreadPips);
+   double normalMaxSpreadPips = EffectivePilotNormalMaxSpreadPips();
+   double softMaxSpreadPips = EffectivePilotSoftMaxSpreadPips();
+   double hardMaxSpreadPips = EffectivePilotHardMaxSpreadPips();
+   bool spreadNormalAllowed = (tickOk && spreadPips <= normalMaxSpreadPips);
+   bool spreadSoftAllowed = (tickOk && spreadPips <= softMaxSpreadPips);
+   bool spreadAllowed = (tickOk && spreadPips <= hardMaxSpreadPips);
+   string spreadTier = tickOk ? PilotSpreadTierLabel(spreadPips) : "UNKNOWN";
 
    bool candidateEnabled = IsLegacyPilotRouteCandidateEnabled("RSI_Reversal");
    bool liveEnabled = IsLegacyPilotRouteLiveEnabled("RSI_Reversal");
@@ -9063,8 +9151,8 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    else if(!spreadAllowed)
    {
       state = "SPREAD_BLOCK";
-      summary = "点差超过 EA 入场限制，等待点差回落。";
-      AppendEntryDiagnosticReason(whyItems, "SPREAD_BLOCK", "点差过高", FormatNumber(spreadPips, 1) + " / " + FormatNumber(PilotMaxSpreadPips, 1) + " pips");
+      summary = "点差严重超过 EA 硬限制，等待点差回落。";
+      AppendEntryDiagnosticReason(whyItems, "SPREAD_BLOCK", "点差严重偏宽", FormatNumber(spreadPips, 1) + " / " + FormatNumber(hardMaxSpreadPips, 1) + " pips");
    }
    else if(hasSignal && direction > 0)
    {
@@ -9112,6 +9200,8 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    json += "\"PilotRsiCrossbackThreshold\": " + FormatNumber(crossbackThreshold, 2) + ", ";
    json += "\"PilotRsiBandTolerancePct\": " + FormatNumber(PilotRsiBandTolerancePct, 4) + ", ";
    json += "\"PilotMaxSpreadPips\": " + FormatNumber(PilotMaxSpreadPips, 1) + ", ";
+   json += "\"PilotSoftMaxSpreadPips\": " + FormatNumber(PilotSoftMaxSpreadPips, 1) + ", ";
+   json += "\"PilotHardMaxSpreadPips\": " + FormatNumber(PilotHardMaxSpreadPips, 1) + ", ";
    json += "\"ShadowResearchMaxSpreadPips\": " + FormatNumber(ShadowResearchMaxSpreadPips, 1) + ", ";
    json += "\"PilotRestrictSession\": " + JsonBool(PilotRestrictSession) + ", ";
    json += "\"PilotSessionStartHour\": " + IntegerToString(PilotSessionStartHour) + ", ";
@@ -9145,8 +9235,13 @@ string BuildUsdJpyRsiEntryDiagnosticsJson()
    json += "\"sessionOpen\": " + JsonBool(sessionOpen) + ", ";
    json += "\"sessionWindowUtc\": \"" + JsonEscape(sessionWindowLabel) + "\", ";
    json += "\"spreadAllowed\": " + JsonBool(spreadAllowed) + ", ";
+   json += "\"spreadNormalAllowed\": " + JsonBool(spreadNormalAllowed) + ", ";
+   json += "\"spreadSoftAllowed\": " + JsonBool(spreadSoftAllowed) + ", ";
+   json += "\"spreadTier\": \"" + JsonEscape(spreadTier) + "\", ";
    json += "\"spreadPips\": " + FormatNumber(spreadPips, 1) + ", ";
-   json += "\"maxSpreadPips\": " + FormatNumber(PilotMaxSpreadPips, 1) + ", ";
+   json += "\"maxSpreadPips\": " + FormatNumber(normalMaxSpreadPips, 1) + ", ";
+   json += "\"softMaxSpreadPips\": " + FormatNumber(softMaxSpreadPips, 1) + ", ";
+   json += "\"hardMaxSpreadPips\": " + FormatNumber(hardMaxSpreadPips, 1) + ", ";
    json += "\"newsBlocked\": " + JsonBool(newsBlocked) + ", ";
    json += "\"newsReason\": \"" + JsonEscape(newsReason) + "\", ";
    json += "\"cooldownActive\": " + JsonBool(cooldownActive) + ", ";

@@ -83,12 +83,22 @@ def _usd_lane() -> Dict[str, Any]:
 
 def mt5_account_registry() -> Dict[str, Any]:
     accounts: List[Dict[str, Any]] = [_cent_lane(), _usd_lane()]
+    spread_policy = {
+        "schema": "quantgod.usdjpy_spread_lane_policy.v1",
+        "normalLimitPips": _env_float("QG_USDJPY_SPREAD_NORMAL_PIPS", 2.2),
+        "softLimitPips": _env_float("QG_USDJPY_SPREAD_SOFT_PIPS", 2.7),
+        "hardLimitPips": _env_float("QG_USDJPY_SPREAD_HARD_PIPS", 3.0),
+        "centSoftWideAction": "OPPORTUNITY_ENTRY_SMALL_LOT",
+        "usdSoftWideAction": "PAPER_MIRROR_ONLY",
+        "reasonZh": "2.2 pips 是正常/轻微偏宽分界；只有严重偏宽才作为硬阻断。",
+    }
     return {
         "schema": "quantgod.mt5_multi_account_registry.v1",
         "mode": "MT5_USDJPY_MULTI_ACCOUNT_LANE_SPLIT",
         "primaryLearningAccount": accounts[0]["accountAlias"],
         "capitalDeploymentAccount": accounts[1]["accountAlias"],
         "accounts": accounts,
+        "spreadPolicy": spread_policy,
         "globalExposureGuard": {
             "schema": "quantgod.global_usdjpy_exposure_guard.v1",
             "symbol": "USDJPYc",

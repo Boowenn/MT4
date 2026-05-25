@@ -130,6 +130,15 @@ def _news_gate_summary(runtime_dir: Path) -> Dict[str, Any]:
     return classify_news_gate(snapshot)
 
 
+def _spread_gate_summary(runtime_dir: Path) -> Dict[str, Any]:
+    policy = _load_json(runtime_dir / "adaptive" / "QuantGod_USDJPYAutoExecutionPolicy.json")
+    spread_gate = _safe_dict(policy.get("spreadGate"))
+    if spread_gate:
+        return spread_gate
+    top = _safe_dict(policy.get("topPolicy") or policy.get("liveRecoveryCandidate"))
+    return _safe_dict(top.get("spreadGate"))
+
+
 def _stage_text(route: Dict[str, Any]) -> str:
     return str(route.get("promotionStageZh") or route.get("promotionStage") or "模拟观察")
 
@@ -297,7 +306,7 @@ def _orchestration_summary(runtime_dir: Path) -> Dict[str, Any]:
     }
 
 
-def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any]) -> Dict[str, Any]:
+def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_gate: Dict[str, Any], spread_gate: Dict[str, Any]) -> Dict[str, Any]:
     cent = _safe_dict(lifecycle.get("centAccount") or agent.get("centAccount"))
     account_registry = _safe_dict(lifecycle.get("accountRegistry") or agent.get("accountRegistry"))
     lanes = _safe_dict(lifecycle.get("lanes") or agent.get("lanes"))
@@ -351,6 +360,7 @@ def _build_morning_plan(agent: Dict[str, Any], lifecycle: Dict[str, Any], news_g
             "reasonZh": news_gate.get("reasonZh", "普通新闻不阻断，高冲击新闻硬阻断。"),
             "highImpactEvent": news_gate.get("highImpactEvent"),
         },
+        "spreadGate": spread_gate,
         "todayForbiddenZh": [
             "未过 autonomous governance 的实盘扩展",
             "非 USDJPY 实盘",
@@ -659,6 +669,7 @@ def build_daily_autopilot_v2(
     generated_at = utc_now_iso()
     metrics = _runtime_metrics(runtime_dir, agent)
     news_gate = _news_gate_summary(runtime_dir)
+    spread_gate = _spread_gate_summary(runtime_dir)
     ga = _ga_summary(runtime_dir)
     orchestration = _orchestration_summary(runtime_dir)
     consistency = _execution_consistency_review(runtime_dir)
@@ -673,9 +684,10 @@ def build_daily_autopilot_v2(
         "symbol": FOCUS_SYMBOL,
         "titleZh": "USDJPY 美分/美元双账户自动日报",
         "sloganZh": "实盘要窄，模拟要宽，升降级要快，回滚要硬。",
-        "morningPlan": _build_morning_plan(agent, lifecycle, news_gate),
+        "morningPlan": _build_morning_plan(agent, lifecycle, news_gate, spread_gate),
         "eveningReview": _build_evening_review(agent, lifecycle, news_gate),
         "newsGate": news_gate,
+        "spreadGate": spread_gate,
         "dailyTodo": daily_todo,
         "dailyReview": daily_review,
         "executionConsistencyReview": consistency,

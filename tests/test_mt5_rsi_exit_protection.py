@@ -227,6 +227,35 @@ class Mt5RsiExitProtectionTests(unittest.TestCase):
         for switch in USDJPY_SHADOW_ROUTE_SWITCHES:
             self.assertIn(switch, text)
 
+    def test_live_preset_and_ea_use_tiered_spread_gate(self):
+        ea_text = EA_PATH.read_text(encoding="utf-8")
+        preset_text = LIVE_PRESET_PATH.read_text(encoding="utf-8")
+        for token in [
+            "input double PilotSoftMaxSpreadPips   = 2.7;",
+            "input double PilotHardMaxSpreadPips   = 3.0;",
+            "input double PilotSoftSpreadLotMultiplier = 0.35;",
+            "input double PilotSoftHighSpreadLotMultiplier = 0.20;",
+            "input double PilotSoftWideMaxLot      = 0.10;",
+            "input double PilotSoftWideHighMaxLot  = 0.05;",
+            "PilotSpreadHardBlocked",
+            "PilotSpreadAdjustedVolume",
+            "liveSpreadSoftAllowed",
+            "liveSpreadHardAllowed",
+            "liveSpreadTier",
+        ]:
+            self.assertIn(token, ea_text)
+        for token in [
+            "PilotMaxSpreadPips=2.2",
+            "PilotSoftMaxSpreadPips=2.7",
+            "PilotHardMaxSpreadPips=3.0",
+            "PilotSoftSpreadLotMultiplier=0.35",
+            "PilotSoftHighSpreadLotMultiplier=0.20",
+            "PilotSoftWideMaxLot=0.10",
+            "PilotSoftWideHighMaxLot=0.05",
+            "ShadowResearchMaxSpreadPips=3.5",
+        ]:
+            self.assertIn(token, preset_text)
+
     def test_hfm_start_configs_open_usdjpy_chart_for_usdjpy_only_pilot(self):
         for path in (LIVE_CONFIG_PATH, SHADOW_CONFIG_PATH):
             text = path.read_text(encoding="utf-8")

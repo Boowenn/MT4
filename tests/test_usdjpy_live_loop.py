@@ -108,6 +108,33 @@ class USDJPYLiveLoopTests(unittest.TestCase):
             self.assertFalse(payload["runtimeReady"])
             self.assertEqual(payload["runtime"]["freshnessTier"], "HARD_STALE")
 
+    def test_hard_spread_blocker_is_prioritized_in_why_no_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            runtime = Path(tmp) / "runtime"
+            write_ready_preset(root)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                        "symbol": "USDJPYc",
+                        "strategy": "RSI_Reversal",
+                        "direction": "LONG",
+                        "state": "SPREAD_BLOCK",
+                        "guards": {"sessionOpen": True, "spreadAllowed": False, "spreadPips": 3.1, "maxSpreadPips": 2.2},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_live_loop(root, runtime, write=True)
+
+            self.assertEqual(payload["state"], "POLICY_BLOCKED")
+            self.assertEqual(payload["spreadGate"]["tier"], "HARD_WIDE")
+            self.assertIn("点差严重偏宽", "；".join(payload["whyNoEntry"]))
+
     def test_written_daily_autopilot_is_chinese_operator_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tools.usdjpy_strategy_lab.data_loader import sample_runtime
 from tools.usdjpy_strategy_lab.data_loader import focus_runtime_snapshot
-from tools.usdjpy_strategy_lab.policy_builder import build_usdjpy_policy
+from tools.usdjpy_strategy_lab.policy_builder import _build_spread_gate, build_usdjpy_policy
 from tools.usdjpy_strategy_lab.dry_run_bridge import build_dry_run_decision
 from tools.usdjpy_strategy_lab.schema import FOCUS_SYMBOL, ENTRY_STANDARD, ENTRY_OPPORTUNITY, ENTRY_BLOCKED
 from tools.usdjpy_strategy_lab.strategy_catalog import build_strategy_catalog
@@ -383,6 +383,82 @@ class USDJPYStrategyLabTests(unittest.TestCase):
             self.assertEqual(rsi_long["signalQuorum"], 2)
             self.assertEqual(rsi_long["entryMode"], ENTRY_OPPORTUNITY)
             self.assertTrue(rsi_long["allowed"])
+
+    def test_soft_wide_spread_downgrades_cent_opportunity_instead_of_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                        "symbol": "USDJPYc",
+                        "strategy": "RSI_Reversal",
+                        "direction": "LONG",
+                        "state": "SPREAD_BLOCK",
+                        "summary": "点差超过 EA 入场限制，等待点差回落。",
+                        "guards": {
+                            "sessionOpen": True,
+                            "spreadAllowed": False,
+                            "spreadPips": 2.3,
+                            "maxSpreadPips": 2.2,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            policy = build_usdjpy_policy(runtime)
+            rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+
+            self.assertEqual(policy["spreadGate"]["tier"], "SOFT_WIDE")
+            self.assertEqual(policy["accountLanePolicy"]["softWideSpreadUsdMode"], "PAPER_MIRROR_ONLY")
+            self.assertEqual(rsi_long["hardGateStatus"], "PASS")
+            self.assertEqual(rsi_long["entryMode"], ENTRY_OPPORTUNITY)
+            self.assertTrue(rsi_long["allowed"])
+            self.assertLessEqual(rsi_long["recommendedLot"], 0.10)
+            self.assertIn("点差轻微偏宽", "；".join(rsi_long["reasons"]))
+
+    def test_hard_wide_spread_still_blocks_all_live_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            sample_runtime(runtime, overwrite=True)
+            (runtime / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "quantgod.mt5.usdjpy_rsi_entry_diagnostics.v1",
+                        "symbol": "USDJPYc",
+                        "strategy": "RSI_Reversal",
+                        "direction": "LONG",
+                        "state": "SPREAD_BLOCK",
+                        "guards": {
+                            "sessionOpen": True,
+                            "spreadAllowed": False,
+                            "spreadPips": 3.1,
+                            "maxSpreadPips": 2.2,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            policy = build_usdjpy_policy(runtime)
+            rsi_long = next(item for item in policy["strategies"] if item["strategy"] == "RSI_Reversal" and item["direction"] == "LONG")
+
+            self.assertEqual(policy["spreadGate"]["tier"], "HARD_WIDE")
+            self.assertTrue(policy["spreadGate"]["hardBlock"])
+            self.assertEqual(rsi_long["hardGateStatus"], "BLOCKED")
+            self.assertEqual(rsi_long["entryMode"], ENTRY_BLOCKED)
+            self.assertFalse(rsi_long["allowed"])
+
+    def test_missing_spread_gate_blocks_when_no_reliable_spread_exists(self):
+        spread_gate = _build_spread_gate({}, {})
+
+        self.assertEqual(spread_gate["tier"], "UNKNOWN")
+        self.assertTrue(spread_gate["hardBlock"])
+        self.assertEqual(spread_gate["action"], "BLOCK")
 
     def test_live_rsi_buy_uses_direction_sltp_when_shadow_pool_blocks_trigger(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -374,6 +374,9 @@ def summarize_rsi_entry_diagnostics(diagnostics: dict[str, Any], usable: bool) -
     top = examples[0] if examples else {}
     guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
     inputs = diagnostics.get("inputs") if isinstance(diagnostics.get("inputs"), dict) else {}
+    normal_max_spread = as_float(first(guards.get("maxSpreadPips"), inputs.get("PilotMaxSpreadPips"), default=0.0))
+    soft_max_spread = as_float(first(guards.get("softMaxSpreadPips"), inputs.get("PilotSoftMaxSpreadPips"), default=0.0))
+    hard_max_spread = as_float(first(guards.get("hardMaxSpreadPips"), inputs.get("PilotHardMaxSpreadPips"), default=0.0))
     return {
         "available": True,
         "state": clean(diagnostics.get("state")),
@@ -381,7 +384,11 @@ def summarize_rsi_entry_diagnostics(diagnostics: dict[str, Any], usable: bool) -
         "summary": clean(diagnostics.get("summary")),
         "topBlocker": clean(top.get("code")),
         "spreadPips": as_float(guards.get("spreadPips")),
-        "maxSpreadPips": as_float(first(guards.get("maxSpreadPips"), inputs.get("PilotMaxSpreadPips"), default=0.0)),
+        "spreadTier": clean(guards.get("spreadTier")),
+        "normalMaxSpreadPips": normal_max_spread,
+        "softMaxSpreadPips": soft_max_spread,
+        "hardMaxSpreadPips": hard_max_spread,
+        "maxSpreadPips": hard_max_spread or normal_max_spread,
         "manualPositionBlock": bool(guards.get("manualPositionBlock", False)),
         "portfolioPositions": int(as_float(guards.get("portfolioPositions"), 0)),
         "examples": examples[:8],
@@ -542,6 +549,10 @@ def build_report(
             "rsiDiagnosticTopBlocker": rsi_summary.get("topBlocker", ""),
             "rsiDiagnosticSpreadPips": rsi_summary.get("spreadPips", 0.0),
             "rsiDiagnosticMaxSpreadPips": rsi_summary.get("maxSpreadPips", 0.0),
+            "rsiDiagnosticSpreadTier": rsi_summary.get("spreadTier", ""),
+            "rsiDiagnosticNormalMaxSpreadPips": rsi_summary.get("normalMaxSpreadPips", 0.0),
+            "rsiDiagnosticSoftMaxSpreadPips": rsi_summary.get("softMaxSpreadPips", 0.0),
+            "rsiDiagnosticHardMaxSpreadPips": rsi_summary.get("hardMaxSpreadPips", 0.0),
             "recommendation": rec,
         },
         "breakdown": {

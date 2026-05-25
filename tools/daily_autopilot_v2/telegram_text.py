@@ -34,6 +34,7 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
     polymarket = morning.get("polymarketShadowLane") if isinstance(morning.get("polymarketShadowLane"), dict) else {}
     poly_summary = polymarket.get("summary") if isinstance(polymarket.get("summary"), dict) else {}
     news_gate = morning.get("newsGate") if isinstance(morning.get("newsGate"), dict) else {}
+    spread_gate = morning.get("spreadGate") if isinstance(morning.get("spreadGate"), dict) else {}
     news_review = evening.get("newsGateReview") if isinstance(evening.get("newsGateReview"), dict) else {}
     evening_live = evening.get("liveLane") if isinstance(evening.get("liveLane"), dict) else {}
     evening_mt5 = evening.get("mt5ShadowLane") if isinstance(evening.get("mt5ShadowLane"), dict) else {}
@@ -85,6 +86,12 @@ def daily_autopilot_v2_to_chinese_text(payload: Dict[str, Any]) -> str:
         f"- 普通新闻：不阻断，只降仓/降级；仓位倍率 {_fmt(news_gate.get('lotMultiplier'), '1.0')}",
         f"- 高冲击新闻：{'硬阻断' if news_gate.get('hardBlock') else '当前无高冲击硬阻断'}",
         f"- 说明：{_fmt(news_gate.get('reasonZh'), '普通新闻不挡 RSI 买入，高冲击新闻才硬挡。')}",
+        "",
+        "USDJPY 点差门禁：",
+        f"- 当前点差：{_num(spread_gate.get('spreadPips'), 2)} pips；等级：{_fmt(spread_gate.get('tierZh') or spread_gate.get('tier'), '待同步')}",
+        f"- 正常/轻微/硬阻断：{_num(spread_gate.get('normalLimitPips'), 1)} / {_num(spread_gate.get('softLimitPips'), 1)} / {_num(spread_gate.get('hardLimitPips'), 1)} pips",
+        f"- 处理：{_fmt(spread_gate.get('reasonZh'), '2.2 pips 是正常上限，不再单独作为硬阻断线。')}",
+        f"- 美分账户：{_fmt(spread_gate.get('centActionZh'), '按 quorum 和账户车道处理。')}；美元账户：{_fmt(spread_gate.get('usdActionZh'), '只部署已验证结构。')}",
         "",
         "今日禁止：",
     ]

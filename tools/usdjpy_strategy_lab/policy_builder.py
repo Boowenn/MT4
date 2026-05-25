@@ -45,6 +45,9 @@ LIVE_ELIGIBLE_STRATEGY = "RSI_Reversal"
 LIVE_ELIGIBLE_DIRECTION = "LONG"
 RUNTIME_FRESH_SECONDS = 30.0
 RUNTIME_HARD_STALE_SECONDS = 90.0
+SPREAD_NORMAL_PIPS = 2.2
+SPREAD_SOFT_PIPS = 2.7
+SPREAD_HARD_PIPS = 3.0
 HARD_RSI_DIAGNOSTIC_STATES = {
     "KILL_SWITCH",
     "SYMBOL_POSITION_FULL",
@@ -52,7 +55,6 @@ HARD_RSI_DIAGNOSTIC_STATES = {
     "LOSS_COOLDOWN",
     "NEWS_BLOCK",
     "SESSION_CLOSED",
-    "SPREAD_BLOCK",
 }
 
 
@@ -86,10 +88,147 @@ def _runtime_thresholds() -> tuple[float, float]:
     return fresh, hard
 
 
+def _spread_thresholds(diagnostics: Dict[str, Any] | None = None) -> tuple[float, float, float]:
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
+    inputs = diagnostics.get("inputs") if isinstance(diagnostics.get("inputs"), dict) else {}
+    diagnostic_normal = _num(
+        guards.get("maxSpreadPips", inputs.get("PilotMaxSpreadPips", SPREAD_NORMAL_PIPS)),
+        SPREAD_NORMAL_PIPS,
+    )
+    normal = max(0.1, _env_float("QG_USDJPY_SPREAD_NORMAL_PIPS", diagnostic_normal or SPREAD_NORMAL_PIPS))
+    soft = max(normal, _env_float("QG_USDJPY_SPREAD_SOFT_PIPS", SPREAD_SOFT_PIPS))
+    hard = max(soft, _env_float("QG_USDJPY_SPREAD_HARD_PIPS", SPREAD_HARD_PIPS))
+    return normal, soft, hard
+
+
 def _price_payload(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     current_price = snapshot.get("current_price") if isinstance(snapshot.get("current_price"), dict) else {}
     market = snapshot.get("market") if isinstance(snapshot.get("market"), dict) else {}
     return {**market, **current_price}
+
+
+def _spread_from_price_payload(price: Dict[str, Any]) -> float | None:
+    bid = _num(price.get("bid"), 0.0)
+    ask = _num(price.get("ask"), 0.0)
+    if bid > 0 and ask > 0 and ask >= bid:
+        return round(abs(ask - bid) / 0.01, 4)
+    for key in ("spreadPips", "spread_pips"):
+        value = _num(price.get(key), -1.0)
+        if value > 0:
+            return round(value, 4)
+    spread = _num(price.get("spread"), -1.0)
+    if spread > 0:
+        return round(spread * 100.0 if spread <= 0.5 else spread, 4)
+    return None
+
+
+def _diagnostic_spread_pips(diagnostics: Dict[str, Any]) -> float | None:
+    guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
+    for source in (guards, diagnostics):
+        if not isinstance(source, dict):
+            continue
+        for key in ("spreadPips", "currentSpreadPips", "spread_pips"):
+            value = _num(source.get(key), -1.0)
+            if value > 0:
+                return round(value, 4)
+        spread = _num(source.get("spread"), -1.0)
+        if spread > 0:
+            return round(spread * 100.0 if spread <= 0.5 else spread, 4)
+    return None
+
+
+def _build_spread_gate(snapshot: Dict[str, Any], diagnostics: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+    normal, soft, hard = _spread_thresholds(diagnostics)
+    spread = _diagnostic_spread_pips(diagnostics)
+    source = "rsi_diagnostics"
+    if spread is None:
+        spread = _spread_from_price_payload(_price_payload(snapshot or {}))
+        source = "runtime_snapshot" if spread is not None else "missing"
+    if spread is None:
+        return {
+            "schema": "quantgod.usdjpy_spread_gate.v1",
+            "spreadPips": None,
+            "tier": "UNKNOWN",
+            "tierZh": "点差未知",
+            "normalLimitPips": normal,
+            "softLimitPips": soft,
+            "hardLimitPips": hard,
+            "hardBlock": True,
+            "lotMultiplier": 0.0,
+            "maxCentOpportunityLot": 0.0,
+            "action": "BLOCK",
+            "centAction": "BLOCKED",
+            "usdAction": "BLOCKED",
+            "centActionZh": "美分账户阻断；没有可靠点差。",
+            "usdActionZh": "美元账户阻断；没有可靠点差。",
+            "source": source,
+            "reasonZh": "缺少可靠点差，不能用未知执行成本入场。",
+        }
+    soft_lot_multiplier = max(0.01, min(1.0, _env_float("QG_USDJPY_SPREAD_SOFT_LOT_MULTIPLIER", 0.35)))
+    soft_high_lot_multiplier = max(0.01, min(1.0, _env_float("QG_USDJPY_SPREAD_SOFT_HIGH_LOT_MULTIPLIER", 0.20)))
+    soft_cap = max(0.01, _env_float("QG_USDJPY_SOFT_WIDE_CENT_MAX_LOT", 0.10))
+    soft_high_cap = max(0.01, _env_float("QG_USDJPY_SOFT_WIDE_HIGH_CENT_MAX_LOT", 0.05))
+    if spread <= normal:
+        tier = "NORMAL"
+        tier_zh = "正常"
+        hard_block = False
+        lot_multiplier = 1.0
+        cap = None
+        action = "ALLOW_NORMAL"
+        cent_action = "ALLOW_NORMAL"
+        usd_action = "ALLOW_STANDARD_IF_ELIGIBLE"
+        reason = "点差处于正常上限内，按 quorum 和账户车道正常处理。"
+    elif spread <= soft:
+        tier = "SOFT_WIDE"
+        tier_zh = "轻微偏宽"
+        hard_block = False
+        lot_multiplier = soft_lot_multiplier
+        cap = soft_cap
+        action = "DOWNGRADE_LOT_NOT_BLOCK"
+        cent_action = "CENT_OPPORTUNITY_SMALL_LOT"
+        usd_action = "USD_PAPER_MIRROR_ONLY"
+        reason = "点差轻微偏宽，美分账户降仓机会入场，美元账户仅镜像观察。"
+    elif spread <= hard:
+        tier = "SOFT_WIDE_HIGH"
+        tier_zh = "偏宽较高"
+        hard_block = False
+        lot_multiplier = soft_high_lot_multiplier
+        cap = soft_high_cap
+        action = "DOWNGRADE_TO_MIN_LOT_NOT_BLOCK"
+        cent_action = "CENT_OPPORTUNITY_MIN_LOT"
+        usd_action = "USD_PAPER_MIRROR_ONLY"
+        reason = "点差偏宽但未到严重异常，美分账户只允许极小仓机会入场，美元账户仅镜像观察。"
+    else:
+        tier = "HARD_WIDE"
+        tier_zh = "严重偏宽"
+        hard_block = True
+        lot_multiplier = 0.0
+        cap = 0.0
+        action = "BLOCK"
+        cent_action = "BLOCKED"
+        usd_action = "BLOCKED"
+        reason = "点差严重偏宽，两个账户都硬阻断。"
+    return {
+        "schema": "quantgod.usdjpy_spread_gate.v1",
+        "spreadPips": round(spread, 4),
+        "tier": tier,
+        "tierZh": tier_zh,
+        "normalLimitPips": normal,
+        "softLimitPips": soft,
+        "hardLimitPips": hard,
+        "hardBlock": hard_block,
+        "lotMultiplier": lot_multiplier,
+        "maxCentOpportunityLot": cap,
+        "action": action,
+        "centAction": cent_action,
+        "usdAction": usd_action,
+        "centActionZh": "美分账户允许小仓机会入场。" if not hard_block and tier != "NORMAL" else ("美分账户正常处理。" if not hard_block else "美分账户阻断。"),
+        "usdActionZh": "美元账户仅 paper mirror，不实盘。" if not hard_block and tier != "NORMAL" else ("美元账户只允许合格 STANDARD_ENTRY。" if not hard_block else "美元账户阻断。"),
+        "source": source,
+        "reasonZh": reason,
+    }
 
 
 def _credible_price(snapshot: Dict[str, Any]) -> bool:
@@ -287,6 +426,7 @@ def _hard_gate(
     sltp_reasons: List[str],
     news_gate: Dict[str, Any],
     diagnostics: Dict[str, Any],
+    spread_gate: Dict[str, Any],
 ) -> tuple[str, List[str]]:
     blockers: List[str] = []
     if not runtime_ok:
@@ -298,9 +438,44 @@ def _hard_gate(
     rsi_ok, rsi_reasons = _rsi_hard_gate(diagnostics)
     if not rsi_ok:
         blockers.extend(rsi_reasons)
+    if spread_gate.get("hardBlock"):
+        blockers.append(spread_gate.get("reasonZh") or "点差严重偏宽，硬阻断。")
     if news_gate.get("hardBlock") or str(news_gate.get("riskLevel") or "").upper() == "HARD":
         blockers.append(news_gate.get("reasonZh") or "高冲击新闻窗口，暂停 live。")
     return ("PASS", ["硬风控通过"]) if not blockers else ("BLOCKED", list(dict.fromkeys(blockers)))
+
+
+def _apply_spread_gate_to_live_policy(
+    *,
+    entry_mode: str,
+    allowed: bool,
+    recommended_lot: float,
+    strictness: str,
+    reasons: List[str],
+    spread_gate: Dict[str, Any],
+    min_lot: float,
+    max_lot: float,
+    step: float,
+) -> tuple[str, bool, float, str, List[str]]:
+    tier = str(spread_gate.get("tier") or "UNKNOWN").upper()
+    if spread_gate.get("hardBlock"):
+        return ENTRY_BLOCKED, False, 0.0, "BLOCKED_SPREAD_HARD_GATE", [
+            *reasons,
+            spread_gate.get("reasonZh") or "点差严重偏宽，禁止入场。",
+        ]
+    if tier == "NORMAL" or entry_mode not in {ENTRY_STANDARD, ENTRY_OPPORTUNITY}:
+        return entry_mode, allowed, recommended_lot, strictness, reasons
+    adjusted_mode = ENTRY_OPPORTUNITY
+    adjusted_strictness = "SPREAD_SOFT_WIDE_STAGE_DOWNGRADED"
+    cap_value = spread_gate.get("maxCentOpportunityLot")
+    cap = _num(cap_value, max_lot) if cap_value not in (None, "") else max_lot
+    multiplier = max(0.0, min(1.0, _num(spread_gate.get("lotMultiplier"), 1.0)))
+    lot = min(recommended_lot * multiplier, cap, max_lot)
+    lot = _round_lot(lot, step=step, min_lot=min_lot, max_lot=max_lot) if allowed else 0.0
+    return adjusted_mode, allowed, lot, adjusted_strictness, [
+        *reasons,
+        spread_gate.get("reasonZh") or "点差轻微偏宽：不硬阻断，降级/降仓。",
+    ]
 
 
 def _signal_quorum(
@@ -365,6 +540,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
     runtime_tier, runtime_ok, runtime_reasons = _runtime_freshness(snapshot or {})
     fast_ok, fast_reasons = _fastlane_ok(quality)
     diagnostics = _load_rsi_entry_diagnostics(runtime_dir)
+    spread_gate = _build_spread_gate(snapshot or {}, diagnostics)
     policies: List[PolicyItem] = []
     for route in scoreboard.get("routes", []):
         status = route.get("status")
@@ -389,6 +565,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             sltp_reasons=sltp_reasons,
             news_gate=news_gate,
             diagnostics=diagnostics if strategy == LIVE_ELIGIBLE_STRATEGY and str(direction).upper() == LIVE_ELIGIBLE_DIRECTION else {},
+            spread_gate=spread_gate if strategy == LIVE_ELIGIBLE_STRATEGY and str(direction).upper() == LIVE_ELIGIBLE_DIRECTION else {"hardBlock": False},
         )
         quorum = _signal_quorum(
             status=str(status or ""),
@@ -434,6 +611,17 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             reasons.append("runtime 轻微陈旧：标准入场降为机会入场并由仓位控制降风险。")
         lot = _recommended_lot(score, entry_mode, max_lot=max_lot, min_lot=min_lot, step=step)
         if live_route:
+            entry_mode, allowed, lot, strictness, reasons = _apply_spread_gate_to_live_policy(
+                entry_mode=entry_mode,
+                allowed=allowed,
+                recommended_lot=lot,
+                strictness=strictness,
+                reasons=reasons,
+                spread_gate=spread_gate,
+                min_lot=min_lot,
+                max_lot=max_lot,
+                step=step,
+            )
             entry_mode, allowed, lot, strictness, reasons = apply_news_gate_to_live_policy(
                 entry_mode=entry_mode,
                 allowed=allowed,
@@ -472,6 +660,7 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             signalComponents=dict(quorum["components"]),
             tacticalConfirmations={**tactical_confirmations, "policyTriggerStatus": trigger_status, "triggerScore": trigger_score},
             entryDecision=entry_mode,
+            spreadGate=dict(spread_gate) if live_route else {},
         ))
 
     policies.sort(key=lambda item: (item.entryMode == ENTRY_BLOCKED, -item.score, -item.recommendedLot, item.strategy))
@@ -508,11 +697,14 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "highImpactNewsHardBlocksLive": True,
         },
         "newsGate": news_gate,
+        "spreadGate": spread_gate,
         "accountRegistry": account_registry,
         "accountLanePolicy": {
             "centAccountCanUseOpportunityEntry": True,
             "usdAccountOpportunityEntryMode": "PAPER_MIRROR_ONLY",
             "usdAccountLiveEntryModes": ["STANDARD_ENTRY"],
+            "softWideSpreadCentMode": "OPPORTUNITY_ENTRY_SMALL_LOT",
+            "softWideSpreadUsdMode": "PAPER_MIRROR_ONLY",
             "polymarketLogicUnchanged": True,
         },
         "maxLot": max_lot,
@@ -539,6 +731,8 @@ def build_usdjpy_policy(runtime_dir: Path, *, write: bool = False, min_samples: 
             "newsGateMode": news_gate.get("mode"),
             "newsRiskLevel": news_gate.get("riskLevel"),
             "newsHardBlock": bool(news_gate.get("hardBlock")),
+            "spreadGateTier": spread_gate.get("tier"),
+            "spreadGateHardBlock": bool(spread_gate.get("hardBlock")),
             "decisionModel": "HARD_GATES_PLUS_SIGNAL_QUORUM_V1",
             "hardGatePassCount": sum(1 for item in policies if item.hardGateStatus == "PASS"),
             "quorumEligibleCount": sum(1 for item in policies if int(item.signalQuorum) >= int(item.signalQuorumRequired)),
