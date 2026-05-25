@@ -31,7 +31,7 @@ FAMILY_DIRECTIONS: Tuple[Tuple[str, str], ...] = (
     (H4_FAMILY, "LONG"),
     (H4_FAMILY, "SHORT"),
 )
-DEFAULT_THRESHOLDS = (2.0, 2.2, 2.5)
+DEFAULT_THRESHOLDS = (2.0, 2.2, 2.3, 2.4, 2.5)
 CANDIDATE_LEDGER_FIELDS = [
     "EventId",
     "LabelTimeLocal",
@@ -134,6 +134,12 @@ def build_spread_gate_impact_audit(
         current_live_max_spread_pips=current_live_max_spread_pips,
         probe_max_spread_pips=probe_max_spread_pips,
     )
+    rsi_long_probe = _rsi_long_micro_live_probe_review(
+        eval_rows,
+        threshold_rows,
+        current_live_max_spread_pips=current_live_max_spread_pips,
+        thresholds=thresholds,
+    )
     payload = {
         "ok": True,
         "schema": SCHEMA_AUDIT,
@@ -160,6 +166,7 @@ def build_spread_gate_impact_audit(
         },
         "promotionReview": promotion,
         "microLiveDecision": decision,
+        "rsiLongMicroLiveProbeReview": rsi_long_probe,
         "safety": {
             **dict(SAFETY_BOUNDARY),
             "readOnlyAudit": True,
@@ -754,6 +761,100 @@ def _micro_live_decision(
         if eligible
         else f"暂不把 live cap 继续升到 {probe_max_spread_pips:g} pips；新增机会还没有通过完整质量链。",
         "blockersZh": reasons,
+        "orderSendAllowed": False,
+        "livePresetMutationAllowed": False,
+    }
+
+
+def _rsi_long_candidate(row: Dict[str, Any]) -> bool:
+    if str(row.get("strategyFamily") or "").upper() not in {"", "RSI_REVERSAL", "RSI_REVERSAL_LONG"}:
+        return False
+    direction = str(row.get("direction") or "LONG").upper()
+    if direction != "LONG":
+        return False
+    if not bool(row.get("rsiLongSignal") or row.get("rsiCrossbackSignal")):
+        return False
+    if not bool(row.get("sessionOpen", True)):
+        return False
+    if bool(row.get("newsBlocked", False)):
+        return False
+    return True
+
+
+def _rsi_long_micro_live_probe_review(
+    eval_rows: List[Dict[str, Any]],
+    threshold_rows: List[Dict[str, Any]],
+    *,
+    current_live_max_spread_pips: float,
+    thresholds: Sequence[float],
+) -> Dict[str, Any]:
+    probe_thresholds = [
+        _round(item)
+        for item in sorted({float(value) for value in thresholds})
+        if item > current_live_max_spread_pips and item <= 2.4 and not math.isclose(item, current_live_max_spread_pips)
+    ]
+    candidates = [row for row in eval_rows if _rsi_long_candidate(row)]
+    rows_by_threshold = []
+    for threshold in probe_thresholds:
+        all_pass = [row for row in candidates if _num(row.get("spreadPips")) <= threshold]
+        incremental = [
+            row
+            for row in all_pass
+            if _num(row.get("spreadPips")) > current_live_max_spread_pips
+        ]
+        threshold_impact = next(
+            (row for row in threshold_rows if math.isclose(float(row.get("thresholdPips", 0.0)), threshold)),
+            {},
+        )
+        rows_by_threshold.append(
+            {
+                "thresholdPips": threshold,
+                "candidateRows": len(all_pass),
+                "incrementalRowsVsCurrentCap": len(incremental),
+                "shadowEvaluationPassRows": int(threshold_impact.get("shadowEvaluationPassRows") or 0),
+                "shadowEvaluationPassRate": threshold_impact.get("shadowEvaluationPassRate", 0.0),
+                "exampleRows": [
+                    {
+                        "generatedAtLocal": row.get("generatedAtLocal"),
+                        "generatedAtServer": row.get("generatedAtServer"),
+                        "spreadPips": _round(_num(row.get("spreadPips"))),
+                        "rsiClosed1": _round(_num(row.get("rsiClosed1"))),
+                        "rsiClosed2": _round(_num(row.get("rsiClosed2"))),
+                        "rsiRegimeReason": (
+                            row.get("rsiRegimeFilter", {}).get("reason")
+                            if isinstance(row.get("rsiRegimeFilter"), dict)
+                            else ""
+                        ),
+                    }
+                    for row in incremental[:8]
+                ],
+            }
+        )
+    max_probe = max(probe_thresholds) if probe_thresholds else current_live_max_spread_pips
+    incremental_total = sum(
+        1
+        for row in candidates
+        if current_live_max_spread_pips < _num(row.get("spreadPips")) <= max_probe
+    )
+    return {
+        "active": True,
+        "route": "RSI_Reversal",
+        "direction": "LONG",
+        "mode": "SPREAD_PROBE_REVIEW_ONLY",
+        "currentLiveMaxSpreadPips": current_live_max_spread_pips,
+        "probeThresholdsPips": probe_thresholds,
+        "candidateRowsAtCurrentCap": sum(
+            1 for row in candidates if _num(row.get("spreadPips")) <= current_live_max_spread_pips
+        ),
+        "totalCandidateRows": len(candidates),
+        "incrementalRowsAtMaxProbe": incremental_total,
+        "byThreshold": rows_by_threshold,
+        "recommendation": "RUN_REPLAY_BEFORE_ANY_LIVE_CAP_CHANGE"
+        if incremental_total
+        else "NO_RSI_LONG_PROBE_CANDIDATES",
+        "reasonZh": "2.3/2.4 pips probe 档出现 RSI LONG 新候选；必须先回放/复盘，不自动修改 live cap。"
+        if incremental_total
+        else "2.3/2.4 pips probe 档没有新增 RSI LONG 真实候选；维持 2.2 live cap。",
         "orderSendAllowed": False,
         "livePresetMutationAllowed": False,
     }

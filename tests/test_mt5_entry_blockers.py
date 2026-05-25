@@ -144,6 +144,59 @@ class Mt5EntryBlockerTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["recommendation"], "WAIT_FOR_NEXT_BAR_OR_ADD_BAR_WAIT_TELEMETRY_BEFORE_TUNING")
             self.assertEqual(payload["breakdown"]["currentDiagnostics"]["byStatus"][0]["status"], "WAIT_BAR")
 
+    def test_current_rsi_diagnostics_and_symbol_strategies_refresh_stale_blocker_view(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            dashboard = runtime / entry_blockers.DASHBOARD_NAME
+            dashboard.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026.05.25 21:34:50",
+                        "runtime": {"localTime": "2026.05.25 21:34:50", "tradeStatus": "READY"},
+                        "market": {"symbol": "USDJPYc", "spread": 3.3},
+                        "symbols": [
+                            {
+                                "symbol": "USDJPYc",
+                                "strategies": {
+                                    "MA_Cross": {"status": "ROUTE_DISABLED", "runtimeLabel": "OFF"},
+                                    "RSI_Reversal": {
+                                        "status": "WAIT_BAR",
+                                        "runtimeLabel": "ON",
+                                        "reason": "Waiting for next H1 bar",
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runtime / entry_blockers.RSI_ENTRY_DIAGNOSTICS_NAME).write_text(
+                json.dumps(
+                    {
+                        "state": "SPREAD_BLOCK",
+                        "stateZh": "点差超过 EA 入场限制",
+                        "summary": "点差超过 EA 入场限制，等待点差回落。",
+                        "guards": {"spreadPips": 3.3, "maxSpreadPips": 2.2},
+                        "whyNoEntry": [
+                            {"code": "SPREAD_BLOCK", "label": "点差过高", "detail": "3.3 / 2.2 pips"}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            now = datetime.fromisoformat("2026-05-25T12:35:00+00:00")
+            os.utime(dashboard, (now.timestamp() - 10, now.timestamp() - 10))
+
+            payload = entry_blockers.build_report(runtime, now=now, target_date_jst="2026-05-25")
+
+            self.assertEqual(payload["summary"]["status"], "CURRENT_RSI_ENTRY_DIAGNOSTIC_OBSERVED")
+            self.assertEqual(payload["summary"]["diagnosticRows"], 2)
+            self.assertEqual(payload["summary"]["rsiDiagnosticTopBlocker"], "SPREAD_BLOCK")
+            self.assertEqual(payload["summary"]["rsiDiagnosticSpreadPips"], 3.3)
+            self.assertEqual(payload["summary"]["rsiDiagnosticMaxSpreadPips"], 2.2)
+            self.assertEqual(payload["summary"]["recommendation"], "CHECK_BROKER_SPREAD_WINDOW_BEFORE_TUNING")
+
 
 if __name__ == "__main__":
     unittest.main()

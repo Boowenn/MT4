@@ -376,7 +376,7 @@ run_heavy_tasks() {
 
   spread_audit_args=(
     --runtime-dir "$RUNTIME_DIR"
-    --thresholds "${QG_USDJPY_SPREAD_GATE_AUDIT_THRESHOLDS:-2.0,2.2,2.5}"
+    --thresholds "${QG_USDJPY_SPREAD_GATE_AUDIT_THRESHOLDS:-2.0,2.2,2.3,2.4,2.5}"
   )
   if [[ -n "${QG_USDJPY_SPREAD_GATE_AUDIT_START_DATE_JST:-}" ]]; then
     spread_audit_args+=(--start-date-jst "$QG_USDJPY_SPREAD_GATE_AUDIT_START_DATE_JST")
@@ -471,6 +471,9 @@ run_once() {
     --repo-root "$REPO_ROOT" \
     once \
     --write || echo "USDJPY live loop failed"
+
+  "$PYTHON_BIN" tools/build_mt5_entry_blockers.py \
+    --runtime-dir "$RUNTIME_DIR" || echo "MT5 entry blocker telemetry failed"
 
   if [[ "$FAST_TELEGRAM_GATEWAY" == "1" && "$SEND_TELEGRAM" == "1" ]]; then
     run_with_timeout "$TELEGRAM_TIMEOUT_SECONDS" "$PYTHON_BIN" tools/run_telegram_gateway.py \

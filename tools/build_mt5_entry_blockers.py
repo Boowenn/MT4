@@ -27,6 +27,7 @@ SHADOW_STATUS_NAME = "QuantGod_MT5_ShadowStatus.txt"
 SHADOW_SIGNAL_NAME = "QuantGod_ShadowSignalLedger.csv"
 TRADE_JOURNAL_NAME = "QuantGod_TradeJournal.csv"
 CLOSE_HISTORY_NAME = "QuantGod_CloseHistory.csv"
+RSI_ENTRY_DIAGNOSTICS_NAME = "QuantGod_USDJPYRsiEntryDiagnostics.json"
 JST = timezone(timedelta(hours=9), "JST")
 
 SAFETY = {
@@ -305,9 +306,24 @@ def summarize_dashboard_diagnostics(dashboard: dict[str, Any], usable: bool) -> 
     statuses: Counter[str] = Counter()
     labels: Counter[str] = Counter()
     strategies: Counter[str] = Counter()
-    for strategy, raw in diagnostics.items():
+    raw_items: list[tuple[str, dict[str, Any]]] = [
+        (str(strategy), raw) for strategy, raw in diagnostics.items() if isinstance(raw, dict)
+    ]
+    for symbol_row in dashboard.get("symbols") if isinstance(dashboard.get("symbols"), list) else []:
+        if not isinstance(symbol_row, dict):
+            continue
+        symbol_strategies = symbol_row.get("strategies") if isinstance(symbol_row.get("strategies"), dict) else {}
+        for strategy, raw in symbol_strategies.items():
+            if isinstance(raw, dict):
+                raw_items.append((str(strategy), raw))
+    seen: set[tuple[str, str]] = set()
+    for strategy, raw in raw_items:
         if not isinstance(raw, dict):
             continue
+        identity = (strategy, clean(raw.get("status")) or "UNKNOWN")
+        if identity in seen:
+            continue
+        seen.add(identity)
         status = clean(raw.get("status")) or "UNKNOWN"
         runtime_label = clean(raw.get("runtimeLabel")) or clean(raw.get("adaptiveState")) or "UNKNOWN"
         item = {
@@ -335,11 +351,51 @@ def summarize_dashboard_diagnostics(dashboard: dict[str, Any], usable: bool) -> 
     }
 
 
+def summarize_rsi_entry_diagnostics(diagnostics: dict[str, Any], usable: bool) -> dict[str, Any]:
+    if not usable or not diagnostics:
+        return {
+            "available": False,
+            "state": "",
+            "topBlocker": "",
+            "spreadPips": 0.0,
+            "maxSpreadPips": 0.0,
+            "examples": [],
+        }
+    why_rows = diagnostics.get("whyNoEntry") if isinstance(diagnostics.get("whyNoEntry"), list) else []
+    examples = [
+        {
+            "code": clean(row.get("code")) or "UNKNOWN",
+            "label": clean(row.get("label")),
+            "detail": clean(row.get("detail")),
+        }
+        for row in why_rows
+        if isinstance(row, dict)
+    ]
+    top = examples[0] if examples else {}
+    guards = diagnostics.get("guards") if isinstance(diagnostics.get("guards"), dict) else {}
+    inputs = diagnostics.get("inputs") if isinstance(diagnostics.get("inputs"), dict) else {}
+    return {
+        "available": True,
+        "state": clean(diagnostics.get("state")),
+        "stateZh": clean(diagnostics.get("stateZh")),
+        "summary": clean(diagnostics.get("summary")),
+        "topBlocker": clean(top.get("code")),
+        "spreadPips": as_float(guards.get("spreadPips")),
+        "maxSpreadPips": as_float(first(guards.get("maxSpreadPips"), inputs.get("PilotMaxSpreadPips"), default=0.0)),
+        "manualPositionBlock": bool(guards.get("manualPositionBlock", False)),
+        "portfolioPositions": int(as_float(guards.get("portfolioPositions"), 0)),
+        "examples": examples[:8],
+    }
+
+
 def recommendation(summary: dict[str, Any], freshness: dict[str, Any]) -> str:
     if not freshness.get("dashboardUsableForCurrentState"):
         return "REFRESH_LIVE_DASHBOARD_BEFORE_TUNING"
     top = (summary.get("byBlocker") or [{}])[0].get("blocker", "")
     top_diag = (summary.get("diagnostics") or {}).get("topStatus", "")
+    rsi_top = (summary.get("rsiEntryDiagnostics") or {}).get("topBlocker", "")
+    if not top and rsi_top in {"SPREAD_BLOCK", "SPREAD"}:
+        return "CHECK_BROKER_SPREAD_WINDOW_BEFORE_TUNING"
     if not top and top_diag in {"WAIT_BAR"}:
         return "WAIT_FOR_NEXT_BAR_OR_ADD_BAR_WAIT_TELEMETRY_BEFORE_TUNING"
     if not top and top_diag in {"ROUTE_DISABLED"}:
@@ -362,6 +418,8 @@ def recommendation(summary: dict[str, Any], freshness: dict[str, Any]) -> str:
 def status_text(freshness: dict[str, Any], signal_summary: dict[str, Any], diagnostic_summary: dict[str, Any]) -> str:
     if not freshness.get("dashboardUsableForCurrentState"):
         return str(freshness.get("status") or "EVIDENCE_NOT_CURRENT")
+    if int(signal_summary.get("totalRows") or 0) == 0 and signal_summary.get("rsiEntryDiagnostics", {}).get("state"):
+        return "CURRENT_RSI_ENTRY_DIAGNOSTIC_OBSERVED"
     if int(diagnostic_summary.get("totalRows") or 0) > 0 and int(signal_summary.get("totalRows") or 0) == 0:
         return "CURRENT_DIAGNOSTICS_OBSERVED"
     if int(signal_summary.get("totalRows") or 0) == 0:
@@ -393,6 +451,7 @@ def build_report(
     )
     shadow_rows = read_csv(runtime_dir / SHADOW_SIGNAL_NAME)
     signal_summary = summarize_signal_rows(shadow_rows, target_date)
+    rsi_entry_diagnostics, rsi_parse_error = read_json(runtime_dir / RSI_ENTRY_DIAGNOSTICS_NAME)
     current_state: dict[str, Any] = {"usable": bool(freshness.get("dashboardUsableForCurrentState"))}
     if current_state["usable"]:
         current_state.update(
@@ -412,12 +471,18 @@ def build_report(
     top = (signal_summary.get("byBlocker") or [{}])[0]
     diagnostic_summary = summarize_dashboard_diagnostics(dashboard, bool(freshness.get("dashboardUsableForCurrentState")))
     top_diag = (diagnostic_summary.get("byStatus") or [{}])[0]
+    rsi_summary = summarize_rsi_entry_diagnostics(
+        rsi_entry_diagnostics,
+        bool(freshness.get("dashboardUsableForCurrentState")) and not rsi_parse_error,
+    )
+    signal_summary["rsiEntryDiagnostics"] = rsi_summary
     summary_for_recommendation = {
         **signal_summary,
         "diagnostics": {
             "topStatus": top_diag.get("status", ""),
             "topStatusCount": int(top_diag.get("count") or 0),
         },
+        "rsiEntryDiagnostics": rsi_summary,
     }
     rec = recommendation(summary_for_recommendation, freshness)
     payload = {
@@ -448,6 +513,11 @@ def build_report(
                 "file": CLOSE_HISTORY_NAME,
                 "exists": (runtime_dir / CLOSE_HISTORY_NAME).exists(),
             },
+            "rsiEntryDiagnostics": {
+                "file": RSI_ENTRY_DIAGNOSTICS_NAME,
+                "exists": (runtime_dir / RSI_ENTRY_DIAGNOSTICS_NAME).exists(),
+                "parseError": rsi_parse_error,
+            },
         },
         "currentState": current_state,
         "summary": {
@@ -468,10 +538,15 @@ def build_report(
             "startupGuardBlocks": sum(row["count"] for row in signal_summary["byBlocker"] if row["blocker"] == "STARTUP_GUARD"),
             "spreadBlocks": sum(row["count"] for row in signal_summary["byBlocker"] if row["blocker"] in {"SPREAD", "SPREAD_BLOCK"}),
             "lossCooldownBlocks": sum(row["count"] for row in signal_summary["byBlocker"] if row["blocker"] == "LOSS_COOLDOWN"),
+            "rsiDiagnosticState": rsi_summary.get("state", ""),
+            "rsiDiagnosticTopBlocker": rsi_summary.get("topBlocker", ""),
+            "rsiDiagnosticSpreadPips": rsi_summary.get("spreadPips", 0.0),
+            "rsiDiagnosticMaxSpreadPips": rsi_summary.get("maxSpreadPips", 0.0),
             "recommendation": rec,
         },
         "breakdown": {
             **{key: signal_summary[key] for key in ("byBlocker", "byStatus", "byAction", "byStrategy", "bySymbol", "examples")},
+            "rsiEntryDiagnostics": rsi_summary,
             "currentDiagnostics": {
                 key: diagnostic_summary[key]
                 for key in ("byStatus", "byRuntimeLabel", "byStrategy", "examples")

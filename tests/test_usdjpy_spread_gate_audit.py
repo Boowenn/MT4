@@ -72,7 +72,7 @@ class USDJPYSpreadGateAuditTests(unittest.TestCase):
                 runtime,
                 start_date_jst="2026-05-18",
                 end_date_jst="2026-05-18",
-                thresholds=(2.0, 2.2, 2.5),
+                thresholds=(2.0, 2.2, 2.3, 2.4, 2.5),
                 include_promotion_review=False,
                 write=True,
             )
@@ -81,10 +81,73 @@ class USDJPYSpreadGateAuditTests(unittest.TestCase):
             self.assertEqual(by_threshold[0]["thresholdPips"], 2.0)
             self.assertEqual(by_threshold[0]["m1PassRows"], 1)
             self.assertEqual(by_threshold[1]["uniqueOpportunityCount"], 1)
-            self.assertEqual(by_threshold[2]["uniqueOpportunityCount"], 2)
+            self.assertEqual(by_threshold[4]["uniqueOpportunityCount"], 2)
             self.assertEqual(report["microLiveDecision"]["recommendation"], "KEEP_LIVE_CAP_2_0")
+            self.assertEqual(report["probeMaxSpreadPips"], 2.2)
+            self.assertEqual(report["rsiLongMicroLiveProbeReview"]["recommendation"], "NO_RSI_LONG_PROBE_CANDIDATES")
             self.assertTrue((runtime / "replay" / "usdjpy" / "QuantGod_USDJPYSpreadGateImpactAudit.json").exists())
             self.assertFalse(report["safety"]["livePresetMutationAllowed"])
+
+    def test_rsi_long_probe_review_counts_only_incremental_review_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            (runtime / "QuantGod_USDJPYRsiEntryDiagnostics.json").write_text(
+                json.dumps({"inputs": {"PilotMaxSpreadPips": 2.2}}),
+                encoding="utf-8",
+            )
+            kline_dir = runtime / "backtest" / "exported_klines"
+            kline_dir.mkdir(parents=True)
+            (kline_dir / "QuantGod_USDJPYc_M1_rates.csv").write_text(
+                "epoch,timestamp,open,high,low,close,tick_volume,spread,real_volume\n"
+                "1,2026.05.18 00:00:00,1,1,1,1,1,22,0\n"
+                "2,2026.05.18 00:01:00,1,1,1,1,1,23,0\n"
+                "3,2026.05.18 00:02:00,1,1,1,1,1,24,0\n",
+                encoding="utf-8",
+            )
+            rows = [
+                {
+                    "generatedAtLocal": "2026.05.18 09:00:00",
+                    "generatedAtServer": "2026.05.18 00:00:00",
+                    "strategyFamily": "RSI_Reversal",
+                    "direction": "LONG",
+                    "sessionOpen": True,
+                    "newsBlocked": False,
+                    "spreadPips": 2.3,
+                    "rsiLongSignal": True,
+                    "rsiClosed1": 31.2,
+                    "rsiClosed2": 28.7,
+                },
+                {
+                    "generatedAtLocal": "2026.05.18 10:00:00",
+                    "strategyFamily": "RSI_Reversal",
+                    "direction": "LONG",
+                    "sessionOpen": True,
+                    "newsBlocked": False,
+                    "spreadPips": 2.5,
+                    "rsiLongSignal": True,
+                },
+            ]
+            (runtime / "QuantGod_StrategyJsonEAShadowEvaluationLedger.jsonl").write_text(
+                "\n".join(json.dumps(item) for item in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            report = build_spread_gate_impact_audit(
+                runtime,
+                start_date_jst="2026-05-18",
+                end_date_jst="2026-05-18",
+                thresholds=(2.0, 2.2, 2.3, 2.4, 2.5),
+                include_promotion_review=False,
+            )
+
+            review = report["rsiLongMicroLiveProbeReview"]
+            self.assertEqual(review["currentLiveMaxSpreadPips"], 2.2)
+            self.assertEqual(review["probeThresholdsPips"], [2.3, 2.4])
+            self.assertEqual(review["incrementalRowsAtMaxProbe"], 1)
+            self.assertEqual(review["byThreshold"][0]["incrementalRowsVsCurrentCap"], 1)
+            self.assertEqual(review["byThreshold"][1]["incrementalRowsVsCurrentCap"], 1)
+            self.assertEqual(review["recommendation"], "RUN_REPLAY_BEFORE_ANY_LIVE_CAP_CHANGE")
+            self.assertFalse(review["orderSendAllowed"])
 
     def test_backfill_writes_deduped_tokyo_h4_candidate_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

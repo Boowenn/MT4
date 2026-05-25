@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-dir", default=os.environ.get("QG_RUNTIME_DIR", str(root / "runtime")))
     parser.add_argument("--start-date-jst", default=None)
     parser.add_argument("--end-date-jst", default=None)
-    parser.add_argument("--thresholds", default="2.0,2.2,2.5")
+    parser.add_argument("--thresholds", default="2.0,2.2,2.3,2.4,2.5")
     sub = parser.add_subparsers(dest="command", required=True)
     audit = sub.add_parser("audit")
     audit.add_argument("--write", action="store_true")
