@@ -400,6 +400,8 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
     diag_rsi = diagnostics.get("rsi") if isinstance(diagnostics.get("rsi"), dict) else {}
     vector_rsi = vector.get("rsi") if isinstance(vector.get("rsi"), dict) else {}
     mismatches = []
+    soft_mismatches = []
+    demoted_signal = _demoted_out_of_scope_signal(vector.get("direction"), diagnostics, diag_rsi)
     if vector.get("strategyFamily") != diag_strategy:
         mismatches.append("strategyFamily")
     if _normalize_direction(vector.get("direction")) != diag_direction:
@@ -423,8 +425,18 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
     ):
         mismatches.append("rsi.buyBand/oversold")
     if _normalize_direction(diag_rsi.get("signalDirection")) not in {"", "NONE", _normalize_direction(vector.get("direction"))}:
-        mismatches.append("signalDirection")
-    status = "PASS" if not mismatches else "FAIL"
+        if demoted_signal:
+            soft_mismatches.append("signalDirection")
+        else:
+            mismatches.append("signalDirection")
+    status = "FAIL" if mismatches else ("WARN" if soft_mismatches else "PASS")
+    reason = (
+        "EA 当前检测到已降级的反向 RSI 信号；Strategy JSON 与 MQL5 live 路线仍为 LONG，但当前周期不能作为 LONG 晋级证据。"
+        if soft_mismatches
+        else "Strategy JSON 与 MQL5 RSI 诊断关键口径一致"
+        if status == "PASS"
+        else f"Strategy JSON 与 MQL5 诊断存在硬口径差异：{', '.join(mismatches)}"
+    )
     return {
         "name": "strategy_json_vs_mql5_rsi_diagnostics",
         "status": status,
@@ -461,8 +473,10 @@ def _check_parity_vector_vs_ea(backtest: Dict[str, Any], diagnostics: Dict[str, 
                 "evalCode": diag_rsi.get("evalCode"),
                 "evalReason": diag_rsi.get("evalReason"),
             },
+            "softMismatches": soft_mismatches,
+            "demotedOutOfScopeSignal": demoted_signal or None,
         },
-        "reasonZh": "Strategy JSON 与 MQL5 RSI 诊断关键口径一致" if status == "PASS" else f"Strategy JSON 与 MQL5 诊断存在硬口径差异：{', '.join(mismatches)}",
+        "reasonZh": reason,
     }
 
 
@@ -489,16 +503,22 @@ def _check_deep_gate_matrix(backtest: Dict[str, Any], replay: Dict[str, Any], di
         }
 
     mismatches = matrix.get("hardMismatches") if isinstance(matrix.get("hardMismatches"), list) else []
-    status = "PASS" if not mismatches else "FAIL"
+    soft_mismatches = matrix.get("softMismatches") if isinstance(matrix.get("softMismatches"), list) else []
+    status = "FAIL" if mismatches else ("WARN" if soft_mismatches else "PASS")
+    reason = (
+        "Strategy JSON / Python Replay / MQL5 EA 深度门禁矩阵存在已降级反向信号；禁止晋级，但不是证据同步损坏。"
+        if status == "WARN"
+        else "Strategy JSON / Python Replay / MQL5 EA 深度门禁矩阵一致"
+        if status == "PASS"
+        else "Strategy JSON / Python Replay / MQL5 EA 深度门禁矩阵存在硬差异：" + ", ".join(mismatches)
+    )
     return {
         "name": "strategy_json_python_replay_mql5_gate_matrix",
         "status": status,
         "required": bool(mismatches),
         "promotionCritical": True,
         "actual": matrix,
-        "reasonZh": "Strategy JSON / Python Replay / MQL5 EA 深度门禁矩阵一致"
-        if status == "PASS"
-        else "Strategy JSON / Python Replay / MQL5 EA 深度门禁矩阵存在硬差异：" + ", ".join(mismatches),
+        "reasonZh": reason,
     }
 
 
@@ -518,6 +538,8 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
 
     missing_optional: List[str] = []
     hard_mismatches: List[str] = []
+    soft_mismatches: List[str] = []
+    demoted_signal = _demoted_out_of_scope_signal(vector.get("direction"), diagnostics, diag_rsi)
     if vector.get("strategyFamily") and vector.get("strategyFamily") != (diagnostics.get("strategy") or diagnostics.get("strategyFamily") or "RSI_Reversal"):
         hard_mismatches.append("strategyFamily")
     if _present(vector.get("direction")) and _normalize_direction(vector.get("direction")) != _normalize_direction(diagnostics.get("direction") or "LONG"):
@@ -530,7 +552,10 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
         missing_optional.append("mql5.rsi.crossbackThreshold")
     signal_direction = _normalize_direction(diag_rsi.get("signalDirection"))
     if _present(vector.get("direction")) and signal_direction not in {"", "NONE", _normalize_direction(vector.get("direction"))}:
-        hard_mismatches.append("mql5.rsi.signalDirection")
+        if demoted_signal:
+            soft_mismatches.append("mql5.rsi.signalDirection")
+        else:
+            hard_mismatches.append("mql5.rsi.signalDirection")
 
     if replay_causal.get("posteriorMayAffectTrigger") is True or replay_entry_causal.get("posteriorMayAffectTrigger") is True:
         hard_mismatches.append("pythonReplay.posteriorLeakage")
@@ -553,7 +578,7 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
 
     return {
         "schema": "quantgod.strategy_deep_parity_matrix.v1",
-        "status": "FAIL" if hard_mismatches else "PASS",
+        "status": "FAIL" if hard_mismatches else ("WARN" if soft_mismatches else "PASS"),
         "strategyJson": {
             "strategyId": vector.get("strategyId"),
             "seedId": vector.get("seedId"),
@@ -627,8 +652,12 @@ def _deep_gate_matrix(vector: Dict[str, Any], replay: Dict[str, Any], diagnostic
         },
         "missingOptionalFields": sorted(set(missing_optional)),
         "hardMismatches": sorted(set(hard_mismatches)),
+        "softMismatches": sorted(set(soft_mismatches)),
+        "demotedOutOfScopeSignal": demoted_signal or None,
         "reasonZh": "三方关键门禁一致；可选字段缺失只作为审计提醒。"
-        if not hard_mismatches
+        if not hard_mismatches and not soft_mismatches
+        else "EA 当前检测到已降级的反向 RSI 信号；当前周期不作为 LONG 晋级证据。"
+        if soft_mismatches
         else "三方关键门禁存在硬差异，禁止晋级。",
     }
 
@@ -891,6 +920,35 @@ def _normalize_direction(value: Any) -> str:
     if text == "SELL":
         return "SHORT"
     return text
+
+
+def _demoted_out_of_scope_signal(expected_direction: Any, diagnostics: Dict[str, Any], diag_rsi: Dict[str, Any]) -> Dict[str, Any]:
+    expected = _normalize_direction(expected_direction)
+    signal = _normalize_direction(diag_rsi.get("signalDirection"))
+    if not expected or signal in {"", "NONE", expected}:
+        return {}
+    state = str(diagnostics.get("state") or diagnostics.get("status") or "").upper()
+    eval_code = str(diag_rsi.get("evalCode") or "").upper()
+    is_demoted = (
+        expected == "LONG"
+        and signal == "SHORT"
+        and (state == "SELL_SIDE_DEMOTED" or eval_code == "SIGNAL_SELL")
+    ) or (
+        expected == "SHORT"
+        and signal == "LONG"
+        and (state == "BUY_SIDE_DEMOTED" or eval_code == "SIGNAL_BUY")
+    )
+    if not is_demoted:
+        return {}
+    return {
+        "demoted": True,
+        "expectedDirection": expected,
+        "signalDirection": signal,
+        "eaState": state,
+        "evalCode": eval_code,
+        "promotionImpact": "BLOCK_PROMOTION_KEEP_LIVE_ROUTE_LOCK",
+        "reasonZh": "EA 当前看到反向 RSI 信号，但该方向已被降级；实盘路线仍锁定到已验证方向，当前周期只阻断晋级/扩仓，不代表证据同步损坏。",
+    }
 
 
 def _compare_number(name: str, left: Any, right: Any, mismatches: List[str], missing: List[str], tolerance: float) -> None:
