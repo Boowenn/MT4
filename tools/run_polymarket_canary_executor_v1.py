@@ -41,6 +41,7 @@ DEFAULT_LOCK_FILE = Path(__file__).resolve().parents[1] / "runtime" / "Polymarke
 GOVERNANCE_NAME = "QuantGod_PolymarketAutoGovernance.json"
 CANARY_CONTRACT_NAME = "QuantGod_PolymarketCanaryExecutorContract.json"
 COPY_DISCOVERY_NAME = "QuantGod_PolymarketCopyTraderDiscovery.json"
+RETUNE_NAME = "QuantGod_PolymarketRetunePlanner.json"
 OUTPUT_NAME = "QuantGod_PolymarketCanaryExecutorRun.json"
 ORDER_AUDIT_LEDGER = "QuantGod_PolymarketCanaryOrderAuditLedger.csv"
 POSITION_LEDGER = "QuantGod_PolymarketCanaryPositionLedger.csv"
@@ -81,10 +82,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--governance-path", default="")
     parser.add_argument("--canary-contract-path", default="")
     parser.add_argument("--copy-discovery-path", default="")
+    parser.add_argument("--retune-path", default="")
     parser.add_argument("--lock-file", default=str(DEFAULT_LOCK_FILE))
     parser.add_argument("--max-orders", type=int, default=1)
     parser.add_argument("--default-limit-price", type=float, default=0.50)
     parser.add_argument("--min-order-size", type=float, default=safe_number(os.environ.get("QG_POLYMARKET_MIN_ORDER_SIZE"), 5.0) or 5.0)
+    parser.add_argument("--min-cash-reserve-usdc", type=float, default=safe_number(os.environ.get("QG_POLYMARKET_MIN_CASH_RESERVE_USDC"), 0.25) or 0.25)
+    parser.add_argument("--max-cash-fraction-per-order", type=float, default=safe_number(os.environ.get("QG_POLYMARKET_MAX_CASH_FRACTION_PER_ORDER"), 0.25) or 0.25)
     parser.add_argument("--plan-only", action="store_true", help="Force no-order audit mode even if env switches are on.")
     return parser.parse_args()
 
@@ -264,7 +268,61 @@ def stake_from(contract: dict[str, Any]) -> float:
     return round(max(0.0, float(stake)), 2)
 
 
-def candidate_blockers(row: dict[str, Any], contract: dict[str, Any], token_id: str, stake: float, size: float, args: argparse.Namespace) -> list[str]:
+def wallet_cash_budget(retune: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    account = retune.get("account") if isinstance(retune.get("account"), dict) else {}
+    cash = safe_number(account.get("accountCash"), None)
+    if cash is None:
+        return {
+            "accountCashKnown": False,
+            "minCashReserveUSDC": round(max(0.0, safe_number(getattr(args, "min_cash_reserve_usdc", 0.25), 0.25)), 4),
+            "maxCashFractionPerOrder": round(max(0.0, safe_number(getattr(args, "max_cash_fraction_per_order", 0.25), 0.25)), 4),
+        }
+    reserve = max(0.0, safe_number(getattr(args, "min_cash_reserve_usdc", 0.25), 0.25))
+    fraction = max(0.0, min(1.0, safe_number(getattr(args, "max_cash_fraction_per_order", 0.25), 0.25)))
+    available_after_reserve = max(0.0, cash - reserve)
+    per_order_cap = max(0.0, cash * fraction)
+    spend_cap = min(available_after_reserve, per_order_cap) if fraction > 0 else available_after_reserve
+    return {
+        "accountCashKnown": True,
+        "accountCashUSDC": round(cash, 6),
+        "minCashReserveUSDC": round(reserve, 4),
+        "availableAfterReserveUSDC": round(available_after_reserve, 6),
+        "maxCashFractionPerOrder": round(fraction, 4),
+        "cashCappedStakeUSDC": round(spend_cap, 6),
+    }
+
+
+def cash_adjusted_stake(requested_stake: float, cash_budget: dict[str, Any]) -> float:
+    stake = max(0.0, float(requested_stake))
+    if cash_budget.get("accountCashKnown") is True:
+        stake = min(stake, safe_number(cash_budget.get("cashCappedStakeUSDC"), 0.0))
+    return round(stake, 2)
+
+
+def cash_budget_blockers(stake: float, price: float, args: argparse.Namespace, cash_budget: dict[str, Any]) -> list[str]:
+    if cash_budget.get("accountCashKnown") is not True:
+        return []
+    blockers: list[str] = []
+    if safe_number(cash_budget.get("availableAfterReserveUSDC"), 0.0) <= 0:
+        blockers.append("ACCOUNT_CASH_LT_RESERVE")
+    if safe_number(cash_budget.get("cashCappedStakeUSDC"), 0.0) <= 0:
+        blockers.append("ACCOUNT_CASH_CAP_NOT_POSITIVE")
+    min_order_cost = max(0.0, price) * max(0.0, safe_number(getattr(args, "min_order_size", 5.0), 5.0))
+    if min_order_cost > 0 and stake + 1e-9 < min_order_cost:
+        blockers.append("ACCOUNT_CASH_LT_MIN_ORDER_COST")
+    return blockers
+
+
+def candidate_blockers(
+    row: dict[str, Any],
+    contract: dict[str, Any],
+    token_id: str,
+    stake: float,
+    size: float,
+    args: argparse.Namespace,
+    cash_budget: dict[str, Any],
+    price: float,
+) -> list[str]:
     blockers = []
     if row.get("canPromoteToLiveExecution") is not True:
         blockers.append("GOVERNANCE_NOT_PROMOTED")
@@ -278,13 +336,20 @@ def candidate_blockers(row: dict[str, Any], contract: dict[str, Any], token_id: 
         blockers.append("STAKE_NOT_POSITIVE")
     if size < args.min_order_size:
         blockers.append("ORDER_SIZE_LT_MIN")
+    blockers.extend(cash_budget_blockers(stake, price, args, cash_budget))
     if contract.get("walletWriteAllowed") is True or contract.get("orderSendAllowed") is True:
         blockers.append("CONTRACT_BUILDER_SHOULD_NOT_GRANT_WALLET_WRITE")
     blockers.extend(str(item) for item in (row.get("blockers") or []) if str(item).startswith("GLOBAL_"))
     return unique(blockers)
 
 
-def build_plan(args: argparse.Namespace, governance: dict[str, Any], contract: dict[str, Any], env_state: dict[str, Any]) -> list[dict[str, Any]]:
+def build_plan(
+    args: argparse.Namespace,
+    governance: dict[str, Any],
+    contract: dict[str, Any],
+    env_state: dict[str, Any],
+    cash_budget: dict[str, Any],
+) -> list[dict[str, Any]]:
     contract_by_market = by_market(get_rows(contract, "candidateContracts"))
     plans: list[dict[str, Any]] = []
     for row in get_rows(governance, "governanceDecisions"):
@@ -294,9 +359,10 @@ def build_plan(args: argparse.Namespace, governance: dict[str, Any], contract: d
         c_row = contract_by_market.get(market_id) or {}
         token_id = token_id_from(row, c_row)
         price = limit_price_from(row, c_row, args.default_limit_price)
-        stake = stake_from(c_row)
+        requested_stake = stake_from(c_row)
+        stake = cash_adjusted_stake(requested_stake, cash_budget)
         size = round(stake / price, 6) if price > 0 else 0.0
-        blockers = unique([*runtime_blockers(env_state), *candidate_blockers(row, c_row, token_id, stake, size, args)])
+        blockers = unique([*runtime_blockers(env_state), *candidate_blockers(row, c_row, token_id, stake, size, args, cash_budget, price)])
         plans.append(
             {
                 "candidateId": first_text(c_row.get("canaryContractId"), row.get("governanceId"), "CANARY-" + stable_id(market_id, row.get("track"))),
@@ -310,7 +376,10 @@ def build_plan(args: argparse.Namespace, governance: dict[str, Any], contract: d
                 "tokenIdPresent": bool(token_id),
                 "tokenIdMasked": token_id[:6] + "..." + token_id[-4:] if len(token_id) > 10 else ("present" if token_id else ""),
                 "limitPrice": price,
+                "requestedStakeUSDC": requested_stake,
                 "stakeUSDC": stake,
+                "stakeAdjustedForCash": stake < requested_stake,
+                "cashBudget": cash_budget,
                 "size": size,
                 "takeProfitPct": c_row.get("takeProfitPct"),
                 "takeProfitUSDC": c_row.get("takeProfitUSDC"),
@@ -351,7 +420,15 @@ def copy_candidate_price(row: dict[str, Any], default: float) -> float:
     return max(0.01, min(0.99, round(float(default), 4)))
 
 
-def copy_candidate_blockers(row: dict[str, Any], token_id: str, stake: float, size: float, args: argparse.Namespace) -> list[str]:
+def copy_candidate_blockers(
+    row: dict[str, Any],
+    token_id: str,
+    stake: float,
+    size: float,
+    args: argparse.Namespace,
+    cash_budget: dict[str, Any],
+    price: float,
+) -> list[str]:
     risk = row.get("riskPlan") if isinstance(row.get("riskPlan"), dict) else {}
     blockers = [str(item) for item in (risk.get("blockers") or row.get("blockers") or []) if str(item)]
     if risk.get("realWalletEligibleNow") is not True:
@@ -364,6 +441,7 @@ def copy_candidate_blockers(row: dict[str, Any], token_id: str, stake: float, si
         blockers.append("STAKE_NOT_POSITIVE")
     if size < args.min_order_size:
         blockers.append("ORDER_SIZE_LT_MIN")
+    blockers.extend(cash_budget_blockers(stake, price, args, cash_budget))
     return unique(blockers)
 
 
@@ -468,6 +546,7 @@ def build_copy_candidate_plan(
     args: argparse.Namespace,
     copy_discovery: dict[str, Any],
     env_state: dict[str, Any],
+    cash_budget: dict[str, Any],
 ) -> list[dict[str, Any]]:
     candidates = [
         row for row in get_rows(copy_discovery, "shadowCandidates")
@@ -492,9 +571,10 @@ def build_copy_candidate_plan(
         if token_id:
             seen_tokens.add(token_id)
         price = copy_candidate_price(row, args.default_limit_price)
-        stake = safe_number(risk.get("maxStakeUSDC"), 0.0) or 0.0
+        requested_stake = safe_number(risk.get("maxStakeUSDC"), 0.0) or 0.0
+        stake = cash_adjusted_stake(requested_stake, cash_budget)
         size = round(stake / price, 6) if price > 0 else 0.0
-        blockers = unique([*runtime_blockers(env_state), *copy_candidate_blockers(row, token_id, stake, size, args)])
+        blockers = unique([*runtime_blockers(env_state), *copy_candidate_blockers(row, token_id, stake, size, args, cash_budget, price)])
         market_id = first_text(row.get("conditionId"), row.get("marketSlug"), row.get("eventSlug"))
         trader = first_text(row.get("trader"), row.get("proxyWallet"))
         plans.append({
@@ -510,7 +590,10 @@ def build_copy_candidate_plan(
             "tokenIdPresent": bool(token_id),
             "tokenIdMasked": token_id[:6] + "..." + token_id[-4:] if len(token_id) > 10 else ("present" if token_id else ""),
             "limitPrice": price,
+            "requestedStakeUSDC": round(requested_stake, 2),
             "stakeUSDC": round(stake, 2),
+            "stakeAdjustedForCash": stake < requested_stake,
+            "cashBudget": cash_budget,
             "size": size,
             "takeProfitPct": risk.get("takeProfitPct"),
             "takeProfitUSDC": risk.get("takeProfitUSDC"),
@@ -713,13 +796,15 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     governance, governance_path = read_json_candidate(GOVERNANCE_NAME, runtime_dir, dashboard_dir, args.governance_path)
     contract, contract_path = read_json_candidate(CANARY_CONTRACT_NAME, runtime_dir, dashboard_dir, args.canary_contract_path)
     copy_discovery, copy_discovery_path = read_json_candidate(COPY_DISCOVERY_NAME, runtime_dir, dashboard_dir, args.copy_discovery_path)
+    retune, retune_path = read_json_candidate(RETUNE_NAME, runtime_dir, dashboard_dir, getattr(args, "retune_path", ""))
     wallet_policy = copy_discovery.get("walletRiskPolicy") if isinstance(copy_discovery.get("walletRiskPolicy"), dict) else {}
+    cash_budget = wallet_cash_budget(retune, args)
     lock_file = Path(args.lock_file)
     env_state = compact_env_state(lock_file, args.plan_only, wallet_policy, copy_discovery_path)
-    plans = build_plan(args, governance, contract, env_state)
+    plans = build_plan(args, governance, contract, env_state, cash_budget)
     plan_source = "legacy_governance"
     if not plans and wallet_policy.get("realWalletExecutionAllowed") is True:
-        plans = build_copy_candidate_plan(args, copy_discovery, env_state)
+        plans = build_copy_candidate_plan(args, copy_discovery, env_state, cash_budget)
         plan_source = "copy_trader_shadow_candidates" if plans else "none"
     existing_audit_rows = read_csv_rows(runtime_dir / ORDER_AUDIT_LEDGER) + read_csv_rows(dashboard_dir / ORDER_AUDIT_LEDGER)
     existing_live_orders = 0
@@ -764,6 +849,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             GOVERNANCE_NAME: governance_path,
             CANARY_CONTRACT_NAME: contract_path,
             COPY_DISCOVERY_NAME: copy_discovery_path,
+            RETUNE_NAME: retune_path,
         },
         "envPreflight": env_state,
         "preflightBlockers": preflight_blockers,
@@ -785,6 +871,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "walletWriteAllowed": wallet_write_allowed,
             "orderSendAllowed": order_send_allowed,
             "maxOrders": args.max_orders,
+            "cashBudget": cash_budget,
             "walletPolicyStatus": wallet_policy.get("status", ""),
             "walletPolicyRealExecutionAllowed": bool(wallet_policy.get("realWalletExecutionAllowed")),
         },

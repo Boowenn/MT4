@@ -41,10 +41,13 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             governance_path="",
             canary_contract_path="",
             copy_discovery_path="",
+            retune_path="",
             lock_file=str(root / "runtime" / "Polymarket_Canary_Isolated" / "REAL_MONEY_CANARY.lock"),
             max_orders=1,
             default_limit_price=0.50,
             min_order_size=1.0,
+            min_cash_reserve_usdc=0.0,
+            max_cash_fraction_per_order=1.0,
             plan_only=True,
         )
 
@@ -113,6 +116,58 @@ class PolymarketCanaryExecutorTests(unittest.TestCase):
             self.assertEqual(plan["sourceProxyWallet"], "")
             self.assertIn("PLAN_ONLY_FORCED", plan["blockers"])
             self.assertFalse(snapshot["safety"]["orderSendAllowed"])
+
+    def test_low_cash_caps_stake_and_blocks_when_min_size_cost_not_met(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_env(root)
+            args = self.args(root)
+            args.min_order_size = 5.0
+            args.min_cash_reserve_usdc = 0.25
+            args.max_cash_fraction_per_order = 0.25
+            write_json(
+                root / "dashboard" / module.RETUNE_NAME,
+                {"account": {"authState": "read_only_ok", "accountCash": 2.339206}},
+            )
+            write_json(
+                root / "dashboard" / module.COPY_DISCOVERY_NAME,
+                {
+                    "walletRiskPolicy": {
+                        "status": "AUTONOMOUS_REAL_WALLET_ALLOWED",
+                        "realWalletExecutionAllowed": True,
+                        "autonomousUnlockAllowed": True,
+                        "humanApprovalRequired": False,
+                        "operatorApprovalRequired": False,
+                        "hardBlockers": [],
+                    },
+                    "shadowCandidates": [{
+                        "asset": "72094069823942324362885404801938332659316240217382754851102758232469673300092",
+                        "conditionId": "0xabc",
+                        "marketTitle": "Example market",
+                        "outcome": "Yes",
+                        "curPrice": 0.65,
+                        "copyScore": 99,
+                        "trader": "0x" + "2" * 40,
+                        "riskPlan": {
+                            "realWalletEligibleNow": True,
+                            "walletWriteAllowed": True,
+                            "orderSendAllowed": True,
+                            "maxStakeUSDC": 5,
+                            "blockers": [],
+                        },
+                    }],
+                },
+            )
+
+            snapshot = module.build_snapshot(args)
+
+            plan = snapshot["plannedOrders"][0]
+            self.assertEqual(plan["requestedStakeUSDC"], 5)
+            self.assertEqual(plan["stakeUSDC"], 0.58)
+            self.assertTrue(plan["stakeAdjustedForCash"])
+            self.assertIn("ACCOUNT_CASH_LT_MIN_ORDER_COST", plan["blockers"])
+            self.assertIn("ORDER_SIZE_LT_MIN", plan["blockers"])
+            self.assertEqual(snapshot["summary"]["cashBudget"]["accountCashUSDC"], 2.339206)
 
     def test_detects_v2_api_key_signer_mismatch(self):
         exc = RuntimeError(
