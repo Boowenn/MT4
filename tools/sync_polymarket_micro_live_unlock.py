@@ -180,6 +180,23 @@ def strategy_gate(runtime_dir: Path, dashboard_dir: Path, args: argparse.Namespa
     source = discovery.get("sourceStatus") if isinstance(discovery.get("sourceStatus"), dict) else {}
     telegram = source.get("telegramChannel") if isinstance(source.get("telegramChannel"), dict) else {}
     wallet_policy = discovery.get("walletRiskPolicy") if isinstance(discovery.get("walletRiskPolicy"), dict) else {}
+    source_scope = (
+        wallet_policy.get("sourceScopedMicroLiveGate")
+        if isinstance(wallet_policy.get("sourceScopedMicroLiveGate"), dict)
+        else {}
+    )
+    shadow_profit_lock = {}
+    if isinstance(shadow.get("profitLock"), dict):
+        shadow_profit_lock = shadow.get("profitLock") or {}
+    elif isinstance(shadow_summary.get("profitLock"), dict):
+        shadow_profit_lock = shadow_summary.get("profitLock") or {}
+    source_scope_safety_blockers: list[str] = []
+    if source_scope.get("ignoresQuarantinedSources") is True:
+        source_scope_safety_blockers.append("source_scoped_gate_ignores_quarantined_sources")
+    if source_scope.get("quarantinedSourceScopeBlocked") is True:
+        source_scope_safety_blockers.append("source_scoped_promoted_parent_source_quarantined")
+    if shadow_profit_lock.get("active") is True:
+        source_scope_safety_blockers.append("shadow_replay_profit_lock_drawdown")
     shadow_samples = safe_int(
         shadow.get("samples")
         or shadow.get("outcomeSamples")
@@ -195,19 +212,24 @@ def strategy_gate(runtime_dir: Path, dashboard_dir: Path, args: argparse.Namespa
         and shadow_samples >= max(1, int(args.min_shadow_samples))
         and passed(walk)
         and walk_batches >= max(1, int(args.min_walk_batches))
+        and shadow_profit_lock.get("active") is not True
     )
-    source_scoped_gate = (
+    source_scoped_gate_raw = (
         bool(wallet_policy.get("sourceScopedMicroLiveGatePassed") or wallet_policy.get("strategyEvidenceGatePassed"))
         and wallet_policy.get("realWalletRequested") is True
         and wallet_policy.get("autonomousUnlockAllowed") is True
     )
+    source_scoped_gate = source_scoped_gate_raw and not source_scope_safety_blockers
     checks = {
         "shadowReplayPassed": passed(shadow),
         "shadowReplaySamplesOk": shadow_samples >= max(1, int(args.min_shadow_samples)),
         "walkForwardPassed": passed(walk),
         "walkForwardBatchesOk": walk_batches >= max(1, int(args.min_walk_batches)),
         "globalEvidenceGatePassed": global_evidence_gate,
+        "sourceScopedMicroLiveGateRawPassed": source_scoped_gate_raw,
         "sourceScopedMicroLiveGatePassed": source_scoped_gate,
+        "sourceScopedMicroLiveSafetyBlockers": source_scope_safety_blockers,
+        "shadowProfitLockActive": bool(shadow_profit_lock.get("active")),
         "validatedEvidenceGate": global_evidence_gate or source_scoped_gate,
         "isolatedRuntimePrepared": bool(isolated.get("runtimePrepared")),
         "telegramSourceActive": telegram_active,
@@ -216,6 +238,8 @@ def strategy_gate(runtime_dir: Path, dashboard_dir: Path, args: argparse.Namespa
     blockers: list[str] = []
     if not checks["validatedEvidenceGate"]:
         blockers.append("validatedEvidenceGate")
+    if source_scoped_gate_raw and source_scope_safety_blockers:
+        blockers.extend(source_scope_safety_blockers)
     for key in ("isolatedRuntimePrepared", "telegramSourceActive", "shadowCandidatesPresent"):
         if not checks[key]:
             blockers.append(key)
@@ -235,6 +259,7 @@ def strategy_gate(runtime_dir: Path, dashboard_dir: Path, args: argparse.Namespa
             "samples": shadow_samples,
             "profitFactor": shadow.get("profitFactor", shadow_summary.get("profitFactor")),
             "netPnlUSDC": shadow.get("netPnlUSDC", shadow_summary.get("netPnlUSDC")),
+            "profitLock": shadow_profit_lock,
         },
         "walkForward": {
             "status": walk.get("status", ""),

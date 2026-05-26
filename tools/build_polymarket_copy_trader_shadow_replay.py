@@ -138,6 +138,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--promotion-hold-hours", type=float, default=6.0)
     parser.add_argument("--promotion-hard-demote-profit-factor", type=float, default=0.35)
     parser.add_argument("--promotion-hard-demote-net-pnl-usdc", type=float, default=-2.0)
+    parser.add_argument("--profit-lock-min-peak-usdc", type=float, default=0.25)
+    parser.add_argument("--profit-lock-max-drawdown-usdc", type=float, default=0.25)
+    parser.add_argument("--profit-lock-max-drawdown-pct", type=float, default=60.0)
     return parser.parse_args()
 
 
@@ -548,6 +551,65 @@ def profit_factor(rows: list[dict[str, Any]]) -> float:
     return gross_win / gross_loss
 
 
+def row_chronological_key(row: dict[str, Any]) -> tuple[float, int]:
+    parsed = parse_iso_datetime(row.get("messageDate") or row.get("generatedAtIso"))
+    timestamp = parsed.timestamp() if parsed is not None else 0.0
+    return (timestamp, safe_int(row.get("sequence")))
+
+
+def profit_lock_metrics(validated: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    ordered = sorted(validated, key=row_chronological_key)
+    equity = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    peak_sequence = 0
+    max_drawdown_sequence = 0
+    for row in ordered:
+        equity += safe_number(row.get("netPnlUSDC"))
+        if equity > peak:
+            peak = equity
+            peak_sequence = safe_int(row.get("sequence"))
+        drawdown = peak - equity
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+            max_drawdown_sequence = safe_int(row.get("sequence"))
+
+    loss_wave_rows = 0
+    loss_wave_pnl = 0.0
+    for row in reversed(ordered):
+        pnl = safe_number(row.get("netPnlUSDC"))
+        if pnl >= 0:
+            break
+        loss_wave_rows += 1
+        loss_wave_pnl += pnl
+
+    min_peak = max(0.0, safe_number(getattr(args, "profit_lock_min_peak_usdc", 0.25), 0.25))
+    drawdown_floor = max(0.0, safe_number(getattr(args, "profit_lock_max_drawdown_usdc", 0.25), 0.25))
+    drawdown_pct = max(0.0, safe_number(getattr(args, "profit_lock_max_drawdown_pct", 60.0), 60.0))
+    drawdown_limit = max(drawdown_floor, peak * drawdown_pct / 100.0)
+    latest_drawdown = peak - equity
+    active = bool(peak >= min_peak and latest_drawdown >= drawdown_limit)
+    reason = ""
+    if active:
+        reason = "profit_peak_drawdown_exceeded"
+    return {
+        "active": active,
+        "reason": reason,
+        "samples": len(ordered),
+        "currentNetPnlUSDC": round(equity, 6),
+        "peakNetPnlUSDC": round(peak, 6),
+        "peakSequence": peak_sequence,
+        "latestDrawdownFromPeakUSDC": round(latest_drawdown, 6),
+        "maxDrawdownUSDC": round(max_drawdown, 6),
+        "maxDrawdownSequence": max_drawdown_sequence,
+        "drawdownLimitUSDC": round(drawdown_limit, 6),
+        "drawdownLimitPct": round(drawdown_pct, 4),
+        "minPeakUSDC": round(min_peak, 6),
+        "recentLossWaveRows": loss_wave_rows,
+        "recentLossWavePnlUSDC": round(loss_wave_pnl, 6),
+    }
+
+
 def replay_signal(index: int, signal: dict[str, Any], quotes: list[MarketQuote], args: argparse.Namespace) -> dict[str, Any]:
     text = str(signal.get("textPreview") or "")
     title = str(signal.get("marketTitle") or "").strip() or parse_signal_title(text)
@@ -674,6 +736,7 @@ def build_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[
     mtm_net = sum(safe_number(row.get("netPnlUSDC")) for row in matched)
     validated_net = sum(safe_number(row.get("netPnlUSDC")) for row in validated)
     pf = profit_factor(validated)
+    profit_lock = profit_lock_metrics(validated, args)
     blockers: list[str] = []
     warnings: list[str] = []
     if len(validated) < int(args.min_shadow_replay_trades):
@@ -682,6 +745,8 @@ def build_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[
         blockers.append("shadow_replay_net_pnl_not_positive")
     if pf < safe_number(args.min_shadow_profit_factor):
         blockers.append("shadow_replay_pf_lt_min")
+    if profit_lock["active"]:
+        blockers.append("shadow_replay_profit_lock_drawdown")
     unresolved = len(matched) - len(validated)
     if unresolved > 0:
         warnings.append("open_or_unresolved_signals_present")
@@ -701,6 +766,7 @@ def build_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> dict[
         "markToMarketNetPnlUSDC": round(mtm_net, 6),
         "profitFactor": round(pf, 6),
         "winRatePct": round(len(wins) / len(validated) * 100.0, 4) if validated else 0.0,
+        "profitLock": profit_lock,
         "passed": passed,
         "status": "PASSED" if passed else "BLOCKED_PENDING_MORE_OUTCOMES",
         "blockers": blockers,
@@ -1343,6 +1409,9 @@ def main() -> int:
             "minEntryPrice": args.min_entry_price,
             "maxEntryPrice": args.max_entry_price,
             "minMatchScore": args.min_match_score,
+            "profitLockMinPeakUSDC": args.profit_lock_min_peak_usdc,
+            "profitLockMaxDrawdownUSDC": args.profit_lock_max_drawdown_usdc,
+            "profitLockMaxDrawdownPct": args.profit_lock_max_drawdown_pct,
         },
         "summary": summary,
         "metrics": summary,

@@ -1338,6 +1338,17 @@ def wallet_runtime_preflight(runtime_dir: Path, dashboard_dir: Path) -> dict[str
     }
 
 
+def source_trader_parent_is_weak(source_trader_key: str, weak_sources: list[str]) -> bool:
+    key = str(source_trader_key or "").strip().lower()
+    if not key:
+        return False
+    for source in weak_sources:
+        source_key = str(source or "").strip().lower()
+        if source_key and (key == source_key or key.startswith(f"{source_key}:")):
+            return True
+    return False
+
+
 def wallet_risk_policy(
     args: argparse.Namespace,
     telegram_active: bool,
@@ -1370,14 +1381,36 @@ def wallet_risk_policy(
     promoted_source_traders = [str(item) for item in gate.get("promotedSourceTraders") or [] if str(item)]
     promoted_micro_buckets = safe_int(gate.get("promotedCompositeBucketCount"))
     weak_sources = [str(item) for item in gate.get("weakSources") or [] if str(item)]
+    quarantined_source_traders = [str(item) for item in gate.get("quarantinedSourceTraders") or [] if str(item)]
+    weak_source_set = {item.strip().lower() for item in weak_sources}
+    quarantined_source_trader_set = {item.strip().lower() for item in quarantined_source_traders}
+    blocked_promoted_sources = [item for item in promoted_sources if item.strip().lower() in weak_source_set]
+    eligible_promoted_sources = [item for item in promoted_sources if item.strip().lower() not in weak_source_set]
+    blocked_promoted_source_traders = [
+        item
+        for item in promoted_source_traders
+        if item.strip().lower() in quarantined_source_trader_set or source_trader_parent_is_weak(item, weak_sources)
+    ]
+    eligible_promoted_source_traders = [
+        item for item in promoted_source_traders if item not in set(blocked_promoted_source_traders)
+    ]
+    source_scope_attempted = bool(gate.get("active") and (promoted_sources or promoted_source_traders) and promoted_micro_buckets > 0)
+    source_scope_blockers: list[str] = []
+    if source_scope_attempted and not (eligible_promoted_sources or eligible_promoted_source_traders):
+        if blocked_promoted_sources or blocked_promoted_source_traders:
+            source_scope_blockers.append("source_scoped_promoted_parent_source_quarantined")
+        else:
+            source_scope_blockers.append("source_scoped_promoted_source_missing")
     source_scoped_gate_passed = bool(
         gate.get("active")
-        and (promoted_sources or promoted_source_traders)
+        and (eligible_promoted_sources or eligible_promoted_source_traders)
         and promoted_micro_buckets > 0
+        and not source_scope_blockers
     )
     global_gate_passed = not global_evidence_blockers
     if not (global_gate_passed or source_scoped_gate_passed):
         blockers.extend(global_evidence_blockers)
+        blockers.extend(source_scope_blockers)
     blockers.extend(runtime_blockers)
 
     evidence_gate_passed = requested and auto_unlock and (not require_telegram or telegram_active) and (
@@ -1400,6 +1433,8 @@ def wallet_risk_policy(
             warnings.append("global_shadow_replay_not_validated_but_source_scope_promoted")
         if not walk_forward.get("passed"):
             warnings.append("global_walk_forward_not_validated_but_source_scope_promoted")
+    if (blocked_promoted_sources or blocked_promoted_source_traders) and source_scoped_gate_passed:
+        warnings.append("quarantined_source_scope_ignored_for_unsafe_promotions")
     return {
         "status": status,
         "realWalletRequested": requested,
@@ -1420,10 +1455,17 @@ def wallet_risk_policy(
             "mode": "PROMOTED_SOURCE_OR_SOURCE_TRADER_AND_PROMOTED_MICRO_BUCKET",
             "promotedSources": promoted_sources,
             "promotedSourceTraders": promoted_source_traders,
+            "eligiblePromotedSources": eligible_promoted_sources,
+            "eligiblePromotedSourceTraders": eligible_promoted_source_traders,
+            "blockedPromotedSources": blocked_promoted_sources,
+            "blockedPromotedSourceTraders": blocked_promoted_source_traders,
             "weakSources": weak_sources,
+            "quarantinedSourceTraders": quarantined_source_traders,
             "promotedCompositeBucketCount": promoted_micro_buckets,
             "requiresSourceEvidencePositionMatch": True,
-            "ignoresQuarantinedSources": True,
+            "requiresParentSourceNotWeak": True,
+            "quarantinedSourceScopeBlocked": bool(source_scope_blockers),
+            "ignoresQuarantinedSources": False,
         },
         "takeProfitPct": round(args.real_wallet_take_profit_pct, 4),
         "takeProfitUSDC": round(args.real_wallet_take_profit_usdc, 4),
@@ -1442,7 +1484,7 @@ def wallet_risk_policy(
         "runtimePreflight": runtime,
         "autoUnlockCriteria": [
             "Telegram 来源可读并能提取钱包/信号",
-            f"全局 shadow replay >= {int(args.min_shadow_replay_trades)} 笔且 PF >= {float(args.min_shadow_profit_factor):.2f} 且净 PnL > 0，或单一来源/来源交易员桶已晋级且有晋级交易员/盘口微桶",
+            f"全局 shadow replay >= {int(args.min_shadow_replay_trades)} 笔且 PF >= {float(args.min_shadow_profit_factor):.2f} 且净 PnL > 0，或父来源未隔离的来源/来源交易员桶已晋级且有晋级交易员/盘口微桶",
             f"全局 walk-forward >= {int(args.min_walk_forward_batches)} 批且 pass rate >= {float(args.min_walk_forward_pass_rate_pct):.0f}%，或启用来源/来源交易员桶独立 micro-live",
             "真实钱包 runtime 配置齐全、kill switch 关闭、isolated_clob adapter 可用",
             "每笔订单必须带 TP/SL、追踪止损、单笔上限、日亏损上限和最大持仓数",
@@ -1744,10 +1786,10 @@ def candidate_micro_scalp_suitability(
     requires_promoted_source = bool(promoted_sources or promoted_source_traders or weak_sources or quarantined_source_traders)
     if requires_promoted_source and not source_attribution.get("sourceEvidenceMatched"):
         blockers.append("copy_replay_source_evidence_not_matched")
-    if source_quarantined and not source_promoted:
+    if source_quarantined:
         blockers.append("copy_replay_source_bucket_quarantined")
-    elif source_quarantined:
-        warnings.append("copy_replay_source_bucket_weak_but_source_trader_promoted")
+        if source_promoted:
+            warnings.append("copy_replay_source_trader_promotion_ignored_because_parent_source_quarantined")
     if requires_promoted_source and not source_promoted:
         blockers.append("copy_replay_source_bucket_not_promoted")
     if composite_quarantined:
@@ -1779,7 +1821,7 @@ def candidate_micro_scalp_suitability(
         "traderMarketFamily": compact_bucket_evidence((gate.get("byTraderMarketFamily") or {}).get(trader_family_key)),
         "traderEntryPriceBand": compact_bucket_evidence((gate.get("byTraderEntryPriceBand") or {}).get(trader_band_key)),
     }
-    status = "PROMOTABLE" if composite_promoted and not composite_quarantined else "QUARANTINE" if blockers else "COLLECTING"
+    status = "PROMOTABLE" if composite_promoted and not composite_quarantined and not blockers else "QUARANTINE" if blockers else "COLLECTING"
     action = "allow_micro_live_candidate" if status == "PROMOTABLE" else "shadow_only_collect_more_evidence"
     return {
         "status": status,

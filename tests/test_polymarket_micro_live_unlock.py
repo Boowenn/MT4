@@ -134,6 +134,7 @@ class PolymarketMicroLiveUnlockTests(unittest.TestCase):
                         "sourceScopedMicroLiveGate": {
                             "promotedSources": ["telegram_telethon:ai 1000x polymarket"],
                             "promotedCompositeBucketCount": 3,
+                            "ignoresQuarantinedSources": False,
                         },
                     },
                 },
@@ -151,6 +152,90 @@ class PolymarketMicroLiveUnlockTests(unittest.TestCase):
             env_text = Path(args.repo_env).read_text(encoding="utf-8")
             self.assertIn("QG_POLYMARKET_REAL_EXECUTION=true", env_text)
             self.assertIn("QG_POLYMARKET_CANARY_KILL_SWITCH=false", env_text)
+
+    def test_unsafe_source_scoped_policy_relocks_switches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            dashboard = root / "dashboard"
+            write_json(
+                dashboard / module.COPY_DISCOVERY_NAME,
+                {
+                    "summary": {
+                        "shadowCandidates": 12,
+                        "telegramWallets": 8,
+                        "telegramSignals": 72,
+                    },
+                    "sourceStatus": {"telegramChannel": {"configured": True}},
+                    "walletRiskPolicy": {
+                        "realWalletRequested": True,
+                        "autonomousUnlockAllowed": True,
+                        "strategyEvidenceGatePassed": True,
+                        "sourceScopedMicroLiveGatePassed": True,
+                        "sourceScopedMicroLiveGate": {
+                            "promotedSourceTraders": ["telegram_telethon:weak channel:edge"],
+                            "promotedCompositeBucketCount": 3,
+                            "ignoresQuarantinedSources": True,
+                        },
+                    },
+                },
+            )
+            write_json(dashboard / module.SHADOW_REPLAY_NAME, {"status": "FAILED", "passed": False, "samples": 211})
+            write_json(dashboard / module.WALK_FORWARD_NAME, {"status": "FAILED", "passed": False, "batches": 3})
+            write_json(dashboard / module.ISOLATED_RUNTIME_NAME, {"runtimePrepared": True})
+
+            payload = module.snapshot(args)
+
+            self.assertEqual(payload["status"], "MICRO_LIVE_LOCKED_BY_STRATEGY_GATE")
+            self.assertFalse(payload["strategyGatePassed"])
+            self.assertIn("source_scoped_gate_ignores_quarantined_sources", payload["gate"]["blockers"])
+            env_text = Path(args.repo_env).read_text(encoding="utf-8")
+            self.assertIn("QG_POLYMARKET_REAL_EXECUTION=false", env_text)
+
+    def test_profit_lock_relocks_source_scoped_switches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            dashboard = root / "dashboard"
+            write_json(
+                dashboard / module.COPY_DISCOVERY_NAME,
+                {
+                    "summary": {
+                        "shadowCandidates": 12,
+                        "telegramWallets": 8,
+                        "telegramSignals": 72,
+                    },
+                    "sourceStatus": {"telegramChannel": {"configured": True}},
+                    "walletRiskPolicy": {
+                        "realWalletRequested": True,
+                        "autonomousUnlockAllowed": True,
+                        "strategyEvidenceGatePassed": True,
+                        "sourceScopedMicroLiveGatePassed": True,
+                        "sourceScopedMicroLiveGate": {
+                            "promotedSources": ["telegram_telethon:ai 1000x polymarket"],
+                            "promotedCompositeBucketCount": 3,
+                            "ignoresQuarantinedSources": False,
+                        },
+                    },
+                },
+            )
+            write_json(
+                dashboard / module.SHADOW_REPLAY_NAME,
+                {
+                    "status": "FAILED",
+                    "passed": False,
+                    "samples": 211,
+                    "summary": {"profitLock": {"active": True, "reason": "profit_peak_drawdown_exceeded"}},
+                },
+            )
+            write_json(dashboard / module.WALK_FORWARD_NAME, {"status": "FAILED", "passed": False, "batches": 3})
+            write_json(dashboard / module.ISOLATED_RUNTIME_NAME, {"runtimePrepared": True})
+
+            payload = module.snapshot(args)
+
+            self.assertEqual(payload["status"], "MICRO_LIVE_LOCKED_BY_STRATEGY_GATE")
+            self.assertFalse(payload["strategyGatePassed"])
+            self.assertIn("shadow_replay_profit_lock_drawdown", payload["gate"]["blockers"])
 
 
 if __name__ == "__main__":
