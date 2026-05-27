@@ -13,6 +13,7 @@ MT5_FILES_ENV_KEYS = (
     "QG_HFM_FILES_DIR",
     "QG_HFM_FILES",
 )
+DEFAULT_JSONL_UNIQUE_FULL_SCAN_MAX_BYTES = 256 * 1024 * 1024
 
 DEFAULT_MT5_FILES_PATH = (
     Path.home()
@@ -90,7 +91,7 @@ def append_jsonl(path: Path, rows: Iterable[Dict[str, Any]]) -> None:
 
 
 def append_jsonl_unique(path: Path, rows: Iterable[Dict[str, Any]], key: str) -> int:
-    existing = {str(row.get(key)) for row in read_jsonl_tail(path, 2000) if row.get(key)}
+    existing = _existing_jsonl_keys(path, key)
     to_write: List[Dict[str, Any]] = []
     for row in rows:
         value = str(row.get(key) or "")
@@ -100,6 +101,35 @@ def append_jsonl_unique(path: Path, rows: Iterable[Dict[str, Any]], key: str) ->
         to_write.append(row)
     append_jsonl(path, to_write)
     return len(to_write)
+
+
+def _existing_jsonl_keys(path: Path, key: str) -> set[str]:
+    if not path.exists():
+        return set()
+    try:
+        max_scan_bytes = int(os.environ.get("QG_JSONL_UNIQUE_FULL_SCAN_MAX_BYTES", DEFAULT_JSONL_UNIQUE_FULL_SCAN_MAX_BYTES))
+    except ValueError:
+        max_scan_bytes = DEFAULT_JSONL_UNIQUE_FULL_SCAN_MAX_BYTES
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return set()
+    if size > max(0, max_scan_bytes):
+        return {str(row.get(key)) for row in read_jsonl_tail(path, 2000) if row.get(key)}
+
+    existing: set[str] = set()
+    try:
+        with path.open("rb") as handle:
+            for line in handle:
+                try:
+                    data = json.loads(line.decode("utf-8", errors="ignore"))
+                except Exception:
+                    continue
+                if isinstance(data, dict) and data.get(key):
+                    existing.add(str(data.get(key)))
+    except Exception:
+        return {str(row.get(key)) for row in read_jsonl_tail(path, 2000) if row.get(key)}
+    return existing
 
 
 def read_jsonl_tail(path: Path, limit: int = 200) -> List[Dict[str, Any]]:

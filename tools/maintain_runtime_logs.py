@@ -29,8 +29,9 @@ DEFAULT_RETENTION_DAYS = 2
 DEFAULT_GZIP_LEVEL = 3
 DEFAULT_JSONL_ARCHIVE_DIR_NAME = "jsonl_archive"
 DEFAULT_MAX_JSONL_MB = 2
+DEFAULT_JSONL_ARCHIVE_MAX_MB = 512
 DEFAULT_JSONL_KEEP_LINES = 2000
-DEFAULT_JSONL_MIN_AGE_SECONDS = 60
+DEFAULT_JSONL_MIN_AGE_SECONDS = 0
 STATUS_FILE_NAME = "QuantGod_RuntimeLogMaintenanceStatus.json"
 ARCHIVED_LOG_RE = re.compile(r"^.+\.\d{8}T\d{4}(?:\d{2})?[A-Z]{0,5}\.log(?:\.gz)?$")
 ARCHIVED_JSONL_RE = re.compile(r"^.+\.\d{8}T\d{4}(?:\d{2})?[A-Z]{0,5}\.jsonl\.gz$")
@@ -171,6 +172,7 @@ def maintain_jsonl_ledgers(
     *,
     archive_dir: Path | None = None,
     max_active_bytes: int = DEFAULT_MAX_JSONL_MB * 1024 * 1024,
+    archive_max_bytes: int = DEFAULT_JSONL_ARCHIVE_MAX_MB * 1024 * 1024,
     keep_lines: int = DEFAULT_JSONL_KEEP_LINES,
     retention_days: int = DEFAULT_RETENTION_DAYS,
     min_age_seconds: int = DEFAULT_JSONL_MIN_AGE_SECONDS,
@@ -219,10 +221,20 @@ def maintain_jsonl_ledgers(
         path.unlink(missing_ok=True)
         deleted.append({"path": str(path), "sizeBytes": size, "reason": "expired_jsonl_archive"})
 
+    deleted.extend(
+        _prune_archive_size(
+            archive_dir,
+            archived_matcher=_is_archived_jsonl,
+            max_bytes=max(0, int(archive_max_bytes)),
+            reason="jsonl_archive_size_cap",
+        )
+    )
+
     archive_files = sorted(path for path in archive_dir.glob("*.jsonl.gz") if path.is_file())
     return {
         "archiveDir": str(archive_dir),
         "maxActiveBytes": int(max_active_bytes),
+        "archiveMaxBytes": int(archive_max_bytes),
         "keepLines": int(keep_lines),
         "minAgeSeconds": int(min_age_seconds),
         "retentionDays": int(retention_days),
@@ -243,6 +255,7 @@ def maintain_logs(
     retention_days: int = DEFAULT_RETENTION_DAYS,
     jsonl_archive_dir: Path | None = None,
     jsonl_max_active_bytes: int = DEFAULT_MAX_JSONL_MB * 1024 * 1024,
+    jsonl_archive_max_bytes: int = DEFAULT_JSONL_ARCHIVE_MAX_MB * 1024 * 1024,
     jsonl_keep_lines: int = DEFAULT_JSONL_KEEP_LINES,
     jsonl_min_age_seconds: int = DEFAULT_JSONL_MIN_AGE_SECONDS,
     maintain_jsonl: bool = True,
@@ -333,6 +346,7 @@ def maintain_logs(
             runtime_root,
             archive_dir=jsonl_archive_dir,
             max_active_bytes=max(1, int(jsonl_max_active_bytes)),
+            archive_max_bytes=max(0, int(jsonl_archive_max_bytes)),
             keep_lines=max(0, int(jsonl_keep_lines)),
             retention_days=max(0, int(retention_days)),
             min_age_seconds=max(0, int(jsonl_min_age_seconds)),
@@ -385,6 +399,11 @@ def parse_args() -> argparse.Namespace:
         default=int(os.environ.get("QG_RUNTIME_JSONL_MAX_MB", DEFAULT_MAX_JSONL_MB)),
     )
     parser.add_argument(
+        "--jsonl-archive-max-mb",
+        type=int,
+        default=int(os.environ.get("QG_RUNTIME_JSONL_ARCHIVE_MAX_MB", DEFAULT_JSONL_ARCHIVE_MAX_MB)),
+    )
+    parser.add_argument(
         "--jsonl-keep-lines",
         type=int,
         default=int(os.environ.get("QG_RUNTIME_JSONL_KEEP_LINES", DEFAULT_JSONL_KEEP_LINES)),
@@ -411,6 +430,7 @@ def main() -> int:
         retention_days=max(0, int(args.retention_days)),
         jsonl_archive_dir=jsonl_archive_dir,
         jsonl_max_active_bytes=max(1, int(args.max_jsonl_mb)) * 1024 * 1024,
+        jsonl_archive_max_bytes=max(0, int(args.jsonl_archive_max_mb)) * 1024 * 1024,
         jsonl_keep_lines=max(0, int(args.jsonl_keep_lines)),
         jsonl_min_age_seconds=max(0, int(args.jsonl_min_age_seconds)),
         maintain_jsonl=not args.no_jsonl_maintenance,

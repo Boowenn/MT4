@@ -11,7 +11,7 @@ from tools.strategy_ga.fitness import score_seed
 from tools.strategy_ga.seed_generator import case_memory_seed_pool
 from tools.strategy_json.schema import base_strategy_seed
 from tools.usdjpy_evidence_os.execution_feedback import build_execution_feedback
-from tools.usdjpy_evidence_os.io_utils import read_jsonl_tail
+from tools.usdjpy_evidence_os.io_utils import append_jsonl_unique, read_jsonl_tail
 from tools.usdjpy_evidence_os.parity import build_parity_report
 from tools.usdjpy_evidence_os.report import build_evidence_os
 from tools.usdjpy_evidence_os.telegram_gateway import (
@@ -37,6 +37,114 @@ class USDJPYEvidenceOSTests(unittest.TestCase):
             rows = read_jsonl_tail(path, 4)
 
             self.assertEqual([row["idx"] for row in rows], [21, 22, 23, 24])
+
+    def test_jsonl_unique_scans_beyond_tail_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "large.jsonl"
+            path.write_text(
+                "".join(json.dumps({"feedbackId": f"id-{idx}"}) + "\n" for idx in range(3000)),
+                encoding="utf-8",
+            )
+
+            written = append_jsonl_unique(
+                path,
+                [{"feedbackId": "id-10"}, {"feedbackId": "id-new"}],
+                "feedbackId",
+            )
+
+            self.assertEqual(written, 1)
+            rows = path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(rows), 3001)
+            self.assertEqual(json.loads(rows[-1])["feedbackId"], "id-new")
+
+    def test_execution_feedback_ledger_append_is_capped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            ledger = runtime_dir / "QuantGod_LiveExecutionFeedback.jsonl"
+            ledger.write_text(
+                "\n".join(
+                    json.dumps(
+                        {
+                            "feedbackId": f"fill-{i}",
+                            "eventType": "ORDER_FILL",
+                            "symbol": "USDJPYc",
+                            "policyId": "USDJPY_LIVE_LOOP",
+                            "strategyId": "RSI_Reversal",
+                            "side": "BUY",
+                            "fillPrice": 155.0 + i * 0.01,
+                            "generatedAt": f"2026-05-07T{i:02d}:00:00Z",
+                        }
+                    )
+                    for i in range(20)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"QG_EXECUTION_FEEDBACK_LEDGER_APPEND_LIMIT": "5"}):
+                report = build_execution_feedback(runtime_dir, write=True)
+
+            self.assertEqual(report["sampleCount"], 20)
+            public_rows = (runtime_dir / "execution" / "QuantGod_LiveExecutionFeedback.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            evidence_rows = (runtime_dir / "evidence_os" / "QuantGod_LiveExecutionFeedback.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            self.assertEqual(len(public_rows), 5)
+            self.assertEqual(len(evidence_rows), 5)
+
+    def test_advisory_feedback_rows_do_not_persist_to_execution_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            ledger = runtime_dir / "QuantGod_USDJPYEADryRunDecisionLedger.csv"
+            ledger.write_text(
+                "generatedAt,symbol,policyId,strategyId,side\n"
+                + "\n".join(
+                    f"2026-05-07T{i:02d}:00:00Z,USDJPYc,USDJPY_LIVE_LOOP,RSI_Reversal,BUY"
+                    for i in range(20)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            report = build_execution_feedback(runtime_dir, write=True)
+
+            self.assertEqual(report["sampleCount"], 20)
+            self.assertEqual(
+                (runtime_dir / "execution" / "QuantGod_LiveExecutionFeedback.jsonl").read_text(encoding="utf-8"),
+                "",
+            )
+            self.assertEqual(
+                (runtime_dir / "evidence_os" / "QuantGod_LiveExecutionFeedback.jsonl").read_text(encoding="utf-8"),
+                "",
+            )
+
+    def test_trade_journal_feedback_ids_are_stable_across_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_dir = Path(tmp)
+            journal = runtime_dir / "QuantGod_TradeJournal.csv"
+            journal.write_text(
+                "DealTicket,EventTime,EventType,Symbol,Strategy,Price,ProfitR\n"
+                + "\n".join(
+                    f"{1000 + i},2026-05-07T{i:02d}:00:00Z,ENTRY,USDJPYc,RSI_Reversal,{155 + i * 0.01},0"
+                    for i in range(10)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            build_execution_feedback(runtime_dir, write=True)
+            first_lines = (runtime_dir / "execution" / "QuantGod_LiveExecutionFeedback.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            build_execution_feedback(runtime_dir, write=True)
+            second_lines = (runtime_dir / "execution" / "QuantGod_LiveExecutionFeedback.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+
+            self.assertEqual(len(first_lines), 10)
+            self.assertEqual(len(second_lines), 10)
 
     def test_agent_ops_health_reports_agent_loop_heartbeat(self):
         with tempfile.TemporaryDirectory() as tmp:

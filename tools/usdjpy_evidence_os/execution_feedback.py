@@ -28,6 +28,7 @@ AUDITED_FEEDBACK_SOURCES = {
     "QuantGod_LiveExecutionFeedback.jsonl",
     "QuantGod_LiveExecutionFeedbackHistory.jsonl",
 }
+DEFAULT_FEEDBACK_LEDGER_APPEND_LIMIT = 500
 
 ADVISORY_FEEDBACK_SOURCES = {
     "QuantGod_USDJPYEADryRunDecisionLedger.csv",
@@ -97,8 +98,13 @@ def build_execution_feedback(runtime_dir: Path, write: bool = True) -> Dict[str,
     }
     if write:
         if normalized:
-            append_jsonl_unique(execution_feedback_ledger_path(runtime_dir), normalized, "feedbackId")
-            append_jsonl_unique(execution_feedback_public_ledger_path(runtime_dir), normalized, "feedbackId")
+            ledger_rows = _feedback_ledger_append_rows(normalized)
+            if ledger_rows:
+                append_jsonl_unique(execution_feedback_ledger_path(runtime_dir), ledger_rows, "feedbackId")
+                append_jsonl_unique(execution_feedback_public_ledger_path(runtime_dir), ledger_rows, "feedbackId")
+            else:
+                _touch_jsonl(execution_feedback_ledger_path(runtime_dir))
+                _touch_jsonl(execution_feedback_public_ledger_path(runtime_dir))
         else:
             _touch_jsonl(execution_feedback_ledger_path(runtime_dir))
             _touch_jsonl(execution_feedback_public_ledger_path(runtime_dir))
@@ -874,6 +880,32 @@ def _recent_feedback(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return candidates[-20:]
 
 
+def _feedback_ledger_append_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    execution_rows = [row for row in rows if _is_live_execution_row(row)]
+    if not execution_rows:
+        return []
+    try:
+        limit = int(os.environ.get("QG_EXECUTION_FEEDBACK_LEDGER_APPEND_LIMIT", DEFAULT_FEEDBACK_LEDGER_APPEND_LIMIT))
+    except ValueError:
+        limit = DEFAULT_FEEDBACK_LEDGER_APPEND_LIMIT
+    limit = max(1, limit)
+    if len(execution_rows) <= limit:
+        return execution_rows
+    return [
+        row
+        for _, row in sorted(
+            enumerate(execution_rows),
+            key=lambda item: (
+                _feedback_time_key(item[1]) or "",
+                _feedback_source_priority(item[1]),
+                _feedback_event_priority(item[1]),
+                item[0],
+            ),
+            reverse=True,
+        )[:limit]
+    ]
+
+
 def _feedback_time_key(row: Dict[str, Any]) -> str:
     value = _first(
         row,
@@ -1110,13 +1142,30 @@ def _feedback_id(index: int, row: Dict[str, Any], source: str) -> str:
             "ticket",
             "Ticket",
             "order",
+            "Order",
+            "orderTicket",
+            "OrderTicket",
             "deal",
+            "Deal",
+            "dealTicket",
+            "DealTicket",
+            "positionId",
+            "PositionId",
             "intentId",
             "policyId",
+            "eventType",
+            "EventType",
+            "eventTime",
+            "EventTime",
             "generatedAt",
+            "generatedAtServer",
             "time",
             "Time",
             "CloseTime",
+            "entryTime",
+            "EntryTime",
+            "exitTime",
+            "ExitTime",
         )
     )
     seed = f"{source}|{raw}|{index if not raw.strip('|') else ''}"

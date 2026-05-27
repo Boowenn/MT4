@@ -138,6 +138,32 @@ class RuntimeLogMaintenanceTests(unittest.TestCase):
             self.assertIn('"i":19', retained_text)
             self.assertNotIn('"i":0', retained_text)
 
+    def test_prunes_jsonl_archives_over_size_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_root = Path(tmp) / "runtime"
+            archive_dir = runtime_root / "jsonl_archive"
+            archive_dir.mkdir(parents=True)
+            old_archive = archive_dir / "execution__QuantGod_LiveExecutionFeedback.20260510T1459JST.jsonl.gz"
+            new_archive = archive_dir / "evidence_os__QuantGod_LiveExecutionFeedback.20260511T1459JST.jsonl.gz"
+            for archive in (old_archive, new_archive):
+                with gzip.open(archive, "wt", encoding="utf-8") as handle:
+                    handle.write("x" * 256)
+            now = time.time()
+            os.utime(old_archive, (now - 2, now - 2))
+            os.utime(new_archive, (now - 1, now - 1))
+
+            status = runtime_logs.maintain_logs(
+                runtime_root,
+                max_active_bytes=1024 * 1024,
+                retention_days=30,
+                jsonl_archive_dir=archive_dir,
+                jsonl_archive_max_bytes=1,
+                maintain_jsonl=True,
+            )
+
+            self.assertTrue(any(item["reason"] == "jsonl_archive_size_cap" for item in status["jsonl"]["deleted"]))
+            self.assertFalse(old_archive.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
